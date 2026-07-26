@@ -74,6 +74,18 @@ That command:
 - launches training with `configs/hz0a-mac-mps.yaml`
 - writes checkpoints to `outputs/hz0a-mac-mps/`
 
+To step up to a larger local Mac run next:
+
+```bash
+./.venv/bin/python -m hz0.train --config configs/hz0a-mac-next.yaml --max-steps 100
+```
+
+To inspect the plan-scale `~120M` stage-A target config:
+
+```bash
+./.venv/bin/python -m hz0.train --config configs/hz0a-120m.yaml --max-steps 1
+```
+
 To train the same-size transformer baseline from the same config:
 
 ```bash
