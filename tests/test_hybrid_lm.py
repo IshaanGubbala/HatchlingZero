@@ -15,7 +15,7 @@ from hz0.model import (
     gdn2_numpy_stream,
     gdn2_torch_reference,
 )
-from hz0.model.blocks import recurrent_state_scan
+from hz0.model.blocks import GDN2ReferenceMixerBlock, recurrent_state_scan, recurrent_state_scan_with_initial_state
 from hz0.model.backends import gdn2_is_available, gdn2_status
 
 
@@ -136,6 +136,24 @@ def test_recurrent_state_scan_matches_loop() -> None:
     torch.testing.assert_close(actual, expected, atol=1e-5, rtol=1e-5)
 
 
+def test_recurrent_state_scan_with_initial_state_matches_loop() -> None:
+    torch.manual_seed(0)
+    g_state = torch.sigmoid(torch.randn(2, 9, 6))
+    update = torch.randn(2, 9, 6)
+    initial_state = torch.randn(2, 6)
+
+    expected_states = []
+    state = initial_state.clone()
+    for t in range(update.size(1)):
+        state = g_state[:, t] * state + update[:, t]
+        expected_states.append(state)
+    expected = torch.stack(expected_states, dim=1)
+
+    actual, final_state = recurrent_state_scan_with_initial_state(g_state, update, initial_state)
+    torch.testing.assert_close(actual, expected, atol=1e-5, rtol=1e-5)
+    torch.testing.assert_close(final_state, expected[:, -1], atol=1e-5, rtol=1e-5)
+
+
 def test_gdn2_reference_stream_matches_full_sequence() -> None:
     torch.manual_seed(0)
     decay_logits = torch.randn(2, 7, 5)
@@ -178,6 +196,21 @@ def test_gdn2_torch_reference_matches_numpy_reference() -> None:
 
     torch.testing.assert_close(torch_out.cpu(), torch.from_numpy(numpy_out))
     torch.testing.assert_close(torch_state.cpu(), torch.from_numpy(numpy_state))
+
+
+def test_gdn2_reference_mixer_chunked_state_matches_full_sequence() -> None:
+    torch.manual_seed(2)
+    mixer = GDN2ReferenceMixerBlock(d_model=12, dropout=0.0)
+    x = torch.randn(2, 11, 12)
+
+    full_out, full_state = mixer.forward_with_state(x)
+    chunk_a, state_a = mixer.forward_with_state(x[:, :4])
+    chunk_b, state_b = mixer.forward_with_state(x[:, 4:8], initial_state=state_a)
+    chunk_c, state_c = mixer.forward_with_state(x[:, 8:], initial_state=state_b)
+    chunked_out = torch.cat([chunk_a, chunk_b, chunk_c], dim=1)
+
+    torch.testing.assert_close(chunked_out, full_out, atol=1e-5, rtol=1e-5)
+    torch.testing.assert_close(state_c, full_state, atol=1e-5, rtol=1e-5)
 
 
 def test_session_scratchpad_reset_and_step() -> None:

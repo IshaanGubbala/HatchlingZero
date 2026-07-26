@@ -6,6 +6,27 @@ import torch
 from torch import nn
 
 
+def recurrent_state_scan_with_initial_state(
+    g_state: torch.Tensor,
+    update: torch.Tensor,
+    initial_state: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Sequential recurrence with explicit state carry for chunked execution."""
+    if g_state.ndim != 3 or update.ndim != 3:
+        raise ValueError("Expected [batch, seq, dim] recurrence tensors.")
+    if g_state.shape != update.shape:
+        raise ValueError("Gate and update tensors must share the same shape.")
+    if initial_state.shape != g_state.shape[:1] + g_state.shape[2:]:
+        raise ValueError("initial_state must have shape [batch, dim].")
+
+    outputs = []
+    state = initial_state
+    for t in range(g_state.size(1)):
+        state = g_state[:, t] * state + update[:, t]
+        outputs.append(state)
+    return torch.stack(outputs, dim=1), state
+
+
 def recurrent_state_scan(g_state: torch.Tensor, update: torch.Tensor) -> torch.Tensor:
     """Vectorized associative scan for state_t = a_t * state_{t-1} + b_t."""
     a = g_state.clone()
@@ -65,12 +86,21 @@ class GDN2ReferenceMixerBlock(nn.Module):
 
     def __init__(self, d_model: int, dropout: float) -> None:
         super().__init__()
+        self.d_model = d_model
         self.norm = RMSNorm(d_model)
         self.in_proj = nn.Linear(d_model, 5 * d_model)
         self.out_proj = nn.Linear(d_model, d_model)
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        y, _ = self.forward_with_state(x)
+        return y
+
+    def forward_with_state(
+        self,
+        x: torch.Tensor,
+        initial_state: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         residual = x
         x = self.norm(x)
         u, decay_logits, erase_logits, write_logits, candidate = self.in_proj(x).chunk(5, dim=-1)
@@ -78,9 +108,15 @@ class GDN2ReferenceMixerBlock(nn.Module):
         erase = torch.sigmoid(erase_logits)
         write = torch.sigmoid(write_logits)
         candidate = torch.tanh(candidate)
-        state = recurrent_state_scan(decay * (1.0 - erase), write * candidate)
+        gate = decay * (1.0 - erase)
+        update = write * candidate
+        if initial_state is None:
+            state = recurrent_state_scan(gate, update)
+            final_state = state[:, -1]
+        else:
+            state, final_state = recurrent_state_scan_with_initial_state(gate, update, initial_state)
         mixed = self.out_proj(state + u)
-        return residual + self.dropout(mixed)
+        return residual + self.dropout(mixed), final_state
 
 
 class AnchorAttentionBlock(nn.Module):
