@@ -68,6 +68,12 @@ Current blocker on this machine:
 
 - `triton` is unavailable on the local macOS arm64 setup, so the real upstream kernel path is not verified here.
 
+Environment handoff now present:
+
+- `docker/Dockerfile.hz0a-cuda`
+- `scripts/hz0a_cuda_smoke.sh`
+- `python -m hz0.env_check`
+
 ## Verified local commands
 
 The following commands were run successfully in the current repo state:
@@ -78,6 +84,12 @@ python -m hz0.train --config configs/hz0a-tiny.yaml --max-steps 4
 python -m hz0.train --config configs/hz0a-tiny.yaml --model-key baseline --max-steps 3
 python -m hz0.eval_cli --config configs/hz0a-tiny.yaml --checkpoint outputs/hz0a-tiny/latest.pt
 python -m hz0.compare_cli --config configs/hz0a-tiny.yaml --hybrid-checkpoint outputs/hz0a-tiny/latest.pt --baseline-checkpoint outputs/hz0a-tiny-baseline/latest.pt
+```
+
+The following command is also available for a Linux/CUDA verification host:
+
+```bash
+bash scripts/hz0a_cuda_smoke.sh
 ```
 
 ## Current conclusion

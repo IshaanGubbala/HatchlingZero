@@ -101,6 +101,7 @@ To inspect the real upstream backend status on your machine:
 
 ```bash
 python -m hz0.backend_check
+python -m hz0.env_check
 ```
 
 ## Upstream integration notes
@@ -129,6 +130,24 @@ The remaining blocker for the real GDN-2 layer is `triton`. There is no normal
 `pip install triton` path available in this environment, so the true upstream
 kernel path should be treated as a Linux/CUDA setup target, not a guaranteed
 local macOS path.
+
+## Linux/CUDA Path
+
+The repo now includes a reproducible CUDA-side handoff:
+
+- Docker image: [docker/Dockerfile.hz0a-cuda](/Users/ishaangubbala/Documents/Training/docker/Dockerfile.hz0a-cuda)
+- Smoke script: [scripts/hz0a_cuda_smoke.sh](/Users/ishaangubbala/Documents/Training/scripts/hz0a_cuda_smoke.sh)
+
+Example flow on a Linux CUDA machine:
+
+```bash
+docker build -f docker/Dockerfile.hz0a-cuda -t hz0a-cuda .
+docker run --gpus all --rm -it -v "$PWD":/workspace hz0a-cuda bash
+bash scripts/hz0a_cuda_smoke.sh
+```
+
+That path is intended to verify the vendored `GatedDeltaNet-2` stack in the
+environment it actually expects, while keeping the local macOS baseline usable.
 
 ## Repository layout
 
