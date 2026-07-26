@@ -165,6 +165,34 @@ Sample from `python -m hz0.sample_cli --config configs/hz0a-mac-110m.yaml --chec
 HZ-0A     aton    amampamaton   ame te
 ```
 
+### Verified local `~110M` resumed checkpoint
+
+From `python -m hz0.train --config configs/hz0a-mac-110m.yaml --resume outputs/hz0a-mac-110m/latest.pt --max-steps 100`
+
+- training reached step `100`
+- observed resumed train throughput after warmup: roughly `296-345 tok/s`
+- step-50 in-run eval loss: `3.3657`
+- step-75 in-run eval loss: `3.2776`
+- final observed step-95 training loss: `3.2767`
+
+Standalone eval from `python -m hz0.eval_cli --config configs/hz0a-mac-110m.yaml --checkpoint outputs/hz0a-mac-110m/latest.pt`
+
+- loss: `3.1590`
+- perplexity: `23.55`
+- copy retrieval accuracy: `0.0000`
+- decode speed: `42.53 tok/s`
+
+Standalone benchmark from `python -m hz0.benchmark_cli --config configs/hz0a-mac-110m.yaml --checkpoint outputs/hz0a-mac-110m/latest.pt --decode-steps 32 --retrieval-samples 64`
+
+- decode speed: `39.49 tok/s`
+- copy retrieval accuracy: `0.0000`
+
+Sample from `python -m hz0.sample_cli --config configs/hz0a-mac-110m.yaml --checkpoint outputs/hz0a-mac-110m/latest.pt --prompt "HZ-0A " --max-new-tokens 32`
+
+```text
+HZ-0A and pand and and and and and and
+```
+
 ## Sample output
 
 From `python -m hz0.sample_cli --config configs/hz0a-mac-36m.yaml --checkpoint outputs/hz0a-mac-36m/latest.pt --prompt "HZ-0A " --max-new-tokens 32`
@@ -213,8 +241,8 @@ From `python -m hz0.compare_cli --config configs/hz0a-mac-36m.yaml --hybrid-chec
 - The larger `~71M` rung now improves with more training, but it still trails
   the better-converged `36M` checkpoint on validation loss.
 - The new `~110M` MPS rung gets much closer to the plan size on Mac, but at
-  only `25` steps it is still an early convergence check rather than a
-  competitive final checkpoint.
+  `100` steps it is now a real benchmarked checkpoint, but it still does not
+  beat the best-converged `36M` checkpoint on validation loss.
 - The `~120M` plan-scale config is locally launchable, but the current CPU path
   is too slow to treat as the intended final training environment.
 
@@ -250,6 +278,6 @@ current hybrid beats a same-size transformer baseline on language-modeling loss.
 It does **not** yet prove completion of the original plan-scale `HZ-0A`
 milestone. The remaining path to that milestone is:
 
-1. continue the `~110M` Mac rung until it is properly converged
+1. continue the `~110M` Mac rung beyond `100` steps until it clearly plateaus
 2. keep pushing the upstream Mac backend experiment beyond import-only status
 3. benchmark with stronger long-context evidence on Mac
