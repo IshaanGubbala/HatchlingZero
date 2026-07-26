@@ -86,9 +86,24 @@ To try the throughput-tuned `~36M` Mac run:
 ./.venv/bin/python -m hz0.train --config configs/hz0a-mac-36m.yaml --max-steps 100
 ```
 
+To step up to the next local MPS rung at `~54.6M` params:
+
+```bash
+./.venv/bin/python -m hz0.inspect_cli --config configs/hz0a-mac-54m.yaml
+./.venv/bin/python -m hz0.train --config configs/hz0a-mac-54m.yaml --max-steps 100
+```
+
+To probe a more aggressive `~71.2M` local MPS config:
+
+```bash
+./.venv/bin/python -m hz0.inspect_cli --config configs/hz0a-mac-71m.yaml
+./.venv/bin/python -m hz0.train --config configs/hz0a-mac-71m.yaml --max-steps 1
+```
+
 To inspect the plan-scale `~120M` stage-A target config:
 
 ```bash
+./.venv/bin/python -m hz0.inspect_cli --config configs/hz0a-120m.yaml
 ./.venv/bin/python -m hz0.train --config configs/hz0a-120m.yaml --max-steps 1
 ```
 

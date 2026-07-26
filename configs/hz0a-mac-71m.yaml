@@ -1,0 +1,53 @@
+seed: 7
+device: mps
+dtype: float32
+
+data:
+  train_text_path: data/hz0a_seed_train.txt
+  val_text_path: data/hz0a_seed_val.txt
+  seq_len: 160
+  batch_size: 1
+  vocab_size: 256
+  train_length: 1024
+  val_length: 256
+  num_workers: 0
+
+model:
+  architecture: hybrid
+  vocab_size: 256
+  d_model: 512
+  n_layers: 18
+  n_heads: 16
+  d_ff: 1536
+  dropout: 0.1
+  mixer_backend: fallback
+  attention_every: 4
+  max_seq_len: 1024
+
+optim:
+  lr: 0.00025
+  weight_decay: 0.1
+  betas: [0.9, 0.95]
+  grad_clip: 1.0
+
+train:
+  output_dir: outputs/hz0a-mac-71m
+  max_steps: 100
+  log_every: 5
+  eval_every: 50
+  save_every: 50
+  sample_every: 50
+  sample_prompt: "HZ-0A "
+  sample_tokens: 24
+  compile: false
+  compile_mode: reduce-overhead
+
+baseline:
+  architecture: transformer
+  vocab_size: 256
+  d_model: 512
+  n_layers: 18
+  n_heads: 16
+  d_ff: 1536
+  dropout: 0.1
+  max_seq_len: 1024

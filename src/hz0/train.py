@@ -65,6 +65,9 @@ def main() -> None:
     )
 
     model = build_model(model_cfg).to(device=device, dtype=dtype)
+    total_params = sum(param.numel() for param in model.parameters())
+    trainable_params = sum(param.numel() for param in model.parameters() if param.requires_grad)
+    print(f"model_params={total_params} trainable_params={trainable_params}")
     if cfg["train"].get("compile", False) and hasattr(torch, "compile"):
         model = torch.compile(model, mode=cfg["train"].get("compile_mode", "reduce-overhead"))
     optimizer = torch.optim.AdamW(

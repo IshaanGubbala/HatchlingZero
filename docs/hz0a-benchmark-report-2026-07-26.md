@@ -51,6 +51,55 @@ From `python -m hz0.benchmark_cli --config configs/hz0a-mac-36m.yaml --checkpoin
 - decode speed: `20.09 tok/s`
 - copy retrieval accuracy: `0.0000`
 
+## Larger local scaling rung
+
+To keep moving toward the plan-scale `HZ-0A` target on local macOS, the repo now
+includes two larger MPS configs:
+
+- `configs/hz0a-mac-54m.yaml`: `54,599,104` params
+- `configs/hz0a-mac-71m.yaml`: `71,180,800` params
+
+The current plan-scale config remains:
+
+- `configs/hz0a-120m.yaml`: `119,807,360` params
+
+### Exact config delta from the benchmarked `36M` run to the `~120M` target
+
+- `d_model`: `384 -> 640`
+- `n_layers`: `16 -> 24`
+- `n_heads`: `12 -> 16`
+- `d_ff`: `1152 -> 1280`
+- `seq_len`: `256 -> 2048`
+- `batch_size`: `2 -> 1`
+- `device`: `mps -> cpu`
+
+### Verified local `~71M` stretch run
+
+From `python -m hz0.train --config configs/hz0a-mac-71m.yaml --max-steps 50`
+
+- params: `71,180,800`
+- training reached step `50`
+- observed train throughput after warmup: roughly `504-518 tok/s`
+- step-45 training loss: `2.7614`
+
+Standalone eval from `python -m hz0.eval_cli --config configs/hz0a-mac-71m.yaml --checkpoint outputs/hz0a-mac-71m/latest.pt`
+
+- loss: `3.3226`
+- perplexity: `27.73`
+- copy retrieval accuracy: `0.0000`
+- decode speed: `43.39 tok/s`
+
+Standalone benchmark from `python -m hz0.benchmark_cli --config configs/hz0a-mac-71m.yaml --checkpoint outputs/hz0a-mac-71m/latest.pt --decode-steps 32 --retrieval-samples 64`
+
+- decode speed: `37.49 tok/s`
+- copy retrieval accuracy: `0.0000`
+
+Sample from `python -m hz0.sample_cli --config configs/hz0a-mac-71m.yaml --checkpoint outputs/hz0a-mac-71m/latest.pt --prompt "HZ-0A " --max-new-tokens 32`
+
+```text
+HZ-0A the the sthe are the te the the
+```
+
 ## Sample output
 
 From `python -m hz0.sample_cli --config configs/hz0a-mac-36m.yaml --checkpoint outputs/hz0a-mac-36m/latest.pt --prompt "HZ-0A " --max-new-tokens 32`
@@ -96,6 +145,8 @@ From `python -m hz0.compare_cli --config configs/hz0a-mac-36m.yaml --hybrid-chec
   checkpoint at this stage.
 - The current benchmark reflects the fallback recurrent mixer, not a real
   kernel-backed `GatedDeltaNet-2` path.
+- The `~71M` local scaling rung is now runnable, but at only `50` steps it has
+  not yet beaten the more-trained `36M` checkpoint on validation loss.
 
 ## Plan compliance status
 
