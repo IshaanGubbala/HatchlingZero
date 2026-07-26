@@ -26,6 +26,12 @@ The repository now includes exactly that extension point. `HybridLM` accepts a
   its runtime dependencies are missing
 - `auto`: use `gdn2` when available, otherwise fall back automatically
 
+The repository also now includes a small auditable reference recurrence in
+`src/hz0/model/gdn2_reference.py` with explicitly separated `decay`, `erase`,
+and `write` gates. It is intended for numerical checks and streaming/full-pass
+equivalence tests on macOS, not as a claim of parity with the final optimized
+Metal kernel path.
+
 ## Runtime reality
 
 The direct GDN-2 layer can be imported independently from the rest of the
@@ -73,6 +79,19 @@ without the full CUDA kernel path.
 - session memory slots
 - resettable per-session state
 - read and write logging
+
+Initial HZ-0B groundwork now lives in `src/hz0/model/session_scratchpad.py`.
+It provides:
+
+- bounded session-local slots
+- explicit `reset`
+- attention-style `read`
+- bounded `write`
+- optional read/write logging for later diagnostics
+
+This scratchpad is intentionally not fused into the language model forward path
+yet. The immediate goal is to validate session isolation and update mechanics
+before introducing a second moving part into the HZ-0A comparison runs.
 
 ### HZ-0C
 

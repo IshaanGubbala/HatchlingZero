@@ -7,7 +7,14 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from hz0.model import HybridLM, build_model
+from hz0.model import (
+    HybridLM,
+    SessionScratchpad,
+    build_model,
+    gdn2_numpy_sequence,
+    gdn2_numpy_stream,
+    gdn2_torch_reference,
+)
 from hz0.model.blocks import recurrent_state_scan
 from hz0.model.backends import gdn2_is_available, gdn2_status
 
@@ -86,3 +93,84 @@ def test_recurrent_state_scan_matches_loop() -> None:
 
     actual = recurrent_state_scan(g_state, update)
     torch.testing.assert_close(actual, expected, atol=1e-5, rtol=1e-5)
+
+
+def test_gdn2_reference_stream_matches_full_sequence() -> None:
+    torch.manual_seed(0)
+    decay_logits = torch.randn(2, 7, 5)
+    erase_logits = torch.randn(2, 7, 5)
+    write_logits = torch.randn(2, 7, 5)
+    candidate = torch.randn(2, 7, 5)
+
+    full_out, full_state = gdn2_numpy_sequence(
+        decay_logits.numpy(),
+        erase_logits.numpy(),
+        write_logits.numpy(),
+        candidate.numpy(),
+    )
+    stream_out, stream_state = gdn2_numpy_stream(
+        decay_logits.numpy(),
+        erase_logits.numpy(),
+        write_logits.numpy(),
+        candidate.numpy(),
+        chunk_size=3,
+    )
+
+    torch.testing.assert_close(torch.from_numpy(stream_out), torch.from_numpy(full_out))
+    torch.testing.assert_close(torch.from_numpy(stream_state), torch.from_numpy(full_state))
+
+
+def test_gdn2_torch_reference_matches_numpy_reference() -> None:
+    torch.manual_seed(1)
+    decay_logits = torch.randn(1, 4, 3)
+    erase_logits = torch.randn(1, 4, 3)
+    write_logits = torch.randn(1, 4, 3)
+    candidate = torch.randn(1, 4, 3)
+
+    torch_out, torch_state = gdn2_torch_reference(decay_logits, erase_logits, write_logits, candidate)
+    numpy_out, numpy_state = gdn2_numpy_sequence(
+        decay_logits.numpy(),
+        erase_logits.numpy(),
+        write_logits.numpy(),
+        candidate.numpy(),
+    )
+
+    torch.testing.assert_close(torch_out.cpu(), torch.from_numpy(numpy_out))
+    torch.testing.assert_close(torch_state.cpu(), torch.from_numpy(numpy_state))
+
+
+def test_session_scratchpad_reset_and_step() -> None:
+    scratchpad = SessionScratchpad(num_slots=4, dim=6, momentum=0.5)
+    state = scratchpad.reset(batch_size=2, device=torch.device("cpu"), dtype=torch.float32)
+    assert state.shape == (2, 4, 6)
+    assert torch.count_nonzero(state) == 0
+
+    query = torch.randn(2, 6)
+    key = torch.randn(2, 6)
+    value = torch.randn(2, 6)
+    readout, next_state, log = scratchpad.step(query, key, value, state, log=True)
+
+    assert readout.shape == (2, 6)
+    assert next_state.shape == (2, 4, 6)
+    assert log is not None
+    assert log.read_weights.shape == (2, 4)
+    assert log.write_weights.shape == (2, 4)
+    assert log.state_norm.shape == (2,)
+    assert torch.all(next_state <= 1.0)
+    assert torch.all(next_state >= -1.0)
+
+
+def test_session_scratchpad_reset_isolates_sessions() -> None:
+    scratchpad = SessionScratchpad(num_slots=2, dim=3, momentum=0.25)
+    state = scratchpad.reset(batch_size=1, device=torch.device("cpu"), dtype=torch.float32)
+    _, next_state, _ = scratchpad.step(
+        torch.randn(1, 3),
+        torch.randn(1, 3),
+        torch.randn(1, 3),
+        state,
+        log=False,
+    )
+    reset_state = scratchpad.reset(batch_size=1, device=torch.device("cpu"), dtype=torch.float32)
+
+    assert torch.count_nonzero(next_state) > 0
+    assert torch.count_nonzero(reset_state) == 0
