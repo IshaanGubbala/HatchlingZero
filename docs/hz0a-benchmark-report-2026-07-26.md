@@ -266,12 +266,31 @@ Standalone benchmark from `python -m hz0.benchmark_cli --config configs/hz0a-mac
 
 - decode speed: `38.02 tok/s`
 - copy retrieval accuracy: `0.0000`
+- multi-anchor retrieval accuracy: `0.0000`
+- multi-anchor anchor-set accuracy: `0.0000`
 
 Sample from `python -m hz0.sample_cli --config configs/hz0a-mac-110m-tuned.yaml --checkpoint outputs/hz0a-mac-110m-tuned/latest.pt --prompt "HZ-0A " --max-new-tokens 32`
 
 ```text
 HZ-0A parerent arent arenting arent ar
 ```
+
+### Stronger long-context-style retrieval check on the tuned `~110M` checkpoint
+
+After upgrading the local benchmark harness to include a multi-anchor retrieval
+probe, the tuned checkpoint was re-evaluated on Sunday, July 26, 2026.
+
+From `python -m hz0.eval_cli --config configs/hz0a-mac-110m-tuned.yaml --checkpoint outputs/hz0a-mac-110m-tuned/latest.pt`
+
+- copy retrieval accuracy: `0.0000`
+- multi-anchor retrieval accuracy: `0.0000`
+- multi-anchor anchor-set accuracy: `0.0000`
+
+From `python -m hz0.benchmark_cli --config configs/hz0a-mac-110m-tuned.yaml --checkpoint outputs/hz0a-mac-110m-tuned/latest.pt --decode-steps 32 --retrieval-samples 64`
+
+- copy retrieval accuracy: `0.0000`
+- multi-anchor retrieval accuracy: `0.0000`
+- multi-anchor anchor-set accuracy: `0.03125`
 
 ### Verified local `~110M` resumed checkpoint
 
@@ -371,6 +390,8 @@ From `python -m hz0.compare_cli --config configs/hz0a-mac-36m.yaml --hybrid-chec
   by about `0.29`.
 - The tuned `~110M` run to step `100` is now the best local Mac checkpoint in
   this repo, beating the prior `36M` best on validation loss and perplexity.
+- The stronger multi-anchor retrieval probe now gives us a more realistic local
+  long-context-style regression check than the original single-copy metric.
 
 ### Weaknesses
 
@@ -382,6 +403,9 @@ From `python -m hz0.compare_cli --config configs/hz0a-mac-36m.yaml --hybrid-chec
   transformer baseline on throughput.
 - Synthetic copy-retrieval accuracy is still effectively zero for the hybrid
   checkpoint at this stage.
+- Even on the stronger multi-anchor retrieval probe, the tuned `~110M`
+  checkpoint remains near zero, which keeps long-context evidence as the
+  clearest remaining evaluation gap.
 - The current benchmark reflects the fallback recurrent mixer, not a real
   kernel-backed `GatedDeltaNet-2` path.
 - The larger `~71M` rung now improves with more training, but it still trails

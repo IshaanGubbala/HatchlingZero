@@ -11,7 +11,7 @@ from torch.utils.data import DataLoader
 from hz0.checkpoint import load_checkpoint, save_checkpoint
 from hz0.config import Config
 from hz0.data import build_dataset
-from hz0.eval import benchmark_decode_latency, evaluate_copy_retrieval, evaluate_language_model
+from hz0.eval import benchmark_decode_latency, evaluate_copy_retrieval, evaluate_language_model, evaluate_multi_anchor_retrieval
 from hz0.generation import greedy_generate
 from hz0.model import build_model
 from hz0.runtime import autocast_context
@@ -137,6 +137,15 @@ def main() -> None:
             metrics = evaluate_language_model(model, val_loader, device)
             metrics.update(
                 evaluate_copy_retrieval(
+                    model=model,
+                    device=device,
+                    seq_len=cfg["data"]["seq_len"],
+                    vocab_size=cfg["data"]["vocab_size"],
+                    num_samples=16,
+                )
+            )
+            metrics.update(
+                evaluate_multi_anchor_retrieval(
                     model=model,
                     device=device,
                     seq_len=cfg["data"]["seq_len"],

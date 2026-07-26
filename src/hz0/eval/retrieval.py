@@ -7,6 +7,12 @@ import torch
 from hz0.runtime import autocast_context, maybe_sync_device
 
 
+def _retrieval_vocab_bounds(vocab_size: int) -> tuple[int, int]:
+    filler_low = 32 if vocab_size > 64 else 0
+    filler_high = min(vocab_size, 127) if vocab_size > 127 else vocab_size
+    return filler_low, filler_high
+
+
 @torch.no_grad()
 def evaluate_copy_retrieval(
     model: torch.nn.Module,
@@ -19,8 +25,7 @@ def evaluate_copy_retrieval(
     correct = 0
     total = 0
     prefix_len = max(4, seq_len // 2)
-    filler_low = 32 if vocab_size > 64 else 0
-    filler_high = min(vocab_size, 127) if vocab_size > 127 else vocab_size
+    filler_low, filler_high = _retrieval_vocab_bounds(vocab_size)
     model_dtype = next(model.parameters()).dtype
 
     for _ in range(num_samples):
@@ -33,6 +38,50 @@ def evaluate_copy_retrieval(
         correct += int((pred == prompt[:, -1]).item())
         total += 1
     return {"copy_retrieval_accuracy": correct / max(total, 1), "samples": float(total)}
+
+
+@torch.no_grad()
+def evaluate_multi_anchor_retrieval(
+    model: torch.nn.Module,
+    device: torch.device,
+    seq_len: int,
+    vocab_size: int,
+    num_samples: int = 32,
+    num_anchors: int = 3,
+) -> dict[str, float]:
+    model.eval()
+    exact_correct = 0
+    anchor_set_correct = 0
+    total = 0
+    model_dtype = next(model.parameters()).dtype
+    filler_low, filler_high = _retrieval_vocab_bounds(vocab_size)
+    working_len = max(seq_len, num_anchors * 4 + 4)
+    segment_len = max(2, (working_len - 1) // max(num_anchors, 1))
+
+    for _ in range(num_samples):
+        anchors = torch.randint(0, vocab_size, (1, num_anchors), device=device)
+        pieces = []
+        answer_index = torch.randint(0, num_anchors, (1,), device=device).item()
+        for idx in range(num_anchors):
+            filler = torch.randint(filler_low, filler_high, (1, segment_len - 1), device=device)
+            pieces.append(torch.cat([anchors[:, idx : idx + 1], filler], dim=1))
+        query_token = anchors[:, answer_index : answer_index + 1]
+        prompt = torch.cat([*pieces, query_token], dim=1)
+        prompt = prompt[:, : working_len - 1]
+        target = anchors[:, (answer_index + 1) % num_anchors]
+
+        with autocast_context(device, model_dtype):
+            logits = model(prompt)
+        pred = torch.argmax(logits[:, -1, :], dim=-1)
+        exact_correct += int((pred == target).item())
+        anchor_set_correct += int(torch.isin(pred, anchors).item())
+        total += 1
+
+    return {
+        "multi_anchor_retrieval_accuracy": exact_correct / max(total, 1),
+        "multi_anchor_anchor_set_accuracy": anchor_set_correct / max(total, 1),
+        "multi_anchor_samples": float(total),
+    }
 
 
 @torch.no_grad()

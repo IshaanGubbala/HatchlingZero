@@ -8,7 +8,7 @@ import torch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from hz0.checkpoint import load_checkpoint, save_checkpoint
-from hz0.eval import benchmark_decode_latency, evaluate_copy_retrieval
+from hz0.eval import benchmark_decode_latency, evaluate_copy_retrieval, evaluate_multi_anchor_retrieval
 from hz0.generation import greedy_generate
 from hz0.model import HybridLM
 from hz0.tokenizer import ByteTokenizer
@@ -67,5 +67,14 @@ def test_generation_and_benchmarks() -> None:
         steps=4,
         vocab_size=256,
     )
+    multi = evaluate_multi_anchor_retrieval(
+        model=model,
+        device=torch.device("cpu"),
+        seq_len=16,
+        vocab_size=256,
+        num_samples=4,
+    )
     assert 0.0 <= retrieval["copy_retrieval_accuracy"] <= 1.0
+    assert 0.0 <= multi["multi_anchor_retrieval_accuracy"] <= 1.0
+    assert 0.0 <= multi["multi_anchor_anchor_set_accuracy"] <= 1.0
     assert speed["tokens_per_second"] > 0.0
