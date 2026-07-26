@@ -89,9 +89,15 @@ It provides:
 - bounded `write`
 - optional read/write logging for later diagnostics
 
-This scratchpad is intentionally not fused into the language model forward path
-yet. The immediate goal is to validate session isolation and update mechanics
-before introducing a second moving part into the HZ-0A comparison runs.
+The scratchpad now also has an opt-in integration point in
+`src/hz0/model/hybrid_lm.py` through `scratchpad_slots` and
+`scratchpad_momentum`. When enabled, the hybrid backbone stays unchanged and a
+small per-token scratchpad read/write adapter is applied after the shared
+backbone state.
+
+This remains an experimental HZ-0B branch rather than the default training
+path. The immediate goal is to validate session isolation and update mechanics
+before comparing scratchpad-assisted runs against the clean HZ-0A baseline.
 
 ### HZ-0C
 

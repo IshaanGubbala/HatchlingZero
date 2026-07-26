@@ -1,0 +1,52 @@
+seed: 7
+device: cpu
+dtype: float32
+
+data:
+  train_text_path: null
+  val_text_path: null
+  seq_len: 128
+  batch_size: 8
+  vocab_size: 256
+  train_length: 1024
+  val_length: 256
+
+model:
+  architecture: hybrid
+  vocab_size: 256
+  d_model: 192
+  n_layers: 8
+  n_heads: 6
+  d_ff: 512
+  dropout: 0.1
+  mixer_backend: fallback
+  attention_every: 4
+  max_seq_len: 512
+  scratchpad_slots: 8
+  scratchpad_momentum: 0.75
+
+optim:
+  lr: 0.0003
+  weight_decay: 0.1
+  betas: [0.9, 0.95]
+  grad_clip: 1.0
+
+train:
+  output_dir: outputs/hz0b-tiny
+  max_steps: 200
+  log_every: 10
+  eval_every: 50
+  save_every: 50
+  sample_every: 50
+  sample_prompt: "HZ-0B "
+  sample_tokens: 24
+
+baseline:
+  architecture: transformer
+  vocab_size: 256
+  d_model: 192
+  n_layers: 8
+  n_heads: 6
+  d_ff: 512
+  dropout: 0.1
+  max_seq_len: 512

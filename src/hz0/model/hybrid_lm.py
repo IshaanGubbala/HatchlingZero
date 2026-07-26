@@ -5,6 +5,7 @@ from torch import nn
 
 from .backends import BackendUnavailableError, UpstreamGDN2Mixer, gdn2_is_available
 from .blocks import AnchorAttentionBlock, FeedForward, RMSNorm, RecurrentMixerBlock
+from .session_scratchpad import ScratchpadLogEntry, SessionScratchpad
 
 
 class HybridLayer(nn.Module):
@@ -41,10 +42,13 @@ class HybridLM(nn.Module):
         mixer_backend: str,
         attention_every: int,
         max_seq_len: int,
+        scratchpad_slots: int = 0,
+        scratchpad_momentum: float = 0.9,
     ) -> None:
         super().__init__()
         self.token_emb = nn.Embedding(vocab_size, d_model)
         self.pos_emb = nn.Embedding(max_seq_len, d_model)
+        self.d_model = d_model
         self.layers = nn.ModuleList(
             [
                 HybridLayer(
@@ -59,16 +63,63 @@ class HybridLM(nn.Module):
             ]
         )
         self.norm = RMSNorm(d_model)
+        self.scratchpad = SessionScratchpad(scratchpad_slots, d_model, momentum=scratchpad_momentum) if scratchpad_slots > 0 else None
+        self.scratchpad_query = nn.Linear(d_model, d_model, bias=False) if self.scratchpad is not None else None
+        self.scratchpad_key = nn.Linear(d_model, d_model, bias=False) if self.scratchpad is not None else None
+        self.scratchpad_value = nn.Linear(d_model, d_model, bias=False) if self.scratchpad is not None else None
+        self.scratchpad_gate = nn.Linear(d_model, d_model) if self.scratchpad is not None else None
         self.lm_head = nn.Linear(d_model, vocab_size, bias=False)
 
     def forward(self, tokens: torch.Tensor) -> torch.Tensor:
+        x, _ = self.forward_with_optional_logs(tokens, return_scratchpad_logs=False)
+        return self.lm_head(x)
+
+    def forward_with_optional_logs(
+        self,
+        tokens: torch.Tensor,
+        *,
+        return_scratchpad_logs: bool = False,
+    ) -> tuple[torch.Tensor, list[ScratchpadLogEntry]]:
         batch, seq = tokens.shape
         positions = torch.arange(seq, device=tokens.device)
         x = self.token_emb(tokens) + self.pos_emb(positions)[None, :, :]
         for layer in self.layers:
             x = layer(x)
         x = self.norm(x)
-        return self.lm_head(x)
+        logs: list[ScratchpadLogEntry] = []
+        if self.scratchpad is not None:
+            x, logs = self._apply_scratchpad(x, return_logs=return_scratchpad_logs)
+        return x, logs
+
+    def _apply_scratchpad(
+        self,
+        x: torch.Tensor,
+        *,
+        return_logs: bool,
+    ) -> tuple[torch.Tensor, list[ScratchpadLogEntry]]:
+        assert self.scratchpad is not None
+        assert self.scratchpad_query is not None
+        assert self.scratchpad_key is not None
+        assert self.scratchpad_value is not None
+        assert self.scratchpad_gate is not None
+
+        state = self.scratchpad.reset(batch_size=x.size(0), device=x.device, dtype=x.dtype)
+        outputs = []
+        logs: list[ScratchpadLogEntry] = []
+        for t in range(x.size(1)):
+            token_x = x[:, t]
+            readout, state, entry = self.scratchpad.step(
+                self.scratchpad_query(token_x),
+                self.scratchpad_key(token_x),
+                self.scratchpad_value(token_x),
+                state,
+                log=return_logs,
+            )
+            gate = torch.sigmoid(self.scratchpad_gate(token_x))
+            outputs.append(token_x + gate * readout)
+            if entry is not None:
+                logs.append(entry)
+        return torch.stack(outputs, dim=1), logs
 
 
 def build_mixer(mixer_backend: str, d_model: int, n_heads: int, dropout: float) -> nn.Module:

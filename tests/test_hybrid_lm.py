@@ -36,6 +36,30 @@ def test_fallback_model_forward() -> None:
     assert logits.shape == (2, 16, 256)
 
 
+def test_scratchpad_model_forward_and_logs() -> None:
+    model = HybridLM(
+        vocab_size=256,
+        d_model=64,
+        n_layers=4,
+        n_heads=4,
+        d_ff=128,
+        dropout=0.0,
+        mixer_backend="fallback",
+        attention_every=2,
+        max_seq_len=128,
+        scratchpad_slots=4,
+        scratchpad_momentum=0.5,
+    )
+    x = torch.randint(0, 256, (2, 16))
+    hidden, logs = model.forward_with_optional_logs(x, return_scratchpad_logs=True)
+    logits = model(x)
+    assert hidden.shape == (2, 16, 64)
+    assert logits.shape == (2, 16, 256)
+    assert len(logs) == 16
+    assert logs[0].read_weights.shape == (2, 4)
+    assert logs[0].write_weights.shape == (2, 4)
+
+
 def test_auto_backend_forward_or_fallback() -> None:
     available, _ = gdn2_is_available()
     model = HybridLM(
