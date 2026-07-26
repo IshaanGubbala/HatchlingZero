@@ -6,6 +6,22 @@ import torch
 from torch import nn
 
 
+def recurrent_state_scan(g_state: torch.Tensor, update: torch.Tensor) -> torch.Tensor:
+    """Vectorized associative scan for state_t = a_t * state_{t-1} + b_t."""
+    a = g_state.clone()
+    b = update.clone()
+    seq = a.size(1)
+    offset = 1
+    while offset < seq:
+        curr_a = a[:, offset:].clone()
+        prev_a = a[:, :-offset].clone()
+        prev_b = b[:, :-offset].clone()
+        a[:, offset:] = curr_a * prev_a
+        b[:, offset:] = b[:, offset:] + curr_a * prev_b
+        offset *= 2
+    return b
+
+
 class RMSNorm(nn.Module):
     def __init__(self, d_model: int, eps: float = 1e-6) -> None:
         super().__init__()
@@ -32,13 +48,8 @@ class RecurrentMixerBlock(nn.Module):
         g_in = torch.sigmoid(g_in)
         g_state = torch.sigmoid(g_state)
         candidate = torch.tanh(candidate)
-
-        state = torch.zeros_like(candidate[:, 0])
-        outputs = []
-        for t in range(candidate.size(1)):
-            state = g_state[:, t] * state + g_in[:, t] * candidate[:, t]
-            outputs.append(state + u[:, t])
-        mixed = torch.stack(outputs, dim=1)
+        state = recurrent_state_scan(g_state, g_in * candidate)
+        mixed = state + u
         mixed = self.out_proj(mixed)
         return residual + self.dropout(mixed)
 

@@ -260,21 +260,44 @@ Standalone eval from `python -m hz0.eval_cli --config configs/hz0a-mac-110m-tune
 - loss: `2.7730`
 - perplexity: `16.01`
 - copy retrieval accuracy: `0.0000`
-- decode speed: `42.37 tok/s`
+- decode speed: `96.56 tok/s`
 
 Standalone benchmark from `python -m hz0.benchmark_cli --config configs/hz0a-mac-110m-tuned.yaml --checkpoint outputs/hz0a-mac-110m-tuned/latest.pt --decode-steps 32 --retrieval-samples 64`
 
-- decode speed: `38.02 tok/s`
+- decode speed: `105.48 tok/s`
 - copy retrieval accuracy: `0.0000`
 - multi-anchor retrieval accuracy: `0.0000`
-- multi-anchor anchor-set accuracy: `0.0000`
+- multi-anchor anchor-set accuracy: `0.015625`
 
 Context-length decode sweep from `python -m hz0.benchmark_cli --config configs/hz0a-mac-110m-tuned.yaml --checkpoint outputs/hz0a-mac-110m-tuned/latest.pt --decode-steps 32 --retrieval-samples 64 --context-lengths 64,128,256,512`
 
-- context `64`: `73.38 tok/s`
-- context `128`: `43.98 tok/s`
-- context `256`: `24.15 tok/s`
-- context `512`: `11.93 tok/s`
+- context `64`: `137.08 tok/s`
+- context `128`: `112.05 tok/s`
+- context `256`: `79.49 tok/s`
+- context `512`: `50.04 tok/s`
+
+### Recurrent backend optimization on the tuned `~110M` checkpoint
+
+The fallback recurrent mixer no longer uses a Python token loop. It now runs
+through an associative scan that preserves the same recurrence while cutting the
+dominant mixer cost substantially on Apple Silicon.
+
+Decode profile from `python -m hz0.profile_decode_cli --config configs/hz0a-mac-110m-tuned.yaml --checkpoint outputs/hz0a-mac-110m-tuned/latest.pt`
+
+- profiled forward pass at prompt length `128`: `0.0855 s`
+- total recurrent-mixer time: `0.0263 s`
+- total attention time: `0.0138 s`
+- total FFN time: `0.0145 s`
+
+Matched transformer profile from `python -m hz0.profile_decode_cli --config configs/hz0a-mac-110m-tuned.yaml --model-key baseline --checkpoint outputs/hz0a-mac-110m-baseline/latest.pt`
+
+- profiled forward pass at prompt length `128`: `0.0821 s`
+- total attention time: `0.0329 s`
+- total FFN time: `0.0188 s`
+
+This does not make the hybrid decode faster than the transformer yet, but it
+reduces the short-context decode penalty from roughly `5x` to about `1.8x`
+while keeping the tuned checkpoint's validation loss unchanged.
 
 Sample from `python -m hz0.sample_cli --config configs/hz0a-mac-110m-tuned.yaml --checkpoint outputs/hz0a-mac-110m-tuned/latest.pt --prompt "HZ-0A " --max-new-tokens 32`
 
@@ -498,13 +521,44 @@ From `python -m hz0.compare_cli --config configs/hz0a-mac-36m.yaml --hybrid-chec
 
 ## Interpretation
 
+The current evidence supports a narrower claim than "HZ-0A is finished."
+
+- At roughly `110M` parameters and an equal small-budget Mac training run, the
+  tuned hybrid converges faster than the transformer baseline.
+- That advantage persists through the currently available tuned checkpoints at
+  steps `25`, `50`, `75`, and `100`.
+- The recurrent backend is no longer dominated by a Python token loop, and the
+  hybrid's decode path is materially faster than before.
+- The project still does not satisfy the revised HZ-0A definition because it
+  lacks a genuine GDN-2 backend, a parameter-matched transformer control, and a
+  convincing memory-task win.
+
+Against the revised plan, the repo is in this state on Sunday, July 26, 2026:
+
+- `Phase 0` is partially complete: the main experiment configs and checkpoints
+  exist, but immutable experiment manifests and fuller deterministic regression
+  coverage are still missing.
+- `Phase 1` is underway: the tuned `110M` hybrid and the `~96M` transformer are
+  tracked across multiple checkpoints, but the comparison is not yet
+  parameter-matched and is still short on token-budget depth.
+- `Phase 2` is only lightly started: the learning-rate and accumulation changes
+  helped, but the structured ablation grid has not been run yet.
+- `Phase 3` has not started in earnest: there is still no trusted standalone
+  NumPy/MLX GDN-2 reference.
+- `Phase 4` has begun: the fallback backend is faster, but it is still not the
+  final MLX/Metal recurrent implementation.
+- `Phase 7` is partially complete: loss, perplexity, decode, and some synthetic
+  retrieval signals exist, but the overwrite/interference suite from the
+  revised plan is not built yet.
+
 ## Scorecard artifact
 
 A reusable Mac checkpoint comparison artifact is now available at
 [docs/hz0a-mac-scorecard.json](/Users/ishaangubbala/Documents/Training/docs/hz0a-mac-scorecard.json).
 
 It records the current tuned `~110M` hybrid checkpoints at steps `25`, `50`,
-`75`, and `100`, plus the available `~96M` baseline step-25 checkpoint, with:
+`75`, and `100`, plus the available `~96M` baseline checkpoints at steps `25`,
+`50`, `75`, and `100`, with:
 
 - validation loss and perplexity
 - estimated training tokens seen

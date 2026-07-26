@@ -8,6 +8,7 @@ import torch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from hz0.model import HybridLM, build_model
+from hz0.model.blocks import recurrent_state_scan
 from hz0.model.backends import gdn2_is_available, gdn2_status
 
 
@@ -69,3 +70,19 @@ def test_model_factory_builds_transformer() -> None:
     x = torch.randint(0, 256, (2, 16))
     logits = model(x)
     assert logits.shape == (2, 16, 256)
+
+
+def test_recurrent_state_scan_matches_loop() -> None:
+    torch.manual_seed(0)
+    g_state = torch.sigmoid(torch.randn(2, 12, 8))
+    update = torch.randn(2, 12, 8)
+
+    expected_states = []
+    state = torch.zeros_like(update[:, 0])
+    for t in range(update.size(1)):
+        state = g_state[:, t] * state + update[:, t]
+        expected_states.append(state)
+    expected = torch.stack(expected_states, dim=1)
+
+    actual = recurrent_state_scan(g_state, update)
+    torch.testing.assert_close(actual, expected, atol=1e-5, rtol=1e-5)
