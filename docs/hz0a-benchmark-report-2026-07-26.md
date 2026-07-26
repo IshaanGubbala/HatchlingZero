@@ -449,6 +449,48 @@ zero. That strongly suggests the remaining gap is now in the backbone dynamics
 or the task formulation itself, not just in the frequency or weighting of the
 training examples.
 
+### Pure-memory continuation from the tuned fallback hybrid
+
+As a final check on Sunday, July 26, 2026, the tuned fallback hybrid was pushed
+through a short continuation where the training stream was composed entirely of
+the synthetic memory-task family.
+
+From `python -m hz0.train --config configs/hz0a-mac-110m-memory-pure-ft.yaml --resume outputs/hz0a-mac-110m-tuned/latest.pt --max-steps 200`
+
+- base checkpoint: tuned fallback hybrid step `150`
+- optimization change: `lr=0.00005`
+- data change: `memory_mix_probability=1.0`, `retrieval_mix_probability=0.0`
+- training reached step `200`
+
+Standalone eval from `python -m hz0.eval_cli --config configs/hz0a-mac-110m-memory-pure-ft.yaml --checkpoint outputs/hz0a-mac-110m-memory-pure-ft/latest.pt`
+
+- loss: `4.8814`
+- perplexity: `131.81`
+- associative recall accuracy: `0.0000`
+- overwrite retrieval accuracy: `0.0000`
+- protected memory accuracy: `0.0000`
+- recall-distance accuracy at `32/64/128/256`: all `0.0000`
+- multi-anchor retrieval accuracy: `0.0000`
+- multi-anchor anchor-set accuracy: `0.03125`
+- decode speed: `107.60 tok/s`
+
+Standalone benchmark from `python -m hz0.benchmark_cli --config configs/hz0a-mac-110m-memory-pure-ft.yaml --checkpoint outputs/hz0a-mac-110m-memory-pure-ft/latest.pt --decode-steps 32 --retrieval-samples 64 --context-lengths 64,128,256,512`
+
+- decode speed: `87.46 tok/s`
+- context `64`: `124.08 tok/s`
+- context `128`: `99.57 tok/s`
+- context `256`: `69.26 tok/s`
+- context `512`: `45.52 tok/s`
+- copy retrieval accuracy: `0.0000`
+- multi-anchor retrieval accuracy: `0.0000`
+- multi-anchor anchor-set accuracy: `0.03125`
+
+This is the strongest evidence yet that the remaining HZ-0A memory miss is not
+just caused by the base corpus overwhelming the synthetic memory tasks. Even
+when the continuation is fully dominated by those tasks, the newer overwrite /
+protected-memory / recall-distance suite still stays at zero while ordinary LM
+quality collapses.
+
 ### Verified local `~110M` MPS rung
 
 From `python -m hz0.train --config configs/hz0a-mac-110m.yaml --max-steps 25`
