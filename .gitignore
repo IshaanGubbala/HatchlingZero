@@ -1,4 +1,5 @@
 .venv/
+.venv-msl/
 .venv-py39/
 __pycache__/
 .pytest_cache/

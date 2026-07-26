@@ -32,6 +32,22 @@ def _load_vendor_gdn2_module():
     return importlib.import_module("lit_gpt.gdn2")
 
 
+def _apply_fla_compat_shims() -> None:
+    """Patch small FLA API drifts used by the vendored GDN-2 code.
+
+    The experimental triton-msl branch currently uses a newer installable FLA
+    build where `USE_CUDA_GRAPH` is no longer exported from `fla.utils`.
+    The vendored GDN-2 kernels only use it as a boolean autotune flag, so a
+    conservative `False` default is a safe compatibility bridge for imports.
+    """
+    try:
+        import fla.utils
+    except Exception:
+        return
+    if not hasattr(fla.utils, "USE_CUDA_GRAPH"):
+        fla.utils.USE_CUDA_GRAPH = False
+
+
 def gdn2_status() -> dict[str, str | bool]:
     repo = _vendor_repo()
     if not repo.exists():
@@ -47,6 +63,7 @@ def gdn2_status() -> dict[str, str | bool]:
             "available": False,
             "reason": f"Missing flash-linear-attention dependency: {exc}",
         }
+    _apply_fla_compat_shims()
 
     try:
         module = _load_vendor_gdn2_module()
