@@ -278,6 +278,47 @@ backend narrows the quality gap to the tuned fallback hybrid while staying
 materially closer to the revised HZ-0A gate structure than the older
 single-update-gate mixer.
 
+### Memory-focused fine-tune on the tuned fallback hybrid
+
+To address the growing mismatch between the expanded memory evaluation suite and
+the older training data, the tuned fallback hybrid was resumed with a mixed
+curriculum that includes both the older retrieval probes and the newer
+associative / overwrite / protected-memory style synthetic sequences.
+
+From `python -m hz0.train --config configs/hz0a-mac-110m-memory-ft.yaml --resume outputs/hz0a-mac-110m-tuned/latest.pt --max-steps 175`
+
+- base checkpoint: tuned fallback hybrid step `150`
+- optimization change: `lr=0.0001`
+- data change: `retrieval_mix_probability=0.10`, `memory_mix_probability=0.15`
+- training reached step `175`
+
+Standalone eval from `python -m hz0.eval_cli --config configs/hz0a-mac-110m-memory-ft.yaml --checkpoint outputs/hz0a-mac-110m-memory-ft/latest.pt`
+
+- loss: `2.6153`
+- perplexity: `13.67`
+- associative recall accuracy: `0.0000`
+- overwrite retrieval accuracy: `0.0000`
+- protected memory accuracy: `0.0000`
+- recall-distance accuracy at `32/64/128/256`: all `0.0000`
+- decode speed: `109.06 tok/s`
+
+Standalone benchmark from `python -m hz0.benchmark_cli --config configs/hz0a-mac-110m-memory-ft.yaml --checkpoint outputs/hz0a-mac-110m-memory-ft/latest.pt --decode-steps 32 --retrieval-samples 64 --context-lengths 64,128,256,512`
+
+- decode speed: `93.91 tok/s`
+- context `64`: `125.45 tok/s`
+- context `128`: `101.49 tok/s`
+- context `256`: `69.34 tok/s`
+- context `512`: `45.75 tok/s`
+- copy retrieval accuracy: `0.015625`
+- multi-anchor retrieval accuracy: `0.03125`
+- multi-anchor anchor-set accuracy: `0.0625`
+
+This is useful but not yet decisive. The memory-focused fine-tune preserves or
+slightly improves language-modeling quality and improves the older multi-anchor
+retrieval benchmark, but it still does not produce a win on the newer
+associative / overwrite / protected-memory / recall-distance suite that now
+defines the missing HZ-0A memory gate.
+
 ### Verified local `~110M` MPS rung
 
 From `python -m hz0.train --config configs/hz0a-mac-110m.yaml --max-steps 25`

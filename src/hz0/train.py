@@ -43,6 +43,7 @@ def main() -> None:
         packed=True,
         retrieval_mix_probability=float(cfg["data"].get("retrieval_mix_probability", 0.0)),
         retrieval_num_anchors=int(cfg["data"].get("retrieval_num_anchors", 3)),
+        memory_mix_probability=float(cfg["data"].get("memory_mix_probability", 0.0)),
     )
     val_ds = build_dataset(
         cfg["data"]["val_text_path"],
