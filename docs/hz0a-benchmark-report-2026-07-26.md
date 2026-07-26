@@ -186,6 +186,49 @@ So the local `gdn2_ref` path already lands between the tuned fallback hybrid and
 the fair transformer baseline on LM quality, but it is still slower than the
 tuned fallback at this early checkpoint.
 
+### Local `gdn2_ref` continued to step `100`
+
+The local reference backend was then resumed to step `100` for a more useful
+comparison against the tuned fallback hybrid and the fresh fair transformer.
+
+From `python -m hz0.train --config configs/hz0a-mac-110m-gdn2ref.yaml --resume outputs/hz0a-mac-110m-gdn2ref/latest.pt --max-steps 100`
+
+- training reached step `100`
+- observed step-50 eval loss: `3.1984`
+- observed step-75 eval loss: `2.9954`
+
+Standalone eval from `python -m hz0.eval_cli --config configs/hz0a-mac-110m-gdn2ref.yaml --checkpoint outputs/hz0a-mac-110m-gdn2ref/latest.pt`
+
+- loss: `2.8820`
+- perplexity: `17.85`
+- associative recall accuracy: `0.0000`
+- overwrite retrieval accuracy: `0.0000`
+- protected memory accuracy: `0.0000`
+- multi-anchor retrieval accuracy: `0.0000`
+- decode speed: `106.92 tok/s`
+
+Standalone benchmark from `python -m hz0.benchmark_cli --config configs/hz0a-mac-110m-gdn2ref.yaml --checkpoint outputs/hz0a-mac-110m-gdn2ref/latest.pt --decode-steps 32 --retrieval-samples 64 --context-lengths 64,128,256,512`
+
+- decode speed: `85.81 tok/s`
+- context `64`: `120.25 tok/s`
+- context `128`: `100.18 tok/s`
+- context `256`: `67.41 tok/s`
+- context `512`: `43.64 tok/s`
+- copy retrieval accuracy: `0.0000`
+- multi-anchor retrieval accuracy: `0.0000`
+- multi-anchor anchor-set accuracy: `0.0000`
+
+At the matched step-100 checkpoints now available on disk:
+
+- tuned fallback hybrid: loss `2.7730`, perplexity `16.01`, decode `102.38 tok/s`
+- local `gdn2_ref`: loss `2.8820`, perplexity `17.85`, decode `85.81 tok/s`
+- fresh fair transformer baseline: loss `2.9734`, perplexity `19.56`, decode `182.88 tok/s`
+
+This means the local `gdn2_ref` backend has become competitive enough to beat
+the fair transformer baseline on LM quality by step `100`, but it still does
+not beat the tuned fallback hybrid and still carries a large decode-speed
+penalty versus the transformer.
+
 ### Verified local `~110M` MPS rung
 
 From `python -m hz0.train --config configs/hz0a-mac-110m.yaml --max-steps 25`
