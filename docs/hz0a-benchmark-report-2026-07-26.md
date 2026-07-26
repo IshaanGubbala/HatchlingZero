@@ -1099,7 +1099,7 @@ The current result is **not yet the full `HZ-0A` model as stated in the plan**.
 
 This benchmark proves that the local `HZ-0A` path is viable and that the
 current hybrid beats a stronger from-scratch fair transformer baseline on
-language-modeling loss through step `150`.
+language-modeling loss through step `300`.
 
 It does **not** yet prove completion of the original plan-scale `HZ-0A`
 milestone. The remaining path to that milestone is:
@@ -1139,3 +1139,43 @@ That gate records:
 
 So the current evidence supports continued controlled iteration, but not a
 claim that `HZ-0A` is finished.
+
+## Direct step-300 continuation result
+
+On Sunday, July 26, 2026, the matched fair continuation was extended to
+step `300` for both the tuned `109.9M` hybrid and the matched transformer
+baseline.
+
+Direct artifact:
+
+- `docs/hz0a-step300-direct.json`
+
+From `python -m hz0.eval_cli --config configs/hz0a-mac-110m-fair.yaml --checkpoint outputs/hz0a-mac-110m-fair/step_0000300.pt`
+
+- hybrid loss: `2.2480`
+- hybrid perplexity: `9.47`
+
+From `python -m hz0.eval_cli --config configs/hz0a-mac-110m-fair.yaml --model-key baseline --checkpoint outputs/hz0a-mac-110m-fair-baseline/step_0000300.pt`
+
+- baseline loss: `2.8610`
+- baseline perplexity: `17.48`
+
+So at the matched step-`300` rung:
+
+- loss margin: `0.6131` in favor of the hybrid
+- perplexity remains strongly in favor of the hybrid
+
+At the same time, the two remaining major issues are still visible:
+
+- the hybrid still has not quite matched the `36M` reference on
+  tokens-per-parameter budget
+- the memory-style metrics remain at `0.0` for both models at this rung
+
+The decode story is now mixed rather than clearly resolved:
+
+- direct eval decode ratio at step `300`: about `0.683`
+- direct benchmark decode ratio at step `300`: about `0.429`
+
+That is enough to say the hybrid keeps its quality advantage through several
+hundred matched steps, but not enough to say the recurrent serving story is
+finished.

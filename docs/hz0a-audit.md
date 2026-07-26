@@ -13,13 +13,17 @@ the revised July 26 benchmark and memory-work follow-up.
 
 The strongest current result is the tuned `109.9M` hybrid on macOS:
 
-- step `150` loss: `2.6242`
-- step `150` perplexity: `13.79`
-- matched step `150` transformer baseline loss: `2.9593`
-- matched step `150` transformer baseline perplexity: `19.28`
+- step `300` loss: `2.2480`
+- step `300` perplexity: `9.47`
+- matched step `300` transformer baseline loss: `2.8610`
+- matched step `300` transformer baseline perplexity: `17.48`
 
 That is enough to support a real language-modeling quality advantage at the
 current checkpoint range, but it is not enough to claim full plan completion.
+
+Direct step-`300` artifact:
+
+- `docs/hz0a-step300-direct.json`
 
 ## Revised decision gates
 
@@ -50,10 +54,10 @@ Interpretation:
 
 - The tuned large hybrid has not yet matched the `36M` reference on equal
   tokens-per-parameter budget.
-- The fair hybrid-vs-transformer continuation only reaches step `150`, not the
-  requested several-hundred-step horizon.
-- The current tuned fallback path has improved the decode ratio enough to clear
-  the configured continuation threshold of `0.5`, peaking near `0.576`.
+- The fair hybrid-vs-transformer continuation now reaches step `300`, and the
+  hybrid still leads on loss there by about `0.6131`.
+- The decode picture is now mixed: the direct step-`300` eval decode ratio is
+  about `0.683`, while the direct benchmark decode ratio is about `0.429`.
 - The memory-task gate remains unmet: no tracked memory metric shows a
   meaningful advantage.
 
@@ -146,7 +150,6 @@ Status: not satisfied.
 Current blockers:
 
 - the `~120M` target has only been launch-probed locally, not fully benchmarked
-- the fair continuation has not reached the several-hundred-step horizon
 - the tokens-per-parameter fairness gate versus the `36M` reference is still incomplete
 - the memory-task advantage gate is still failing
 - the current best path is still the fallback recurrent mixer, not a true
@@ -159,6 +162,10 @@ The following commands were run successfully in the current repo state:
 ```bash
 ./.venv/bin/python -m pytest tests/test_hz0a_gate.py tests/test_hybrid_lm.py tests/test_checkpoint_and_eval.py -q
 ./.venv/bin/python -m hz0.hz0a_gate_cli --scorecard docs/hz0a-mac-scorecard-fair.json --reference-manifest docs/experiment-manifests/HZ-36M-best.json --reference-loss 2.8698 --required-transformer-step 300 --output-path docs/hz0a-gate-fair.json
+./.venv/bin/python -m hz0.eval_cli --config configs/hz0a-mac-110m-fair.yaml --checkpoint outputs/hz0a-mac-110m-fair/step_0000300.pt
+./.venv/bin/python -m hz0.eval_cli --config configs/hz0a-mac-110m-fair.yaml --model-key baseline --checkpoint outputs/hz0a-mac-110m-fair-baseline/step_0000300.pt
+./.venv/bin/python -m hz0.benchmark_cli --config configs/hz0a-mac-110m-fair.yaml --checkpoint outputs/hz0a-mac-110m-fair/step_0000300.pt --decode-steps 32 --retrieval-samples 64 --context-lengths 64,128,256,512
+./.venv/bin/python -m hz0.benchmark_cli --config configs/hz0a-mac-110m-fair.yaml --model-key baseline --checkpoint outputs/hz0a-mac-110m-fair-baseline/step_0000300.pt --decode-steps 32 --retrieval-samples 64 --context-lengths 64,128,256,512
 ```
 
 ## Current conclusion
@@ -169,15 +176,15 @@ local research system, not a completed milestone.
 What is proven:
 
 - the tuned `109.9M` hybrid is ahead of the matched transformer on loss and
-  perplexity through step `150`
-- the decode gap on the tuned fallback path is materially smaller than the old
-  `~5x` penalty
+  perplexity through step `300`
+- the fair continuation has now reached the several-hundred-step horizon the
+  revised plan called for
 - the repo can now recompute the continuation gates directly from checked-in
   evidence
 
 What is not yet proven:
 
 - superiority after fair tokens-per-parameter budget versus the `36M` reference
-- persistence of the hybrid loss advantage through several hundred matched steps
 - meaningful memory-task advantage
+- a stable decode-speed advantage story at the step-`300` rung
 - completion on a true optimized recurrent backend

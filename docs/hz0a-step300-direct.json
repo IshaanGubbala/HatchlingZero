@@ -1,0 +1,59 @@
+{
+  "date": "2026-07-26",
+  "config": "configs/hz0a-mac-110m-fair.yaml",
+  "hybrid_checkpoint": "outputs/hz0a-mac-110m-fair/step_0000300.pt",
+  "baseline_checkpoint": "outputs/hz0a-mac-110m-fair-baseline/step_0000300.pt",
+  "hybrid": {
+    "loss": 2.24795301258564,
+    "perplexity": 9.468334424508246,
+    "associative_recall_accuracy": 0.0,
+    "copy_retrieval_accuracy": 0.0,
+    "overwrite_retrieval_accuracy": 0.0,
+    "protected_memory_accuracy": 0.0,
+    "multi_anchor_retrieval_accuracy": 0.0,
+    "multi_anchor_anchor_set_accuracy": 0.0,
+    "recall_distance_32_accuracy": 0.0,
+    "recall_distance_64_accuracy": 0.0,
+    "recall_distance_128_accuracy": 0.0,
+    "recall_distance_256_accuracy": 0.0,
+    "eval_decode_tokens_per_second": 41.25252547263644,
+    "benchmark_decode_tokens_per_second": 11.070109903054762,
+    "benchmark_context_64_tokens_per_second": 44.89534649373755,
+    "benchmark_context_128_tokens_per_second": 29.550626168181985,
+    "benchmark_context_256_tokens_per_second": 23.263543113457906,
+    "benchmark_context_512_tokens_per_second": 13.480273936306732
+  },
+  "baseline": {
+    "loss": 2.861007932573557,
+    "perplexity": 17.47913585117193,
+    "associative_recall_accuracy": 0.0,
+    "copy_retrieval_accuracy": 0.0,
+    "overwrite_retrieval_accuracy": 0.0,
+    "protected_memory_accuracy": 0.0,
+    "multi_anchor_retrieval_accuracy": 0.0,
+    "multi_anchor_anchor_set_accuracy": 0.0,
+    "recall_distance_32_accuracy": 0.0,
+    "recall_distance_64_accuracy": 0.0,
+    "recall_distance_128_accuracy": 0.0,
+    "recall_distance_256_accuracy": 0.0,
+    "eval_decode_tokens_per_second": 60.40506321714668,
+    "benchmark_decode_tokens_per_second": 25.821653924576747,
+    "benchmark_context_64_tokens_per_second": 58.03266978793223,
+    "benchmark_context_128_tokens_per_second": 63.00232144499412,
+    "benchmark_context_256_tokens_per_second": 46.33530563703874,
+    "benchmark_context_512_tokens_per_second": 18.280201938073773
+  },
+  "derived": {
+    "loss_margin_hybrid_over_baseline": 0.613054919987917,
+    "reference_36m_tokens_per_parameter": 0.0014193305727353694,
+    "candidate_110m_tokens_per_parameter_at_step_300": 0.001397638689434201,
+    "benchmark_decode_ratio_hybrid_over_baseline": 0.42871420767197105,
+    "eval_decode_ratio_hybrid_over_baseline": 0.6829315834724006
+  },
+  "gate_reading": {
+    "beats_36m_at_fair_tokens_per_param": "still_incomplete",
+    "maintains_transformer_advantage_through_horizon": "supported_at_step_300",
+    "decode_gap_reduced": "mixed_signal",
+    "shows_memory_task_advantage": "still_failing"
+  }
+}
