@@ -518,6 +518,18 @@ The older checkpoints predate the new train-time instrumentation, so
 in this first scorecard pass. Future checkpoints created with the updated
 trainer will populate those fields automatically.
 
+The scorecard now includes both the tuned hybrid and the continued transformer
+baseline through step `100`, which makes the central Mac-only comparison much
+sharper:
+
+- At equal estimated tokens seen, the tuned hybrid stays ahead on validation
+  loss at every recorded checkpoint from `25` through `100` steps.
+- At step `100`, the tuned hybrid reaches loss `2.7730` versus baseline loss
+  `3.4202`.
+- The baseline retains a large systems advantage in decode throughput and
+  context scaling, staying around `205 tok/s` at short decode prompts while the
+  tuned hybrid remains around `42 tok/s`.
+
 ### Strengths
 
 - The hybrid model is clearly ahead of the same-size transformer baseline on
