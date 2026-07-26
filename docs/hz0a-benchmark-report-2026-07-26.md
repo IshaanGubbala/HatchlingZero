@@ -493,6 +493,47 @@ Sample from `python -m hz0.sample_cli --config configs/hz0a-mac-110m.yaml --chec
 HZ-0A sent cont anting sing se and sec
 ```
 
+### Fresh fair baseline from scratch on the matched `~96M` transformer control
+
+To replace the weaker historical baseline with a better controlled Mac run, the
+transformer baseline was restarted from step `0` under the same `grad_accum=4`
+training regime used by the tuned hybrid.
+
+From `python -m hz0.train --config configs/hz0a-mac-110m-fair.yaml --model-key baseline --max-steps 150`
+
+- architecture: transformer
+- params: `95,937,984`
+- device: `mps`
+- optimization change: fresh run with `grad_accum_steps=4`, `lr=0.0002`
+- training reached step `150`
+- observed step-100 eval loss: `2.9734`
+- observed step-125 eval loss: `2.9757`
+
+Standalone eval from `python -m hz0.eval_cli --config configs/hz0a-mac-110m-fair.yaml --model-key baseline --checkpoint outputs/hz0a-mac-110m-fair-baseline/step_0000150.pt`
+
+- loss: `2.9593`
+- perplexity: `19.28`
+- associative recall accuracy: `0.0000`
+- overwrite retrieval accuracy: `0.0000`
+- protected memory accuracy: `0.0000`
+- multi-anchor retrieval accuracy: `0.0000`
+- decode speed: `189.62 tok/s`
+
+### Tuned hybrid vs fresh fair baseline at step `150`
+
+From `python -m hz0.compare_cli --config configs/hz0a-mac-110m-fair.yaml --hybrid-checkpoint outputs/hz0a-mac-110m-tuned/step_0000150.pt --baseline-checkpoint outputs/hz0a-mac-110m-fair-baseline/step_0000150.pt`
+
+- hybrid loss: `2.6242`
+- baseline loss: `2.9593`
+- hybrid perplexity: `13.79`
+- baseline perplexity: `19.28`
+- hybrid decode speed: `94.25 tok/s`
+- baseline decode speed: `161.43 tok/s`
+
+This is the strongest current HZ-0A comparison in the repo: the tuned hybrid
+still leads the fair baseline on LM quality at step `150`, while the baseline
+still keeps a substantial decode-speed advantage.
+
 ## Sample output
 
 From `python -m hz0.sample_cli --config configs/hz0a-mac-36m.yaml --checkpoint outputs/hz0a-mac-36m/latest.pt --prompt "HZ-0A " --max-new-tokens 32`
@@ -621,6 +662,9 @@ over `8x` as much as its own attention stack.
   by about `0.29`.
 - The tuned `~110M` run to step `100` is now the best local Mac checkpoint in
   this repo, beating the prior `36M` best on validation loss and perplexity.
+- The fresh fair baseline from scratch strengthens the main comparison instead
+  of weakening it: by step `150`, the tuned hybrid still leads on validation
+  loss (`2.6242` vs `2.9593`) and perplexity (`13.79` vs `19.28`).
 - The stronger multi-anchor retrieval probe now gives us a more realistic local
   long-context-style regression check than the original single-copy metric.
 - The retrieval-curriculum experiment suggests we can move the weaker retrieval
@@ -642,8 +686,14 @@ over `8x` as much as its own attention stack.
   baseline decodes about `5x` faster in the matched 25-step comparison.
 - Even with better optimization, the tuned large hybrid still does not beat the
   transformer baseline on throughput.
+- The fresh fair baseline narrows the scientific uncertainty around the old
+  baseline, but it does not close the systems gap: the baseline still decodes
+  about `1.9x` faster at step `150`.
 - Synthetic copy-retrieval accuracy is still effectively zero for the hybrid
   checkpoint at this stage.
+- Even after the fresh fair-control comparison, both models remain near zero on
+  associative recall, overwrite, protected-memory, and recall-distance probes,
+  so the key HZ-0A memory-task gate is still unmet.
 - Even on the stronger multi-anchor retrieval probe, the tuned `~110M`
   checkpoint remains near zero, which keeps long-context evidence as the
   clearest remaining evaluation gap.
@@ -694,15 +744,17 @@ The current result is **not yet the full `HZ-0A` model as stated in the plan**.
 ## Current conclusion
 
 This benchmark proves that the local `HZ-0A` path is viable and that the
-current hybrid beats a same-size transformer baseline on language-modeling loss.
+current hybrid beats a stronger from-scratch fair transformer baseline on
+language-modeling loss through step `150`.
 
 It does **not** yet prove completion of the original plan-scale `HZ-0A`
 milestone. The remaining path to that milestone is:
 
 1. use the tuned `~110M` Mac config as the default large-model path going forward
-2. decide whether to continue the tuned run beyond `100` steps to test its plateau
-3. treat the gentle late-stage retrieval fine-tune as the better retrieval path than the heavy mixed run
-4. iterate on retrieval curriculum only if we can preserve the tuned LM gains
-5. keep pushing the upstream Mac backend experiment beyond import-only status
-6. benchmark with stronger long-context evidence on Mac
-7. optimize or replace the fallback recurrent mixer, since profiling shows it is the dominant decode bottleneck
+2. treat the fresh fair baseline as the primary transformer control going forward
+3. continue beyond `150` steps only with token-matched checkpoints and the fair baseline
+4. treat the gentle late-stage retrieval fine-tune as the better retrieval path than the heavy mixed run
+5. iterate on retrieval curriculum only if we can preserve the tuned LM gains
+6. keep pushing the upstream Mac backend experiment beyond import-only status
+7. benchmark with stronger long-context evidence on Mac
+8. optimize or replace the fallback recurrent mixer, since profiling shows it is the dominant decode bottleneck
