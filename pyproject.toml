@@ -9,6 +9,7 @@ description = "HZ-0A starter scaffold for hybrid recurrent language modeling"
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
+  "numpy>=1.26",
   "torch>=2.3",
   "pyyaml>=6.0",
 ]
