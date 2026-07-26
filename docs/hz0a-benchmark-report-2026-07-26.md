@@ -498,6 +498,26 @@ From `python -m hz0.compare_cli --config configs/hz0a-mac-36m.yaml --hybrid-chec
 
 ## Interpretation
 
+## Scorecard artifact
+
+A reusable Mac checkpoint comparison artifact is now available at
+[docs/hz0a-mac-scorecard.json](/Users/ishaangubbala/Documents/Training/docs/hz0a-mac-scorecard.json).
+
+It records the current tuned `~110M` hybrid checkpoints at steps `25`, `50`,
+`75`, and `100`, plus the available `~96M` baseline step-25 checkpoint, with:
+
+- validation loss and perplexity
+- estimated training tokens seen
+- estimated training FLOPs
+- decode throughput
+- retrieval metrics
+- decode throughput at context lengths `64`, `128`, `256`, and `512`
+
+The older checkpoints predate the new train-time instrumentation, so
+`wall_clock_seconds`, `grad_norm`, and `peak_memory_bytes` are still unavailable
+in this first scorecard pass. Future checkpoints created with the updated
+trainer will populate those fields automatically.
+
 ### Strengths
 
 - The hybrid model is clearly ahead of the same-size transformer baseline on

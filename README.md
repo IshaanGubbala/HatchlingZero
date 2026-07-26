@@ -125,6 +125,19 @@ To benchmark decode speed and synthetic retrieval:
 python -m hz0.benchmark_cli --config configs/hz0a-tiny.yaml --checkpoint outputs/hz0a-tiny/latest.pt
 ```
 
+To build a repeatable checkpoint scorecard for Mac comparisons:
+
+```bash
+python -m hz0.scorecard_cli \
+  --config configs/hz0a-mac-110m-tuned.yaml \
+  --hybrid-output-dir outputs/hz0a-mac-110m-tuned \
+  --baseline-output-dir outputs/hz0a-mac-110m-baseline \
+  --hybrid-steps 25,50,75,100 \
+  --baseline-steps 25 \
+  --context-lengths 64,128,256,512 \
+  --output-path docs/hz0a-mac-scorecard.json
+```
+
 To compare the hybrid model against a same-size transformer baseline:
 
 ```bash
