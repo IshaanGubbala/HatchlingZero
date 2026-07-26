@@ -61,6 +61,19 @@ For a smoke test without real data:
 python -m hz0.train --config configs/hz0a-tiny.yaml --max-steps 5
 ```
 
+To begin a real local training run on Mac using an MPS-friendly config and a
+seed corpus built from the HZ plan/resources:
+
+```bash
+bash scripts/start_hz0a_mac.sh --max-steps 50
+```
+
+That command:
+
+- builds `data/hz0a_seed_train.txt` and `data/hz0a_seed_val.txt`
+- launches training with `configs/hz0a-mac-mps.yaml`
+- writes checkpoints to `outputs/hz0a-mac-mps/`
+
 To train the same-size transformer baseline from the same config:
 
 ```bash
