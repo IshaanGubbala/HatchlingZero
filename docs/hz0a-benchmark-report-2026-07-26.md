@@ -165,6 +165,46 @@ Sample from `python -m hz0.sample_cli --config configs/hz0a-mac-110m.yaml --chec
 HZ-0A     aton    amampamaton   ame te
 ```
 
+### Same-shape transformer baseline at the `~110M` rung
+
+From `python -m hz0.train --config configs/hz0a-mac-110m.yaml --model-key baseline --max-steps 25`
+
+- architecture: transformer
+- params: `95,937,984`
+- device: `mps`
+- training reached step `25`
+- observed train throughput after warmup: roughly `997-1010 tok/s`
+- step-20 training loss: `3.0389`
+
+Standalone eval from `python -m hz0.eval_cli --config configs/hz0a-mac-110m.yaml --model-key baseline --checkpoint outputs/hz0a-mac-110m-baseline/latest.pt`
+
+- loss: `3.7620`
+- perplexity: `43.04`
+- copy retrieval accuracy: `0.0000`
+- decode speed: `183.29 tok/s`
+
+Standalone benchmark from `python -m hz0.benchmark_cli --config configs/hz0a-mac-110m.yaml --model-key baseline --checkpoint outputs/hz0a-mac-110m-baseline/latest.pt --decode-steps 32 --retrieval-samples 64`
+
+- decode speed: `129.84 tok/s`
+- copy retrieval accuracy: `0.0000`
+
+Sample from `python -m hz0.sample_cli --config configs/hz0a-mac-110m.yaml --model-key baseline --checkpoint outputs/hz0a-mac-110m-baseline/latest.pt --prompt "HZ-0A " --max-new-tokens 32`
+
+```text
+HZ-0A ontententetententententententent
+```
+
+### Hybrid vs baseline at the `~110M` rung after 25 steps
+
+From `python -m hz0.compare_cli --config configs/hz0a-mac-110m.yaml --hybrid-checkpoint outputs/hz0a-mac-110m/step_0000025.pt --baseline-checkpoint outputs/hz0a-mac-110m-baseline/latest.pt`
+
+- hybrid loss: `3.5573`
+- baseline loss: `3.7620`
+- hybrid perplexity: `35.07`
+- baseline perplexity: `43.04`
+- hybrid decode speed: `43.04 tok/s`
+- baseline decode speed: `215.10 tok/s`
+
 ### Verified local `~110M` resumed checkpoint
 
 From `python -m hz0.train --config configs/hz0a-mac-110m.yaml --resume outputs/hz0a-mac-110m/latest.pt --max-steps 100`
@@ -256,11 +296,15 @@ From `python -m hz0.compare_cli --config configs/hz0a-mac-36m.yaml --hybrid-chec
   sample, and compare models.
 - The recurrent-first shape is learning meaningful local structure from the
   seed corpus.
+- At the near-plan-scale 25-step comparison, the hybrid still beats the
+  same-shape transformer baseline on loss and perplexity.
 
 ### Weaknesses
 
 - The hybrid model is much slower than the transformer baseline in local decode
   throughput on this current fallback implementation.
+- That throughput gap is still very large at the `~110M` rung: the transformer
+  baseline decodes about `5x` faster in the matched 25-step comparison.
 - Synthetic copy-retrieval accuracy is still effectively zero for the hybrid
   checkpoint at this stage.
 - The current benchmark reflects the fallback recurrent mixer, not a real
