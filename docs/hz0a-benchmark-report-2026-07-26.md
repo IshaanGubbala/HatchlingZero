@@ -292,6 +292,57 @@ From `python -m hz0.benchmark_cli --config configs/hz0a-mac-110m-tuned.yaml --ch
 - multi-anchor retrieval accuracy: `0.0000`
 - multi-anchor anchor-set accuracy: `0.03125`
 
+### Retrieval-curriculum `~110M` Mac experiment
+
+To test whether explicit retrieval training would close the new long-context
+evaluation gap on macOS, a retrieval-mixed variant of the tuned config was run:
+
+From `python -m hz0.train --config configs/hz0a-mac-110m-retrieval.yaml --max-steps 25`
+
+- params: `109,899,648`
+- device: `mps`
+- optimization change: tuned `110M` path plus `retrieval_mix_probability=0.35`
+- training reached step `25`
+- observed train throughput after warmup: roughly `521-529 tok/s`
+- step-20 training loss: `3.2343`
+
+Standalone eval from `python -m hz0.eval_cli --config configs/hz0a-mac-110m-retrieval.yaml --checkpoint outputs/hz0a-mac-110m-retrieval/latest.pt`
+
+- loss: `3.3575`
+- perplexity: `28.72`
+- copy retrieval accuracy: `0.03125`
+- multi-anchor retrieval accuracy: `0.0000`
+- multi-anchor anchor-set accuracy: `0.0625`
+- decode speed: `36.51 tok/s`
+
+Standalone benchmark from `python -m hz0.benchmark_cli --config configs/hz0a-mac-110m-retrieval.yaml --checkpoint outputs/hz0a-mac-110m-retrieval/latest.pt --decode-steps 32 --retrieval-samples 64`
+
+- decode speed: `34.96 tok/s`
+- copy retrieval accuracy: `0.015625`
+- multi-anchor retrieval accuracy: `0.0000`
+- multi-anchor anchor-set accuracy: `0.046875`
+
+Sample from `python -m hz0.sample_cli --config configs/hz0a-mac-110m-retrieval.yaml --checkpoint outputs/hz0a-mac-110m-retrieval/latest.pt --prompt "HZ-0A " --max-new-tokens 32`
+
+```text
+HZ-0A corititititititititititititititi
+```
+
+### Retrieval-curriculum hybrid vs baseline at 25 steps
+
+From `python -m hz0.compare_cli --config configs/hz0a-mac-110m-retrieval.yaml --hybrid-checkpoint outputs/hz0a-mac-110m-retrieval/latest.pt --baseline-checkpoint outputs/hz0a-mac-110m-baseline/latest.pt`
+
+- retrieval hybrid loss: `3.3575`
+- baseline loss: `3.7620`
+- retrieval hybrid perplexity: `28.72`
+- baseline perplexity: `43.04`
+- retrieval hybrid multi-anchor retrieval accuracy: `0.0000`
+- baseline multi-anchor retrieval accuracy: `0.03125`
+- retrieval hybrid multi-anchor anchor-set accuracy: `0.0000`
+- baseline multi-anchor anchor-set accuracy: `0.03125`
+- retrieval hybrid decode speed: `38.98 tok/s`
+- baseline decode speed: `208.13 tok/s`
+
 ### Verified local `~110M` resumed checkpoint
 
 From `python -m hz0.train --config configs/hz0a-mac-110m.yaml --resume outputs/hz0a-mac-110m/latest.pt --max-steps 100`
@@ -392,6 +443,8 @@ From `python -m hz0.compare_cli --config configs/hz0a-mac-36m.yaml --hybrid-chec
   this repo, beating the prior `36M` best on validation loss and perplexity.
 - The stronger multi-anchor retrieval probe now gives us a more realistic local
   long-context-style regression check than the original single-copy metric.
+- The retrieval-curriculum experiment suggests we can move the weaker retrieval
+  metrics a little, but not without giving up some language-modeling quality.
 
 ### Weaknesses
 
@@ -406,6 +459,9 @@ From `python -m hz0.compare_cli --config configs/hz0a-mac-36m.yaml --hybrid-chec
 - Even on the stronger multi-anchor retrieval probe, the tuned `~110M`
   checkpoint remains near zero, which keeps long-context evidence as the
   clearest remaining evaluation gap.
+- The first retrieval-curriculum attempt improved copy-style and anchor-set hit
+  rates slightly, but it did not improve exact multi-anchor retrieval and it
+  regressed LM loss versus the tuned non-curriculum path.
 - The current benchmark reflects the fallback recurrent mixer, not a real
   kernel-backed `GatedDeltaNet-2` path.
 - The larger `~71M` rung now improves with more training, but it still trails
@@ -449,5 +505,6 @@ milestone. The remaining path to that milestone is:
 
 1. use the tuned `~110M` Mac config as the default large-model path going forward
 2. decide whether to continue the tuned run beyond `100` steps to test its plateau
-3. keep pushing the upstream Mac backend experiment beyond import-only status
-4. benchmark with stronger long-context evidence on Mac
+3. iterate on retrieval curriculum only if we can preserve the tuned LM gains
+4. keep pushing the upstream Mac backend experiment beyond import-only status
+5. benchmark with stronger long-context evidence on Mac

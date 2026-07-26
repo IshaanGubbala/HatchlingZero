@@ -8,6 +8,7 @@ import torch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from hz0.checkpoint import load_checkpoint, save_checkpoint
+from hz0.data import build_dataset
 from hz0.eval import benchmark_decode_latency, evaluate_copy_retrieval, evaluate_multi_anchor_retrieval
 from hz0.generation import greedy_generate
 from hz0.model import HybridLM
@@ -78,3 +79,20 @@ def test_generation_and_benchmarks() -> None:
     assert 0.0 <= multi["multi_anchor_retrieval_accuracy"] <= 1.0
     assert 0.0 <= multi["multi_anchor_anchor_set_accuracy"] <= 1.0
     assert speed["tokens_per_second"] > 0.0
+
+
+def test_retrieval_augmented_dataset(tmp_path: Path) -> None:
+    path = tmp_path / "tiny.txt"
+    path.write_text("abcdefghijklmnopqrstuvwxyz" * 8, encoding="utf-8")
+    dataset = build_dataset(
+        path=path,
+        seq_len=16,
+        vocab_size=256,
+        random_length=16,
+        packed=True,
+        retrieval_mix_probability=1.0,
+        retrieval_num_anchors=3,
+    )
+    sample = dataset[0]
+    assert sample.shape == (17,)
+    assert sample.dtype == torch.long

@@ -41,6 +41,8 @@ def main() -> None:
         cfg["data"]["vocab_size"],
         cfg["data"]["train_length"],
         packed=True,
+        retrieval_mix_probability=float(cfg["data"].get("retrieval_mix_probability", 0.0)),
+        retrieval_num_anchors=int(cfg["data"].get("retrieval_num_anchors", 3)),
     )
     val_ds = build_dataset(
         cfg["data"]["val_text_path"],
