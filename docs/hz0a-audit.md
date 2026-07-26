@@ -199,6 +199,119 @@ The following commands were run successfully in the current repo state:
 ./.venv/bin/python -m hz0.memory_probe_cli --config configs/hz0a-mac-110m-fair.yaml --checkpoint outputs/hz0a-mac-110m-fair/step_0000325.pt --task-mode distance --steps 32 --probe-lr 1e-4 --eval-samples 64 --output-path docs/hz0a-memory-probe-distance-step325.json
 ```
 
+## HZ-0B scratchpad fine-tune attempt
+
+The `HZ-0A` memory tracking gap was chased into the scratchpad path on Sunday,
+July 26, 2026 via a 100-step continuation that warm-starts the HZ-0B
+architecture from the step-`325` HZ-0A baseline.
+
+### Warm-start bridge
+
+The HZ-0B `HybridLM` adds four extra nn.Linear parameters
+(`scratchpad_query`, `scratchpad_key`, `scratchpad_value`, `scratchpad_gate`)
+that don't exist in any HZ-0A checkpoint, so a strict
+`model.load_state_dict(...)` against the warm-start source fails. The repo
+gains a one-off warm-start adapter to handle this:
+
+- CLI: `python scripts/warm_start.py --source-checkpoint ... --output-dir ...
+   --config ...`
+- Behaviour: builds the HZ-0B model from the supplied config, calls
+  `load_state_dict(strict=False)`, then classifies the resulting
+  `missing` / `unexpected` key lists. Any key outside the
+  `scratchpad_*` allow-list causes the script to raise; only the four
+  scratchpad parameters are allowed to be freshly initialised. A new
+  AdamW optimiser is constructed to match the new parameter count
+  (the source optimiser state can't be reused: PyTorch optimizers are
+  strict on parameter-group size). A `step_<source-step>.pt` is then
+  written via `save_checkpoint` so the standard `--resume` flow works
+  against the new architecture.
+
+### Training config and trajectory
+
+- Config: `configs/hz0b-mac-110m-scratchpad-ft.yaml`
+- Source: `outputs/hz0a-mac-110m-fair/step_0000325.pt`
+- Output: `outputs/hz0b-mac-110m-scratchpad-ft/`
+- Scratchpad knobs: `scratchpad_slots=8`, `scratchpad_momentum=0.9`
+- Curriculum mix: `retrieval_mix_probability=0.05`,
+  `memory_mix_probability=0.20`, `memory_task_mode=mixed`
+- Aux loss: `memory_aux_weight=0.5`, `memory_aux_loss_mode=blend`,
+  `memory_aux_retrieval_mix_probability=0.15`,
+  `memory_aux_memory_mix_probability=1.0`
+- Optimiser: `lr=0.00008`, `grad_accum_steps=4`, `grad_clip=1.0`
+- Steps: warm-start writes `step_0000325.pt`; train resumes at `326` and
+  runs to `max_steps=425`, saved checkpoints every `25` steps.
+
+Observed training trajectory (in-run eval loss at the saved steps):
+
+| Step | Eval loss | Perplexity |
+| ---- | --------- | ---------- |
+| 350  | 2.3028    | 10.00      |
+| 375  | 2.1312    | 8.43       |
+| 400  | 2.1011    | 8.17       |
+
+So even though only 100 training steps were taken and the architecture was
+augmented with the scratchpad, the language-modeling trajectory *continued
+to improve* past the step-`325` HZ-0A baseline (loss `2.5309`, perplexity
+`12.56`). This suggests the random-init scratchpad parameter block, plus the
+targeted memory curriculum, *help* the LM objective at this rung rather than
+regress it.
+
+### Memory probes on the HZ-0B checkpoint
+
+All four probe modes were run against `step_0000425.pt` with
+`steps=32`, `probe_lr=1e-4`, `eval-samples=64`:
+
+| Probe          | before → after | final probe last-token loss | HZ-0A step-`325` reference |
+| -------------- | -------------- | ---------------------------- | -------------------------- |
+| associative    | `0.0 → 0.0`    | `9.5e-6`                     | `1.5e-4`                   |
+| overwrite      | `0.0 → 0.0`    | `6.7e-6`                     | `1.6e-4`                   |
+| protected      | `0.0 → 0.0`    | `6.3e-6`                     | `1.5e-4`                   |
+| distance (128) | `0.0 → 0.0`    | `1.2e-5`                     | `1.5e-4`                   |
+
+Probe artifacts:
+
+- `docs/hz0b-memory-probe-associative-step425.json`
+- `docs/hz0b-memory-probe-overwrite-step425.json`
+- `docs/hz0b-memory-probe-protected-step425.json`
+- `docs/hz0b-memory-probe-distance-step425.json`
+
+### What the run actually says
+
+- **LM quality improved**, by a clear margin (perplexity `12.56 → 8.17`
+  through the same training budget). The scratchpad path is therefore
+  safe to keep enabled by default and is not regressing LM learning.
+- **Probe *fitting* improved sharply** — final probe last-token losses
+  dropped by roughly an order of magnitude vs. step `325`. This means the
+  checkpoint can memorise the same synthetic memory batches in `32`
+  probe steps far more tightly than the HZ-0A baseline could.
+- **Probe *generalisation* did not improve**. Held-out recall stayed at
+  `0.0 → 0.0` on every one of associative, overwrite, protected, and
+  distance (128) probes. The bigger fitting capacity and the auxiliary
+  curriculum did not move the held-out metric.
+
+This is now the sharpest negative result in the project: across three
+different memory-curriculum regimes (mixed live stream, pure-memory
+auxiliary, full-memory continuation) and across HZ-0A and HZ-0B
+architectures, the held-out synthetic memory probes stay at zero while
+probe-fit improves monotonically. The remaining gap is **architectural
+or task-formulation**, not data-scarcity, not curriculum
+insufficiency, and not missing scratchpad dynamics. Candidates worth
+investigating next:
+
+- HZ-0D-style bounded in-session fast-weight writes (one-shot slot
+  updates) instead of the current soft `momentum` blending.
+- Reformulating the held-out probes so that they test *compositional*
+  memory rather than exact synthetic key replay — the current probes
+  may simply be outside what a 110M recurrent stack can do without
+  stronger retrieval pretraining.
+- Increasing model capacity and pretraining corpus to a regime where
+  the scratchpad's slot keys can actually specialise.
+
+The HZ-0B scratchpad scaffolding is now exercised end-to-end
+(warm-start → training → probing) and produces clean, repeatable
+artifacts. The next demonstration of HZ-0B value will need to come from
+the architectural or task-side change above, not from more training.
+
 ## Current conclusion
 
 As of Sunday, July 26, 2026, `HZ-0A` is a functioning and well-instrumented

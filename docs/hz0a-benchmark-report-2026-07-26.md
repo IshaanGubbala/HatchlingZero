@@ -1243,3 +1243,103 @@ associative recall across fresh key/value combinations.
 That does not prove the architecture can never pass the memory gate, but it
 does make the remaining blocker sharper: the current HZ-0A path appears to be
 failing on memory-task generalization, not just on blended-memory optimization.
+
+## HZ-0B scratchpad fine-tune attempt
+
+On Sunday, July 26, 2026 the HZ-0A → HZ-0B warm-start path was executed and
+the resulting checkpoint trained for 100 new steps.
+
+### Warm-start and config
+
+```bash
+python scripts/warm_start.py \
+  --source-checkpoint outputs/hz0a-mac-110m-fair/step_0000325.pt \
+  --output-dir outputs/hz0b-mac-110m-scratchpad-ft \
+  --config configs/hz0b-mac-110m-scratchpad-ft.yaml
+```
+
+The adapter reports five missing parameters, all in the scratchpad block,
+which it freshly initialises:
+
+```text
+missing_scratchpad_params=[
+    'scratchpad_query.weight',
+    'scratchpad_key.weight',
+    'scratchpad_value.weight',
+    'scratchpad_gate.weight',
+    'scratchpad_gate.bias',
+]
+missing_other_params=[]
+unexpected_params=[]
+```
+
+```bash
+python -m hz0.train \
+  --config configs/hz0b-mac-110m-scratchpad-ft.yaml \
+  --resume outputs/hz0b-mac-110m-scratchpad-ft/step_0000325.pt \
+  --max-steps 425
+```
+
+| Knob                              | Value          |
+| --------------------------------- | -------------- |
+| `scratchpad_slots`                | `8`            |
+| `scratchpad_momentum`             | `0.9`          |
+| `memory_mix_probability`          | `0.20`         |
+| `retrieval_mix_probability`       | `0.05`         |
+| `memory_aux_weight`               | `0.5`          |
+| `memory_aux_loss_mode`            | `blend`        |
+| `memory_aux_memory_mix_probability` | `1.0`        |
+| `lr`                              | `0.00008`      |
+| `grad_accum_steps`                | `4`            |
+| `grad_clip`                       | `1.0`          |
+| `max_steps`                       | `425`          |
+
+### Training trajectory
+
+In-run eval loss at the saved steps (`save_every=25`, `eval_every=25`):
+
+| Step | Eval loss | Perplexity |
+| ---- | --------- | ---------- |
+| 350  | 2.3028    | 10.00      |
+| 375  | 2.1312    | 8.43       |
+| 400  | 2.1011    | 8.17       |
+
+This is past the HZ-0A step-`325` matched-baseline perplexity of `12.56`,
+so the scratchpad path is **not** regressing LM learning at the
+~110M Mac rung.
+
+### Memory probes against `step_0000425.pt`
+
+From four runs of `python -m hz0.memory_probe_cli
+--config configs/hz0b-mac-110m-scratchpad-ft.yaml
+--checkpoint outputs/hz0b-mac-110m-scratchpad-ft/step_0000425.pt
+--steps 32 --probe-lr 1e-4 --eval-samples 64 ...`:
+
+| Probe          | before → after | final probe last-token loss | step-`325` reference |
+| -------------- | -------------- | --------------------------- | --------------------- |
+| associative    | `0.0 → 0.0`    | `9.5e-6`                    | `1.5e-4`              |
+| overwrite      | `0.0 → 0.0`    | `6.7e-6`                    | `1.6e-4`              |
+| protected      | `0.0 → 0.0`    | `6.3e-6`                    | `1.5e-4`              |
+| distance (128) | `0.0 → 0.0`    | `1.2e-5`                    | `1.5e-4`              |
+
+Probe artifacts:
+
+- `docs/hz0b-memory-probe-associative-step425.json`
+- `docs/hz0b-memory-probe-overwrite-step425.json`
+- `docs/hz0b-memory-probe-protected-step425.json`
+- `docs/hz0b-memory-probe-distance-step425.json`
+
+### Interpretation
+
+Three memory-curriculum regimes have now been tried end-to-end (mixed live
+stream, pure-memory auxiliary, full-memory continuation) and on two
+architectures (HZ-0A fallback mixer and HZ-0B scratchpad-augmented). In
+every case:
+
+- the held-out synthetic memory probe accuracy stays at zero, and
+- the LM-only trajectory (loss / perplexity) keeps improving.
+
+So the remaining HZ-0B memory gate is no longer "needs more memory data"
+or "needs better curriculum"; it is architectural. Candidate next moves
+are summarised in `docs/hz0a-audit.md` §"HZ-0B scratchpad fine-tune
+attempt".

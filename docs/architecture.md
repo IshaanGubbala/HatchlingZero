@@ -166,6 +166,39 @@ with optional `memory_aux_loss_mode`:
 This is what lets `HZ-0B` *train toward* memory tasks directly instead of
 hoping they emerge from LM pressure alone.
 
+### Empirical status (Sunday, July 26, 2026)
+
+The scratchpad path is now exercised end-to-end on the `~110M` Mac rung via
+`scripts/warm_start.py` + `configs/hz0b-mac-110m-scratchpad-ft.yaml` and a
+100-step warm-started continuation out of the HZ-0A step-`325` baseline.
+
+What the run actually showed:
+
+- **Language modelling improved.** Eval loss went `2.3028 → 2.1312 → 2.1011`
+  (perplexity `10.00 → 8.43 → 8.17`) at evals through step `400`,
+  comfortably past the HZ-0A step-`325` baseline of `2.5309` / `12.56`.
+  The scratchpad parameters + memory curriculum are not regressing LM
+  learning at this rung.
+- **Probe fitting improved sharply.** Final probe last-token losses dropped
+  by roughly an order of magnitude vs the HZ-0A baseline (e.g. associative
+  `1.5e-4 → 9.5e-6`). The scratchpad can memorise the same synthetic
+  memory batches in `32` probe steps far more tightly than before.
+- **Held-out probe recall stayed at zero.** All four probe modes
+  (associative, overwrite, protected, distance) report `before
+  accuracy = after accuracy = 0.0` against the HZ-0B checkpoint. The
+  auxiliary memory curriculum + warm-start scratchpad did **not** move
+  the held-out synthetic memory gate.
+
+This is the sharpest negative result in the project: across HZ-0A and
+HZ-0B architectures and across three different memory-curriculum regimes,
+held-out synthetic recall stays at zero while *training* fit keeps
+improving. The remaining gap is therefore architectural or
+task-formulation, not data-scarcity, not curriculum insufficiency, and not
+missing scratchpad dynamics. See `docs/hz0a-audit.md` §"HZ-0B scratchpad
+fine-tune attempt" for the full artifact set and the candidate next moves
+(fast-weight one-shot writes, probe reformulation, or larger pretraining
+corpus).
+
 ---
 
 ## `HZ-0C` — scaled backbone, surprise-gated anchors

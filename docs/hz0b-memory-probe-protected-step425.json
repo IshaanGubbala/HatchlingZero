@@ -1,0 +1,21 @@
+{
+  "date": "2026-07-26",
+  "checkpoint": "outputs/hz0b-mac-110m-scratchpad-ft/step_0000425.pt",
+  "task_mode": "protected",
+  "probe_steps": 32,
+  "probe_lr": 0.0001,
+  "batch_size": 1,
+  "grad_accum_steps": 1,
+  "elapsed_seconds": 8.779942957975436,
+  "metric_name": "protected_memory_accuracy",
+  "before": {
+    "protected_memory_accuracy": 0.0,
+    "protected_memory_samples": 64.0
+  },
+  "after": {
+    "protected_memory_accuracy": 0.0,
+    "protected_memory_samples": 64.0
+  },
+  "delta": 0.0,
+  "final_last_token_loss": 6.318072337307967e-06
+}
