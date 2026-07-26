@@ -1112,3 +1112,30 @@ milestone. The remaining path to that milestone is:
 6. keep pushing the upstream Mac backend experiment beyond import-only status
 7. benchmark with stronger long-context evidence on Mac
 8. optimize or replace the fallback recurrent mixer, since profiling shows it is the dominant decode bottleneck
+
+## Decision-gate snapshot
+
+The repo now includes a rerunnable revised-plan gate snapshot at:
+
+- `docs/hz0a-gate-fair.json`
+
+It was generated on Sunday, July 26, 2026 from:
+
+```bash
+python -m hz0.hz0a_gate_cli \
+  --scorecard docs/hz0a-mac-scorecard-fair.json \
+  --reference-manifest docs/experiment-manifests/HZ-36M-best.json \
+  --reference-loss 2.8698 \
+  --required-transformer-step 300 \
+  --output-path docs/hz0a-gate-fair.json
+```
+
+That gate records:
+
+- `beats_36m_at_fair_tokens_per_param`: `incomplete`
+- `maintains_transformer_advantage_through_horizon`: `incomplete`
+- `decode_gap_reduced`: `pass`
+- `shows_memory_task_advantage`: `fail`
+
+So the current evidence supports continued controlled iteration, but not a
+claim that `HZ-0A` is finished.

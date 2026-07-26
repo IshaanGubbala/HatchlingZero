@@ -1,0 +1,76 @@
+{
+  "reference": {
+    "checkpoint_step": 100,
+    "parameter_count": 36073344,
+    "tokens_per_optimizer_update": 512,
+    "tokens_per_parameter": 0.0014193305727353694
+  },
+  "candidate": {
+    "available_steps": [
+      25,
+      50,
+      75,
+      100,
+      125,
+      150
+    ],
+    "matched_steps": [
+      25,
+      50,
+      75,
+      100,
+      125,
+      150
+    ],
+    "estimated_parameter_count": 109899648.0
+  },
+  "gates": {
+    "beats_36m_at_fair_tokens_per_param": {
+      "status": "incomplete",
+      "summary": "No hybrid checkpoint has yet matched the 36M reference tokens-per-parameter budget.",
+      "reference_checkpoint_step": 100,
+      "reference_tokens_per_parameter": 0.0014193305727353694,
+      "max_hybrid_tokens_per_parameter": 0.0006988193447171005
+    },
+    "maintains_transformer_advantage_through_horizon": {
+      "status": "incomplete",
+      "summary": "Matched hybrid vs transformer continuation has not yet reached the required step horizon.",
+      "required_step": 300,
+      "available_steps": [
+        25,
+        50,
+        75,
+        100,
+        125,
+        150
+      ]
+    },
+    "decode_gap_reduced": {
+      "status": "pass",
+      "summary": "The recurrent candidate has reduced the decode gap below the configured threshold.",
+      "best_step": 125,
+      "best_decode_ratio": 0.5757414077463426,
+      "min_decode_ratio": 0.5,
+      "ratios": {
+        "25": 0.5490249055626433,
+        "50": 0.537535245957786,
+        "75": 0.5340435845183238,
+        "100": 0.5598051525747767,
+        "125": 0.5757414077463426,
+        "150": 0.5680868194631871
+      }
+    },
+    "shows_memory_task_advantage": {
+      "status": "fail",
+      "summary": "The hybrid still lacks a meaningful memory-task advantage on the tracked metrics.",
+      "step": 25,
+      "metric": "multi_anchor_anchor_set_accuracy",
+      "hybrid_value": 0.03125,
+      "baseline_value": 0.0,
+      "advantage": 0.03125,
+      "memory_metric_threshold": 0.1,
+      "memory_advantage_delta": 0.05
+    }
+  },
+  "ready_to_continue_scaling": true
+}

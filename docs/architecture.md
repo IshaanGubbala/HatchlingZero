@@ -1,125 +1,282 @@
 # Architecture Notes
 
-## HZ-0A
+> Per-stage design notes for the `HZ-0A` → `HZ-0E` research plan, written to
+> complement the top-level `README.md`. Where the README states **what** the
+> scaffold is, this document explains **how** each stage is wired up.
 
-The development plan recommends a recurrent-first hybrid with sparse anchor
-attention, dense FFNs, and no online weight updates.
+The runtime scaffold is structured around the same five stage labels as the
+plan, plus the same cross-cutting phases. Each stage is independently
+runnable so we can graduate the design without rewriting what already works.
 
-This scaffold implements exactly that shape:
+---
 
-1. `RecurrentMixerBlock`, local `GDN2ReferenceMixerBlock`, or optional `UpstreamGDN2Mixer`
-2. optional `AnchorAttentionBlock`
-3. `FeedForward`
+## `HZ-0A` — recurrent-first hybrid backbone
 
-The recurrent mixer is a simple gated state update rather than a paper-faithful
-Gated DeltaNet-2 or Mamba-3 kernel. That is deliberate:
+The foundation stage. The development plan calls for **mostly recurrent
+sequence mixing with sparse anchor attention, dense FFNs, and no online weight
+updates**. The scaffold implements exactly that shape.
 
-- it keeps the code auditable
-- it runs on plain PyTorch
-- it gives us stable extension points for future kernel swaps
+### Block composition
 
-The repository now includes exactly that extension point. `HybridLM` accepts a
-`mixer_backend` selector:
+Each `HybridLayer` is a small stack of three modules run in series:
 
-- `fallback`: always use the local PyTorch recurrent block
-- `gdn2_ref`: use the local PyTorch reference block with separated `decay`,
-  `erase`, and `write` gates
-- `gdn2`: try the vendored NVIDIA `GatedDeltaNet-2` backend and fail clearly if
-  its runtime dependencies are missing
-- `auto`: use `gdn2` when available, otherwise fall back automatically
+| Module                  | Role                                                                 |
+| ----------------------- | -------------------------------------------------------------------- |
+| `RecurrentMixerBlock` / `GDN2ReferenceMixerBlock` / `UpstreamGDN2Mixer` | Linear-time sequence mixing.  Pluggable per config. |
+| `AnchorAttentionBlock`  | Periodic causal self-attention. Inserted every `attention_every` layers. |
+| `FeedForward`           | Dense GLU-style FFN with RMSNorm pre- and residual post-connection. |
 
-The repository also now includes:
+A final `RMSNorm` precedes the LM head. Optional residual adapters can sit
+between blocks via config; nothing else changes the per-layer topology.
 
-- a small auditable reference recurrence in `src/hz0/model/gdn2_reference.py`
-  with explicitly separated `decay`, `erase`, and `write` gates
-- a selectable local model backend in `GDN2ReferenceMixerBlock` that applies
-  those same separated gate roles inside the language-model mixer
+### Mixer backends
 
-The local reference backend is intended for numerical checks, streaming/full-pass
-equivalence tests, and early Mac-native model experiments. It is not yet a
-claim of parity with the final optimized Metal kernel path.
+`HybridLM` accepts a `mixer_backend` selector, with `build_mixer` resolving it
+to a concrete nn.Module:
+
+| Backend     | Implementation                                                                      |
+| ----------- | ----------------------------------------------------------------------------------- |
+| `fallback`  | `RecurrentMixerBlock`. A gated `state = a·state_{t-1} + b` recurrence with `RMSNorm`.  |
+| `gdn2_ref`  | `GDN2ReferenceMixerBlock`. Same recurrence, but the gate is split into **decay**, **erase**, and **write** for closer parity with the revised HZ-0A target. |
+| `gdn2`      | `UpstreamGDN2Mixer` backed by the vendored NVIDIA `GatedDeltaNet-2` kernel.  |
+| `auto`      | Prefers `gdn2` when available on the host, otherwise transparently falls back to `fallback`. |
+
+The `gdn2_ref` path is the one most likely to match what we want locally
+on Mac. It's intentionally still a dense PyTorch reference — easy to audit,
+easy to compare to the upstream math, and meant to be replaced later by a
+dedicated MLX/Metal kernel.
+
+### Comparison architecture
+
+Every hybrid claim has to be paired with a **same-shape transformer
+baseline**. That's the point of `src/hz0/model/transformer_lm.py` and the
+`baseline` section of each config. The default comparison contract:
+
+- Same `vocab_size`, `n_layers`, `d_model`, `d_ff` if possible.
+- Same packed-byte data pipeline.
+- Same training schedule (steps, batch size, optimiser, warmup).
+- Same eval harness.
+
+This gives us `compare_cli` outputs that read as a real head-to-head rather
+than two unrelated runs.
+
+### Data and training pipeline
+
+- **Tokenizer**: byte-level encode/decode, no extra dependency.
+- **Dataset**: `PackedTextTokenDataset` produces pre-packed fixed-length
+  sequences so every sample is a real LM target.
+- **Curriculum mix**: configs support `retrieval_mix_probability` and
+  `memory_mix_probability` so retrieval and memory probes can be blended
+  into the live training stream.
+- **Memory auxiliary stream**: dedicated `memory_aux_*` knobs stream a
+  secondary batch of synthetic memory examples into a weighted auxiliary
+  loss (`memory_aux_weight`, `memory_aux_last_token_weight`,
+  `memory_aux_loss_mode` in `{blend, full, last_token_only}`).
+- **Optimiser**: configurable via YAML (`cfg["train"]`), with optional gradient
+  accumulation (`grad_accum_steps`) and a bounded learning rate.
+
+### Evaluation harness
+
+The eval suite is designed to cover four regimes:
+
+| Regime            | Probe                                                          |
+| ----------------- | -------------------------------------------------------------- |
+| Language modelling | Loss, perplexity, byte-level sampling                          |
+| Decode throughput | `tokens / second` at varied context lengths                    |
+| Long-context      | Copy retrieval, multi-anchor retrieval, associative recall     |
+| Memory            | Overwrite, protected-memory, recall-distance probes            |
+
+The same harness drives `eval_cli`, `benchmark_cli`, and `compare_cli`, so
+hybrid and baseline always face the same battery.
+
+### CUDA handoff
+
+When the upstream kernel stack (Triton + FLA + `flash_attn`) is available,
+the `gdn2` backend is selected automatically via `mixer_backend: auto`. When
+it isn't, the model still trains with the local mixer so iteration never
+blocks on the kernel side.
+
+For the kernel side we now ship:
+
+- `docker/Dockerfile.hz0a-cuda` — CUDA image with the dependencies the
+  vendored GatedDeltaNet-2 stack expects.
+- `scripts/hz0a_cuda_smoke.sh` — verified entry point inside that image.
+
+The `triton-msl` experiment documented in `docs/triton-msl-experiment.md`
+extends that reach onto macOS at the import surface, even though full kernel
+execution on MPS isn't there yet.
+
+---
+
+## `HZ-0B` — session memory lane
+
+`HZ-0B` adds a **session-scoped scratchpad** on top of the `HZ-0A`
+backbone. Each session owns bounded slots that can be reset, read against,
+and written to — and importantly, the scratchpad is wired into training
+through auxiliary objectives so it can be shaped toward useful recall
+without abandoning language modelling.
+
+### Scratchpad design
+
+`SessionScratchpad` (`src/hz0/model/session_scratchpad.py`) is small and
+deliberately auditable:
+
+- `reset(batch_size, device, dtype)` — explicit per-session state allocation.
+- `read(query, state)` — softmax attention over slots, returns a readout.
+- `write(key, value, state)` — slot update with `momentum` blending
+  (`next_state = momentum · state + (1 − momentum) · update`), clamped to
+  `[-1, 1]`.
+- `step(...)` — combined read + write + optional `ScratchpadLogEntry` for
+  read / write weights and state norms.
+
+`momentum` in `[0, 1)` is the gradual-adoption knob. Higher values make
+slot updates stickier; lower values make the scratchpad more reactive to
+new input.
+
+### Backbone integration
+
+`HybridLM` exposes `scratchpad_slots` and `scratchpad_momentum`. When
+`scratchpad_slots > 0`, after the shared backbone runs the model:
+
+1. runs a per-token `read`/`write` adapter against the scratchpad state
+2. gates the scratchpad readout back into the residual stream via a
+   learned sigmoid gate (`scratchpad_gate`)
+3. keeps a `ScratchpadLogEntry` per token when diagnostics are wanted
+
+The `HZ-0A` backbone itself stays unchanged. `HZ-0B` lives above it.
+
+### Memory-auxiliary training objectives
+
+Rather than only hoping the scratchpad learns useful recall from the live
+LM stream, the trainer can pull a dedicated auxiliary batch of synthetic
+memory examples and combine its cross-entropy loss with the main loss:
+
+```text
+loss = loss_lm + memory_aux_weight · loss_aux
+```
+
+with optional `memory_aux_loss_mode`:
+
+| Mode              | Behaviour                                                       |
+| ----------------- | --------------------------------------------------------------- |
+| `blend`           | Average `loss_full` over the batch, plus weighted final-token loss. |
+| `full`            | Mean cross-entropy across the entire batch.                     |
+| `last_token_only` | Cross-entropy on only the final query→answer token.             |
+
+This is what lets `HZ-0B` *train toward* memory tasks directly instead of
+hoping they emerge from LM pressure alone.
+
+---
+
+## `HZ-0C` — scaled backbone, surprise-gated anchors
+
+Push the recurrent backbone up toward plan-scale and replace the fixed
+periodic anchor schedule with **triggered** anchor attention. Anchors fire
+when the recurring state signals something unexpected rather than on a
+wall-clock periodic schedule.
+
+The plan calls for:
+
+- larger model sizes (target band `120M – 180M`)
+- a long-context eval harness that anchors remain meaningful in
+- anchor-scheduling logic that takes a surprise signal as input
+
+The current scaffold already supports the larger configs and the long-context
+probe suite; the surprise-gating policy is the next thing to land.
+
+---
+
+## `HZ-0D` — bounded fast-weight updates
+
+`HZ-0D` introduces a small, isolated fast-weight store that's writable
+inside a session, with clear session isolation and snapshot / rollback
+semantics so a bad update can be reverted.
+
+- Fast-weight subset is **bounded** — only a slice of the parameters is
+  eligible for in-session updates.
+- **Session isolation** — fast weights tied to a session should not leak
+  across sessions.
+- **Snapshot / rollback** — checkpoints that can be reverted to, turning
+  fast weights from a write-once surface into a reversible one.
+
+This stage also marks the boundary between short-term scratchpad state
+(`HZ-0B`) and longer-term fast weights — they are different timescale
+memories with different update rules.
+
+---
+
+## `HZ-0E` — micro-MoE FFNs and sparse routing
+
+Dense FFNs are replaced with tiny MoE experts and a learned router. Sparse
+routing experiments move into the foreground:
+
+- expert selection / load balancing
+- expert-parallel scheduling at small batch sizes
+- kernel shape trade-offs on Mac (MPS) — when does a sparse MoE beat a
+  dense FFN in real wall-clock terms, and when does it not?
+
+This is the stage where the **systems** picture (decode throughput,
+context-length scaling, Mac vs Linux/CUDA) starts to matter as much as
+quality — because conditional compute changes the cost model at every
+layer.
+
+---
+
+## Cross-cutting phases
+
+These run alongside the lettered stages (we currently track phases `0`,
+`1`, `2`, `3`, `4`, and `7` — phases `5` and `6` are reserved for later
+work):
+
+| Phase  | Focus                                                                                       |
+| -----  | ------------------------------------------------------------------------------------------- |
+| `P0`   | Configs, experiment manifests, deterministic runs                                           |
+| `P1`   | Parameter-matched transformer control, fair comparisons                                     |
+| `P2`   | Hyperparameter sweeps and structured ablation grid                                          |
+| `P3`   | Standalone NumPy / PyTorch reference implementation of the Gated DeltaNet-2 recurrence       |
+| `P4`   | Native MLX / Metal / CUDA kernel for the recurrence                                         |
+| `P7`   | Full eval suite: loss, perplexity, decode, full retrieval & memory probes                   |
+
+---
 
 ## Runtime reality
 
-The direct GDN-2 layer can be imported independently from the rest of the
-vendored training stack, but only when the following dependency chain is
+The realised `GatedDeltaNet-2` kernel in `vendor/GatedDeltaNet-2/lit_gpt/`
+can be imported independently, but only when this dependency chain is
 satisfied:
 
 - Python 3.10+
 - `flash-linear-attention`
-- vendor-side Python packages such as `einops`
-- `triton`
+- `einops`
+- `triton` (Triton wheel or `triton-msl` shim on Apple Silicon)
 
-The `lit_gpt` package in the vendored repository imports a broader GPT stack in
-its `__init__.py`, including `flash_attn`. This repo bypasses that package-level
-import so we can target `lit_gpt/gdn2.py` directly instead of requiring the
-entire upstream stack just to check layer availability.
+The `lit_gpt` package in the vendored repository imports a broader GPT stack
+in its `__init__.py`, including `flash_attn`. This repo bypasses that
+package-level import so we can target `lit_gpt/gdn2.py` directly instead of
+requiring the full upstream stack just to check layer availability.
+
+`python -m hz0.backend_check` is the canonical way to see what the current
+host can actually use, and `python -m hz0.env_check` reports the
+surrounding runtime.
+
+---
 
 ## Recommended next integration
 
-The highest-value next step is to replace `RecurrentMixerBlock` with one of:
+The highest-value next moves, in order:
 
-- an FLA-backed Gated DeltaNet or Gated DeltaNet-2 layer
-- an official `state-spaces/mamba` block once the exact target variant is fixed
+1. **Land `HZ-0B` memory-auxiliary fine-tunes** in the `HZ-0B` config
+   space and pair them with the new memory probe suite — these are the
+   experiments that will tell us whether `HZ-0B` is converging on actual
+   recall.
+2. **Push the upstream Mac backend beyond import-only status** by either
+   resolving the `triton-msl` driver issue or by accepting that
+   `gdn2_ref` is the working local reference for now and investing in a
+   real MLX/Metal kernel for it.
+3. **Replace the periodic anchor schedule with surprise-gating** as the
+   prerequisite for `HZ-0C`.
+4. **Pick the fast-weight and MoE configurations** to layer on the
+   `HZ-0B` scratchpad so `HZ-0D` and `HZ-0E` have something to graft onto.
 
-That keeps the rest of the scaffold intact while moving the core mixer closer to
-the upstream research stack recommended by the development plan.
-
-## What HZ-0A now covers
-
-The local `HZ-0A` milestone in this repo includes:
-
-- hybrid recurrent-plus-anchor-attention language model
-- byte-level training and evaluation pipeline
-- checkpoint save/resume
-- sample generation
-- synthetic copy-retrieval evaluation
-- decode-speed benchmarking
-
-This is enough to support local stage-A iteration and regression checks even
-without the full CUDA kernel path.
-
-## Planned upgrades
-
-### HZ-0B
-
-- session memory slots
-- resettable per-session state
-- read and write logging
-
-Initial HZ-0B groundwork now lives in `src/hz0/model/session_scratchpad.py`.
-It provides:
-
-- bounded session-local slots
-- explicit `reset`
-- attention-style `read`
-- bounded `write`
-- optional read/write logging for later diagnostics
-
-The scratchpad now also has an opt-in integration point in
-`src/hz0/model/hybrid_lm.py` through `scratchpad_slots` and
-`scratchpad_momentum`. When enabled, the hybrid backbone stays unchanged and a
-small per-token scratchpad read/write adapter is applied after the shared
-backbone state.
-
-This remains an experimental HZ-0B branch rather than the default training
-path. The immediate goal is to validate session isolation and update mechanics
-before comparing scratchpad-assisted runs against the clean HZ-0A baseline.
-
-### HZ-0C
-
-- larger model sizes
-- long-context eval harness
-- surprise-triggered anchor attention
-
-### HZ-0D
-
-- tiny bounded fast-weight subset
-- session isolation
-- rollback snapshots
-
-### HZ-0E
-
-- micro-MoE FFNs
-- sparse routing experiments
-- expert parallel runtime work
+Each step keeps the rest of the scaffold intact; nothing in this stage
+list requires throwing the existing work away.
