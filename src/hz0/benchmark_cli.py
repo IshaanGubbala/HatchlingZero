@@ -8,7 +8,7 @@ import torch
 
 from hz0.checkpoint import load_checkpoint
 from hz0.config import Config
-from hz0.eval import benchmark_decode_latency, evaluate_copy_retrieval, evaluate_multi_anchor_retrieval
+from hz0.eval import benchmark_decode_by_context, benchmark_decode_latency, evaluate_copy_retrieval, evaluate_multi_anchor_retrieval
 from hz0.model import build_model
 from hz0.utils import resolve_dtype
 
@@ -19,6 +19,7 @@ def main() -> None:
     parser.add_argument("--checkpoint", type=Path, default=None)
     parser.add_argument("--decode-steps", type=int, default=32)
     parser.add_argument("--retrieval-samples", type=int, default=32)
+    parser.add_argument("--context-lengths", type=str, default="")
     parser.add_argument("--model-key", type=str, default="model")
     args = parser.parse_args()
 
@@ -60,6 +61,17 @@ def main() -> None:
             num_samples=args.retrieval_samples,
         )
     )
+    if args.context_lengths.strip():
+        context_lengths = [int(item) for item in args.context_lengths.split(",") if item.strip()]
+        metrics.update(
+            benchmark_decode_by_context(
+                model=model,
+                device=device,
+                context_lengths=context_lengths,
+                steps=args.decode_steps,
+                vocab_size=cfg["data"]["vocab_size"],
+            )
+        )
     print(json.dumps(metrics, indent=2))
 
 

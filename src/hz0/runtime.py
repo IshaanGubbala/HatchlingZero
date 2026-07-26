@@ -19,3 +19,13 @@ def maybe_sync_device(device: torch.device) -> None:
         return
     if device.type == "mps" and hasattr(torch, "mps") and torch.backends.mps.is_available():
         torch.mps.synchronize()
+
+
+def current_memory_bytes(device: torch.device) -> int:
+    if device.type == "cuda" and torch.cuda.is_available():
+        return int(torch.cuda.memory_allocated(device))
+    if device.type == "mps" and hasattr(torch, "mps") and torch.backends.mps.is_available():
+        current_allocated = getattr(torch.mps, "current_allocated_memory", None)
+        if callable(current_allocated):
+            return int(current_allocated())
+    return 0

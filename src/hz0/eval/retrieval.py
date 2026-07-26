@@ -110,3 +110,25 @@ def benchmark_decode_latency(
         "elapsed_seconds": elapsed,
         "tokens_per_second": tokens_per_second,
     }
+
+
+@torch.no_grad()
+def benchmark_decode_by_context(
+    model: torch.nn.Module,
+    device: torch.device,
+    context_lengths: list[int],
+    steps: int,
+    vocab_size: int,
+) -> dict[str, float]:
+    metrics: dict[str, float] = {}
+    for prompt_len in context_lengths:
+        result = benchmark_decode_latency(
+            model=model,
+            device=device,
+            prompt_len=prompt_len,
+            steps=steps,
+            vocab_size=vocab_size,
+        )
+        key = f"context_{prompt_len}_tokens_per_second"
+        metrics[key] = result["tokens_per_second"]
+    return metrics

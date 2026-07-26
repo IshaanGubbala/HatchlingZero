@@ -14,7 +14,7 @@ from hz0.data import build_dataset
 from hz0.eval import benchmark_decode_latency, evaluate_copy_retrieval, evaluate_language_model, evaluate_multi_anchor_retrieval
 from hz0.generation import greedy_generate
 from hz0.model import build_model
-from hz0.runtime import autocast_context
+from hz0.runtime import autocast_context, current_memory_bytes
 from hz0.tokenizer import ByteTokenizer
 from hz0.utils import resolve_dtype, set_seed
 
@@ -101,6 +101,9 @@ def main() -> None:
     step = start_step
     running_tokens = 0
     running_start = time.perf_counter()
+    train_start = time.perf_counter()
+    total_tokens_seen = start_step * cfg["data"]["batch_size"] * cfg["data"]["seq_len"] * grad_accum_steps
+    peak_memory_bytes = current_memory_bytes(device)
     train_iter = iter(train_loader)
     while step < max_steps:
         optimizer.zero_grad(set_to_none=True)
@@ -123,15 +126,25 @@ def main() -> None:
                 loss = loss / grad_accum_steps
             loss.backward()
             running_tokens += x.numel()
+            total_tokens_seen += x.numel()
             loss_value = loss.item() * grad_accum_steps
 
-        torch.nn.utils.clip_grad_norm_(model.parameters(), cfg["optim"]["grad_clip"])
+        grad_norm = float(torch.nn.utils.clip_grad_norm_(model.parameters(), cfg["optim"]["grad_clip"]).item())
         optimizer.step()
+        peak_memory_bytes = max(peak_memory_bytes, current_memory_bytes(device))
 
         if step % cfg["train"]["log_every"] == 0:
             elapsed = max(time.perf_counter() - running_start, 1e-8)
             train_toks = running_tokens / elapsed
-            print(f"step={step} loss={loss_value:.4f} train_tokens_per_second={train_toks:.2f}")
+            wall_clock = time.perf_counter() - train_start
+            print(
+                f"step={step} loss={loss_value:.4f} "
+                f"train_tokens_per_second={train_toks:.2f} "
+                f"tokens_seen={total_tokens_seen} "
+                f"grad_norm={grad_norm:.4f} "
+                f"wall_clock_seconds={wall_clock:.2f} "
+                f"peak_memory_bytes={peak_memory_bytes}"
+            )
             running_tokens = 0
             running_start = time.perf_counter()
 
@@ -163,6 +176,14 @@ def main() -> None:
                     steps=8,
                     vocab_size=cfg["data"]["vocab_size"],
                 )
+            )
+            metrics.update(
+                {
+                    "tokens_seen": float(total_tokens_seen),
+                    "grad_norm": grad_norm,
+                    "wall_clock_seconds": time.perf_counter() - train_start,
+                    "peak_memory_bytes": float(peak_memory_bytes),
+                }
             )
             print(
                 "eval "

@@ -269,6 +269,13 @@ Standalone benchmark from `python -m hz0.benchmark_cli --config configs/hz0a-mac
 - multi-anchor retrieval accuracy: `0.0000`
 - multi-anchor anchor-set accuracy: `0.0000`
 
+Context-length decode sweep from `python -m hz0.benchmark_cli --config configs/hz0a-mac-110m-tuned.yaml --checkpoint outputs/hz0a-mac-110m-tuned/latest.pt --decode-steps 32 --retrieval-samples 64 --context-lengths 64,128,256,512`
+
+- context `64`: `73.38 tok/s`
+- context `128`: `43.98 tok/s`
+- context `256`: `24.15 tok/s`
+- context `512`: `11.93 tok/s`
+
 Sample from `python -m hz0.sample_cli --config configs/hz0a-mac-110m-tuned.yaml --checkpoint outputs/hz0a-mac-110m-tuned/latest.pt --prompt "HZ-0A " --max-new-tokens 32`
 
 ```text
@@ -291,6 +298,12 @@ From `python -m hz0.benchmark_cli --config configs/hz0a-mac-110m-tuned.yaml --ch
 - copy retrieval accuracy: `0.0000`
 - multi-anchor retrieval accuracy: `0.0000`
 - multi-anchor anchor-set accuracy: `0.03125`
+
+From `python -m hz0.benchmark_cli --config configs/hz0a-mac-110m-tuned.yaml --checkpoint outputs/hz0a-mac-110m-tuned/latest.pt --decode-steps 32 --retrieval-samples 256`
+
+- copy retrieval accuracy: `0.0078125`
+- multi-anchor retrieval accuracy: `0.0000`
+- multi-anchor anchor-set accuracy: `0.00390625`
 
 ### Retrieval-curriculum `~110M` Mac experiment
 
@@ -342,6 +355,65 @@ From `python -m hz0.compare_cli --config configs/hz0a-mac-110m-retrieval.yaml --
 - baseline multi-anchor anchor-set accuracy: `0.03125`
 - retrieval hybrid decode speed: `38.98 tok/s`
 - baseline decode speed: `208.13 tok/s`
+
+### Gentle late-stage retrieval fine-tune from the tuned `~110M` checkpoint
+
+To preserve the tuned checkpoint's LM gains while still nudging retrieval, a
+second Mac-only experiment resumed from the tuned step-100 checkpoint with a
+smaller retrieval mix and lower learning rate:
+
+From `python -m hz0.train --config configs/hz0a-mac-110m-retrieval-ft.yaml --resume outputs/hz0a-mac-110m-tuned/latest.pt --max-steps 125`
+
+- params: `109,899,648`
+- device: `mps`
+- optimization change: late-stage fine-tune with `retrieval_mix_probability=0.10`, `lr=0.0001`
+- training reached step `125`
+- observed resumed train throughput after warmup: roughly `494-501 tok/s`
+- final observed step-120 training loss: `2.3002`
+
+Standalone eval from `python -m hz0.eval_cli --config configs/hz0a-mac-110m-retrieval-ft.yaml --checkpoint outputs/hz0a-mac-110m-retrieval-ft/latest.pt`
+
+- loss: `2.7159`
+- perplexity: `15.12`
+- copy retrieval accuracy: `0.0000`
+- multi-anchor retrieval accuracy: `0.0000`
+- multi-anchor anchor-set accuracy: `0.03125`
+- decode speed: `36.07 tok/s`
+
+Standalone benchmark from `python -m hz0.benchmark_cli --config configs/hz0a-mac-110m-retrieval-ft.yaml --checkpoint outputs/hz0a-mac-110m-retrieval-ft/latest.pt --decode-steps 32 --retrieval-samples 64`
+
+- decode speed: `34.46 tok/s`
+- copy retrieval accuracy: `0.0000`
+- multi-anchor retrieval accuracy: `0.0000`
+- multi-anchor anchor-set accuracy: `0.0000`
+
+Larger-sample retrieval benchmark from `python -m hz0.benchmark_cli --config configs/hz0a-mac-110m-retrieval-ft.yaml --checkpoint outputs/hz0a-mac-110m-retrieval-ft/latest.pt --decode-steps 32 --retrieval-samples 256`
+
+- decode speed: `41.11 tok/s`
+- copy retrieval accuracy: `0.00390625`
+- multi-anchor retrieval accuracy: `0.0078125`
+- multi-anchor anchor-set accuracy: `0.03515625`
+
+Sample from `python -m hz0.sample_cli --config configs/hz0a-mac-110m-retrieval-ft.yaml --checkpoint outputs/hz0a-mac-110m-retrieval-ft/latest.pt --prompt "HZ-0A " --max-new-tokens 32`
+
+```text
+HZ-0A | | | | | | | | | | | | | | | | 
+```
+
+### Gentle late-stage retrieval fine-tune vs baseline
+
+From `python -m hz0.compare_cli --config configs/hz0a-mac-110m-retrieval-ft.yaml --hybrid-checkpoint outputs/hz0a-mac-110m-retrieval-ft/latest.pt --baseline-checkpoint outputs/hz0a-mac-110m-baseline/latest.pt`
+
+- fine-tuned hybrid loss: `2.7159`
+- baseline loss: `3.7620`
+- fine-tuned hybrid perplexity: `15.12`
+- baseline perplexity: `43.04`
+- fine-tuned hybrid multi-anchor retrieval accuracy: `0.03125`
+- baseline multi-anchor retrieval accuracy: `0.03125`
+- fine-tuned hybrid multi-anchor anchor-set accuracy: `0.0625`
+- baseline multi-anchor anchor-set accuracy: `0.03125`
+- fine-tuned hybrid decode speed: `38.88 tok/s`
+- baseline decode speed: `210.38 tok/s`
 
 ### Verified local `~110M` resumed checkpoint
 
@@ -445,6 +517,12 @@ From `python -m hz0.compare_cli --config configs/hz0a-mac-36m.yaml --hybrid-chec
   long-context-style regression check than the original single-copy metric.
 - The retrieval-curriculum experiment suggests we can move the weaker retrieval
   metrics a little, but not without giving up some language-modeling quality.
+- The gentle late-stage retrieval fine-tune preserves the tuned checkpoint's LM
+  quality better than the first curriculum attempt and still nudges retrieval
+  metrics upward on the larger 256-sample probe.
+- The new context-length decode sweep exposes the current systems curve on Mac:
+  decode speed drops substantially as context length rises, from about
+  `73 tok/s` at `64` tokens to about `12 tok/s` at `512` tokens.
 
 ### Weaknesses
 
@@ -462,6 +540,12 @@ From `python -m hz0.compare_cli --config configs/hz0a-mac-36m.yaml --hybrid-chec
 - The first retrieval-curriculum attempt improved copy-style and anchor-set hit
   rates slightly, but it did not improve exact multi-anchor retrieval and it
   regressed LM loss versus the tuned non-curriculum path.
+- The gentler late-stage fine-tune is a more promising compromise: it keeps the
+  best LM quality while only slightly improving retrieval, which means the
+  long-context gap is still open rather than solved.
+- The tuned checkpoint still needs a broader decode-vs-context comparison
+  against the transformer baseline before we can argue that the recurrent path
+  is paying for itself in serving behavior on Mac.
 - The current benchmark reflects the fallback recurrent mixer, not a real
   kernel-backed `GatedDeltaNet-2` path.
 - The larger `~71M` rung now improves with more training, but it still trails
@@ -505,6 +589,7 @@ milestone. The remaining path to that milestone is:
 
 1. use the tuned `~110M` Mac config as the default large-model path going forward
 2. decide whether to continue the tuned run beyond `100` steps to test its plateau
-3. iterate on retrieval curriculum only if we can preserve the tuned LM gains
-4. keep pushing the upstream Mac backend experiment beyond import-only status
-5. benchmark with stronger long-context evidence on Mac
+3. treat the gentle late-stage retrieval fine-tune as the better retrieval path than the heavy mixed run
+4. iterate on retrieval curriculum only if we can preserve the tuned LM gains
+5. keep pushing the upstream Mac backend experiment beyond import-only status
+6. benchmark with stronger long-context evidence on Mac
