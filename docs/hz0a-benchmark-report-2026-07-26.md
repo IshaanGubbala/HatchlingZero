@@ -205,6 +205,46 @@ From `python -m hz0.compare_cli --config configs/hz0a-mac-110m.yaml --hybrid-che
 - hybrid decode speed: `43.04 tok/s`
 - baseline decode speed: `215.10 tok/s`
 
+### Tuned `~110M` Mac run with gradient accumulation
+
+From `python -m hz0.train --config configs/hz0a-mac-110m-tuned.yaml --max-steps 25`
+
+- params: `109,899,648`
+- device: `mps`
+- optimization change: `grad_accum_steps=4`, `lr=0.0002`
+- training reached step `25`
+- observed train throughput after warmup: roughly `497-502 tok/s`
+- step-20 training loss: `3.1131`
+
+Standalone eval from `python -m hz0.eval_cli --config configs/hz0a-mac-110m-tuned.yaml --checkpoint outputs/hz0a-mac-110m-tuned/latest.pt`
+
+- loss: `3.2711`
+- perplexity: `26.34`
+- copy retrieval accuracy: `0.0000`
+- decode speed: `41.33 tok/s`
+
+Standalone benchmark from `python -m hz0.benchmark_cli --config configs/hz0a-mac-110m-tuned.yaml --checkpoint outputs/hz0a-mac-110m-tuned/latest.pt --decode-steps 32 --retrieval-samples 64`
+
+- decode speed: `35.12 tok/s`
+- copy retrieval accuracy: `0.015625`
+
+Sample from `python -m hz0.sample_cli --config configs/hz0a-mac-110m-tuned.yaml --checkpoint outputs/hz0a-mac-110m-tuned/latest.pt --prompt "HZ-0A " --max-new-tokens 32`
+
+```text
+HZ-0A congitiontiongititiongititiong c
+```
+
+### Tuned hybrid vs baseline at the `~110M` rung after 25 steps
+
+From `python -m hz0.compare_cli --config configs/hz0a-mac-110m-tuned.yaml --hybrid-checkpoint outputs/hz0a-mac-110m-tuned/latest.pt --baseline-checkpoint outputs/hz0a-mac-110m-baseline/latest.pt`
+
+- tuned hybrid loss: `3.2711`
+- baseline loss: `3.7620`
+- tuned hybrid perplexity: `26.34`
+- baseline perplexity: `43.04`
+- tuned hybrid decode speed: `41.76 tok/s`
+- baseline decode speed: `207.75 tok/s`
+
 ### Verified local `~110M` resumed checkpoint
 
 From `python -m hz0.train --config configs/hz0a-mac-110m.yaml --resume outputs/hz0a-mac-110m/latest.pt --max-steps 100`
@@ -298,6 +338,9 @@ From `python -m hz0.compare_cli --config configs/hz0a-mac-36m.yaml --hybrid-chec
   seed corpus.
 - At the near-plan-scale 25-step comparison, the hybrid still beats the
   same-shape transformer baseline on loss and perplexity.
+- A simple Mac-only optimization change improves the large hybrid materially:
+  the tuned 25-step `~110M` run beats the untuned 25-step `~110M` run on loss
+  by about `0.29`.
 
 ### Weaknesses
 
@@ -305,6 +348,8 @@ From `python -m hz0.compare_cli --config configs/hz0a-mac-36m.yaml --hybrid-chec
   throughput on this current fallback implementation.
 - That throughput gap is still very large at the `~110M` rung: the transformer
   baseline decodes about `5x` faster in the matched 25-step comparison.
+- Even with better optimization, the tuned large hybrid still does not beat the
+  best-converged `36M` checkpoint on validation loss.
 - Synthetic copy-retrieval accuracy is still effectively zero for the hybrid
   checkpoint at this stage.
 - The current benchmark reflects the fallback recurrent mixer, not a real
@@ -353,5 +398,6 @@ milestone. The remaining path to that milestone is:
 
 1. continue the `~110M` Mac rung only if we want to test a longer plateau, not
    because current evidence suggests it has surpassed the smaller model
-2. keep pushing the upstream Mac backend experiment beyond import-only status
-3. benchmark with stronger long-context evidence on Mac
+2. use the tuned Mac config as the default large-model path for future runs
+3. keep pushing the upstream Mac backend experiment beyond import-only status
+4. benchmark with stronger long-context evidence on Mac

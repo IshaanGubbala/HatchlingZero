@@ -79,6 +79,7 @@ def main() -> None:
     )
 
     max_steps = args.max_steps or cfg["train"]["max_steps"]
+    grad_accum_steps = max(1, int(cfg["train"].get("grad_accum_steps", 1)))
     output_dir = Path(cfg["train"]["output_dir"])
     if args.model_key != "model":
         output_dir = output_dir.parent / f"{output_dir.name}-{args.model_key}"
@@ -98,76 +99,84 @@ def main() -> None:
     step = start_step
     running_tokens = 0
     running_start = time.perf_counter()
+    train_iter = iter(train_loader)
     while step < max_steps:
-        for batch in train_loader:
-            if step >= max_steps:
-                break
+        optimizer.zero_grad(set_to_none=True)
+        loss_value = None
+        for _ in range(grad_accum_steps):
+            try:
+                batch = next(train_iter)
+            except StopIteration:
+                train_iter = iter(train_loader)
+                batch = next(train_iter)
             batch = batch.to(device)
             x = batch[:, :-1]
             y = batch[:, 1:]
-            optimizer.zero_grad(set_to_none=True)
             with autocast_context(device, dtype):
                 logits = model(x)
                 loss = torch.nn.functional.cross_entropy(
                     logits.reshape(-1, logits.size(-1)),
                     y.reshape(-1),
                 )
+                loss = loss / grad_accum_steps
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), cfg["optim"]["grad_clip"])
-            optimizer.step()
             running_tokens += x.numel()
+            loss_value = loss.item() * grad_accum_steps
 
-            if step % cfg["train"]["log_every"] == 0:
-                elapsed = max(time.perf_counter() - running_start, 1e-8)
-                train_toks = running_tokens / elapsed
-                print(f"step={step} loss={loss.item():.4f} train_tokens_per_second={train_toks:.2f}")
-                running_tokens = 0
-                running_start = time.perf_counter()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), cfg["optim"]["grad_clip"])
+        optimizer.step()
 
-            if step > 0 and step % cfg["train"]["eval_every"] == 0:
-                metrics = evaluate_language_model(model, val_loader, device)
-                metrics.update(
-                    evaluate_copy_retrieval(
-                        model=model,
-                        device=device,
-                        seq_len=cfg["data"]["seq_len"],
-                        vocab_size=cfg["data"]["vocab_size"],
-                        num_samples=16,
-                    )
-                )
-                metrics.update(
-                    benchmark_decode_latency(
-                        model=model,
-                        device=device,
-                        prompt_len=min(cfg["data"]["seq_len"], model_cfg["max_seq_len"]),
-                        steps=8,
-                        vocab_size=cfg["data"]["vocab_size"],
-                    )
-                )
-                print(
-                    "eval "
-                    f"loss={metrics['loss']:.4f} "
-                    f"perplexity={metrics['perplexity']:.2f} "
-                    f"copy_retrieval_accuracy={metrics['copy_retrieval_accuracy']:.3f} "
-                    f"tokens_per_second={metrics['tokens_per_second']:.2f}"
-                )
-                save_checkpoint(output_dir, step, model, optimizer, cfg, metrics)
-                model.train()
+        if step % cfg["train"]["log_every"] == 0:
+            elapsed = max(time.perf_counter() - running_start, 1e-8)
+            train_toks = running_tokens / elapsed
+            print(f"step={step} loss={loss_value:.4f} train_tokens_per_second={train_toks:.2f}")
+            running_tokens = 0
+            running_start = time.perf_counter()
 
-            if step > 0 and step % cfg["train"]["sample_every"] == 0:
-                prompt = tokenizer.encode(cfg["train"]["sample_prompt"]).unsqueeze(0).to(device)
-                generated = greedy_generate(
+        if step > 0 and step % cfg["train"]["eval_every"] == 0:
+            metrics = evaluate_language_model(model, val_loader, device)
+            metrics.update(
+                evaluate_copy_retrieval(
                     model=model,
-                    prompt=prompt,
-                    max_new_tokens=cfg["train"]["sample_tokens"],
-                    max_seq_len=model_cfg["max_seq_len"],
+                    device=device,
+                    seq_len=cfg["data"]["seq_len"],
+                    vocab_size=cfg["data"]["vocab_size"],
+                    num_samples=16,
                 )
-                text = tokenizer.decode(generated[0].cpu())
-                print(f"sample step={step} text={text!r}")
+            )
+            metrics.update(
+                benchmark_decode_latency(
+                    model=model,
+                    device=device,
+                    prompt_len=min(cfg["data"]["seq_len"], model_cfg["max_seq_len"]),
+                    steps=8,
+                    vocab_size=cfg["data"]["vocab_size"],
+                )
+            )
+            print(
+                "eval "
+                f"loss={metrics['loss']:.4f} "
+                f"perplexity={metrics['perplexity']:.2f} "
+                f"copy_retrieval_accuracy={metrics['copy_retrieval_accuracy']:.3f} "
+                f"tokens_per_second={metrics['tokens_per_second']:.2f}"
+            )
+            save_checkpoint(output_dir, step, model, optimizer, cfg, metrics)
+            model.train()
 
-            if step > 0 and step % cfg["train"]["save_every"] == 0:
-                save_checkpoint(output_dir, step, model, optimizer, cfg)
-            step += 1
+        if step > 0 and step % cfg["train"]["sample_every"] == 0:
+            prompt = tokenizer.encode(cfg["train"]["sample_prompt"]).unsqueeze(0).to(device)
+            generated = greedy_generate(
+                model=model,
+                prompt=prompt,
+                max_new_tokens=cfg["train"]["sample_tokens"],
+                max_seq_len=model_cfg["max_seq_len"],
+            )
+            text = tokenizer.decode(generated[0].cpu())
+            print(f"sample step={step} text={text!r}")
+
+        if step > 0 and step % cfg["train"]["save_every"] == 0:
+            save_checkpoint(output_dir, step, model, optimizer, cfg)
+        step += 1
 
     save_checkpoint(output_dir, step, model, optimizer, cfg)
 
