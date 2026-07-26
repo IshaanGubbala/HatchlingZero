@@ -14,15 +14,7 @@ from hz0.eval import benchmark_decode_latency, evaluate_copy_retrieval, evaluate
 from hz0.model import build_model
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--config", type=Path, required=True)
-    parser.add_argument("--checkpoint", type=Path, default=None)
-    parser.add_argument("--model-key", type=str, default="model")
-    args = parser.parse_args()
-
-    cfg = Config.load(args.config).raw
-    model_cfg = cfg[args.model_key]
+def collect_metrics(cfg: dict, model_cfg: dict, checkpoint: Path | None) -> dict[str, float]:
     device = torch.device(cfg["device"])
     dataset = build_dataset(
         cfg["data"]["val_text_path"],
@@ -33,8 +25,8 @@ def main() -> None:
     )
     loader = DataLoader(dataset, batch_size=cfg["data"]["batch_size"])
     model = build_model(model_cfg).to(device)
-    if args.checkpoint:
-        payload = load_checkpoint(args.checkpoint, device)
+    if checkpoint is not None:
+        payload = load_checkpoint(checkpoint, device)
         model.load_state_dict(payload["model"])
     metrics = evaluate_language_model(model, loader, device)
     metrics.update(
@@ -55,7 +47,22 @@ def main() -> None:
             vocab_size=cfg["data"]["vocab_size"],
         )
     )
-    print(json.dumps(metrics, indent=2))
+    return metrics
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", type=Path, required=True)
+    parser.add_argument("--hybrid-checkpoint", type=Path, default=None)
+    parser.add_argument("--baseline-checkpoint", type=Path, default=None)
+    args = parser.parse_args()
+
+    cfg = Config.load(args.config).raw
+    result = {
+        "hybrid": collect_metrics(cfg, cfg["model"], args.hybrid_checkpoint),
+        "baseline": collect_metrics(cfg, cfg["baseline"], args.baseline_checkpoint),
+    }
+    print(json.dumps(result, indent=2))
 
 
 if __name__ == "__main__":

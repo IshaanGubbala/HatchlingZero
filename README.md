@@ -26,6 +26,7 @@ same stage-1 shape recommended by the plan:
 - Checkpoint save and resume support
 - Byte-level sampling and decode benchmarking
 - A synthetic copy-retrieval benchmark for stage-A long-context regression checks
+- A same-size transformer baseline comparison path
 - YAML configs for tiny and small `HZ-0A` runs
 - A staged roadmap that maps directly to `HZ-0A` through `HZ-0E`
 
@@ -60,6 +61,12 @@ For a smoke test without real data:
 python -m hz0.train --config configs/hz0a-tiny.yaml --max-steps 5
 ```
 
+To train the same-size transformer baseline from the same config:
+
+```bash
+python -m hz0.train --config configs/hz0a-tiny.yaml --model-key baseline --max-steps 5
+```
+
 To evaluate a checkpoint:
 
 ```bash
@@ -70,6 +77,12 @@ To benchmark decode speed and synthetic retrieval:
 
 ```bash
 python -m hz0.benchmark_cli --config configs/hz0a-tiny.yaml --checkpoint outputs/hz0a-tiny/latest.pt
+```
+
+To compare the hybrid model against a same-size transformer baseline:
+
+```bash
+python -m hz0.compare_cli --config configs/hz0a-tiny.yaml --hybrid-checkpoint outputs/hz0a-tiny/latest.pt
 ```
 
 To sample from a trained checkpoint:
@@ -141,6 +154,8 @@ src/hz0/eval/            Evaluation harness stubs
 - recurrent-first hybrid model: implemented
 - anchor attention every few blocks: implemented
 - dense feed-forward layers: implemented
+- packed dataloader path: implemented
+- same-size transformer comparison path: implemented
 - train loop with eval: implemented
 - checkpointing and resume: implemented
 - local generation path: implemented

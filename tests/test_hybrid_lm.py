@@ -7,7 +7,7 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from hz0.model import HybridLM
+from hz0.model import HybridLM, build_model
 from hz0.model.backends import gdn2_is_available, gdn2_status
 
 
@@ -51,3 +51,21 @@ def test_gdn2_status_shape() -> None:
     status = gdn2_status()
     assert "available" in status
     assert "reason" in status
+
+
+def test_model_factory_builds_transformer() -> None:
+    model = build_model(
+        {
+            "architecture": "transformer",
+            "vocab_size": 256,
+            "d_model": 64,
+            "n_layers": 2,
+            "n_heads": 4,
+            "d_ff": 128,
+            "dropout": 0.0,
+            "max_seq_len": 64,
+        }
+    )
+    x = torch.randint(0, 256, (2, 16))
+    logits = model(x)
+    assert logits.shape == (2, 16, 256)

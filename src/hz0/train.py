@@ -12,7 +12,7 @@ from hz0.config import Config
 from hz0.data import build_dataset
 from hz0.eval import benchmark_decode_latency, evaluate_copy_retrieval, evaluate_language_model
 from hz0.generation import greedy_generate
-from hz0.model import HybridLM
+from hz0.model import build_model
 from hz0.tokenizer import ByteTokenizer
 from hz0.utils import resolve_dtype, set_seed
 
@@ -22,9 +22,11 @@ def main() -> None:
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--max-steps", type=int, default=None)
     parser.add_argument("--resume", type=Path, default=None)
+    parser.add_argument("--model-key", type=str, default="model")
     args = parser.parse_args()
 
     cfg = Config.load(args.config).raw
+    model_cfg = cfg[args.model_key]
     set_seed(cfg["seed"])
 
     device = torch.device(cfg["device"])
@@ -35,17 +37,19 @@ def main() -> None:
         cfg["data"]["seq_len"],
         cfg["data"]["vocab_size"],
         cfg["data"]["train_length"],
+        packed=True,
     )
     val_ds = build_dataset(
         cfg["data"]["val_text_path"],
         cfg["data"]["seq_len"],
         cfg["data"]["vocab_size"],
         cfg["data"]["val_length"],
+        packed=True,
     )
     train_loader = DataLoader(train_ds, batch_size=cfg["data"]["batch_size"], shuffle=True)
     val_loader = DataLoader(val_ds, batch_size=cfg["data"]["batch_size"])
 
-    model = HybridLM(**cfg["model"]).to(device=device, dtype=dtype)
+    model = build_model(model_cfg).to(device=device, dtype=dtype)
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=cfg["optim"]["lr"],
@@ -55,6 +59,8 @@ def main() -> None:
 
     max_steps = args.max_steps or cfg["train"]["max_steps"]
     output_dir = Path(cfg["train"]["output_dir"])
+    if args.model_key != "model":
+        output_dir = output_dir.parent / f"{output_dir.name}-{args.model_key}"
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "config.snapshot.json").write_text(json.dumps(cfg, indent=2), encoding="utf-8")
     tokenizer = ByteTokenizer()
@@ -104,7 +110,7 @@ def main() -> None:
                     benchmark_decode_latency(
                         model=model,
                         device=device,
-                        prompt_len=min(cfg["data"]["seq_len"], cfg["model"]["max_seq_len"]),
+                        prompt_len=min(cfg["data"]["seq_len"], model_cfg["max_seq_len"]),
                         steps=8,
                         vocab_size=cfg["data"]["vocab_size"],
                     )
@@ -125,7 +131,7 @@ def main() -> None:
                     model=model,
                     prompt=prompt,
                     max_new_tokens=cfg["train"]["sample_tokens"],
-                    max_seq_len=cfg["model"]["max_seq_len"],
+                    max_seq_len=model_cfg["max_seq_len"],
                 )
                 text = tokenizer.decode(generated[0].cpu())
                 print(f"sample step={step} text={text!r}")
