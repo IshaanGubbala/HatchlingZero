@@ -405,6 +405,50 @@ or even improve language-modeling quality under stronger memory-focused
 training, but the new overwrite / protected-memory / recall-distance suite
 still stays at zero.
 
+### Final-token-only auxiliary-memory fine-tune
+
+A final Sunday, July 26, 2026 experiment removed the full-sequence auxiliary
+loss entirely and optimized only the final query-answer token on the auxiliary
+memory batches.
+
+From `python -m hz0.train --config configs/hz0a-mac-110m-memory-aux-finalonly-ft.yaml --resume outputs/hz0a-mac-110m-tuned/latest.pt --max-steps 190`
+
+- base checkpoint: tuned fallback hybrid step `150`
+- optimization change: `lr=0.00008`
+- auxiliary objective: `memory_aux_weight=1.0`
+- auxiliary loss mode: `memory_aux_loss_mode=last_token_only`
+- training reached step `190`
+
+Standalone eval from `python -m hz0.eval_cli --config configs/hz0a-mac-110m-memory-aux-finalonly-ft.yaml --checkpoint outputs/hz0a-mac-110m-memory-aux-finalonly-ft/latest.pt`
+
+- loss: `2.5421`
+- perplexity: `12.71`
+- associative recall accuracy: `0.0000`
+- overwrite retrieval accuracy: `0.0000`
+- protected memory accuracy: `0.0000`
+- recall-distance accuracy at `32/64/128/256`: all `0.0000`
+- multi-anchor retrieval accuracy: `0.0000`
+- multi-anchor anchor-set accuracy: `0.0000`
+- decode speed: `107.93 tok/s`
+
+Standalone benchmark from `python -m hz0.benchmark_cli --config configs/hz0a-mac-110m-memory-aux-finalonly-ft.yaml --checkpoint outputs/hz0a-mac-110m-memory-aux-finalonly-ft/latest.pt --decode-steps 32 --retrieval-samples 64 --context-lengths 64,128,256,512`
+
+- decode speed: `87.62 tok/s`
+- context `64`: `120.26 tok/s`
+- context `128`: `102.24 tok/s`
+- context `256`: `69.02 tok/s`
+- context `512`: `45.92 tok/s`
+- copy retrieval accuracy: `0.0000`
+- multi-anchor retrieval accuracy: `0.0000`
+- multi-anchor anchor-set accuracy: `0.0000`
+
+This is the clearest current HZ-0A negative result: even when the auxiliary
+objective is reduced to the exact final answer token, the newer associative /
+overwrite / protected-memory / recall-distance suite still does not move off
+zero. That strongly suggests the remaining gap is now in the backbone dynamics
+or the task formulation itself, not just in the frequency or weighting of the
+training examples.
+
 ### Verified local `~110M` MPS rung
 
 From `python -m hz0.train --config configs/hz0a-mac-110m.yaml --max-steps 25`

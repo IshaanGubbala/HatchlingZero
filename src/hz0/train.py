@@ -49,6 +49,9 @@ def main() -> None:
     persistent_workers = bool(num_workers > 0 and cfg["data"].get("persistent_workers", True))
     memory_aux_weight = float(cfg["train"].get("memory_aux_weight", 0.0))
     memory_aux_last_token_weight = float(cfg["train"].get("memory_aux_last_token_weight", 0.0))
+    memory_aux_loss_mode = str(cfg["train"].get("memory_aux_loss_mode", "blend")).lower()
+    if memory_aux_loss_mode not in {"blend", "full", "last_token_only"}:
+        raise ValueError(f"Unsupported memory_aux_loss_mode: {memory_aux_loss_mode}")
     memory_aux_loader = None
     memory_aux_iter = None
     if memory_aux_weight > 0.0:
@@ -157,16 +160,22 @@ def main() -> None:
                     aux_x = aux_batch[:, :-1]
                     aux_y = aux_batch[:, 1:]
                     aux_logits = model(aux_x)
-                    aux_loss = torch.nn.functional.cross_entropy(
+                    aux_full_loss = torch.nn.functional.cross_entropy(
                         aux_logits.reshape(-1, aux_logits.size(-1)),
                         aux_y.reshape(-1),
                     )
-                    if memory_aux_last_token_weight > 0.0:
-                        aux_last_loss = torch.nn.functional.cross_entropy(
-                            aux_logits[:, -1, :],
-                            aux_y[:, -1],
-                        )
-                        aux_loss = aux_loss + memory_aux_last_token_weight * aux_last_loss
+                    aux_last_loss = torch.nn.functional.cross_entropy(
+                        aux_logits[:, -1, :],
+                        aux_y[:, -1],
+                    )
+                    if memory_aux_loss_mode == "last_token_only":
+                        aux_loss = aux_last_loss
+                    elif memory_aux_loss_mode == "full":
+                        aux_loss = aux_full_loss
+                    else:
+                        aux_loss = aux_full_loss
+                        if memory_aux_last_token_weight > 0.0:
+                            aux_loss = aux_loss + memory_aux_last_token_weight * aux_last_loss
                     loss = loss + memory_aux_weight * aux_loss
                 loss = loss / grad_accum_steps
             loss.backward()
