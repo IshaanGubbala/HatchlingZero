@@ -245,6 +245,34 @@ From `python -m hz0.compare_cli --config configs/hz0a-mac-110m-tuned.yaml --hybr
 - tuned hybrid decode speed: `41.76 tok/s`
 - baseline decode speed: `207.75 tok/s`
 
+### Tuned `~110M` resumed checkpoint
+
+From `python -m hz0.train --config configs/hz0a-mac-110m-tuned.yaml --resume outputs/hz0a-mac-110m-tuned/latest.pt --max-steps 100`
+
+- training reached step `100`
+- observed resumed train throughput after warmup: roughly `477-491 tok/s`
+- step-50 in-run eval loss: `3.0525`
+- step-75 in-run eval loss: `2.9137`
+- final observed step-95 training loss: `2.6176`
+
+Standalone eval from `python -m hz0.eval_cli --config configs/hz0a-mac-110m-tuned.yaml --checkpoint outputs/hz0a-mac-110m-tuned/latest.pt`
+
+- loss: `2.7730`
+- perplexity: `16.01`
+- copy retrieval accuracy: `0.0000`
+- decode speed: `42.37 tok/s`
+
+Standalone benchmark from `python -m hz0.benchmark_cli --config configs/hz0a-mac-110m-tuned.yaml --checkpoint outputs/hz0a-mac-110m-tuned/latest.pt --decode-steps 32 --retrieval-samples 64`
+
+- decode speed: `38.02 tok/s`
+- copy retrieval accuracy: `0.0000`
+
+Sample from `python -m hz0.sample_cli --config configs/hz0a-mac-110m-tuned.yaml --checkpoint outputs/hz0a-mac-110m-tuned/latest.pt --prompt "HZ-0A " --max-new-tokens 32`
+
+```text
+HZ-0A parerent arent arenting arent ar
+```
+
 ### Verified local `~110M` resumed checkpoint
 
 From `python -m hz0.train --config configs/hz0a-mac-110m.yaml --resume outputs/hz0a-mac-110m/latest.pt --max-steps 100`
@@ -341,6 +369,8 @@ From `python -m hz0.compare_cli --config configs/hz0a-mac-36m.yaml --hybrid-chec
 - A simple Mac-only optimization change improves the large hybrid materially:
   the tuned 25-step `~110M` run beats the untuned 25-step `~110M` run on loss
   by about `0.29`.
+- The tuned `~110M` run to step `100` is now the best local Mac checkpoint in
+  this repo, beating the prior `36M` best on validation loss and perplexity.
 
 ### Weaknesses
 
@@ -349,18 +379,15 @@ From `python -m hz0.compare_cli --config configs/hz0a-mac-36m.yaml --hybrid-chec
 - That throughput gap is still very large at the `~110M` rung: the transformer
   baseline decodes about `5x` faster in the matched 25-step comparison.
 - Even with better optimization, the tuned large hybrid still does not beat the
-  best-converged `36M` checkpoint on validation loss.
+  transformer baseline on throughput.
 - Synthetic copy-retrieval accuracy is still effectively zero for the hybrid
   checkpoint at this stage.
 - The current benchmark reflects the fallback recurrent mixer, not a real
   kernel-backed `GatedDeltaNet-2` path.
 - The larger `~71M` rung now improves with more training, but it still trails
   the better-converged `36M` checkpoint on validation loss.
-- The new `~110M` MPS rung gets much closer to the plan size on Mac, but at
-  `100` steps it is now a real benchmarked checkpoint, but it still does not
-  beat the best-converged `36M` checkpoint on validation loss.
-- The longer `~110M` run to step `150` still improves gradually, but the gains
-  are small and it remains behind the best `36M` checkpoint on validation loss.
+- The older untuned `~110M` path improved with longer training, but it was the
+  tuned optimization path that finally surpassed the smaller checkpoint.
 - The `~120M` plan-scale config is locally launchable, but the current CPU path
   is too slow to treat as the intended final training environment.
 
@@ -379,7 +406,7 @@ The current result is **not yet the full `HZ-0A` model as stated in the plan**.
 ### What does not yet match the plan
 
 - target size: the plan calls for roughly `120M–180M` for `HZ-0A`; the current
-  best fully benchmarked Mac hybrid is now `109.9M`, while the `119.8M` target
+  best fully benchmarked Mac hybrid is now the tuned `109.9M` run, while the `119.8M` target
   has only been launch-probed locally
 - backbone fidelity: current model uses the local fallback recurrent mixer, not
   true `GatedDeltaNet-2` or `Mamba-3`
@@ -396,8 +423,7 @@ current hybrid beats a same-size transformer baseline on language-modeling loss.
 It does **not** yet prove completion of the original plan-scale `HZ-0A`
 milestone. The remaining path to that milestone is:
 
-1. continue the `~110M` Mac rung only if we want to test a longer plateau, not
-   because current evidence suggests it has surpassed the smaller model
-2. use the tuned Mac config as the default large-model path for future runs
+1. use the tuned `~110M` Mac config as the default large-model path going forward
+2. decide whether to continue the tuned run beyond `100` steps to test its plateau
 3. keep pushing the upstream Mac backend experiment beyond import-only status
 4. benchmark with stronger long-context evidence on Mac
