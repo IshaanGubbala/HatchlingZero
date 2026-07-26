@@ -7,7 +7,7 @@ attention, dense FFNs, and no online weight updates.
 
 This scaffold implements exactly that shape:
 
-1. `RecurrentMixerBlock` or optional `UpstreamGDN2Mixer`
+1. `RecurrentMixerBlock`, local `GDN2ReferenceMixerBlock`, or optional `UpstreamGDN2Mixer`
 2. optional `AnchorAttentionBlock`
 3. `FeedForward`
 
@@ -22,15 +22,22 @@ The repository now includes exactly that extension point. `HybridLM` accepts a
 `mixer_backend` selector:
 
 - `fallback`: always use the local PyTorch recurrent block
+- `gdn2_ref`: use the local PyTorch reference block with separated `decay`,
+  `erase`, and `write` gates
 - `gdn2`: try the vendored NVIDIA `GatedDeltaNet-2` backend and fail clearly if
   its runtime dependencies are missing
 - `auto`: use `gdn2` when available, otherwise fall back automatically
 
-The repository also now includes a small auditable reference recurrence in
-`src/hz0/model/gdn2_reference.py` with explicitly separated `decay`, `erase`,
-and `write` gates. It is intended for numerical checks and streaming/full-pass
-equivalence tests on macOS, not as a claim of parity with the final optimized
-Metal kernel path.
+The repository also now includes:
+
+- a small auditable reference recurrence in `src/hz0/model/gdn2_reference.py`
+  with explicitly separated `decay`, `erase`, and `write` gates
+- a selectable local model backend in `GDN2ReferenceMixerBlock` that applies
+  those same separated gate roles inside the language-model mixer
+
+The local reference backend is intended for numerical checks, streaming/full-pass
+equivalence tests, and early Mac-native model experiments. It is not yet a
+claim of parity with the final optimized Metal kernel path.
 
 ## Runtime reality
 

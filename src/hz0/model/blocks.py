@@ -54,6 +54,35 @@ class RecurrentMixerBlock(nn.Module):
         return residual + self.dropout(mixed)
 
 
+class GDN2ReferenceMixerBlock(nn.Module):
+    """Local torch mixer with separated decay / erase / write gates.
+
+    This is still a dense PyTorch fallback, but it more closely matches the
+    revised HZ-0A architectural target than the earlier single-update-gate
+    mixer. It is intended as a Mac-native reference path before a dedicated
+    MLX/Metal backend exists.
+    """
+
+    def __init__(self, d_model: int, dropout: float) -> None:
+        super().__init__()
+        self.norm = RMSNorm(d_model)
+        self.in_proj = nn.Linear(d_model, 5 * d_model)
+        self.out_proj = nn.Linear(d_model, d_model)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        residual = x
+        x = self.norm(x)
+        u, decay_logits, erase_logits, write_logits, candidate = self.in_proj(x).chunk(5, dim=-1)
+        decay = torch.sigmoid(decay_logits)
+        erase = torch.sigmoid(erase_logits)
+        write = torch.sigmoid(write_logits)
+        candidate = torch.tanh(candidate)
+        state = recurrent_state_scan(decay * (1.0 - erase), write * candidate)
+        mixed = self.out_proj(state + u)
+        return residual + self.dropout(mixed)
+
+
 class AnchorAttentionBlock(nn.Module):
     def __init__(self, d_model: int, n_heads: int, dropout: float) -> None:
         super().__init__()

@@ -36,6 +36,23 @@ def test_fallback_model_forward() -> None:
     assert logits.shape == (2, 16, 256)
 
 
+def test_gdn2_reference_backend_forward() -> None:
+    model = HybridLM(
+        vocab_size=256,
+        d_model=64,
+        n_layers=4,
+        n_heads=4,
+        d_ff=128,
+        dropout=0.0,
+        mixer_backend="gdn2_ref",
+        attention_every=2,
+        max_seq_len=128,
+    )
+    x = torch.randint(0, 256, (2, 16))
+    logits = model(x)
+    assert logits.shape == (2, 16, 256)
+
+
 def test_scratchpad_model_forward_and_logs() -> None:
     model = HybridLM(
         vocab_size=256,

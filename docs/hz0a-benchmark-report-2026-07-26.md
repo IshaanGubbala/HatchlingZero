@@ -137,6 +137,24 @@ From `python -m hz0.train --config configs/hz0a-120m.yaml --max-steps 1`
 - step-0 loss: `5.7045`
 - step-0 train throughput: `68.70 tok/s`
 
+### Local `gdn2_ref` architecture-fidelity smoke path
+
+On Sunday, July 26, 2026, the repo gained a new Mac-native reference mixer
+backend with separated `decay`, `erase`, and `write` gates.
+
+From `python -m hz0.train --config configs/hz0a-mac-110m-gdn2ref.yaml --max-steps 1`
+
+- architecture: hybrid with local `gdn2_ref` mixer backend
+- params: `117,211,392`
+- device: `mps`
+- training launch: successful
+- step-0 loss: `5.6778`
+- step-0 train throughput: `1000.93 tok/s`
+
+This is not yet the final optimized GDN-2 backend, but it does move the local
+model path closer to the revised HZ-0A architecture target than the older
+single-update-gate fallback mixer.
+
 ### Verified local `~110M` MPS rung
 
 From `python -m hz0.train --config configs/hz0a-mac-110m.yaml --max-steps 25`

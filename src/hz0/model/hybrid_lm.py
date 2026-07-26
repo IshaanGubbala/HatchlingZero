@@ -4,7 +4,7 @@ import torch
 from torch import nn
 
 from .backends import BackendUnavailableError, UpstreamGDN2Mixer, gdn2_is_available
-from .blocks import AnchorAttentionBlock, FeedForward, RMSNorm, RecurrentMixerBlock
+from .blocks import AnchorAttentionBlock, FeedForward, GDN2ReferenceMixerBlock, RMSNorm, RecurrentMixerBlock
 from .session_scratchpad import ScratchpadLogEntry, SessionScratchpad
 
 
@@ -126,6 +126,8 @@ def build_mixer(mixer_backend: str, d_model: int, n_heads: int, dropout: float) 
     backend = mixer_backend.lower()
     if backend == "fallback":
         return RecurrentMixerBlock(d_model, dropout)
+    if backend in {"gdn2_ref", "gdn2-reference", "reference_gdn2"}:
+        return GDN2ReferenceMixerBlock(d_model, dropout)
     if backend == "gdn2":
         return UpstreamGDN2Mixer(d_model=d_model, n_heads=n_heads)
     if backend == "auto":
