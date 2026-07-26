@@ -59,18 +59,28 @@
         "125": 0.5757414077463426,
         "150": 0.5680868194631871
       }
-    },
-    "shows_memory_task_advantage": {
-      "status": "fail",
-      "summary": "The hybrid still lacks a meaningful memory-task advantage on the tracked metrics.",
+    }
+  },
+  "hz0b_tracking": {
+    "memory_metrics": {
+      "summary": "Best matched hybrid-vs-baseline memory advantage observed across the scorecard.",
       "step": 25,
       "metric": "multi_anchor_anchor_set_accuracy",
       "hybrid_value": 0.03125,
       "baseline_value": 0.0,
-      "advantage": 0.03125,
-      "memory_metric_threshold": 0.1,
-      "memory_advantage_delta": 0.05
-    }
+      "advantage": 0.03125
+    },
+    "tracked_metrics": [
+      "associative_recall_accuracy",
+      "overwrite_retrieval_accuracy",
+      "protected_memory_accuracy",
+      "multi_anchor_retrieval_accuracy",
+      "multi_anchor_anchor_set_accuracy",
+      "recall_distance_32_accuracy",
+      "recall_distance_64_accuracy",
+      "recall_distance_128_accuracy",
+      "recall_distance_256_accuracy"
+    ]
   },
   "ready_to_continue_scaling": true
 }

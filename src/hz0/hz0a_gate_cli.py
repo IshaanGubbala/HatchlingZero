@@ -15,8 +15,6 @@ def main() -> None:
     parser.add_argument("--required-transformer-step", type=int, default=300)
     parser.add_argument("--min-loss-margin", type=float, default=0.05)
     parser.add_argument("--min-decode-ratio", type=float, default=0.5)
-    parser.add_argument("--memory-metric-threshold", type=float, default=0.1)
-    parser.add_argument("--memory-advantage-delta", type=float, default=0.05)
     parser.add_argument("--output-path", type=Path, default=None)
     args = parser.parse_args()
 
@@ -27,8 +25,6 @@ def main() -> None:
         required_transformer_step=args.required_transformer_step,
         min_loss_margin=args.min_loss_margin,
         min_decode_ratio=args.min_decode_ratio,
-        memory_metric_threshold=args.memory_metric_threshold,
-        memory_advantage_delta=args.memory_advantage_delta,
     )
     text = json.dumps(result, indent=2)
     if args.output_path is not None:

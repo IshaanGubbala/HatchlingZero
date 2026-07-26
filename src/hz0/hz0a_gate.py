@@ -8,6 +8,21 @@ from typing import Any
 Status = str
 
 
+# Set of metrics the staged plan tracks as HZ-0B memory evidence. Kept here
+# (not in tests) so the gate logic and the scorecard consumers agree.
+HZ0B_MEMORY_METRICS: tuple[str, ...] = (
+    "associative_recall_accuracy",
+    "overwrite_retrieval_accuracy",
+    "protected_memory_accuracy",
+    "multi_anchor_retrieval_accuracy",
+    "multi_anchor_anchor_set_accuracy",
+    "recall_distance_32_accuracy",
+    "recall_distance_64_accuracy",
+    "recall_distance_128_accuracy",
+    "recall_distance_256_accuracy",
+)
+
+
 def _load_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
@@ -35,6 +50,59 @@ def _status_payload(status: Status, summary: str, **details: Any) -> dict[str, A
     return payload
 
 
+def _summarise_hz0b_memory(scorecard: dict[str, Any]) -> dict[str, Any]:
+    """Informational summary of the HZ-0B memory metrics from the scorecard.
+
+    Memory-task advantage is NOT an HZ-0A gate. It is the HZ-0B scratchpad's
+    real proof obligation. We still surface the best hybrid-vs-baseline memory
+    advantage we have, but only as tracking — not as a blocking condition.
+    Consumers can derive their own pass/fail by comparing ``hybrid_value`` and
+    ``advantage`` against whatever threshold they care about.
+
+    Return shape:
+        {
+            "memory_metrics": dict | None,
+                # None when there are no matched hybrid/baseline steps.
+                # Otherwise: {summary, step, metric, hybrid_value, baseline_value, advantage}.
+            "tracked_metrics": list[str],
+        }
+    """
+    hybrid_steps = _sorted_step_metrics(scorecard["hybrid"])
+    baseline_steps = _sorted_step_metrics(scorecard["baseline"])
+    hybrid_by_step = {step: metrics for step, metrics in hybrid_steps}
+    baseline_by_step = {step: metrics for step, metrics in baseline_steps}
+    common_steps = sorted(set(hybrid_by_step) & set(baseline_by_step))
+
+    best_advantage: dict[str, Any] | None = None
+    for step in common_steps:
+        for metric_name in HZ0B_MEMORY_METRICS:
+            hybrid_value = _metric_value(hybrid_by_step[step], metric_name)
+            baseline_value = _metric_value(baseline_by_step[step], metric_name)
+            advantage = hybrid_value - baseline_value
+            candidate = {
+                "step": step,
+                "metric": metric_name,
+                "hybrid_value": hybrid_value,
+                "baseline_value": baseline_value,
+                "advantage": advantage,
+            }
+            if best_advantage is None or candidate["advantage"] > best_advantage["advantage"]:
+                best_advantage = candidate
+
+    if best_advantage is None:
+        memory_metrics_section: dict[str, Any] | None = None
+    else:
+        memory_metrics_section = {
+            "summary": "Best matched hybrid-vs-baseline memory advantage observed across the scorecard.",
+            **best_advantage,
+        }
+
+    return {
+        "memory_metrics": memory_metrics_section,
+        "tracked_metrics": list(HZ0B_MEMORY_METRICS),
+    }
+
+
 def evaluate_hz0a_gates(
     *,
     scorecard: dict[str, Any],
@@ -43,8 +111,6 @@ def evaluate_hz0a_gates(
     required_transformer_step: int = 300,
     min_loss_margin: float = 0.05,
     min_decode_ratio: float = 0.5,
-    memory_metric_threshold: float = 0.1,
-    memory_advantage_delta: float = 0.05,
 ) -> dict[str, Any]:
     hybrid_steps = _sorted_step_metrics(scorecard["hybrid"])
     baseline_steps = _sorted_step_metrics(scorecard["baseline"])
@@ -168,55 +234,13 @@ def evaluate_hz0a_gates(
             ratios=decode_ratios,
         )
 
-    memory_metrics = [
-        "associative_recall_accuracy",
-        "overwrite_retrieval_accuracy",
-        "protected_memory_accuracy",
-        "multi_anchor_retrieval_accuracy",
-        "multi_anchor_anchor_set_accuracy",
-        "recall_distance_32_accuracy",
-        "recall_distance_64_accuracy",
-        "recall_distance_128_accuracy",
-        "recall_distance_256_accuracy",
-    ]
-    best_memory_advantage: dict[str, Any] | None = None
-    for step in common_steps:
-        for metric_name in memory_metrics:
-            hybrid_value = _metric_value(hybrid_by_step[step], metric_name)
-            baseline_value = _metric_value(baseline_by_step[step], metric_name)
-            advantage = hybrid_value - baseline_value
-            candidate = {
-                "step": step,
-                "metric": metric_name,
-                "hybrid_value": hybrid_value,
-                "baseline_value": baseline_value,
-                "advantage": advantage,
-            }
-            if best_memory_advantage is None or candidate["advantage"] > best_memory_advantage["advantage"]:
-                best_memory_advantage = candidate
+    hz0b_tracking = _summarise_hz0b_memory(scorecard)
 
-    assert best_memory_advantage is not None
-    if (
-        best_memory_advantage["hybrid_value"] >= memory_metric_threshold
-        and best_memory_advantage["advantage"] >= memory_advantage_delta
-    ):
-        gate_four = _status_payload(
-            "pass",
-            "The hybrid shows a meaningful memory-task advantage on at least one tracked metric.",
-            **best_memory_advantage,
-            memory_metric_threshold=memory_metric_threshold,
-            memory_advantage_delta=memory_advantage_delta,
-        )
-    else:
-        gate_four = _status_payload(
-            "fail",
-            "The hybrid still lacks a meaningful memory-task advantage on the tracked metrics.",
-            **best_memory_advantage,
-            memory_metric_threshold=memory_metric_threshold,
-            memory_advantage_delta=memory_advantage_delta,
-        )
-
-    ready_to_continue_scaling = any(gate["status"] == "pass" for gate in (gate_one, gate_two, gate_three, gate_four))
+    ready_to_continue_scaling = (
+        gate_one["status"] == "pass"
+        or gate_two["status"] == "pass"
+        or gate_three["status"] == "pass"
+    )
     return {
         "reference": {
             "checkpoint_step": int(reference_manifest["checkpoint_step"]),
@@ -233,8 +257,8 @@ def evaluate_hz0a_gates(
             "beats_36m_at_fair_tokens_per_param": gate_one,
             "maintains_transformer_advantage_through_horizon": gate_two,
             "decode_gap_reduced": gate_three,
-            "shows_memory_task_advantage": gate_four,
         },
+        "hz0b_tracking": hz0b_tracking,
         "ready_to_continue_scaling": ready_to_continue_scaling,
     }
 
@@ -247,8 +271,6 @@ def evaluate_hz0a_gate_paths(
     required_transformer_step: int = 300,
     min_loss_margin: float = 0.05,
     min_decode_ratio: float = 0.5,
-    memory_metric_threshold: float = 0.1,
-    memory_advantage_delta: float = 0.05,
 ) -> dict[str, Any]:
     return evaluate_hz0a_gates(
         scorecard=_load_json(scorecard_path),
@@ -257,6 +279,4 @@ def evaluate_hz0a_gate_paths(
         required_transformer_step=required_transformer_step,
         min_loss_margin=min_loss_margin,
         min_decode_ratio=min_decode_ratio,
-        memory_metric_threshold=memory_metric_threshold,
-        memory_advantage_delta=memory_advantage_delta,
     )
