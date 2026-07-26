@@ -100,6 +100,42 @@ Sample from `python -m hz0.sample_cli --config configs/hz0a-mac-71m.yaml --check
 HZ-0A the the sthe are the te the the
 ```
 
+### Verified local `~71M` resumed checkpoint
+
+From `python -m hz0.train --config configs/hz0a-mac-71m.yaml --resume outputs/hz0a-mac-71m/latest.pt --max-steps 100`
+
+- training reached step `100`
+- observed resumed train throughput: roughly `421-477 tok/s`
+- step-90 training loss: `2.5697`
+
+Standalone eval from `python -m hz0.eval_cli --config configs/hz0a-mac-71m.yaml --checkpoint outputs/hz0a-mac-71m/latest.pt`
+
+- loss: `3.1688`
+- perplexity: `23.78`
+- copy retrieval accuracy: `0.0000`
+- decode speed: `44.10 tok/s`
+
+Standalone benchmark from `python -m hz0.benchmark_cli --config configs/hz0a-mac-71m.yaml --checkpoint outputs/hz0a-mac-71m/latest.pt --decode-steps 32 --retrieval-samples 64`
+
+- decode speed: `38.63 tok/s`
+- copy retrieval accuracy: `0.0000`
+
+Sample from `python -m hz0.sample_cli --config configs/hz0a-mac-71m.yaml --checkpoint outputs/hz0a-mac-71m/latest.pt --prompt "HZ-0A " --max-new-tokens 32`
+
+```text
+HZ-0A atingh and and and and and and a
+```
+
+### Verified local `~120M` launch probe
+
+From `python -m hz0.train --config configs/hz0a-120m.yaml --max-steps 1`
+
+- params: `119,807,360`
+- device: `cpu`
+- training launch: successful
+- step-0 loss: `5.7045`
+- step-0 train throughput: `68.70 tok/s`
+
 ## Sample output
 
 From `python -m hz0.sample_cli --config configs/hz0a-mac-36m.yaml --checkpoint outputs/hz0a-mac-36m/latest.pt --prompt "HZ-0A " --max-new-tokens 32`
@@ -145,8 +181,10 @@ From `python -m hz0.compare_cli --config configs/hz0a-mac-36m.yaml --hybrid-chec
   checkpoint at this stage.
 - The current benchmark reflects the fallback recurrent mixer, not a real
   kernel-backed `GatedDeltaNet-2` path.
-- The `~71M` local scaling rung is now runnable, but at only `50` steps it has
-  not yet beaten the more-trained `36M` checkpoint on validation loss.
+- The larger `~71M` rung now improves with more training, but it still trails
+  the better-converged `36M` checkpoint on validation loss.
+- The `~120M` plan-scale config is locally launchable, but the current CPU path
+  is too slow to treat as the intended final training environment.
 
 ## Plan compliance status
 
@@ -163,7 +201,8 @@ The current result is **not yet the full `HZ-0A` model as stated in the plan**.
 ### What does not yet match the plan
 
 - target size: the plan calls for roughly `120M–180M` for `HZ-0A`; the current
-  benchmarked hybrid is `36.1M`
+  best fully benchmarked hybrid is `71.2M`, while the `119.8M` target has only
+  been launch-probed locally
 - backbone fidelity: current model uses the local fallback recurrent mixer, not
   true `GatedDeltaNet-2` or `Mamba-3`
 - data scale: current run uses a local seed corpus, not a real pretraining data
