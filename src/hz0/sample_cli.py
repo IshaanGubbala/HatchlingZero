@@ -10,6 +10,7 @@ from hz0.config import Config
 from hz0.generation import greedy_generate
 from hz0.model import build_model
 from hz0.tokenizer import ByteTokenizer
+from hz0.utils import resolve_dtype
 
 
 def main() -> None:
@@ -24,7 +25,8 @@ def main() -> None:
     cfg = Config.load(args.config).raw
     model_cfg = cfg[args.model_key]
     device = torch.device(cfg["device"])
-    model = build_model(model_cfg).to(device)
+    dtype = resolve_dtype(cfg["dtype"])
+    model = build_model(model_cfg).to(device=device, dtype=dtype)
     payload = load_checkpoint(args.checkpoint, device)
     model.load_state_dict(payload["model"])
 

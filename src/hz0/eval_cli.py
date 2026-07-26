@@ -12,6 +12,7 @@ from hz0.config import Config
 from hz0.data import build_dataset
 from hz0.eval import benchmark_decode_latency, evaluate_copy_retrieval, evaluate_language_model
 from hz0.model import build_model
+from hz0.utils import resolve_dtype
 
 
 def main() -> None:
@@ -24,6 +25,7 @@ def main() -> None:
     cfg = Config.load(args.config).raw
     model_cfg = cfg[args.model_key]
     device = torch.device(cfg["device"])
+    dtype = resolve_dtype(cfg["dtype"])
     dataset = build_dataset(
         cfg["data"]["val_text_path"],
         cfg["data"]["seq_len"],
@@ -32,11 +34,11 @@ def main() -> None:
         packed=True,
     )
     loader = DataLoader(dataset, batch_size=cfg["data"]["batch_size"])
-    model = build_model(model_cfg).to(device)
+    model = build_model(model_cfg).to(device=device, dtype=dtype)
     if args.checkpoint:
         payload = load_checkpoint(args.checkpoint, device)
         model.load_state_dict(payload["model"])
-    metrics = evaluate_language_model(model, loader, device)
+    metrics = evaluate_language_model(model, loader, device, dtype=dtype)
     metrics.update(
         evaluate_copy_retrieval(
             model=model,

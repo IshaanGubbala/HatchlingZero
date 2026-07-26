@@ -14,6 +14,7 @@ from hz0.data import build_dataset
 from hz0.eval import benchmark_decode_latency, evaluate_copy_retrieval, evaluate_language_model
 from hz0.generation import greedy_generate
 from hz0.model import build_model
+from hz0.runtime import autocast_context
 from hz0.tokenizer import ByteTokenizer
 from hz0.utils import resolve_dtype, set_seed
 
@@ -105,11 +106,12 @@ def main() -> None:
             x = batch[:, :-1]
             y = batch[:, 1:]
             optimizer.zero_grad(set_to_none=True)
-            logits = model(x)
-            loss = torch.nn.functional.cross_entropy(
-                logits.reshape(-1, logits.size(-1)),
-                y.reshape(-1),
-            )
+            with autocast_context(device, dtype):
+                logits = model(x)
+                loss = torch.nn.functional.cross_entropy(
+                    logits.reshape(-1, logits.size(-1)),
+                    y.reshape(-1),
+                )
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), cfg["optim"]["grad_clip"])
             optimizer.step()

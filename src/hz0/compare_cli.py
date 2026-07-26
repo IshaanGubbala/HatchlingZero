@@ -12,9 +12,10 @@ from hz0.config import Config
 from hz0.data import build_dataset
 from hz0.eval import benchmark_decode_latency, evaluate_copy_retrieval, evaluate_language_model
 from hz0.model import build_model
+from hz0.utils import resolve_dtype
 
 
-def collect_metrics(cfg: dict, model_cfg: dict, checkpoint: Path | None) -> dict[str, float]:
+def collect_metrics(cfg: dict, model_cfg: dict, checkpoint: Path | None, dtype: torch.dtype) -> dict[str, float]:
     device = torch.device(cfg["device"])
     dataset = build_dataset(
         cfg["data"]["val_text_path"],
@@ -24,11 +25,11 @@ def collect_metrics(cfg: dict, model_cfg: dict, checkpoint: Path | None) -> dict
         packed=True,
     )
     loader = DataLoader(dataset, batch_size=cfg["data"]["batch_size"])
-    model = build_model(model_cfg).to(device)
+    model = build_model(model_cfg).to(device=device, dtype=dtype)
     if checkpoint is not None:
         payload = load_checkpoint(checkpoint, device)
         model.load_state_dict(payload["model"])
-    metrics = evaluate_language_model(model, loader, device)
+    metrics = evaluate_language_model(model, loader, device, dtype=dtype)
     metrics.update(
         evaluate_copy_retrieval(
             model=model,
@@ -58,9 +59,10 @@ def main() -> None:
     args = parser.parse_args()
 
     cfg = Config.load(args.config).raw
+    dtype = resolve_dtype(cfg["dtype"])
     result = {
-        "hybrid": collect_metrics(cfg, cfg["model"], args.hybrid_checkpoint),
-        "baseline": collect_metrics(cfg, cfg["baseline"], args.baseline_checkpoint),
+        "hybrid": collect_metrics(cfg, cfg["model"], args.hybrid_checkpoint, dtype=dtype),
+        "baseline": collect_metrics(cfg, cfg["baseline"], args.baseline_checkpoint, dtype=dtype),
     }
     print(json.dumps(result, indent=2))
 

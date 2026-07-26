@@ -179,7 +179,7 @@ local macOS path.
 
 ## Linux/CUDA Path
 
-The repo now includes a reproducible CUDA-side handoff:
+The repo also includes a CUDA-side handoff for later verification:
 
 - Docker image: [docker/Dockerfile.hz0a-cuda](/Users/ishaangubbala/Documents/Training/docker/Dockerfile.hz0a-cuda)
 - Smoke script: [scripts/hz0a_cuda_smoke.sh](/Users/ishaangubbala/Documents/Training/scripts/hz0a_cuda_smoke.sh)

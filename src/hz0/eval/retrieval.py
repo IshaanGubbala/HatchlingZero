@@ -4,6 +4,8 @@ import time
 
 import torch
 
+from hz0.runtime import autocast_context, maybe_sync_device
+
 
 @torch.no_grad()
 def evaluate_copy_retrieval(
@@ -19,12 +21,14 @@ def evaluate_copy_retrieval(
     prefix_len = max(4, seq_len // 2)
     filler_low = 32 if vocab_size > 64 else 0
     filler_high = min(vocab_size, 127) if vocab_size > 127 else vocab_size
+    model_dtype = next(model.parameters()).dtype
 
     for _ in range(num_samples):
         needle = torch.randint(0, vocab_size, (1, 1), device=device)
         filler = torch.randint(filler_low, filler_high, (1, prefix_len - 2), device=device)
         prompt = torch.cat([needle, filler, needle], dim=1)
-        logits = model(prompt[:, :-1])
+        with autocast_context(device, model_dtype):
+            logits = model(prompt[:, :-1])
         pred = torch.argmax(logits[:, -1, :], dim=-1)
         correct += int((pred == prompt[:, -1]).item())
         total += 1
@@ -41,11 +45,15 @@ def benchmark_decode_latency(
 ) -> dict[str, float]:
     model.eval()
     prompt = torch.randint(0, vocab_size, (1, prompt_len), device=device)
+    model_dtype = next(model.parameters()).dtype
+    maybe_sync_device(device)
     start = time.perf_counter()
     for _ in range(steps):
-        logits = model(prompt)
+        with autocast_context(device, model_dtype):
+            logits = model(prompt)
         next_token = torch.argmax(logits[:, -1, :], dim=-1, keepdim=True)
         prompt = torch.cat([prompt[:, 1:], next_token], dim=1)
+    maybe_sync_device(device)
     elapsed = time.perf_counter() - start
     tokens_per_second = steps / max(elapsed, 1e-8)
     return {

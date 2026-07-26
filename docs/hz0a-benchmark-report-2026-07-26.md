@@ -58,6 +58,7 @@ includes two larger MPS configs:
 
 - `configs/hz0a-mac-54m.yaml`: `54,599,104` params
 - `configs/hz0a-mac-71m.yaml`: `71,180,800` params
+- `configs/hz0a-mac-110m.yaml`: `109,899,648` params
 
 The current plan-scale config remains:
 
@@ -136,6 +137,34 @@ From `python -m hz0.train --config configs/hz0a-120m.yaml --max-steps 1`
 - step-0 loss: `5.7045`
 - step-0 train throughput: `68.70 tok/s`
 
+### Verified local `~110M` MPS rung
+
+From `python -m hz0.train --config configs/hz0a-mac-110m.yaml --max-steps 25`
+
+- params: `109,899,648`
+- device: `mps`
+- training reached step `25`
+- observed train throughput after warmup: roughly `361-368 tok/s`
+- step-20 training loss: `2.7736`
+
+Standalone eval from `python -m hz0.eval_cli --config configs/hz0a-mac-110m.yaml --checkpoint outputs/hz0a-mac-110m/latest.pt`
+
+- loss: `3.5573`
+- perplexity: `35.07`
+- copy retrieval accuracy: `0.03125`
+- decode speed: `43.87 tok/s`
+
+Standalone benchmark from `python -m hz0.benchmark_cli --config configs/hz0a-mac-110m.yaml --checkpoint outputs/hz0a-mac-110m/latest.pt --decode-steps 32 --retrieval-samples 64`
+
+- decode speed: `35.48 tok/s`
+- copy retrieval accuracy: `0.0000`
+
+Sample from `python -m hz0.sample_cli --config configs/hz0a-mac-110m.yaml --checkpoint outputs/hz0a-mac-110m/latest.pt --prompt "HZ-0A " --max-new-tokens 32`
+
+```text
+HZ-0A     aton    amampamaton   ame te
+```
+
 ## Sample output
 
 From `python -m hz0.sample_cli --config configs/hz0a-mac-36m.yaml --checkpoint outputs/hz0a-mac-36m/latest.pt --prompt "HZ-0A " --max-new-tokens 32`
@@ -183,6 +212,9 @@ From `python -m hz0.compare_cli --config configs/hz0a-mac-36m.yaml --hybrid-chec
   kernel-backed `GatedDeltaNet-2` path.
 - The larger `~71M` rung now improves with more training, but it still trails
   the better-converged `36M` checkpoint on validation loss.
+- The new `~110M` MPS rung gets much closer to the plan size on Mac, but at
+  only `25` steps it is still an early convergence check rather than a
+  competitive final checkpoint.
 - The `~120M` plan-scale config is locally launchable, but the current CPU path
   is too slow to treat as the intended final training environment.
 
@@ -201,8 +233,8 @@ The current result is **not yet the full `HZ-0A` model as stated in the plan**.
 ### What does not yet match the plan
 
 - target size: the plan calls for roughly `120M–180M` for `HZ-0A`; the current
-  best fully benchmarked hybrid is `71.2M`, while the `119.8M` target has only
-  been launch-probed locally
+  best fully benchmarked Mac hybrid is now `109.9M`, while the `119.8M` target
+  has only been launch-probed locally
 - backbone fidelity: current model uses the local fallback recurrent mixer, not
   true `GatedDeltaNet-2` or `Mamba-3`
 - data scale: current run uses a local seed corpus, not a real pretraining data
@@ -218,6 +250,6 @@ current hybrid beats a same-size transformer baseline on language-modeling loss.
 It does **not** yet prove completion of the original plan-scale `HZ-0A`
 milestone. The remaining path to that milestone is:
 
-1. train a larger model closer to the `120M+` target
-2. move to a real optimized recurrent backend
-3. benchmark in the intended long-context and serving environment
+1. continue the `~110M` Mac rung until it is properly converged
+2. keep pushing the upstream Mac backend experiment beyond import-only status
+3. benchmark with stronger long-context evidence on Mac
