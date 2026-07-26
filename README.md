@@ -63,6 +63,12 @@ To verify the local setup:
 pytest
 ```
 
+To inspect the real upstream backend status on your machine:
+
+```bash
+python -m hz0.backend_check
+```
+
 ## Upstream integration notes
 
 `vendor/GatedDeltaNet-2` is checked in as a local upstream reference. Its core
@@ -75,6 +81,20 @@ pytest
 That means this repo can detect and use the backend when those dependencies are
 available, but it does not force a broken local import on machines that do not
 have them yet.
+
+### Current local result
+
+On this macOS Apple Silicon setup, we were able to:
+
+- move the environment to Python 3.12
+- install `flash-linear-attention`
+- import `fla`
+- bypass the vendored `lit_gpt` package-level imports
+
+The remaining blocker for the real GDN-2 layer is `triton`. There is no normal
+`pip install triton` path available in this environment, so the true upstream
+kernel path should be treated as a Linux/CUDA setup target, not a guaranteed
+local macOS path.
 
 ## Repository layout
 

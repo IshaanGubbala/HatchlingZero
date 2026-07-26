@@ -8,7 +8,7 @@ import torch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from hz0.model import HybridLM
-from hz0.model.backends import gdn2_is_available
+from hz0.model.backends import gdn2_is_available, gdn2_status
 
 
 def test_fallback_model_forward() -> None:
@@ -45,3 +45,9 @@ def test_auto_backend_forward_or_fallback() -> None:
     logits = model(x)
     assert logits.shape == (1, 8, 256)
     assert available in (True, False)
+
+
+def test_gdn2_status_shape() -> None:
+    status = gdn2_status()
+    assert "available" in status
+    assert "reason" in status

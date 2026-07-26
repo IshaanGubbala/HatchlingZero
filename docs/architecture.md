@@ -26,6 +26,22 @@ The repository now includes exactly that extension point. `HybridLM` accepts a
   its runtime dependencies are missing
 - `auto`: use `gdn2` when available, otherwise fall back automatically
 
+## Runtime reality
+
+The direct GDN-2 layer can be imported independently from the rest of the
+vendored training stack, but only when the following dependency chain is
+satisfied:
+
+- Python 3.10+
+- `flash-linear-attention`
+- vendor-side Python packages such as `einops`
+- `triton`
+
+The `lit_gpt` package in the vendored repository imports a broader GPT stack in
+its `__init__.py`, including `flash_attn`. This repo bypasses that package-level
+import so we can target `lit_gpt/gdn2.py` directly instead of requiring the
+entire upstream stack just to check layer availability.
+
 ## Recommended next integration
 
 The highest-value next step is to replace `RecurrentMixerBlock` with one of:
