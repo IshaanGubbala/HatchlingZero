@@ -48,6 +48,7 @@ def main() -> None:
     num_workers = cfg["data"].get("num_workers", 0)
     persistent_workers = bool(num_workers > 0 and cfg["data"].get("persistent_workers", True))
     memory_aux_weight = float(cfg["train"].get("memory_aux_weight", 0.0))
+    memory_aux_last_token_weight = float(cfg["train"].get("memory_aux_last_token_weight", 0.0))
     memory_aux_loader = None
     memory_aux_iter = None
     if memory_aux_weight > 0.0:
@@ -160,6 +161,12 @@ def main() -> None:
                         aux_logits.reshape(-1, aux_logits.size(-1)),
                         aux_y.reshape(-1),
                     )
+                    if memory_aux_last_token_weight > 0.0:
+                        aux_last_loss = torch.nn.functional.cross_entropy(
+                            aux_logits[:, -1, :],
+                            aux_y[:, -1],
+                        )
+                        aux_loss = aux_loss + memory_aux_last_token_weight * aux_last_loss
                     loss = loss + memory_aux_weight * aux_loss
                 loss = loss / grad_accum_steps
             loss.backward()

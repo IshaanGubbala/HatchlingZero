@@ -362,6 +362,49 @@ but it still does not unlock the newer overwrite / protected-memory /
 recall-distance tasks. At this point the remaining gap appears architectural or
 objective-level, not just a missing memory curriculum.
 
+### Last-token-weighted auxiliary-memory fine-tune
+
+One more HZ-0A experiment on Sunday, July 26, 2026 increased the pressure on
+the exact query-answer position by adding an extra weight to the final token of
+the auxiliary memory batches.
+
+From `python -m hz0.train --config configs/hz0a-mac-110m-memory-aux-lastft.yaml --resume outputs/hz0a-mac-110m-tuned/latest.pt --max-steps 190`
+
+- base checkpoint: tuned fallback hybrid step `150`
+- optimization change: `lr=0.00008`
+- auxiliary objective: `memory_aux_weight=0.5`
+- final-answer emphasis: `memory_aux_last_token_weight=2.0`
+- training reached step `190`
+
+Standalone eval from `python -m hz0.eval_cli --config configs/hz0a-mac-110m-memory-aux-lastft.yaml --checkpoint outputs/hz0a-mac-110m-memory-aux-lastft/latest.pt`
+
+- loss: `2.5774`
+- perplexity: `13.16`
+- associative recall accuracy: `0.0000`
+- overwrite retrieval accuracy: `0.0000`
+- protected memory accuracy: `0.0000`
+- recall-distance accuracy at `32/64/128/256`: all `0.0000`
+- multi-anchor retrieval accuracy: `0.0000`
+- multi-anchor anchor-set accuracy: `0.0000`
+- decode speed: `111.42 tok/s`
+
+Standalone benchmark from `python -m hz0.benchmark_cli --config configs/hz0a-mac-110m-memory-aux-lastft.yaml --checkpoint outputs/hz0a-mac-110m-memory-aux-lastft/latest.pt --decode-steps 32 --retrieval-samples 64 --context-lengths 64,128,256,512`
+
+- decode speed: `87.11 tok/s`
+- context `64`: `121.85 tok/s`
+- context `128`: `100.64 tok/s`
+- context `256`: `70.39 tok/s`
+- context `512`: `45.18 tok/s`
+- copy retrieval accuracy: `0.0000`
+- multi-anchor retrieval accuracy: `0.0000`
+- multi-anchor anchor-set accuracy: `0.046875`
+
+This is the strongest evidence yet that the remaining HZ-0A memory gap is not
+just a matter of sample frequency or final-token weighting. The model can keep
+or even improve language-modeling quality under stronger memory-focused
+training, but the new overwrite / protected-memory / recall-distance suite
+still stays at zero.
+
 ### Verified local `~110M` MPS rung
 
 From `python -m hz0.train --config configs/hz0a-mac-110m.yaml --max-steps 25`
