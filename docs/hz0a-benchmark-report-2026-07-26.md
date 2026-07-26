@@ -229,6 +229,55 @@ the fair transformer baseline on LM quality by step `100`, but it still does
 not beat the tuned fallback hybrid and still carries a large decode-speed
 penalty versus the transformer.
 
+### Local `gdn2_ref` continued to step `150`
+
+The local reference backend was then continued to the same step-`150` rung used
+by the strongest current hybrid-vs-transformer comparison.
+
+From `python -m hz0.train --config configs/hz0a-mac-110m-gdn2ref.yaml --resume outputs/hz0a-mac-110m-gdn2ref/latest.pt --max-steps 150`
+
+- training reached step `150`
+- observed step-125 eval loss: `2.8563`
+
+Standalone eval from `python -m hz0.eval_cli --config configs/hz0a-mac-110m-gdn2ref.yaml --checkpoint outputs/hz0a-mac-110m-gdn2ref/latest.pt`
+
+- loss: `2.7034`
+- perplexity: `14.93`
+- associative recall accuracy: `0.0000`
+- overwrite retrieval accuracy: `0.0000`
+- protected memory accuracy: `0.0000`
+- multi-anchor retrieval accuracy: `0.0000`
+- decode speed: `103.48 tok/s`
+
+Standalone benchmark from `python -m hz0.benchmark_cli --config configs/hz0a-mac-110m-gdn2ref.yaml --checkpoint outputs/hz0a-mac-110m-gdn2ref/latest.pt --decode-steps 32 --retrieval-samples 64 --context-lengths 64,128,256,512`
+
+- decode speed: `75.36 tok/s`
+- context `64`: `114.50 tok/s`
+- context `128`: `97.50 tok/s`
+- context `256`: `62.83 tok/s`
+- context `512`: `41.33 tok/s`
+- copy retrieval accuracy: `0.0000`
+- multi-anchor retrieval accuracy: `0.015625`
+- multi-anchor anchor-set accuracy: `0.03125`
+
+Decode profile from `python -m hz0.profile_decode_cli --config configs/hz0a-mac-110m-gdn2ref.yaml --checkpoint outputs/hz0a-mac-110m-gdn2ref/latest.pt`
+
+- profiled forward pass at prompt length `128`: `0.0847 s`
+- total recurrent-mixer time: `0.0267 s`
+- total attention time: `0.0113 s`
+- total FFN time: `0.0130 s`
+
+At the matched step-150 checkpoints now available on disk:
+
+- tuned fallback hybrid: loss `2.6242`, perplexity `13.79`, decode `103.20 tok/s`
+- local `gdn2_ref`: loss `2.7034`, perplexity `14.93`, decode `75.36 tok/s`
+- fresh fair transformer baseline: loss `2.9593`, perplexity `19.28`, decode `181.66 tok/s`
+
+This keeps the same rank ordering as step `100`, but the local `gdn2_ref`
+backend narrows the quality gap to the tuned fallback hybrid while staying
+materially closer to the revised HZ-0A gate structure than the older
+single-update-gate mixer.
+
 ### Verified local `~110M` MPS rung
 
 From `python -m hz0.train --config configs/hz0a-mac-110m.yaml --max-steps 25`
