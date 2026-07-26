@@ -5,12 +5,10 @@ import json
 from pathlib import Path
 
 import torch
-from torch.utils.data import DataLoader
 
 from hz0.checkpoint import load_checkpoint
 from hz0.config import Config
-from hz0.data import build_dataset
-from hz0.eval import benchmark_decode_latency, evaluate_copy_retrieval, evaluate_language_model
+from hz0.eval import benchmark_decode_latency, evaluate_copy_retrieval
 from hz0.model import HybridLM
 
 
@@ -18,38 +16,35 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--checkpoint", type=Path, default=None)
+    parser.add_argument("--decode-steps", type=int, default=32)
+    parser.add_argument("--retrieval-samples", type=int, default=32)
     args = parser.parse_args()
 
     cfg = Config.load(args.config).raw
     device = torch.device(cfg["device"])
-    dataset = build_dataset(
-        cfg["data"]["val_text_path"],
-        cfg["data"]["seq_len"],
-        cfg["data"]["vocab_size"],
-        cfg["data"]["val_length"],
-    )
-    loader = DataLoader(dataset, batch_size=cfg["data"]["batch_size"])
     model = HybridLM(**cfg["model"]).to(device)
+
     if args.checkpoint:
         payload = load_checkpoint(args.checkpoint, device)
         model.load_state_dict(payload["model"])
-    metrics = evaluate_language_model(model, loader, device)
+
+    metrics = {}
+    metrics.update(
+        benchmark_decode_latency(
+            model=model,
+            device=device,
+            prompt_len=cfg["data"]["seq_len"],
+            steps=args.decode_steps,
+            vocab_size=cfg["data"]["vocab_size"],
+        )
+    )
     metrics.update(
         evaluate_copy_retrieval(
             model=model,
             device=device,
             seq_len=cfg["data"]["seq_len"],
             vocab_size=cfg["data"]["vocab_size"],
-            num_samples=32,
-        )
-    )
-    metrics.update(
-        benchmark_decode_latency(
-            model=model,
-            device=device,
-            prompt_len=min(cfg["data"]["seq_len"], cfg["model"]["max_seq_len"]),
-            steps=16,
-            vocab_size=cfg["data"]["vocab_size"],
+            num_samples=args.retrieval_samples,
         )
     )
     print(json.dumps(metrics, indent=2))

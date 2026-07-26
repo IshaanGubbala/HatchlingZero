@@ -8,6 +8,8 @@ data:
   seq_len: 256
   batch_size: 4
   vocab_size: 256
+  train_length: 2048
+  val_length: 512
 
 model:
   vocab_size: 256
@@ -27,6 +29,11 @@ optim:
   grad_clip: 1.0
 
 train:
+  output_dir: outputs/hz0a-small
   max_steps: 500
   log_every: 10
   eval_every: 100
+  save_every: 100
+  sample_every: 100
+  sample_prompt: "HATCHLING-ZERO "
+  sample_tokens: 32

@@ -52,6 +52,20 @@ The highest-value next step is to replace `RecurrentMixerBlock` with one of:
 That keeps the rest of the scaffold intact while moving the core mixer closer to
 the upstream research stack recommended by the development plan.
 
+## What HZ-0A now covers
+
+The local `HZ-0A` milestone in this repo includes:
+
+- hybrid recurrent-plus-anchor-attention language model
+- byte-level training and evaluation pipeline
+- checkpoint save/resume
+- sample generation
+- synthetic copy-retrieval evaluation
+- decode-speed benchmarking
+
+This is enough to support local stage-A iteration and regression checks even
+without the full CUDA kernel path.
+
 ## Planned upgrades
 
 ### HZ-0B

@@ -1,3 +1,3 @@
-from .dataset import RandomTokenDataset, TextTokenDataset
+from .dataset import RandomTokenDataset, TextTokenDataset, build_dataset
 
-__all__ = ["RandomTokenDataset", "TextTokenDataset"]
+__all__ = ["RandomTokenDataset", "TextTokenDataset", "build_dataset"]

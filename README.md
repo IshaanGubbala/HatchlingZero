@@ -23,6 +23,9 @@ same stage-1 shape recommended by the plan:
   - LM head
 - A packed language-modeling dataset pipeline
 - Train and eval entrypoints
+- Checkpoint save and resume support
+- Byte-level sampling and decode benchmarking
+- A synthetic copy-retrieval benchmark for stage-A long-context regression checks
 - YAML configs for tiny and small `HZ-0A` runs
 - A staged roadmap that maps directly to `HZ-0A` through `HZ-0E`
 
@@ -55,6 +58,24 @@ For a smoke test without real data:
 
 ```bash
 python -m hz0.train --config configs/hz0a-tiny.yaml --max-steps 5
+```
+
+To evaluate a checkpoint:
+
+```bash
+python -m hz0.eval_cli --config configs/hz0a-tiny.yaml --checkpoint outputs/hz0a-tiny/latest.pt
+```
+
+To benchmark decode speed and synthetic retrieval:
+
+```bash
+python -m hz0.benchmark_cli --config configs/hz0a-tiny.yaml --checkpoint outputs/hz0a-tiny/latest.pt
+```
+
+To sample from a trained checkpoint:
+
+```bash
+python -m hz0.sample_cli --config configs/hz0a-tiny.yaml --checkpoint outputs/hz0a-tiny/latest.pt --prompt "HZ-0A "
 ```
 
 To verify the local setup:
@@ -114,3 +135,15 @@ src/hz0/eval/            Evaluation harness stubs
 - `HZ-0C`: scale backbone and add surprise-gated anchor logic
 - `HZ-0D`: add bounded session-local fast-weight updates
 - `HZ-0E`: add micro-MoE FFNs and sparse runtime work
+
+## HZ-0A checklist
+
+- recurrent-first hybrid model: implemented
+- anchor attention every few blocks: implemented
+- dense feed-forward layers: implemented
+- train loop with eval: implemented
+- checkpointing and resume: implemented
+- local generation path: implemented
+- decode-speed benchmark: implemented
+- synthetic long-context retrieval regression check: implemented
+- true upstream GDN-2 kernel path: pending Linux/CUDA + Triton environment

@@ -8,6 +8,8 @@ data:
   seq_len: 128
   batch_size: 8
   vocab_size: 256
+  train_length: 1024
+  val_length: 256
 
 model:
   vocab_size: 256
@@ -27,6 +29,11 @@ optim:
   grad_clip: 1.0
 
 train:
+  output_dir: outputs/hz0a-tiny
   max_steps: 200
   log_every: 10
   eval_every: 50
+  save_every: 50
+  sample_every: 50
+  sample_prompt: "HZ-0A "
+  sample_tokens: 24

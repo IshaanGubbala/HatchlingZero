@@ -40,3 +40,14 @@ class TextTokenDataset(Dataset[torch.Tensor]):
             pad = torch.zeros(self.seq_len + 1 - len(chunk), dtype=torch.long)
             chunk = torch.cat([chunk, pad], dim=0)
         return chunk
+
+
+def build_dataset(
+    path: str | Path | None,
+    seq_len: int,
+    vocab_size: int,
+    random_length: int,
+) -> Dataset[torch.Tensor]:
+    if path:
+        return TextTokenDataset(path, seq_len=seq_len, vocab_size=vocab_size)
+    return RandomTokenDataset(seq_len=seq_len, vocab_size=vocab_size, length=random_length)
