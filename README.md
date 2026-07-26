@@ -80,6 +80,12 @@ To step up to a larger local Mac run next:
 ./.venv/bin/python -m hz0.train --config configs/hz0a-mac-next.yaml --max-steps 100
 ```
 
+To try the throughput-tuned `~36M` Mac run:
+
+```bash
+./.venv/bin/python -m hz0.train --config configs/hz0a-mac-36m.yaml --max-steps 100
+```
+
 To inspect the plan-scale `~120M` stage-A target config:
 
 ```bash

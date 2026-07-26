@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import time
 from pathlib import Path
 
 import torch
@@ -28,6 +29,7 @@ def main() -> None:
     cfg = Config.load(args.config).raw
     model_cfg = cfg[args.model_key]
     set_seed(cfg["seed"])
+    torch.set_float32_matmul_precision("high")
 
     device = torch.device(cfg["device"])
     dtype = resolve_dtype(cfg["dtype"])
@@ -46,10 +48,25 @@ def main() -> None:
         cfg["data"]["val_length"],
         packed=True,
     )
-    train_loader = DataLoader(train_ds, batch_size=cfg["data"]["batch_size"], shuffle=True)
-    val_loader = DataLoader(val_ds, batch_size=cfg["data"]["batch_size"])
+    num_workers = cfg["data"].get("num_workers", 0)
+    persistent_workers = bool(num_workers > 0 and cfg["data"].get("persistent_workers", True))
+    train_loader = DataLoader(
+        train_ds,
+        batch_size=cfg["data"]["batch_size"],
+        shuffle=True,
+        num_workers=num_workers,
+        persistent_workers=persistent_workers,
+    )
+    val_loader = DataLoader(
+        val_ds,
+        batch_size=cfg["data"]["batch_size"],
+        num_workers=num_workers,
+        persistent_workers=persistent_workers,
+    )
 
     model = build_model(model_cfg).to(device=device, dtype=dtype)
+    if cfg["train"].get("compile", False) and hasattr(torch, "compile"):
+        model = torch.compile(model, mode=cfg["train"].get("compile_mode", "reduce-overhead"))
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=cfg["optim"]["lr"],
@@ -75,6 +92,8 @@ def main() -> None:
 
     model.train()
     step = start_step
+    running_tokens = 0
+    running_start = time.perf_counter()
     while step < max_steps:
         for batch in train_loader:
             if step >= max_steps:
@@ -91,9 +110,14 @@ def main() -> None:
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), cfg["optim"]["grad_clip"])
             optimizer.step()
+            running_tokens += x.numel()
 
             if step % cfg["train"]["log_every"] == 0:
-                print(f"step={step} loss={loss.item():.4f}")
+                elapsed = max(time.perf_counter() - running_start, 1e-8)
+                train_toks = running_tokens / elapsed
+                print(f"step={step} loss={loss.item():.4f} train_tokens_per_second={train_toks:.2f}")
+                running_tokens = 0
+                running_start = time.perf_counter()
 
             if step > 0 and step % cfg["train"]["eval_every"] == 0:
                 metrics = evaluate_language_model(model, val_loader, device)
