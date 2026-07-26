@@ -530,6 +530,28 @@ sharper:
   context scaling, staying around `205 tok/s` at short decode prompts while the
   tuned hybrid remains around `42 tok/s`.
 
+## Decode profiling
+
+Layer-level decode profiling was added on Sunday, July 26, 2026 to identify
+the dominant Mac bottlenecks in the current fallback implementation.
+
+From `python -m hz0.profile_decode_cli --config configs/hz0a-mac-110m-tuned.yaml --checkpoint outputs/hz0a-mac-110m-tuned/latest.pt`
+
+- profiled forward time at context `128`: `0.1339 s`
+- total mixer time: `0.0814 s`
+- total attention time: `0.0100 s`
+- total FFN time: `0.0150 s`
+
+From `python -m hz0.profile_decode_cli --config configs/hz0a-mac-110m.yaml --model-key baseline --checkpoint outputs/hz0a-mac-110m-baseline/latest.pt`
+
+- profiled forward time at context `128`: `0.0632 s`
+- total attention time: `0.0242 s`
+- total FFN time: `0.0161 s`
+
+The main takeaway is that the fallback recurrent mixer dominates the hybrid
+forward pass on Mac. In this profile, the hybrid's recurrent mixer alone costs
+over `8x` as much as its own attention stack.
+
 ### Strengths
 
 - The hybrid model is clearly ahead of the same-size transformer baseline on
@@ -555,6 +577,8 @@ sharper:
 - The new context-length decode sweep exposes the current systems curve on Mac:
   decode speed drops substantially as context length rises, from about
   `73 tok/s` at `64` tokens to about `12 tok/s` at `512` tokens.
+- Layer-level profiling now points to the fallback recurrent mixer as the
+  dominant systems bottleneck on Mac, not the anchor-attention blocks.
 
 ### Weaknesses
 
@@ -578,6 +602,8 @@ sharper:
 - The tuned checkpoint still needs a broader decode-vs-context comparison
   against the transformer baseline before we can argue that the recurrent path
   is paying for itself in serving behavior on Mac.
+- The fallback recurrent mixer is now a measured hotspot, so backend work is no
+  longer just a hypothesis; it is the clearest concrete systems target.
 - The current benchmark reflects the fallback recurrent mixer, not a real
   kernel-backed `GatedDeltaNet-2` path.
 - The larger `~71M` rung now improves with more training, but it still trails
@@ -625,3 +651,4 @@ milestone. The remaining path to that milestone is:
 4. iterate on retrieval curriculum only if we can preserve the tuned LM gains
 5. keep pushing the upstream Mac backend experiment beyond import-only status
 6. benchmark with stronger long-context evidence on Mac
+7. optimize or replace the fallback recurrent mixer, since profiling shows it is the dominant decode bottleneck

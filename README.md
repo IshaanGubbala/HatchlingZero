@@ -138,6 +138,18 @@ python -m hz0.scorecard_cli \
   --output-path docs/hz0a-mac-scorecard.json
 ```
 
+To profile layer-level decode costs on Mac:
+
+```bash
+python -m hz0.profile_decode_cli \
+  --config configs/hz0a-mac-110m-tuned.yaml \
+  --checkpoint outputs/hz0a-mac-110m-tuned/latest.pt
+python -m hz0.profile_decode_cli \
+  --config configs/hz0a-mac-110m.yaml \
+  --model-key baseline \
+  --checkpoint outputs/hz0a-mac-110m-baseline/latest.pt
+```
+
 To compare the hybrid model against a same-size transformer baseline:
 
 ```bash
