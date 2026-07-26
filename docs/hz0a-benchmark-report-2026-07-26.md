@@ -155,6 +155,37 @@ This is not yet the final optimized GDN-2 backend, but it does move the local
 model path closer to the revised HZ-0A architecture target than the older
 single-update-gate fallback mixer.
 
+Standalone eval from `python -m hz0.eval_cli --config configs/hz0a-mac-110m-gdn2ref.yaml --checkpoint outputs/hz0a-mac-110m-gdn2ref/latest.pt`
+
+- loss: `3.3731`
+- perplexity: `29.17`
+- associative recall accuracy: `0.0000`
+- overwrite retrieval accuracy: `0.0000`
+- protected memory accuracy: `0.0000`
+- multi-anchor retrieval accuracy: `0.0000`
+- decode speed: `102.42 tok/s`
+
+Standalone benchmark from `python -m hz0.benchmark_cli --config configs/hz0a-mac-110m-gdn2ref.yaml --checkpoint outputs/hz0a-mac-110m-gdn2ref/latest.pt --decode-steps 32 --retrieval-samples 64 --context-lengths 64,128,256,512`
+
+- decode speed: `74.45 tok/s`
+- context `64`: `112.48 tok/s`
+- context `128`: `92.52 tok/s`
+- context `256`: `65.90 tok/s`
+- context `512`: `42.27 tok/s`
+- copy retrieval accuracy: `0.0000`
+- multi-anchor retrieval accuracy: `0.0000`
+- multi-anchor anchor-set accuracy: `0.0000`
+
+Relative to the step-25 fair controls now on disk:
+
+- tuned fallback hybrid step `25`: loss `3.2711`, perplexity `26.34`, decode `107.57 tok/s`
+- fresh fair transformer baseline step `25`: loss `3.4595`, perplexity `31.80`, decode `195.93 tok/s`
+- local `gdn2_ref` step `25`: loss `3.3731`, perplexity `29.17`, decode `74.45 tok/s`
+
+So the local `gdn2_ref` path already lands between the tuned fallback hybrid and
+the fair transformer baseline on LM quality, but it is still slower than the
+tuned fallback at this early checkpoint.
+
 ### Verified local `~110M` MPS rung
 
 From `python -m hz0.train --config configs/hz0a-mac-110m.yaml --max-steps 25`
