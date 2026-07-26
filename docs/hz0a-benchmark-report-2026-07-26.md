@@ -1215,3 +1215,31 @@ and it still beats the old `36M` reference loss:
 So one major HZ-0A gate is now genuinely closed: the large hybrid has beaten
 the best local `36M` checkpoint after crossing the fair tokens-per-parameter
 threshold.
+
+## Associative memory probe result
+
+On Sunday, July 26, 2026, the repo also gained a direct probe path for
+isolated synthetic memory tasks:
+
+- `python -m hz0.memory_probe_cli`
+
+The first probe was run from the fair-threshold step-`325` hybrid checkpoint:
+
+- artifact: `docs/hz0a-memory-probe-associative-step325.json`
+- task mode: `associative`
+- probe steps: `32`
+- probe learning rate: `1e-4`
+
+Result:
+
+- held-out associative recall before probe: `0.0`
+- held-out associative recall after probe: `0.0`
+- final probe last-token loss: `0.00015`
+
+This is a useful negative result. It suggests the current model can fit the
+sampled associative training batches very quickly without improving held-out
+associative recall across fresh key/value combinations.
+
+That does not prove the architecture can never pass the memory gate, but it
+does make the remaining blocker sharper: the current HZ-0A path appears to be
+failing on memory-task generalization, not just on blended-memory optimization.

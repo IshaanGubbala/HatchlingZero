@@ -120,13 +120,18 @@ class MemoryAugmentedDataset(Dataset[torch.Tensor]):
         seq_len: int,
         vocab_size: int,
         mix_probability: float,
+        task_mode: str = "mixed",
     ) -> None:
         if not 0.0 <= mix_probability <= 1.0:
             raise ValueError("mix_probability must be between 0 and 1")
+        valid_modes = {"mixed", "associative", "overwrite", "protected", "distance"}
+        if task_mode not in valid_modes:
+            raise ValueError(f"task_mode must be one of {sorted(valid_modes)}")
         self.base = base
         self.seq_len = seq_len
         self.vocab_size = vocab_size
         self.mix_probability = mix_probability
+        self.task_mode = task_mode
         self.filler_low = 32 if vocab_size > 64 else 0
         self.filler_high = min(vocab_size, 127) if vocab_size > 127 else vocab_size
 
@@ -202,6 +207,15 @@ class MemoryAugmentedDataset(Dataset[torch.Tensor]):
         return self._pad_chunk(torch.cat([key, value, filler, key, value], dim=0))
 
     def _build_memory_sequence(self) -> torch.Tensor:
+        if self.task_mode == "associative":
+            return self._build_associative_chunk()
+        if self.task_mode == "overwrite":
+            return self._build_overwrite_chunk()
+        if self.task_mode == "protected":
+            return self._build_protected_chunk()
+        if self.task_mode == "distance":
+            return self._build_distance_chunk()
+
         choice = int(torch.randint(0, 4, (1,)).item())
         if choice == 0:
             return self._build_associative_chunk()
@@ -226,6 +240,7 @@ def build_dataset(
     retrieval_mix_probability: float = 0.0,
     retrieval_num_anchors: int = 3,
     memory_mix_probability: float = 0.0,
+    memory_task_mode: str = "mixed",
 ) -> Dataset[torch.Tensor]:
     if path:
         if packed:
@@ -248,5 +263,6 @@ def build_dataset(
             seq_len=seq_len,
             vocab_size=vocab_size,
             mix_probability=memory_mix_probability,
+            task_mode=memory_task_mode,
         )
     return dataset

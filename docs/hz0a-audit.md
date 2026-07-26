@@ -29,6 +29,10 @@ Direct step-`325` fairness artifact:
 
 - `docs/hz0a-step325-direct.json`
 
+Direct associative memory probe artifact:
+
+- `docs/hz0a-memory-probe-associative-step325.json`
+
 ## Revised decision gates
 
 The repo now includes a rerunnable gate artifact and evaluator:
@@ -63,6 +67,9 @@ Interpretation:
   hybrid still leads on loss there by about `0.6131`.
 - The decode picture is now mixed: the direct step-`300` eval decode ratio is
   about `0.683`, while the direct benchmark decode ratio is about `0.429`.
+- A direct associative-only memory probe from the step-`325` checkpoint drives
+  last-token probe loss near zero, but held-out associative recall remains
+  `0.0 -> 0.0` after `32` probe steps.
 - The memory-task gate remains unmet: no tracked memory metric shows a
   meaningful advantage.
 
@@ -156,6 +163,8 @@ Current blockers:
 
 - the `~120M` target has only been launch-probed locally, not fully benchmarked
 - the memory-task advantage gate is still failing
+- the new associative-only probe suggests the model can fit sampled synthetic
+  tasks without generalizing across held-out key/value combinations
 - the current best path is still the fallback recurrent mixer, not a true
   optimized GDN-2 backend
 
@@ -173,6 +182,7 @@ The following commands were run successfully in the current repo state:
 ./.venv/bin/python -m hz0.train --config configs/hz0a-mac-110m-fair.yaml --resume outputs/hz0a-mac-110m-fair/step_0000300.pt --max-steps 325
 ./.venv/bin/python -m hz0.eval_cli --config configs/hz0a-mac-110m-fair.yaml --checkpoint outputs/hz0a-mac-110m-fair/step_0000325.pt
 ./.venv/bin/python -m hz0.benchmark_cli --config configs/hz0a-mac-110m-fair.yaml --checkpoint outputs/hz0a-mac-110m-fair/step_0000325.pt --decode-steps 32 --retrieval-samples 64 --context-lengths 64,128,256,512
+./.venv/bin/python -m hz0.memory_probe_cli --config configs/hz0a-mac-110m-fair.yaml --checkpoint outputs/hz0a-mac-110m-fair/step_0000325.pt --task-mode associative --steps 32 --probe-lr 1e-4 --eval-samples 64 --output-path docs/hz0a-memory-probe-associative-step325.json
 ```
 
 ## Current conclusion
@@ -194,5 +204,6 @@ What is proven:
 What is not yet proven:
 
 - meaningful memory-task advantage
+- generalization on isolated synthetic memory probes
 - a stable decode-speed advantage story at the step-`300` rung
 - completion on a true optimized recurrent backend

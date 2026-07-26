@@ -44,6 +44,7 @@ def main() -> None:
         retrieval_mix_probability=float(cfg["data"].get("retrieval_mix_probability", 0.0)),
         retrieval_num_anchors=int(cfg["data"].get("retrieval_num_anchors", 3)),
         memory_mix_probability=float(cfg["data"].get("memory_mix_probability", 0.0)),
+        memory_task_mode=str(cfg["data"].get("memory_task_mode", "mixed")),
     )
     num_workers = cfg["data"].get("num_workers", 0)
     persistent_workers = bool(num_workers > 0 and cfg["data"].get("persistent_workers", True))
@@ -64,6 +65,7 @@ def main() -> None:
             retrieval_mix_probability=float(cfg["train"].get("memory_aux_retrieval_mix_probability", 0.0)),
             retrieval_num_anchors=int(cfg["data"].get("retrieval_num_anchors", 3)),
             memory_mix_probability=float(cfg["train"].get("memory_aux_memory_mix_probability", 1.0)),
+            memory_task_mode=str(cfg["train"].get("memory_aux_task_mode", cfg["data"].get("memory_task_mode", "mixed"))),
         )
         memory_aux_loader = DataLoader(
             memory_aux_ds,

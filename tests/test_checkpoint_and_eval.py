@@ -173,3 +173,21 @@ def test_memory_augmented_dataset(tmp_path: Path) -> None:
     sample = dataset[0]
     assert sample.shape == (17,)
     assert sample.dtype == torch.long
+
+
+def test_memory_augmented_dataset_supports_task_modes(tmp_path: Path) -> None:
+    path = tmp_path / "tiny.txt"
+    path.write_text("abcdefghijklmnopqrstuvwxyz" * 8, encoding="utf-8")
+    for mode in ["associative", "overwrite", "protected", "distance"]:
+        dataset = build_dataset(
+            path=path,
+            seq_len=16,
+            vocab_size=256,
+            random_length=16,
+            packed=True,
+            memory_mix_probability=1.0,
+            memory_task_mode=mode,
+        )
+        sample = dataset[0]
+        assert sample.shape == (17,)
+        assert sample.dtype == torch.long
