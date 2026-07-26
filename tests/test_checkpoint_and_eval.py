@@ -9,7 +9,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from hz0.checkpoint import load_checkpoint, save_checkpoint
 from hz0.data import build_dataset
-from hz0.eval import benchmark_decode_latency, evaluate_copy_retrieval, evaluate_multi_anchor_retrieval
+from hz0.eval import (
+    benchmark_decode_latency,
+    evaluate_associative_recall,
+    evaluate_copy_retrieval,
+    evaluate_multi_anchor_retrieval,
+    evaluate_overwrite_retrieval,
+    evaluate_protected_memory_retrieval,
+    evaluate_recall_by_distance,
+)
 from hz0.generation import greedy_generate
 from hz0.model import HybridLM
 from hz0.tokenizer import ByteTokenizer
@@ -47,6 +55,26 @@ def test_checkpoint_roundtrip(tmp_path: Path) -> None:
     assert payload["metrics"]["loss"] == 1.23
 
 
+def test_checkpoint_roundtrip_preserves_logits(tmp_path: Path) -> None:
+    model = build_model()
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
+    inputs = torch.randint(0, 256, (2, 8))
+    expected = model(inputs)
+    path = save_checkpoint(
+        output_dir=tmp_path,
+        step=1,
+        model=model,
+        optimizer=optimizer,
+        config={"model": {"name": "test"}},
+    )
+
+    restored = build_model()
+    payload = load_checkpoint(path, torch.device("cpu"))
+    restored.load_state_dict(payload["model"])
+    actual = restored(inputs)
+    torch.testing.assert_close(actual, expected)
+
+
 def test_generation_and_benchmarks() -> None:
     model = build_model()
     tokenizer = ByteTokenizer()
@@ -75,9 +103,42 @@ def test_generation_and_benchmarks() -> None:
         vocab_size=256,
         num_samples=4,
     )
+    associative = evaluate_associative_recall(
+        model=model,
+        device=torch.device("cpu"),
+        seq_len=16,
+        vocab_size=256,
+        num_samples=4,
+    )
+    overwrite = evaluate_overwrite_retrieval(
+        model=model,
+        device=torch.device("cpu"),
+        seq_len=16,
+        vocab_size=256,
+        num_samples=4,
+    )
+    protected = evaluate_protected_memory_retrieval(
+        model=model,
+        device=torch.device("cpu"),
+        seq_len=16,
+        vocab_size=256,
+        num_samples=4,
+    )
+    by_distance = evaluate_recall_by_distance(
+        model=model,
+        device=torch.device("cpu"),
+        seq_len=16,
+        vocab_size=256,
+        num_samples=4,
+        distances=[4, 8, 16],
+    )
     assert 0.0 <= retrieval["copy_retrieval_accuracy"] <= 1.0
     assert 0.0 <= multi["multi_anchor_retrieval_accuracy"] <= 1.0
     assert 0.0 <= multi["multi_anchor_anchor_set_accuracy"] <= 1.0
+    assert 0.0 <= associative["associative_recall_accuracy"] <= 1.0
+    assert 0.0 <= overwrite["overwrite_retrieval_accuracy"] <= 1.0
+    assert 0.0 <= protected["protected_memory_accuracy"] <= 1.0
+    assert all(0.0 <= by_distance[f"recall_distance_{distance}_accuracy"] <= 1.0 for distance in [4, 8, 16])
     assert speed["tokens_per_second"] > 0.0
 
 

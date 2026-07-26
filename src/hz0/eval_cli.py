@@ -11,6 +11,12 @@ from hz0.checkpoint import load_checkpoint
 from hz0.config import Config
 from hz0.data import build_dataset
 from hz0.eval import benchmark_decode_latency, evaluate_copy_retrieval, evaluate_language_model, evaluate_multi_anchor_retrieval
+from hz0.eval import (
+    evaluate_associative_recall,
+    evaluate_overwrite_retrieval,
+    evaluate_protected_memory_retrieval,
+    evaluate_recall_by_distance,
+)
 from hz0.model import build_model
 from hz0.utils import resolve_dtype
 
@@ -40,7 +46,34 @@ def main() -> None:
         model.load_state_dict(payload["model"])
     metrics = evaluate_language_model(model, loader, device, dtype=dtype)
     metrics.update(
+        evaluate_associative_recall(
+            model=model,
+            device=device,
+            seq_len=cfg["data"]["seq_len"],
+            vocab_size=cfg["data"]["vocab_size"],
+            num_samples=32,
+        )
+    )
+    metrics.update(
         evaluate_copy_retrieval(
+            model=model,
+            device=device,
+            seq_len=cfg["data"]["seq_len"],
+            vocab_size=cfg["data"]["vocab_size"],
+            num_samples=32,
+        )
+    )
+    metrics.update(
+        evaluate_overwrite_retrieval(
+            model=model,
+            device=device,
+            seq_len=cfg["data"]["seq_len"],
+            vocab_size=cfg["data"]["vocab_size"],
+            num_samples=32,
+        )
+    )
+    metrics.update(
+        evaluate_protected_memory_retrieval(
             model=model,
             device=device,
             seq_len=cfg["data"]["seq_len"],
@@ -55,6 +88,16 @@ def main() -> None:
             seq_len=cfg["data"]["seq_len"],
             vocab_size=cfg["data"]["vocab_size"],
             num_samples=32,
+        )
+    )
+    metrics.update(
+        evaluate_recall_by_distance(
+            model=model,
+            device=device,
+            seq_len=cfg["data"]["seq_len"],
+            vocab_size=cfg["data"]["vocab_size"],
+            num_samples=32,
+            distances=[32, 64, 128, 256],
         )
     )
     metrics.update(

@@ -1,0 +1,131 @@
+{
+  "experiment_name": "HZ-36M-best",
+  "created_at": "2026-07-26",
+  "git_commit": "b82274f6415829f8846ed6ce6985b811bbc672c1",
+  "config_path": "configs/hz0a-mac-36m.yaml",
+  "config_sha256": "a1829d6d6e20ced86b8bed590cd430cb86e18c8f1be79819bd76063cee2785cc",
+  "config": {
+    "seed": 7,
+    "device": "mps",
+    "dtype": "float32",
+    "data": {
+      "train_text_path": "data/hz0a_seed_train.txt",
+      "val_text_path": "data/hz0a_seed_val.txt",
+      "seq_len": 256,
+      "batch_size": 2,
+      "vocab_size": 256,
+      "train_length": 1024,
+      "val_length": 256,
+      "num_workers": 0
+    },
+    "model": {
+      "architecture": "hybrid",
+      "vocab_size": 256,
+      "d_model": 384,
+      "n_layers": 16,
+      "n_heads": 12,
+      "d_ff": 1152,
+      "dropout": 0.1,
+      "mixer_backend": "fallback",
+      "attention_every": 4,
+      "max_seq_len": 1024
+    },
+    "optim": {
+      "lr": 0.00025,
+      "weight_decay": 0.1,
+      "betas": [
+        0.9,
+        0.95
+      ],
+      "grad_clip": 1.0
+    },
+    "train": {
+      "output_dir": "outputs/hz0a-mac-36m",
+      "max_steps": 100,
+      "log_every": 5,
+      "eval_every": 50,
+      "save_every": 50,
+      "sample_every": 50,
+      "sample_prompt": "HZ-0A ",
+      "sample_tokens": 24,
+      "compile": false,
+      "compile_mode": "reduce-overhead"
+    },
+    "baseline": {
+      "architecture": "transformer",
+      "vocab_size": 256,
+      "d_model": 384,
+      "n_layers": 16,
+      "n_heads": 12,
+      "d_ff": 1152,
+      "dropout": 0.1,
+      "max_seq_len": 1024
+    }
+  },
+  "model_key": "model",
+  "seed": 7,
+  "parameter_count": 36073344,
+  "trainable_parameter_count": 36073344,
+  "layers": 16,
+  "hidden_dim": 384,
+  "intermediate_dim": 1152,
+  "n_heads": 12,
+  "attention_recurrent_schedule": {
+    "architecture": "hybrid",
+    "attention_every": 4
+  },
+  "sequence_length": 256,
+  "microbatch_size": 2,
+  "gradient_accumulation_steps": 1,
+  "effective_tokens_per_optimizer_update": 512,
+  "learning_rate_schedule": {
+    "base_lr": 0.00025,
+    "weight_decay": 0.1,
+    "betas": [
+      0.9,
+      0.95
+    ]
+  },
+  "gradient_clip": 1.0,
+  "precision": "float32",
+  "device": "mps",
+  "checkpoint": {
+    "path": "outputs/hz0a-mac-36m/latest.pt",
+    "sha256": "6223b38709f7585fac239d075ebcbd51b76b35280bcf5277e56bc600b55620ba",
+    "bytes": 433124505
+  },
+  "checkpoint_step": 100,
+  "dataset_manifest": {
+    "train": {
+      "path": "data/hz0a_seed_train.txt",
+      "sha256": "c2d9f7ae28c1f17466b8c73ae6281500eb7749e35f7897d8991e38d57e0ee42f",
+      "bytes": 73536
+    },
+    "val": {
+      "path": "data/hz0a_seed_val.txt",
+      "sha256": "73933eea9957b749dd11ff4c848479701b4f1cd3a93c2fad5dbeabb22b80caf7",
+      "bytes": 8230
+    },
+    "sources_path": "data/hz0a_seed_sources.txt"
+  },
+  "validation_split_definition": {
+    "val_text_path": "data/hz0a_seed_val.txt",
+    "val_length": 256
+  },
+  "tokenizer": {
+    "class": "ByteTokenizer",
+    "vocab_size": 256,
+    "spec_sha256": "7785cf4406313fcd99475098a4c773790111713e79ef8775d319e94b64c236f5"
+  },
+  "runtime": {
+    "python": "3.12.13",
+    "torch": "2.13.0",
+    "macos": "26.5.2",
+    "platform": "macOS-26.5.2-arm64-arm-64bit",
+    "mps_available": true
+  },
+  "hardware": {
+    "machine": "arm64",
+    "processor": "arm"
+  }
+}
