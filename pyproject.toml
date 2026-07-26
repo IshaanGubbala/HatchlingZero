@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hatchling-zero"
+version = "0.1.0"
+description = "HZ-0A starter scaffold for hybrid recurrent language modeling"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+  "torch>=2.3",
+  "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
