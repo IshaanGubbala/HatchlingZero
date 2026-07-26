@@ -29,6 +29,13 @@ def estimate_tokens_seen(cfg: dict[str, Any], step: int) -> int:
     return step * seq_len * batch_size * grad_accum_steps
 
 
+def load_output_config(output_dir: Path, fallback_cfg: dict[str, Any]) -> dict[str, Any]:
+    snapshot_path = output_dir / "config.snapshot.json"
+    if not snapshot_path.exists():
+        return fallback_cfg
+    return json.loads(snapshot_path.read_text(encoding="utf-8"))
+
+
 def load_sidecar_metrics(checkpoint_path: Path) -> dict[str, Any]:
     sidecar = checkpoint_path.with_suffix(".json")
     if not sidecar.exists():
@@ -181,11 +188,14 @@ def main() -> None:
         "baseline": {},
     }
 
+    hybrid_cfg = load_output_config(args.hybrid_output_dir, cfg)
+    baseline_cfg = load_output_config(args.baseline_output_dir, cfg)
+
     for step in hybrid_steps:
         checkpoint = checkpoint_path_for_step(args.hybrid_output_dir, step)
         result["hybrid"][str(step)] = collect_checkpoint_metrics(
-            cfg=cfg,
-            model_cfg=cfg["model"],
+            cfg=hybrid_cfg,
+            model_cfg=hybrid_cfg["model"],
             checkpoint_path=checkpoint,
             dtype=dtype,
             context_lengths=context_lengths,
@@ -196,8 +206,8 @@ def main() -> None:
     for step in baseline_steps:
         checkpoint = checkpoint_path_for_step(args.baseline_output_dir, step)
         result["baseline"][str(step)] = collect_checkpoint_metrics(
-            cfg=cfg,
-            model_cfg=cfg["baseline"],
+            cfg=baseline_cfg,
+            model_cfg=baseline_cfg["baseline"],
             checkpoint_path=checkpoint,
             dtype=dtype,
             context_lengths=context_lengths,
