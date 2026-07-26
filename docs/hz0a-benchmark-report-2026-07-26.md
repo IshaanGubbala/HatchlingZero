@@ -1179,3 +1179,39 @@ The decode story is now mixed rather than clearly resolved:
 That is enough to say the hybrid keeps its quality advantage through several
 hundred matched steps, but not enough to say the recurrent serving story is
 finished.
+
+## Direct step-325 fairness result
+
+Later on Sunday, July 26, 2026, the tuned fair hybrid was continued slightly
+past step `300` to cross the old `36M` tokens-per-parameter threshold.
+
+Direct artifact:
+
+- `docs/hz0a-step325-direct.json`
+
+From `python -m hz0.eval_cli --config configs/hz0a-mac-110m-fair.yaml --checkpoint outputs/hz0a-mac-110m-fair/step_0000325.pt`
+
+- hybrid loss: `2.5309`
+- hybrid perplexity: `12.56`
+
+From `python -m hz0.benchmark_cli --config configs/hz0a-mac-110m-fair.yaml --checkpoint outputs/hz0a-mac-110m-fair/step_0000325.pt --decode-steps 32 --retrieval-samples 64 --context-lengths 64,128,256,512`
+
+- decode speed: `82.79 tok/s`
+- context `64`: `117.04 tok/s`
+- context `128`: `97.35 tok/s`
+- context `256`: `67.58 tok/s`
+- context `512`: `45.01 tok/s`
+
+Most importantly, the step-`325` run now clears the fair-reference budget:
+
+- `36M` reference tokens-per-parameter: `0.0014193`
+- `109.9M` hybrid at step `325`: `0.0015141`
+
+and it still beats the old `36M` reference loss:
+
+- step-`325` hybrid loss: `2.5309`
+- `36M` reference loss: `2.8698`
+
+So one major HZ-0A gate is now genuinely closed: the large hybrid has beaten
+the best local `36M` checkpoint after crossing the fair tokens-per-parameter
+threshold.

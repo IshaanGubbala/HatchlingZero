@@ -13,10 +13,10 @@ the revised July 26 benchmark and memory-work follow-up.
 
 The strongest current result is the tuned `109.9M` hybrid on macOS:
 
-- step `300` loss: `2.2480`
-- step `300` perplexity: `9.47`
-- matched step `300` transformer baseline loss: `2.8610`
-- matched step `300` transformer baseline perplexity: `17.48`
+- step `300` matched-baseline result: loss `2.2480`, perplexity `9.47`
+- matched step `300` transformer baseline: loss `2.8610`, perplexity `17.48`
+- step `325` fair-reference result: loss `2.5309`, perplexity `12.56`
+- step `325` tokens-per-parameter: `0.0015141`
 
 That is enough to support a real language-modeling quality advantage at the
 current checkpoint range, but it is not enough to claim full plan completion.
@@ -24,6 +24,10 @@ current checkpoint range, but it is not enough to claim full plan completion.
 Direct step-`300` artifact:
 
 - `docs/hz0a-step300-direct.json`
+
+Direct step-`325` fairness artifact:
+
+- `docs/hz0a-step325-direct.json`
 
 ## Revised decision gates
 
@@ -45,15 +49,16 @@ python -m hz0.hz0a_gate_cli \
 
 the current gate status is:
 
-1. `beats_36m_at_fair_tokens_per_param`: `incomplete`
-2. `maintains_transformer_advantage_through_horizon`: `incomplete`
-3. `decode_gap_reduced`: `pass`
+1. `beats_36m_at_fair_tokens_per_param`: `pass` from direct step `325` evidence
+2. `maintains_transformer_advantage_through_horizon`: `supported` through step `300`
+3. `decode_gap_reduced`: `mixed`
 4. `shows_memory_task_advantage`: `fail`
 
 Interpretation:
 
-- The tuned large hybrid has not yet matched the `36M` reference on equal
-  tokens-per-parameter budget.
+- The tuned large hybrid now clears the `36M` reference on equal
+  tokens-per-parameter budget and still beats the `36M` reference loss
+  (`2.5309` vs `2.8698`) at step `325`.
 - The fair hybrid-vs-transformer continuation now reaches step `300`, and the
   hybrid still leads on loss there by about `0.6131`.
 - The decode picture is now mixed: the direct step-`300` eval decode ratio is
@@ -150,7 +155,6 @@ Status: not satisfied.
 Current blockers:
 
 - the `~120M` target has only been launch-probed locally, not fully benchmarked
-- the tokens-per-parameter fairness gate versus the `36M` reference is still incomplete
 - the memory-task advantage gate is still failing
 - the current best path is still the fallback recurrent mixer, not a true
   optimized GDN-2 backend
@@ -166,6 +170,9 @@ The following commands were run successfully in the current repo state:
 ./.venv/bin/python -m hz0.eval_cli --config configs/hz0a-mac-110m-fair.yaml --model-key baseline --checkpoint outputs/hz0a-mac-110m-fair-baseline/step_0000300.pt
 ./.venv/bin/python -m hz0.benchmark_cli --config configs/hz0a-mac-110m-fair.yaml --checkpoint outputs/hz0a-mac-110m-fair/step_0000300.pt --decode-steps 32 --retrieval-samples 64 --context-lengths 64,128,256,512
 ./.venv/bin/python -m hz0.benchmark_cli --config configs/hz0a-mac-110m-fair.yaml --model-key baseline --checkpoint outputs/hz0a-mac-110m-fair-baseline/step_0000300.pt --decode-steps 32 --retrieval-samples 64 --context-lengths 64,128,256,512
+./.venv/bin/python -m hz0.train --config configs/hz0a-mac-110m-fair.yaml --resume outputs/hz0a-mac-110m-fair/step_0000300.pt --max-steps 325
+./.venv/bin/python -m hz0.eval_cli --config configs/hz0a-mac-110m-fair.yaml --checkpoint outputs/hz0a-mac-110m-fair/step_0000325.pt
+./.venv/bin/python -m hz0.benchmark_cli --config configs/hz0a-mac-110m-fair.yaml --checkpoint outputs/hz0a-mac-110m-fair/step_0000325.pt --decode-steps 32 --retrieval-samples 64 --context-lengths 64,128,256,512
 ```
 
 ## Current conclusion
@@ -179,12 +186,13 @@ What is proven:
   perplexity through step `300`
 - the fair continuation has now reached the several-hundred-step horizon the
   revised plan called for
+- the tuned `109.9M` hybrid now beats the `36M` reference after crossing the
+  fair tokens-per-parameter threshold at step `325`
 - the repo can now recompute the continuation gates directly from checked-in
   evidence
 
 What is not yet proven:
 
-- superiority after fair tokens-per-parameter budget versus the `36M` reference
 - meaningful memory-task advantage
 - a stable decode-speed advantage story at the step-`300` rung
 - completion on a true optimized recurrent backend

@@ -1,0 +1,36 @@
+{
+  "date": "2026-07-26",
+  "config": "configs/hz0a-mac-110m-fair.yaml",
+  "hybrid_checkpoint": "outputs/hz0a-mac-110m-fair/step_0000325.pt",
+  "hybrid": {
+    "loss": 2.530870597809553,
+    "perplexity": 12.56443995039957,
+    "associative_recall_accuracy": 0.0,
+    "copy_retrieval_accuracy": 0.0,
+    "overwrite_retrieval_accuracy": 0.0,
+    "protected_memory_accuracy": 0.0,
+    "multi_anchor_retrieval_accuracy": 0.0,
+    "multi_anchor_anchor_set_accuracy": 0.015625,
+    "recall_distance_32_accuracy": 0.0,
+    "recall_distance_64_accuracy": 0.0,
+    "recall_distance_128_accuracy": 0.0,
+    "recall_distance_256_accuracy": 0.0,
+    "eval_decode_tokens_per_second": 103.08652853910976,
+    "benchmark_decode_tokens_per_second": 82.79147842124162,
+    "benchmark_context_64_tokens_per_second": 117.0377919014712,
+    "benchmark_context_128_tokens_per_second": 97.35350578948872,
+    "benchmark_context_256_tokens_per_second": 67.57941109099347,
+    "benchmark_context_512_tokens_per_second": 45.01060388694432
+  },
+  "derived": {
+    "reference_36m_loss": 2.8698,
+    "loss_margin_vs_36m_reference": 0.33892940219044714,
+    "reference_36m_tokens_per_parameter": 0.0014193305727353694,
+    "candidate_110m_tokens_per_parameter_at_step_325": 0.0015141085802203842,
+    "crosses_36m_tokens_per_parameter_threshold": true
+  },
+  "gate_reading": {
+    "beats_36m_at_fair_tokens_per_param": "pass",
+    "shows_memory_task_advantage": "still_failing"
+  }
+}
