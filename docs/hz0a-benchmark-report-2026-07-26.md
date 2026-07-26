@@ -319,6 +319,49 @@ retrieval benchmark, but it still does not produce a win on the newer
 associative / overwrite / protected-memory / recall-distance suite that now
 defines the missing HZ-0A memory gate.
 
+### Auxiliary-memory fine-tune on the tuned fallback hybrid
+
+To push the memory suite more directly, a second fine-tune was run with a
+weighted auxiliary batch stream composed almost entirely of synthetic memory
+examples, instead of relying only on mixed next-token data.
+
+From `python -m hz0.train --config configs/hz0a-mac-110m-memory-aux-ft.yaml --resume outputs/hz0a-mac-110m-tuned/latest.pt --max-steps 185`
+
+- base checkpoint: tuned fallback hybrid step `150`
+- optimization change: `lr=0.00008`
+- auxiliary objective: `memory_aux_weight=0.5`
+- auxiliary data mix: `memory_aux_retrieval_mix_probability=0.15`, `memory_aux_memory_mix_probability=1.0`
+- training reached step `185`
+
+Standalone eval from `python -m hz0.eval_cli --config configs/hz0a-mac-110m-memory-aux-ft.yaml --checkpoint outputs/hz0a-mac-110m-memory-aux-ft/latest.pt`
+
+- loss: `2.6113`
+- perplexity: `13.62`
+- associative recall accuracy: `0.0000`
+- overwrite retrieval accuracy: `0.0000`
+- protected memory accuracy: `0.0000`
+- recall-distance accuracy at `32/64/128/256`: all `0.0000`
+- multi-anchor retrieval accuracy: `0.03125`
+- multi-anchor anchor-set accuracy: `0.03125`
+- decode speed: `108.00 tok/s`
+
+Standalone benchmark from `python -m hz0.benchmark_cli --config configs/hz0a-mac-110m-memory-aux-ft.yaml --checkpoint outputs/hz0a-mac-110m-memory-aux-ft/latest.pt --decode-steps 32 --retrieval-samples 64 --context-lengths 64,128,256,512`
+
+- decode speed: `87.51 tok/s`
+- context `64`: `124.90 tok/s`
+- context `128`: `101.52 tok/s`
+- context `256`: `69.36 tok/s`
+- context `512`: `45.68 tok/s`
+- copy retrieval accuracy: `0.0000`
+- multi-anchor retrieval accuracy: `0.015625`
+- multi-anchor anchor-set accuracy: `0.015625`
+
+This reinforces the current HZ-0A conclusion: stronger memory-focused training
+can preserve language-modeling quality and move the older multi-anchor signal,
+but it still does not unlock the newer overwrite / protected-memory /
+recall-distance tasks. At this point the remaining gap appears architectural or
+objective-level, not just a missing memory curriculum.
+
 ### Verified local `~110M` MPS rung
 
 From `python -m hz0.train --config configs/hz0a-mac-110m.yaml --max-steps 25`

@@ -45,6 +45,30 @@ def main() -> None:
         retrieval_num_anchors=int(cfg["data"].get("retrieval_num_anchors", 3)),
         memory_mix_probability=float(cfg["data"].get("memory_mix_probability", 0.0)),
     )
+    num_workers = cfg["data"].get("num_workers", 0)
+    persistent_workers = bool(num_workers > 0 and cfg["data"].get("persistent_workers", True))
+    memory_aux_weight = float(cfg["train"].get("memory_aux_weight", 0.0))
+    memory_aux_loader = None
+    memory_aux_iter = None
+    if memory_aux_weight > 0.0:
+        memory_aux_ds = build_dataset(
+            cfg["data"]["train_text_path"],
+            cfg["data"]["seq_len"],
+            cfg["data"]["vocab_size"],
+            cfg["data"]["train_length"],
+            packed=True,
+            retrieval_mix_probability=float(cfg["train"].get("memory_aux_retrieval_mix_probability", 0.0)),
+            retrieval_num_anchors=int(cfg["data"].get("retrieval_num_anchors", 3)),
+            memory_mix_probability=float(cfg["train"].get("memory_aux_memory_mix_probability", 1.0)),
+        )
+        memory_aux_loader = DataLoader(
+            memory_aux_ds,
+            batch_size=cfg["data"]["batch_size"],
+            shuffle=True,
+            num_workers=num_workers,
+            persistent_workers=persistent_workers,
+        )
+        memory_aux_iter = iter(memory_aux_loader)
     val_ds = build_dataset(
         cfg["data"]["val_text_path"],
         cfg["data"]["seq_len"],
@@ -52,8 +76,6 @@ def main() -> None:
         cfg["data"]["val_length"],
         packed=True,
     )
-    num_workers = cfg["data"].get("num_workers", 0)
-    persistent_workers = bool(num_workers > 0 and cfg["data"].get("persistent_workers", True))
     train_loader = DataLoader(
         train_ds,
         batch_size=cfg["data"]["batch_size"],
@@ -124,6 +146,21 @@ def main() -> None:
                     logits.reshape(-1, logits.size(-1)),
                     y.reshape(-1),
                 )
+                if memory_aux_loader is not None and memory_aux_iter is not None:
+                    try:
+                        aux_batch = next(memory_aux_iter)
+                    except StopIteration:
+                        memory_aux_iter = iter(memory_aux_loader)
+                        aux_batch = next(memory_aux_iter)
+                    aux_batch = aux_batch.to(device)
+                    aux_x = aux_batch[:, :-1]
+                    aux_y = aux_batch[:, 1:]
+                    aux_logits = model(aux_x)
+                    aux_loss = torch.nn.functional.cross_entropy(
+                        aux_logits.reshape(-1, aux_logits.size(-1)),
+                        aux_y.reshape(-1),
+                    )
+                    loss = loss + memory_aux_weight * aux_loss
                 loss = loss / grad_accum_steps
             loss.backward()
             running_tokens += x.numel()
