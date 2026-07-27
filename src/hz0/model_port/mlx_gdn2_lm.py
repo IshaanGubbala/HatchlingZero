@@ -96,10 +96,14 @@ class GDN2LanguageModel(nn.Module):
         kv_caches: Optional[list] = None,
     ) -> Tuple[mx.array, list, list]:
         """
-        Single-token decode with accumulated KV caches and recurrent states.
+        DEPRECATED: Single-token decode has unfixed equivalence bug.
 
-        Token attends to ALL previous tokens via KV cache (not just current).
-        Recurrent state carries forward GDN-2 hidden values.
+        Issue: Token 0-1 outputs diverge from full-batch (max_diff ~2.15),
+        only token 2+ converge. Root cause unknown (attention KV cache or
+        GDN-2 recurrent state initialization).
+
+        Workaround: Use full-batch inference only. This method kept for
+        API compatibility but should not be used for production.
 
         Args:
             token_id: scalar token index
@@ -110,50 +114,16 @@ class GDN2LanguageModel(nn.Module):
             logits: [vocab_size] next-token distribution
             layer_states: updated recurrent states
             kv_caches: updated full KV caches (including new token)
+
+        Raises:
+            RuntimeError: Always, since this is deprecated
         """
-        B = 1
-
-        # Initialize states if not provided
-        num_gdn2 = sum(1 for layer in self.layers if isinstance(layer, GDN2Block))
-        num_attn = sum(1 for layer in self.layers if isinstance(layer, AttentionBlock))
-
-        if layer_states is None:
-            layer_states = [None] * num_gdn2
-        if kv_caches is None:
-            kv_caches = [None] * num_attn
-
-        # Embed single token: [1, D]
-        token_mx = mx.array([[token_id]], dtype=mx.int32)
-        x = self.embedding(token_mx)  # [1, 1, D]
-        x = mx.squeeze(x, axis=1)  # [1, D]
-
-        # Process through layers
-        new_layer_states = []
-        new_kv_caches = []
-        gdn2_idx = 0
-        attn_idx = 0
-
-        for i, layer in enumerate(self.layers):
-            if isinstance(layer, GDN2Block):
-                # GDN-2: single token, maintain recurrent state
-                x, state = layer.forward_step(x, layer_states[gdn2_idx])
-                new_layer_states.append(state)
-                gdn2_idx += 1
-            else:  # AttentionBlock
-                # Attention: single new token, but can attend to cached previous tokens
-                x, kv_cache = layer.forward_step(x, kv_caches[attn_idx])
-                new_kv_caches.append(kv_cache)
-                attn_idx += 1
-
-        # Final norm + projection
-        x = self.norm(mx.expand_dims(x, axis=1))  # [1, 1, D]
-        x = mx.squeeze(x)  # [D]
-
-        # Logits
-        logits = self.lm_head(mx.expand_dims(x, axis=0))  # [1, vocab]
-        logits = mx.squeeze(logits)  # [vocab]
-
-        return logits, new_layer_states, new_kv_caches
+        raise RuntimeError(
+            "decode_step (streaming inference) is deprecated due to unfixed "
+            "equivalence bug (tokens 0-1 diverge from full-batch). Use "
+            "full-batch inference (__call__ with padded sequences) instead. "
+            "See src/hz0/validation/HONEST_STATUS.md for details."
+        )
 
 
 class GDN2Block(nn.Module):
