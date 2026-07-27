@@ -81,8 +81,12 @@ class HybridLM(nn.Module):
         self.scratchpad_norm = nn.LayerNorm(d_model) if self.scratchpad is not None else None
         self.lm_head = nn.Linear(d_model, vocab_size, bias=False)
 
-    def forward(self, tokens: torch.Tensor) -> torch.Tensor:
-        x, _ = self.forward_with_optional_logs(tokens, return_scratchpad_logs=False)
+    def forward(self, tokens: torch.Tensor, oracle_slot_schedule: torch.Tensor | None = None) -> torch.Tensor:
+        x, _ = self.forward_with_optional_logs(
+            tokens,
+            return_scratchpad_logs=False,
+            oracle_slot_schedule=oracle_slot_schedule,
+        )
         return self.lm_head(x)
 
     def forward_with_optional_logs(
@@ -90,6 +94,7 @@ class HybridLM(nn.Module):
         tokens: torch.Tensor,
         *,
         return_scratchpad_logs: bool = False,
+        oracle_slot_schedule: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, list[ScratchpadLogEntry]]:
         batch, seq = tokens.shape
         positions = torch.arange(seq, device=tokens.device)
@@ -99,7 +104,11 @@ class HybridLM(nn.Module):
         x = self.norm(x)
         logs: list[ScratchpadLogEntry] = []
         if self.scratchpad is not None:
-            x, logs = self._apply_scratchpad(x, return_logs=return_scratchpad_logs)
+            x, logs = self._apply_scratchpad(
+                x,
+                return_logs=return_scratchpad_logs,
+                oracle_slot_schedule=oracle_slot_schedule,
+            )
         return x, logs
 
     def _apply_scratchpad(
@@ -107,6 +116,7 @@ class HybridLM(nn.Module):
         x: torch.Tensor,
         *,
         return_logs: bool,
+        oracle_slot_schedule: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, list[ScratchpadLogEntry]]:
         assert self.scratchpad is not None
         assert self.scratchpad_query is not None
@@ -124,12 +134,18 @@ class HybridLM(nn.Module):
             # hidden state. Value / gate side: feed the raw context-rich
             # hidden state.
             routing_input = self.scratchpad_norm(token_x)
+            oracle_slot_t = (
+                oracle_slot_schedule[:, t].to(torch.long)
+                if oracle_slot_schedule is not None
+                else None
+            )
             readout, state, entry = self.scratchpad.step(
                 self.scratchpad_query(routing_input),
                 self.scratchpad_key(routing_input),
                 self.scratchpad_value(token_x),
                 state,
                 log=return_logs,
+                oracle_slot=oracle_slot_t,
             )
             gate = torch.sigmoid(self.scratchpad_gate(token_x))
             outputs.append(token_x + gate * readout)

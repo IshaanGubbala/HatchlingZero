@@ -99,19 +99,54 @@ class SessionScratchpad(nn.Module):
         return torch.zeros(batch_size, self.num_slots, self.dim, device=device, dtype=dtype)
 
     def _route(
-        self, signal: torch.Tensor
+        self,
+        signal: torch.Tensor,
+        *,
+        oracle_slot: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Hard-route ``signal`` to the slot whose address matches best.
+
+        When ``oracle_slot`` is provided (int64 ``[batch]``), bypass the
+        learned ``slot_addresses`` projection entirely: the hard routing
+        index is the oracle slot directly. This is the Phase-4 oracle
+        diagnostic from ``docs/hz0b-mem-fix-plan-2026-07-26.md``: the
+        probe CLI computes ``slot = token_id % num_slots`` from the raw
+        prompt and threads it through every position so writes/reads
+        land on the same slot deterministically, isolating routing from
+        storage and readout.
 
         Returns:
             ste: ``[batch, num_slots]`` one-hot routing mask with STE for gradients.
             hard_idx: ``[batch]`` ``int64`` argmax index. Used for diagnostics
                 (route_match_rate, slot_occupancy, dead_slot_fraction).
             soft: ``[batch, num_slots]`` the softmax distribution (for
-                entropy diagnostics).
+                entropy diagnostics). Under oracle mode this is uniform
+                ``1 / num_slots`` so the entropy diagnostic reflects the
+                constant oracle signal rather than a learned distribution.
         """
         if signal.ndim != 2:
             raise ValueError("signal must be [batch, dim].")
+        if oracle_slot is not None:
+            hard_idx = oracle_slot.to(torch.long).contiguous()
+            if hard_idx.shape != (signal.shape[0],):
+                raise ValueError(
+                    f"oracle_slot shape {hard_idx.shape} != batch size {signal.shape[0]}"
+                )
+            if int(hard_idx.min()) < 0 or int(hard_idx.max()) >= self.num_slots:
+                raise ValueError(
+                    f"oracle_slot values out of [0, {self.num_slots}) range: "
+                    f"min={int(hard_idx.min())} max={int(hard_idx.max())}"
+                )
+            hard = F.one_hot(hard_idx, num_classes=self.num_slots).to(signal.dtype)
+            uniform = torch.full(
+                (signal.shape[0], self.num_slots),
+                1.0 / max(self.num_slots, 1),
+                dtype=signal.dtype,
+                device=signal.device,
+            )
+            soft = uniform
+            ste = hard + soft - soft.detach()
+            return ste, hard_idx, soft
         scores = torch.matmul(
             self.slot_addresses.unsqueeze(0),
             signal.unsqueeze(-1),
@@ -124,19 +159,30 @@ class SessionScratchpad(nn.Module):
         # runner can aggregate slot identity across the sequence.
         return ste, hard_idx, soft
 
-    def read(self, query: torch.Tensor, state: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def read(
+        self,
+        query: torch.Tensor,
+        state: torch.Tensor,
+        *,
+        oracle_slot: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         if query.ndim != 2:
             raise ValueError("query must be [batch, dim].")
-        ste, hard_idx, soft = self._route(query)
+        ste, hard_idx, soft = self._route(query, oracle_slot=oracle_slot)
         readout = torch.sum(state * ste.unsqueeze(-1), dim=1)
         return readout, hard_idx, soft
 
     def write(
-        self, key: torch.Tensor, value: torch.Tensor, state: torch.Tensor
+        self,
+        key: torch.Tensor,
+        value: torch.Tensor,
+        state: torch.Tensor,
+        *,
+        oracle_slot: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         if key.ndim != 2 or value.ndim != 2:
             raise ValueError("key and value must be [batch, dim].")
-        ste, hard_idx, soft = self._route(key)
+        ste, hard_idx, soft = self._route(key, oracle_slot=oracle_slot)
         new_value = torch.tanh(value)
         # Selected slot: blend old and new by ``momentum``.
         #   momentum == 0.0 -> "next = new_value" (replace)
@@ -158,9 +204,10 @@ class SessionScratchpad(nn.Module):
         state: torch.Tensor,
         *,
         log: bool = False,
+        oracle_slot: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor, ScratchpadLogEntry | None]:
-        readout, read_hard_idx, read_soft = self.read(query, state)
-        next_state, write_hard_idx, write_soft = self.write(key, value, state)
+        readout, read_hard_idx, read_soft = self.read(query, state, oracle_slot=oracle_slot)
+        next_state, write_hard_idx, write_soft = self.write(key, value, state, oracle_slot=oracle_slot)
         if not log:
             return readout, next_state, None
         entry = ScratchpadLogEntry(

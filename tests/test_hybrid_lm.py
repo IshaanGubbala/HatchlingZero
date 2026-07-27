@@ -285,3 +285,65 @@ def test_session_scratchpad_log_includes_hard_routing_indices() -> None:
     # allowed to differ on any single step. They are exposed *separately*
     # so the probe CLI can compute a per-position match rate.
     assert log.read_hard_idx.shape == log.write_hard_idx.shape
+
+
+def test_session_scratchpad_oracle_routing_bypasses_learned() -> None:
+    """Phase-4 oracle diagnostic: ``slot = token_id % num_slots``.
+
+    When ``oracle_slot`` is supplied, ``_route`` must use that int64 index
+    directly, ignoring the learned ``slot_addresses`` projection. This
+    isolates routing from storage/readout failure modes — the plan's
+    acceptance gate is ``oracle routing >95% held-out recall``, which
+    passes iff storage + readout work even when routing is hand-set.
+    """
+    scratchpad = SessionScratchpad(num_slots=4, dim=6, momentum=0.0)
+    state = scratchpad.reset(batch_size=2, device=torch.device("cpu"), dtype=torch.float32)
+    # Pretend the model has learned arbitrary slot_addresses; oracle must
+    # still drive the same slot index regardless.
+    with torch.no_grad():
+        scratchpad.slot_addresses.fill_(0.0)
+
+    query = torch.randn(2, 6)
+    key = torch.randn(2, 6)
+    value = torch.randn(2, 6)
+    oracle_slot = torch.tensor([0, 2], dtype=torch.long)
+    _, _, log = scratchpad.step(
+        query, key, value, state, log=True, oracle_slot=oracle_slot
+    )
+    assert log is not None
+    # Hard routing index must equal the oracle slot exactly (no argmax,
+    # no slot_addresses influence).
+    assert torch.equal(log.read_hard_idx.cpu(), oracle_slot)
+    assert torch.equal(log.write_hard_idx.cpu(), oracle_slot)
+    assert int(log.read_hard_idx.min()) >= 0
+    assert int(log.read_hard_idx.max()) < 4
+
+
+def test_hybridlm_oracle_routing_forwards_schedule_per_token() -> None:
+    """``oracle_slot_schedule`` must be sliced per-position through to the
+    scratchpad and produce the expected slot index in the log.
+    """
+    model = HybridLM(
+        vocab_size=256,
+        d_model=64,
+        n_layers=2,
+        n_heads=4,
+        d_ff=128,
+        dropout=0.0,
+        mixer_backend="fallback",
+        attention_every=2,
+        max_seq_len=128,
+        scratchpad_slots=4,
+        scratchpad_momentum=0.0,
+    )
+    with torch.no_grad():
+        model.scratchpad.slot_addresses.fill_(0.0)
+    tokens = torch.tensor([[10, 20, 30, 40, 50]], dtype=torch.long)
+    schedule = torch.tensor([[0, 2, 1, 3, 2]], dtype=torch.long)
+    _, logs = model.forward_with_optional_logs(
+        tokens, return_scratchpad_logs=True, oracle_slot_schedule=schedule
+    )
+    assert len(logs) == 5
+    expected = schedule.squeeze(0).tolist()
+    actual = [int(log.read_hard_idx.item()) for log in logs]
+    assert actual == expected

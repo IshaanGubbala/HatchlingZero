@@ -84,6 +84,8 @@ def _collect_routing_diagnostics(
     vocab_size: int,
     num_samples: int,
     num_slots: int,
+    *,
+    oracle_routing: bool = False,
 ) -> dict[str, float]:
     """Phase-3 hard-route diagnostics from ``docs/hz0b-mem-fix-plan-2026-07-26.md``.
 
@@ -133,8 +135,22 @@ def _collect_routing_diagnostics(
         key, value = sample_distinct_tokens(device, vocab_size, 2)
         filler = torch.randint(filler_low, filler_high, (1, filler_width), device=device)
         prompt = torch.cat([key, value, filler, key], dim=1)[:, : max(2, seq_len - 1)]
+        # For the Phase-4 oracle diagnostic: slot = token_id % num_slots at
+        # every position. Same key at t=0 and t=N+2 hashes to the same slot,
+        # so the binding survives filler-span even when filler tokens
+        # hash-collide into the binding slot (those collisions show up in
+        # slot_collision_rate as part of the diagnostic).
+        oracle_slot_schedule = (
+            prompt.to(torch.long) % max(num_slots, 1)
+            if oracle_routing and num_slots > 0
+            else None
+        )
         with autocast_context(device, model_dtype):
-            _, logs = model.forward_with_optional_logs(prompt, return_scratchpad_logs=True)
+            _, logs = model.forward_with_optional_logs(
+                prompt,
+                return_scratchpad_logs=True,
+                oracle_slot_schedule=oracle_slot_schedule,
+            )
         for entry in logs:
             write_idx = entry.write_hard_idx.detach().to(torch.long)
             read_idx = entry.read_hard_idx.detach().to(torch.long)
@@ -178,6 +194,15 @@ def main() -> None:
     parser.add_argument("--grad-accum-steps", type=int, default=1)
     parser.add_argument("--eval-samples", type=int, default=64)
     parser.add_argument("--output-path", type=Path, default=None)
+    parser.add_argument(
+        "--oracle-routing",
+        action="store_true",
+        help=(
+            "Phase-4 oracle diagnostic: force slot = (token_id %% num_slots) at "
+            "every position. Isolates routing from storage/readout failure "
+            "modes. Per docs/hz0b-mem-fix-plan-2026-07-26.md."
+        ),
+    )
     args = parser.parse_args()
 
     cfg = Config.load(args.config).raw
@@ -218,7 +243,13 @@ def main() -> None:
     has_scratchpad = num_slots > 0
     before_routing = (
         _collect_routing_diagnostics(
-            model, device, seq_len, vocab_size, args.eval_samples, num_slots
+            model,
+            device,
+            seq_len,
+            vocab_size,
+            args.eval_samples,
+            num_slots,
+            oracle_routing=args.oracle_routing,
         )
         if has_scratchpad
         else {}
@@ -237,9 +268,14 @@ def main() -> None:
                 batch = next(data_iter)
             batch = batch.to(device)
             x = batch[:, :-1]
-            y = batch[:, 1:]
+            y = batch[:, -1]
+            oracle_slot_schedule = (
+                x.to(torch.long) % max(num_slots, 1)
+                if has_scratchpad and args.oracle_routing
+                else None
+            )
             with autocast_context(device, dtype):
-                logits = model(x)
+                logits = model(x, oracle_slot_schedule=oracle_slot_schedule)
                 loss = torch.nn.functional.cross_entropy(logits[:, -1, :], y[:, -1])
                 loss = loss / max(1, args.grad_accum_steps)
             loss.backward()
@@ -250,7 +286,13 @@ def main() -> None:
     after = _collect_metrics(model, device, seq_len, vocab_size, args.eval_samples, args.task_mode)
     after_routing = (
         _collect_routing_diagnostics(
-            model, device, seq_len, vocab_size, args.eval_samples, num_slots
+            model,
+            device,
+            seq_len,
+            vocab_size,
+            args.eval_samples,
+            num_slots,
+            oracle_routing=args.oracle_routing,
         )
         if has_scratchpad
         else {}
