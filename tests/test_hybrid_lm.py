@@ -67,6 +67,11 @@ def test_scratchpad_model_forward_and_logs() -> None:
         scratchpad_slots=4,
         scratchpad_momentum=0.5,
     )
+    # v2 routing-side LayerNorm must be auto-registered when the scratchpad
+    # block is present. A future refactor that drops the LayerNorm will fail
+    # loudly here rather than silently regressing induction-head routing.
+    assert model.scratchpad_norm is not None
+    assert model.scratchpad_norm.normalized_shape == (64,)
     x = torch.randint(0, 256, (2, 16))
     hidden, logs = model.forward_with_optional_logs(x, return_scratchpad_logs=True)
     logits = model(x)

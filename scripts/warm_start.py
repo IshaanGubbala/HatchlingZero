@@ -51,6 +51,11 @@ SCRATCHPAD_KEY_ALLOWLIST: tuple[str, ...] = (
     "scratchpad_value.",
     "scratchpad_gate.",
     "scratchpad.slot_addresses",
+    # v2 (this iteration): ``scratchpad_norm`` is the LayerNorm on the
+    # routing-side scratchpad input that the induction-head fix added to
+    # ``HybridLM``. Without this entry the warm-start script would refuse
+    # the v2 HZ-0B model back to an HZ-0A source checkpoint.
+    "scratchpad_norm.",
 )
 
 

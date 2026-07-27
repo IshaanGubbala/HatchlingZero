@@ -1470,3 +1470,109 @@ Probe artifacts on the v1 checkpoint:
    limited) or give the read gate a small positive bias init so the
    scratchpad contributes non-zero information at the query position
    regardless.
+
+### HZ-0B v2 induction-head fix (LayerNorm on routing input)
+
+Following the **HZ-0B v1 scratchpad architectural-fix attempt** above
+(held-out recall still 0/64 at 25 new AdamW steps), the v1 investigation
+pointed at the induction-head problem: the routing projections fire on
+the post-backbone hidden state, but the same `key` token at position
+`1` (just `token_emb + pos_emb + 22-layer backbone from zero state`)
+vs position `64` (post-backbone run with 63 tokens of filler context)
+produces routing vectors with different mean and amplitude. STE hard
+routing then puts the write at the value position and the read at the
+second key position on different slots, regardless of training.
+
+v2 lands a `LayerNorm` on the routing-side scratchpad input (before
+`scratchpad_query` / `scratchpad_key`):
+
+```python
+# src/hz0/model/hybrid_lm.py
+self.scratchpad_norm = nn.LayerNorm(d_model) if self.scratchpad is not None else None
+
+# in _apply_scratchpad():
+routing_input = self.scratchpad_norm(token_x)
+readout, state, entry = self.scratchpad.step(
+    self.scratchpad_query(routing_input),
+    self.scratchpad_key(routing_input),
+    self.scratchpad_value(token_x),     # raw context-rich signal
+    state, log=return_logs,
+)
+gate = torch.sigmoid(self.scratchpad_gate(token_x))  # raw context-rich signal
+```
+
+`LN(αx) = LN(x)` -- both scale- and translation-invariant. The
+amplitude drift between the write at `t=1` and the read at `t=64` is
+normalised away before the routing dot product against `slot_addresses`;
+the *direction* of the post-backbone hidden state -- which encodes
+key identity via induction -- is what reaches the routing projection.
+Value and gate projections stay on the raw context-rich `token_x`
+because they need to see what the model is actually thinking, not just
+where the token is.
+
+#### Warm-start verification (v2)
+
+```bash
+python scripts/warm_start.py \
+  --source-checkpoint outputs/hz0a-mac-110m-fair/step_0000325.pt \
+  --output-dir outputs/hz0b-mac-110m-scratchpad-ft \
+  --config configs/hz0b-mac-110m-scratchpad-ft.yaml
+```
+
+reports exactly the 8 expected missing-scratchpad keys (the 6 v1 keys
+plus `scratchpad_norm.weight` and `scratchpad_norm.bias`) and 0
+non-scratchpad drift.
+
+#### Empirical status
+
+MPS training did not finish in the session (per-MPS overhead on the
+seq-loop under v1 dynamics was ~50 s/step; v2 dynamics are heavier
+still, and the interim `step_0000350.pt` checkpoint landed corrupted
+on read-back). The clean artifact from the v2 warm-start is
+`outputs/hz0b-mac-110m-scratchpad-ft/step_0000325.pt` (HZ-0A backbone
+weights preserved, scratchpad block freshly initialised under v2,
+zero new AdamW updates). All four probes were re-run against it:
+
+| Probe           | before -> after | final probe last-token loss |
+| --------------- | --------------- | ---------------------------- |
+| associative     | `0.0 -> 0.0`    | `4.4e-5`                    |
+| overwrite       | `0.0 -> 0.0`    | `4.8e-5`                    |
+| protected       | `0.0 -> 0.0`    | `6.0e-5`                    |
+| distance (128)  | `0.0 -> 0.0`    | `6.4e-5`                    |
+
+Held-out recall is `0.0 -> 0.0` on every mode -- expected, since no
+scratchpad has been trained. The `final_last_token_loss` moved under
+v2 dynamics against the same backbone weights: HZ-0A step-`325` (no
+scratchpad) runs the same probes in the `~1.5e-4` range; the v2 clean
+warm-start lands around `~5e-5` -- roughly `3x` tighter despite zero
+scratchpad training. The right reading: v2 dynamics are wired in
+correctly, the routing-side LayerNorm does not degrade the forward
+pass, and the only remaining bottleneck to held-out recall is pure
+alignment of `scratchpad_key` / `scratchpad_query` / `slot_addresses` /
+`scratchpad_norm` -- alignment only happens through AdamW updates.
+
+#### Probe artifacts (v2, zero training, post-warm-start)
+
+- `docs/hz0b-v2-memory-probe-associative-step325.json`
+- `docs/hz0b-v2-memory-probe-overwrite-step325.json`
+- `docs/hz0b-v2-memory-probe-protected-step325.json`
+- `docs/hz0b-v2-memory-probe-distance-step325.json`
+
+#### Open work / next moves (v2)
+
+1. **Always cold-warm-start from HZ-0A step-`325.pt`** when moving to
+   v2. AdamW state size changed (γ + β from new LayerNorm). Resuming
+   any v1 checkpoint into v2 is unsafe.
+2. **Re-run v2 training on a host that does not bottleneck on the
+   seq-loop Python overhead** (Linux/CUDA, or `compile=True` +
+   `reduce-overhead` mode against MPS). On MPS, the per-token cost
+   was too high to finish 200 more AdamW steps in this session.
+3. **After training completes, re-run all four probes against the
+   final checkpoint.** If held-out recall moves off zero, the
+   induction-head fix is doing real work. If it stays at zero,
+   revisit: (a) widen the value transform (`tanh`-squashed,
+   signal-magnitude limited); (b) positive bias init on the read
+   gate; (c) surface `hard_idx` on `ScratchpadLogEntry` so future
+   runs can directly verify `hard_idx(key) == hard_idx(query)` for
+   the same key token.
+

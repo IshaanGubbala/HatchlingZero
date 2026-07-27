@@ -68,6 +68,17 @@ class HybridLM(nn.Module):
         self.scratchpad_key = nn.Linear(d_model, d_model, bias=False) if self.scratchpad is not None else None
         self.scratchpad_value = nn.Linear(d_model, d_model, bias=False) if self.scratchpad is not None else None
         self.scratchpad_gate = nn.Linear(d_model, d_model) if self.scratchpad is not None else None
+        # LayerNorm on the routing side (input to scratchpad_query/key). The
+        # post-backbone hidden state drifts in mean/amplitude as a function of
+        # the filler span that sits between the (key, value) binding and the
+        # query position. Normalizing before the routing projections makes the
+        # routing key/query invariants more rotation- and scale-stable, so the
+        # write at t=1 (value position) and the read at t=64 (key position)
+        # can hit the same slot via ``slot_addresses @ scratchpad_key(z)``
+        # even though the post-backbone magnitudes differ. Value and gate
+        # projections stay on the raw (un-normalised) hidden state because the
+        # model needs context-rich information there.
+        self.scratchpad_norm = nn.LayerNorm(d_model) if self.scratchpad is not None else None
         self.lm_head = nn.Linear(d_model, vocab_size, bias=False)
 
     def forward(self, tokens: torch.Tensor) -> torch.Tensor:
@@ -102,15 +113,20 @@ class HybridLM(nn.Module):
         assert self.scratchpad_key is not None
         assert self.scratchpad_value is not None
         assert self.scratchpad_gate is not None
+        assert self.scratchpad_norm is not None
 
         state = self.scratchpad.reset(batch_size=x.size(0), device=x.device, dtype=x.dtype)
         outputs = []
         logs: list[ScratchpadLogEntry] = []
         for t in range(x.size(1)):
             token_x = x[:, t]
+            # Routing side: feed a LayerNorm-ed copy of the post-backbone
+            # hidden state. Value / gate side: feed the raw context-rich
+            # hidden state.
+            routing_input = self.scratchpad_norm(token_x)
             readout, state, entry = self.scratchpad.step(
-                self.scratchpad_query(token_x),
-                self.scratchpad_key(token_x),
+                self.scratchpad_query(routing_input),
+                self.scratchpad_key(routing_input),
                 self.scratchpad_value(token_x),
                 state,
                 log=return_logs,

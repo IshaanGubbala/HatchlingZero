@@ -1,0 +1,21 @@
+{
+  "date": "2026-07-26",
+  "checkpoint": "outputs/hz0b-mac-110m-scratchpad-ft/step_0000325.pt",
+  "task_mode": "distance",
+  "probe_steps": 32,
+  "probe_lr": 0.0001,
+  "batch_size": 1,
+  "grad_accum_steps": 1,
+  "elapsed_seconds": 9.773984875006136,
+  "metric_name": "recall_distance_128_accuracy",
+  "before": {
+    "recall_distance_128_accuracy": 0.0,
+    "recall_distance_samples": 64.0
+  },
+  "after": {
+    "recall_distance_128_accuracy": 0.0,
+    "recall_distance_samples": 64.0
+  },
+  "delta": 0.0,
+  "final_last_token_loss": 6.365573790390044e-05
+}
