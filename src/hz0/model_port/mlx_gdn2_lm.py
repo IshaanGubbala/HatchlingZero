@@ -96,27 +96,33 @@ class GDN2LanguageModel(nn.Module):
         kv_caches: Optional[list] = None,
     ) -> Tuple[mx.array, list, list]:
         """
-        Single-token decode with accumulated states.
+        Single-token decode with accumulated KV caches and recurrent states.
+
+        Token attends to ALL previous tokens via KV cache (not just current).
+        Recurrent state carries forward GDN-2 hidden values.
 
         Args:
             token_id: scalar token index
-            layer_states: List of [B, H, Dv, Dk] recurrent states from GDN2 layers
-            kv_caches: List of (K, V) caches from attention layers
+            layer_states: List of GDN2 recurrent states [B, H, Dv, Dk]
+            kv_caches: List of (K_full, V_full) for all accumulated tokens so far
 
         Returns:
             logits: [vocab_size] next-token distribution
             layer_states: updated recurrent states
-            kv_caches: updated KV caches
+            kv_caches: updated full KV caches (including new token)
         """
-        B = 1  # Typically batch size 1 for generation
+        B = 1
 
         # Initialize states if not provided
-        if layer_states is None:
-            layer_states = [None] * len(self.layers)
-        if kv_caches is None:
-            kv_caches = [None] * len(self.layers)
+        num_gdn2 = sum(1 for layer in self.layers if isinstance(layer, GDN2Block))
+        num_attn = sum(1 for layer in self.layers if isinstance(layer, AttentionBlock))
 
-        # Embed single token
+        if layer_states is None:
+            layer_states = [None] * num_gdn2
+        if kv_caches is None:
+            kv_caches = [None] * num_attn
+
+        # Embed single token: [1, D]
         token_mx = mx.array([[token_id]], dtype=mx.int32)
         x = self.embedding(token_mx)  # [1, 1, D]
         x = mx.squeeze(x, axis=1)  # [1, D]
@@ -129,15 +135,17 @@ class GDN2LanguageModel(nn.Module):
 
         for i, layer in enumerate(self.layers):
             if isinstance(layer, GDN2Block):
+                # GDN-2: single token, maintain recurrent state
                 x, state = layer.forward_step(x, layer_states[gdn2_idx])
                 new_layer_states.append(state)
                 gdn2_idx += 1
             else:  # AttentionBlock
+                # Attention: single new token, but can attend to cached previous tokens
                 x, kv_cache = layer.forward_step(x, kv_caches[attn_idx])
                 new_kv_caches.append(kv_cache)
                 attn_idx += 1
 
-        # Final norm
+        # Final norm + projection
         x = self.norm(mx.expand_dims(x, axis=1))  # [1, 1, D]
         x = mx.squeeze(x)  # [D]
 
