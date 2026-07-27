@@ -285,9 +285,19 @@ class TinyMemoryModel(nn.Module):
         return logits, state, diagnostics
 
     def _get_oracle_value(self, key_id: int) -> mx.array:
-        """Oracle embedding for key_id (deterministic hash-based)."""
+        """Oracle embedding for key_id (deterministic hash-based).
+
+        For ablation: oracle provides ground-truth embedding derived from key.
+        In practice, curriculum provides key→value mapping. Here we use a
+        deterministic but meaningful embedding based on key.
+        """
+        # Deterministic embedding: hash key to get embedding vector
+        # This should ideally come from curriculum ground truth
         rng = np.random.RandomState(key_id)
-        return mx.array(rng.randn(self.slot_dim).astype(np.float32))
+        base_embed = rng.randn(self.slot_dim).astype(np.float32)
+        # Normalize to unit norm for stability
+        base_embed = base_embed / (np.linalg.norm(base_embed) + 1e-6)
+        return mx.array(base_embed)
 
     def forward_oracle_routing(
         self,

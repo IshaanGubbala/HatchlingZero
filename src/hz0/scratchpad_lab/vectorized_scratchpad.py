@@ -63,7 +63,7 @@ class VectorizedScratchpad(nn.Module):
 
         # Hard routing: deterministic slot from key score
         write_slots = mx.abs(key_scores[:, :, 0]) % self.num_slots  # [B, T]
-        write_slots = mx.astype(write_slots, mx.int32)
+        write_slots = write_slots.astype(mx.int32)
 
         # Scatter writes: accumulate values into slots
         # For each (b, t), add: values[b,t] to state[b, slot[b,t]]
