@@ -39,11 +39,19 @@ def streaming_forward(model, tokens: mx.array):
     kv_caches = None
 
     for t in range(T):
-        token_id = tokens[0, t].item()  # Assume batch size 1
+        token_id = int(tokens[0, t])  # Get token ID
         logits, layer_states, kv_caches = model.decode_step(token_id, layer_states, kv_caches)
-        logits_all.append(mx.expand_dims(logits, axis=0))
 
-    logits = mx.concatenate(logits_all, axis=1)  # [1, T, vocab]
+        # decode_step returns [vocab_size], reshape to [1, 1, vocab_size]
+        logits_expanded = mx.reshape(logits, (1, 1, -1))
+        logits_all.append(logits_expanded)
+
+    # Concatenate along time axis: [1, T, vocab]
+    if logits_all:
+        logits = mx.concatenate(logits_all, axis=1)
+    else:
+        logits = mx.zeros((1, T, model.vocab_size))
+
     return logits, None
 
 
