@@ -10,12 +10,27 @@ from typing import Optional, Tuple
 class GDN2BackwardMetal:
     """Wraps Metal backward kernels for GPU-accelerated gradient computation."""
 
-    def __init__(self, model_path: str = "gdn2_backward.metallib"):
+    def __init__(self, model_path: str = None):
         """Initialize Metal backward kernels.
 
         Args:
-            model_path: Path to compiled .metallib file
+            model_path: Path to compiled .metallib file (auto-detect if None)
         """
+        if model_path is None:
+            # Auto-detect in common locations
+            from pathlib import Path
+            candidates = [
+                Path(__file__).parent / "gdn2_backward.metallib",
+                Path("src/hz0/metal_gdn2/kernels/gdn2_backward.metallib"),
+                Path("gdn2_backward.metallib"),
+            ]
+            for candidate in candidates:
+                if candidate.exists():
+                    model_path = str(candidate)
+                    break
+            if model_path is None:
+                model_path = "gdn2_backward.metallib"  # Fallback path
+
         self.model_path = model_path
         self.compiled = False
 
@@ -23,7 +38,7 @@ class GDN2BackwardMetal:
             # Try to load compiled Metal library
             with open(model_path, 'rb') as f:
                 self.metal_data = f.read()
-            print(f"✓ Loaded Metal library: {len(self.metal_data)} bytes")
+            print(f"✓ Loaded Metal library: {len(self.metal_data)} bytes ({model_path})")
             self.compiled = True
         except FileNotFoundError:
             print(f"⚠ Metal library not found: {model_path}")
