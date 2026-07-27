@@ -44,13 +44,8 @@ class TinyMemoryModel(nn.Module):
         # Token embedding
         self.token_embed = nn.Embedding(vocab_size, model_dim)
 
-        # Recurrent/attention layers
+        # Simple linear layers (no attention for simplicity)
         self.layers = [
-            nn.MultiHeadAttention(
-                dims=model_dim,
-                num_heads=num_heads,
-                bias=True,
-            ) if i % 2 == 0 else
             nn.Linear(model_dim, model_dim)
             for i in range(num_layers)
         ]
@@ -76,16 +71,15 @@ class TinyMemoryModel(nn.Module):
         return mx.zeros((batch_size, self.num_slots, self.slot_dim))
 
     def _forward_layer(self, x: mx.array, layer_idx: int) -> mx.array:
-        """Forward through one layer (attention or linear)."""
+        """Forward through one layer (linear)."""
         layer = self.layers[layer_idx]
-        if isinstance(layer, nn.MultiHeadAttention):
-            # Self-attention: Q,K,V all from input
-            return layer(x, x)
-        else:
-            # Linear layer
-            return layer(x)
+        # Linear layer - apply to all time steps
+        B, T, D = x.shape
+        x_flat = mx.reshape(x, (-1, D))
+        out_flat = layer(x_flat)
+        return mx.reshape(out_flat, (B, T, -1))
 
-    def forward(
+    def __call__(
         self,
         input_ids: mx.array,
         state: Optional[mx.array] = None,
@@ -132,14 +126,16 @@ class TinyMemoryModel(nn.Module):
             query_t = self.query_proj(x_t)
             value_t = self.value_proj(x_t)
 
-            # Compute soft routing scores
-            key_expanded = mx.expand_dims(key_t, 1)  # [B, 1, slot_dim]
-            scores = mx.einsum("bsd,bkd->bk", key_expanded, mx.expand_dims(mx.ones((batch_size, self.num_slots, self.slot_dim)) * state, 1))  # [B, num_slots]
-
-            # Simplified: just match against each slot's L2 norm
-            slot_norms = mx.sqrt(mx.sum(state ** 2, axis=2) + 1e-8)  # [B, num_slots]
-            key_norm = mx.sqrt(mx.sum(key_t ** 2, axis=1, keepdims=True) + 1e-8)  # [B, 1]
-            scores = mx.exp(-mx.abs(slot_norms - key_norm) / (self.slot_dim ** 0.5))  # [B, num_slots]
+            # Compute routing scores: dot product with each slot
+            # state: [B, num_slots, slot_dim]
+            # key_t: [B, slot_dim]
+            scores_list = []
+            for s in range(self.num_slots):
+                slot_s = state[:, s, :]  # [B, slot_dim]
+                score_s = mx.sum(key_t * slot_s, axis=1)  # [B]
+                scores_list.append(score_s)
+            scores = mx.stack(scores_list, axis=1)  # [B, num_slots]
+            scores = mx.exp(scores / (self.slot_dim ** 0.5))  # Softmax-like
 
             # Hard routing (argmax)
             write_slot = mx.argmax(scores, axis=1)  # [B]
