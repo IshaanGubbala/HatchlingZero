@@ -147,18 +147,20 @@ class GDN2MetalModule(nn.Module):
         Stateless if state passed explicitly, else uses _state buffer.
 
         Args:
-            x: [B, D] token embedding
+            x: [B, D] or [B, 1, D] token embedding
             state: [B, H, Dv, Dk] or None
 
         Returns:
             output: [B, D]
             state: [B, H, Dv, Dk]
         """
-        from src.hz0.metal_gdn2.reference.gdn2_mlx import gdn2_streaming_ops
+        # Handle shape: if [B, D] add T dimension, if [B, T, D] keep it
+        if len(x.shape) == 2:
+            x = mx.expand_dims(x, axis=1)  # [B, 1, D]
+        elif len(x.shape) == 3 and x.shape[1] != 1:
+            x = mx.expand_dims(x, axis=1)  # Handle edge case
 
-        # Add sequence dimension
-        x = mx.expand_dims(x, axis=1)  # [B, 1, D]
-        output, state = self(x, state=state)
+        output, state = self(x, state=state)  # Returns [B, 1, D], state
         output = mx.squeeze(output, axis=1)  # [B, D]
 
         self._state = state
