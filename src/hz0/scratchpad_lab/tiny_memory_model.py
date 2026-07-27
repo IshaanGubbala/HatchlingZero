@@ -72,9 +72,11 @@ class TinyMemoryModel(nn.Module):
 
     @staticmethod
     def get_oracle_slot(key: mx.array, num_slots: int) -> int:
-        """Deterministic slot via hash(key_id) % num_slots."""
-        key_id = int(key[0])
-        return key_id % num_slots
+        """Deterministic slot via hash of key vector."""
+        # For vectors: sum + hash to get deterministic slot
+        key_sum = float(mx.sum(key))
+        key_hash = hash(str(key_sum))
+        return abs(key_hash) % num_slots
 
     def _forward_layer(self, x: mx.array, layer_idx: int) -> mx.array:
         """Forward through one layer (linear)."""
@@ -182,12 +184,22 @@ class TinyMemoryModel(nn.Module):
         return logits, state, diagnostics
 
 
-    def forward_oracle_routing(
+    def _forward_with_routing_variant(
         self,
         input_ids: mx.array,
-        state: Optional[mx.array] = None,
+        state: Optional[mx.array],
+        routing_mode: str = "learned",  # learned, oracle
+        storage_mode: str = "learned",  # learned, oracle
+        read_mode: str = "learned",      # learned, oracle
     ) -> Tuple[mx.array, mx.array, Dict]:
-        """Oracle routing variant: deterministic slot assignment."""
+        """
+        Generic forward with routing/storage/read variants.
+
+        Modes:
+        - routing: learned (soft scores) vs oracle (deterministic hash)
+        - storage: learned (write_gate * value) vs oracle (ground-truth embedding)
+        - read: learned (soft scores) vs oracle (oracle routing)
+        """
         batch_size, seq_len = input_ids.shape
         if state is None:
             state = self._get_initial_state(batch_size)
@@ -197,6 +209,14 @@ class TinyMemoryModel(nn.Module):
             x = self._forward_layer(x, i)
 
         logits_list = []
+        diagnostics = {
+            "routing_mode": routing_mode,
+            "storage_mode": storage_mode,
+            "read_mode": read_mode,
+            "write_slots": [],
+            "read_slots": [],
+        }
+
         for t in range(seq_len):
             x_t = x[:, t, :]
             key_t = self.key_proj(x_t)
@@ -204,22 +224,53 @@ class TinyMemoryModel(nn.Module):
             write_gate = mx.sigmoid(self.write_gate_proj(x_t))
             erase_gate = mx.sigmoid(self.erase_gate_proj(x_t))
 
-            # Oracle routing: deterministic slot
-            write_slot = self.get_oracle_slot(key_t, self.num_slots)
-            read_slot = write_slot
+            # Compute write slot
+            if routing_mode == "oracle":
+                write_slot = self.get_oracle_slot(key_t, self.num_slots)
+            else:
+                # Learned routing (default)
+                scores_list = []
+                for s in range(self.num_slots):
+                    slot_s = state[:, s, :]
+                    score_s = mx.sum(key_t * slot_s, axis=1)
+                    scores_list.append(score_s)
+                scores = mx.stack(scores_list, axis=1)
+                write_slot = mx.argmax(scores, axis=1)
+                write_slot = int(write_slot[0])  # Use first batch element
 
-            # Write
+            # Compute storage value
+            if storage_mode == "oracle":
+                # Oracle: ground-truth embedding (hash-based)
+                key_id = int(key_t[0, 0])
+                oracle_value = self._get_oracle_value(key_id)
+            else:
+                oracle_value = None
+
+            # Write to state
             for b in range(batch_size):
-                state_b = state[b]
-                state_b[write_slot] = (
-                    (1 - erase_gate[b]) * state_b[write_slot] +
-                    write_gate[b] * value_t[b]
-                )
+                if storage_mode == "oracle" and oracle_value is not None:
+                    # Write oracle value
+                    state[b, write_slot, :] = (
+                        (1 - erase_gate[b]) * state[b, write_slot, :] +
+                        write_gate[b] * oracle_value
+                    )
+                else:
+                    # Write learned value
+                    state[b, write_slot, :] = (
+                        (1 - erase_gate[b]) * state[b, write_slot, :] +
+                        write_gate[b] * value_t[b]
+                    )
 
-            # Read
+            # Compute read slot
+            if read_mode == "oracle":
+                read_slot = self.get_oracle_slot(key_t, self.num_slots)
+            else:
+                read_slot = write_slot  # Use same as write
+
+            # Read from state
             retrieved = mx.zeros_like(value_t)
             for b in range(batch_size):
-                retrieved[b] = state[b][read_slot]
+                retrieved[b] = state[b, read_slot, :]
 
             # Output
             readout = self.readout_proj(retrieved)
@@ -227,8 +278,55 @@ class TinyMemoryModel(nn.Module):
             logit_t = self.output_head(residual)
             logits_list.append(logit_t)
 
+            diagnostics["write_slots"].append(write_slot)
+            diagnostics["read_slots"].append(read_slot)
+
         logits = mx.stack(logits_list, axis=1)
-        return logits, state, {"routing": "oracle", "write_slot": write_slot, "read_slot": read_slot}
+        return logits, state, diagnostics
+
+    def _get_oracle_value(self, key_id: int) -> mx.array:
+        """Oracle embedding for key_id (deterministic hash-based)."""
+        rng = np.random.RandomState(key_id)
+        return mx.array(rng.randn(self.slot_dim).astype(np.float32))
+
+    def forward_oracle_routing(
+        self,
+        input_ids: mx.array,
+        state: Optional[mx.array] = None,
+    ) -> Tuple[mx.array, mx.array, Dict]:
+        """Ablation: oracle routing (both write and read)."""
+        return self._forward_with_routing_variant(
+            input_ids, state,
+            routing_mode="oracle",
+            storage_mode="learned",
+            read_mode="oracle"
+        )
+
+    def forward_oracle_storage(
+        self,
+        input_ids: mx.array,
+        state: Optional[mx.array] = None,
+    ) -> Tuple[mx.array, mx.array, Dict]:
+        """Ablation: oracle storage (ground-truth values)."""
+        return self._forward_with_routing_variant(
+            input_ids, state,
+            routing_mode="learned",
+            storage_mode="oracle",
+            read_mode="learned"
+        )
+
+    def forward_oracle_read(
+        self,
+        input_ids: mx.array,
+        state: Optional[mx.array] = None,
+    ) -> Tuple[mx.array, mx.array, Dict]:
+        """Ablation: oracle read routing (learned write, oracle read)."""
+        return self._forward_with_routing_variant(
+            input_ids, state,
+            routing_mode="learned",
+            storage_mode="learned",
+            read_mode="oracle"
+        )
 
 
 def create_tiny_memory_model(
