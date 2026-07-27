@@ -89,6 +89,8 @@ def gdn2_step(
 ) -> Tuple[mx.array, mx.array]:
     """
     Single GDN-2 recurrent step. Returns new state and output.
+
+    Includes stabilization: clip state after each update to prevent overflow.
     """
     # Decay
     state = gdn2_step_decay(state, decay)
@@ -98,6 +100,11 @@ def gdn2_step(
 
     # Write
     state = gdn2_step_update(state, erase_value, key, write, value)
+
+    # Stabilize: Clip state values to prevent unbounded growth
+    # This is safe because GDN-2 state represents content addressable memory
+    # Clipping preserves the relative signal structure
+    state = mx.clip(state, -100.0, 100.0)
 
     # Query
     output = gdn2_step_query(state, query)
