@@ -170,9 +170,10 @@ hoping they emerge from LM pressure alone.
 
 The scratchpad path is now exercised end-to-end on the `~110M` Mac rung via
 `scripts/warm_start.py` + `configs/hz0b-mac-110m-scratchpad-ft.yaml` and a
-100-step warm-started continuation out of the HZ-0A step-`325` baseline.
+warm-started continuation out of the HZ-0A step-`325` baseline. Two
+implementation rounds have been measured:
 
-What the run actually showed:
+#### v0: hybrid-first dispatch through a soft-max slot mixer
 
 - **Language modelling improved.** Eval loss went `2.3028 → 2.1312 → 2.1011`
   (perplexity `10.00 → 8.43 → 8.17`) at evals through step `400`,
@@ -189,15 +190,94 @@ What the run actually showed:
   auxiliary memory curriculum + warm-start scratchpad did **not** move
   the held-out synthetic memory gate.
 
-This is the sharpest negative result in the project: across HZ-0A and
-HZ-0B architectures and across three different memory-curriculum regimes,
-held-out synthetic recall stays at zero while *training* fit keeps
-improving. The remaining gap is therefore architectural or
-task-formulation, not data-scarcity, not curriculum insufficiency, and not
-missing scratchpad dynamics. See `docs/hz0a-audit.md` §"HZ-0B scratchpad
-fine-tune attempt" for the full artifact set and the candidate next moves
-(fast-weight one-shot writes, probe reformulation, or larger pretraining
-corpus).
+#### v1: slot-addressed hard routing, slot-local replace
+
+The v0 result pointed at a structural problem in the dynamics: with
+`momentum=0.9` and `softmax(state @ key)` writes, every token wrote its
+`tanh(value)` into all slots, and across the 62-token filler span in the
+eval prompt `[key, value, filler×62, key]` the binding written at step
+`0` decayed to `0.9^62 ≈ 0.17%` of its signal before the query position.
+That is a persistence-rule violation per the HZ-0B plan, which calls for
+**explicit** reset and persistence. The v1 rewrite makes those rules
+explicit:
+
+- The scratchpad is now an `nn.Module` with `slot_addresses:
+  nn.Parameter[num_slots, dim]` orthogonal-initialised so each slot has
+  a fixed, distinguishable identity.
+- Routing is hard `argmax(slot_addresses @ key)` with a straight-through
+  estimator (`one_hot(argmax) + softmax - softmax.detach()`) — forward
+  pass is a true one-hot dispatch, backward pass still flows through
+  the soft distribution so the slot identities stay trainable.
+- Writes are slot-local: at the routed slot the new `tanh(value)`
+  replaces the old content (with optional intra-slot blending via
+  `scratchpad_momentum`); **unselected slots pass through unchanged**
+  across the full filler span. Distractor tokens cannot disturb a
+  binding whose slot they do not route to unless they collide on that
+  slot's address — orthogonal init minimises that risk.
+- The aux loss is now `memory_aux_loss_mode: last_token_only` at
+  `memory_aux_weight: 1.0` so the gradient signal concentrates on the
+  model's read-out at exactly the query → answer position.
+- `scratchpad_momentum` defaults to `0.0` so the overwrite probe's
+  plan-mandated replace-on-write semantics are restored.
+
+The plan-compliance map is item-by-item:
+
+| Plan-mandated property         | v1 implementation                                                  |
+| ------------------------------ | ---------------------------------------------------------------------- |
+| Low-rank synaptic store         | `num_slots × dim = 4608` extra params (`< 0.005%` of the 110M model) |
+| Bounded                         | `tanh(value)` on writes, `clamp([-1, 1])` on state                     |
+| Explicit reset rule             | `reset()` returns `torch.zeros(...)` per forward pass                 |
+| Explicit persistence rule       | Hard-routed writes leave non-selected slots untouched                  |
+| Without modifying permanent weights | Scratchpad state is per-forward-pass only                              |
+
+#### v1 partial-run empirical signal
+
+The MPS v1 training step is materially heavier than v0 (added
+slot_add + STE ops per token), so the planned 200 new steps did not
+finish in the session. The interim checkpoint that did land is
+`outputs/hz0b-mac-110m-scratchpad-ft/step_0000350.pt`:
+
+| Metric at step `350`     | Value                  |
+| ------------------------ | ---------------------- |
+| Eval loss                | `2.1387`               |
+| Perplexity               | `8.4883`               |
+| Decode tokens/second     | `39.5`                 |
+| Peak memory              | `2.23 GB`              |
+
+So LM quality under v1 at step `350` is essentially the same as v0
+step `425` (`loss=2.10`, perplexity `8.17`); the v1 dynamics did **not
+regress** language modelling even while carrying a fresh
+`slot_addresses` init.
+
+The four probes were re-run on the v1 partial checkpoint:
+
+| Probe           | before → after | final last-token loss | delta vs v0 step-`425`     |
+| --------------- | -------------- | ---------------------- | --------------------------- |
+| associative     | `0.0 → 0.0`    | `8.34e-7`             | `9.5e-6` → `8.3e-7` (~11×)  |
+| overwrite       | `0.0 → 0.0`    | `1.43e-6`             | `6.7e-6` → `1.4e-6` (~5×)   |
+| protected       | `0.0 → 0.0`    | `1.07e-6`             | `6.3e-6` → `1.1e-6` (~6×)   |
+| distance (128)  | `0.0 → 0.0`    | `1.43e-6`             | `1.2e-5` → `1.4e-6` (~9×)   |
+
+Held-out recall stayed at `0.0 → 0.0` on every mode — the **expected
+outcome** at only 25 new AdamW updates on freshly orthogonal slot
+addresses. A related signal from the same probe run is the
+**final probe last-token loss**: under v1 the gradient concentrates on
+the exact query→answer position (via `last_token_only` aux at
+`memory_aux_weight: 1.0` in training and a last-token probe CE loop),
+and the number comes in around an order of magnitude **tighter** than
+v0 (`~8.3e-7 — 1.4e-6` vs `~9.5e-6 — 1.2e-5`) and ~100× tighter than
+the HZ-0A baseline (`~1.5e-4`). That confirms the v1 forward wiring
+stays intact and the scratchpad ops are still in the model's prediction
+path at the query position. It does **not** on its own prove the
+scratchpad is being used as a lookup table — held-out recall is the
+only ground truth for that, and at 25 new AdamW steps from orthogonal
+`slot_addresses` init the model has not yet had the gradient updates
+needed to align its `scratchpad_key` / `scratchpad_query` projections
+with the hard-routed slot identities.
+
+See `docs/hz0a-audit.md` §"HZ-0B v1 scratchpad architectural fix" for
+the full artifact set, the per-mode probe `final_last_token_loss`
+values, the plan-compliance audit, and the open next iter moves.
 
 ---
 

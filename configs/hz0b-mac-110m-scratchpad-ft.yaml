@@ -28,7 +28,13 @@ model:
   attention_every: 4
   max_seq_len: 1024
   scratchpad_slots: 8
-  scratchpad_momentum: 0.9
+  # IMPORTANT: scratchpad_momentum in the v1 (slot-addressed routing)
+  # scratchpad means *intra-slot persistence*, i.e. how much of the OLD
+  # value at a routed slot is preserved when a fresh write replaces it.
+  # 0.9 = 90% old + 10% new on overwrite, which makes the overwrite probe
+  # fail by construction. The plan's overwrite success criterion (Section
+  # 11) requires a true value-replace. Keep this at 0.0 (replace-on-write).
+  scratchpad_momentum: 0.0
 
 optim:
   lr: 0.00008
@@ -38,7 +44,7 @@ optim:
 
 train:
   output_dir: outputs/hz0b-mac-110m-scratchpad-ft
-  max_steps: 425
+  max_steps: 525
   grad_accum_steps: 4
   log_every: 5
   eval_every: 25
@@ -48,10 +54,15 @@ train:
   sample_tokens: 24
   compile: false
   compile_mode: reduce-overhead
-  # Direct memory-aux loss: separate batch stream of pure memory tasks,
-  # weighted at 0.5 so it nudges the scratchpad without crushing LM quality.
-  memory_aux_weight: 0.5
-  memory_aux_loss_mode: blend
+  # Direct memory-aux loss: a separate batch stream of pure memory tasks
+  # that produces a query-answer loss only at the LAST token of each chunk.
+  # With the new slot-addressed scratchpad, this concentrates the gradient
+  # on the model's ability to *use* the scratchpad at the query position,
+  # which is exactly where the read-out happens. memory_aux_weight: 1.0
+  # makes this signal loud enough to actually move the model. blend was
+  # tried in v0 and produced no held-out recall gain.
+  memory_aux_weight: 1.0
+  memory_aux_loss_mode: last_token_only
   memory_aux_retrieval_mix_probability: 0.15
   memory_aux_memory_mix_probability: 1.0
 

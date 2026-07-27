@@ -42,11 +42,15 @@ from hz0.model import build_model
 
 # Parameter name prefixes that are allowed to be missing in the source.
 # Anything outside this allow-list is treated as a real architecture mismatch.
+# As of the HZ-0B slot-addressed-routing fix, the scratchpad is an
+# ``nn.Module`` and owns its own parameters (``slot_addresses``) on top of
+# the four projection ``Linear`` layers it used in HZ-0A v0.
 SCRATCHPAD_KEY_ALLOWLIST: tuple[str, ...] = (
     "scratchpad_query.",
     "scratchpad_key.",
     "scratchpad_value.",
     "scratchpad_gate.",
+    "scratchpad.slot_addresses",
 )
 
 

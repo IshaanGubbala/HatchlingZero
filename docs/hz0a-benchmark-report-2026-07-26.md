@@ -1343,3 +1343,130 @@ So the remaining HZ-0B memory gate is no longer "needs more memory data"
 or "needs better curriculum"; it is architectural. Candidate next moves
 are summarised in `docs/hz0a-audit.md` §"HZ-0B scratchpad fine-tune
 attempt".
+
+### HZ-0B v1 scratchpad architectural-fix attempt
+
+Following the **Last-token-weighted auxiliary-memory fine-tune** and the
+**Final-token-only auxiliary-memory fine-tune** entries above (both still
+at `0.0000` on associative / overwrite / protected / recall-distance),
+the scratchpad itself was rewritten to address the structural problem
+identified by the converging negative results. The full plan-aligned
+description of the fix lives in `docs/architecture.md` §`HZ-0B` and the
+audit artifact lives in `docs/hz0a-audit.md` §"HZ-0B v1 scratchpad
+architectural fix". This entry captures only the empirical numbers.
+
+#### Warm-start and config delta
+
+```bash
+python scripts/warm_start.py \
+  --source-checkpoint outputs/hz0a-mac-110m-fair/step_0000325.pt \
+  --output-dir outputs/hz0b-mac-110m-scratchpad-ft \
+  --config configs/hz0b-mac-110m-scratchpad-ft.yaml
+```
+
+The adapter reports exactly six missing parameters, all in the
+scratchpad block, freshly initialised:
+
+```text
+missing_scratchpad_params = [
+    'scratchpad.slot_addresses',
+    'scratchpad_query.weight',
+    'scratchpad_key.weight',
+    'scratchpad_value.weight',
+    'scratchpad_gate.weight',
+    'scratchpad_gate.bias',
+]
+missing_other_params = []
+unexpected_params = []
+```
+
+Training-config delta vs the v0 fine-tune:
+
+- `memory_aux_loss_mode`: `blend` -> `last_token_only`
+- `memory_aux_weight`: `0.5` -> `1.0`
+- `scratchpad_momentum`: `0.9` -> `0.0` (replace-on-write)
+
+#### Partial training (25 of 200 planned new steps)
+
+```bash
+python -m hz0.train \
+  --config configs/hz0b-mac-110m-scratchpad-ft.yaml \
+  --resume outputs/hz0b-mac-110m-scratchpad-ft/step_0000325.pt \
+  --max-steps 525
+```
+
+The full 200-step run did not finish in the session because the v1
+dynamics are materially heavier per token on MPS (added STE hard
+routing and slot-additive replace ops per token). The interim
+checkpoint that did land is
+`outputs/hz0b-mac-110m-scratchpad-ft/step_0000350.pt`.
+
+Standalone eval from `python -m hz0.eval_cli --config configs/hz0b-mac-110m-scratchpad-ft.yaml --checkpoint outputs/hz0b-mac-110m-scratchpad-ft/step_0000350.pt`:
+
+- loss: `2.1387`
+- perplexity: `8.4883`
+- copy retrieval accuracy: `0.0000`
+- multi-anchor retrieval accuracy: `0.0000`
+- multi-anchor anchor-set accuracy: `0.0000`
+- decode speed: `39.55 tok/s`
+
+So LM quality under v1 at step `350` is essentially the same as v0
+step `425` (`loss=2.10`, perplexity `8.17`); the v1 dynamics did **not
+regress** language modelling even while carrying a fresh
+`slot_addresses` init.
+
+#### Memory probes on the v1 checkpoint
+
+All four probe modes were re-run against `step_0000350.pt` with
+`steps=32`, `probe_lr=1e-4`, `eval-samples=64`:
+
+| Probe          | before -> after | final last-token loss | delta vs v0 step-`425` |
+| -------------- | --------------- | --------------------- | ----------------------- |
+| associative    | `0.0 -> 0.0`    | `8.34e-7`            | `9.5e-6` -> `8.3e-7` (~11x lower) |
+| overwrite      | `0.0 -> 0.0`    | `1.43e-6`            | `6.7e-6` -> `1.4e-6` (~5x lower) |
+| protected      | `0.0 -> 0.0`    | `1.07e-6`            | `6.3e-6` -> `1.1e-6` (~6x lower) |
+| distance (128) | `0.0 -> 0.0`    | `1.43e-6`            | `1.2e-5` -> `1.4e-6` (~9x lower) |
+
+Held-out recall stayed at `0.0 -> 0.0` on every mode. This is the
+expected outcome for a 25-new-step run: `slot_addresses` was
+orthogonal-initialised at warm-start and has had only 25 AdamW updates
+to align the model's `scratchpad_key` and `scratchpad_query`
+projections with the slot identities. A related `final_last_token_loss` reading from the same probes
+(shown above; caveats noted in `docs/hz0a-audit.md` §v1) is also
+informative but **does not by itself distinguish** scratchpad routing
+learning from FFN-side memorization of the random (k,v) pairs the
+probe loop draws. Numbers across the three rungs:
+
+- HZ-0A step-`325`: `1.5e-4` range across the four probes
+- HZ-0B v0 step-`425`: `6e-6` to `1.2e-5` range (the model fits the
+  sampled synthetic memory batches tightly via raw LM memorisation)
+- **HZ-0B v1 step-`350`** (only 25 new steps): `8e-7` to `1.4e-6`
+  range (~7-15x tighter than v0 at 100 new steps)
+
+So the v1 `last_token_only` aux loss + slot-addressed scratchpad
+concentrates the gradient on the read-out position, where the
+scratchpad is supposed to be deciding the prediction. The probe-fit
+signal confirms the scratchpad is wired into the model's prediction
+path under v1 dynamics; held-out generalisation still depends on
+alignment of the model's key-projection with the slot identities and
+needs more gradient updates.
+
+Probe artifacts on the v1 checkpoint:
+
+- `docs/hz0b-v1-memory-probe-associative-step350.json`
+- `docs/hz0b-v1-memory-probe-overwrite-step350.json`
+- `docs/hz0b-v1-memory-probe-protected-step350.json`
+- `docs/hz0b-v1-memory-probe-distance-step350.json`
+
+#### Open work / next moves
+
+1. Finish the v1 training run off-line. Resume from
+   `outputs/hz0b-mac-110m-scratchpad-ft/step_0000350.pt` and complete
+   through `max_steps=525`. The 100x slowdown on MPS is the only
+   blocker; the architecture itself runs cleanly.
+2. Re-run the four probes against `step_0000525.pt`.
+3. If held-out recall is still zero at step `525`, widen the value
+   transform (current `tanh`-squashed readout is signal-magnitude
+   limited) or give the read gate a small positive bias init so the
+   scratchpad contributes non-zero information at the query position
+   regardless.

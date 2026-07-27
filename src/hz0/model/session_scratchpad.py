@@ -1,8 +1,29 @@
+"""Bounded session-local memory for the HZ-0B track.
+
+HZ-0B is described in the development plan as a "low-rank, bounded synaptic
+memory with explicit reset and persistence rules". This module is the v1
+implementation that satisfies those three contract points explicitly:
+
+* **Bounded**: write values pass through ``tanh`` and the state is hard-clamped
+  to ``[-1, 1]`` on every step. The state shape is ``[batch, num_slots, dim]``
+  with ``num_slots`` small (the HZ-0B config uses 8).
+* **Explicit reset rule**: ``reset(...)`` returns ``torch.zeros(...)`` and is
+  called at the start of every forward pass by ``HybridLM._apply_scratchpad``.
+  Cross-session state cannot leak.
+* **Explicit persistence rule**: writes are routed through *learned slot
+  addresses* (``self.slot_addresses``) using straight-through hard routing.
+  Unselected slots pass through unchanged, so distractor (filler) tokens
+  cannot disturb a binding whose slot they do not route to, even after tens
+  of filler steps.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
 
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
 
 
 @dataclass
@@ -12,45 +33,96 @@ class ScratchpadLogEntry:
     state_norm: torch.Tensor
 
 
-class SessionScratchpad:
-    """Bounded session-local memory for the HZ-0B track.
+class SessionScratchpad(nn.Module):
+    """Slot-addressed fast-weight memory bank.
 
-    The scratchpad is intentionally small and resettable. It is not wired into
-    the language model forward path yet; this module provides the isolated
-    read/write mechanics and logging surface needed before that integration.
+    The key ideas:
+
+    * Each slot has a learned ``slot_addresses`` vector in the projected
+      ``key``/``query`` space. ``nn.init.orthogonal_`` maximises the angular
+      separation between slots at initialisation so hard routing gives
+      diverse slot usage from day one (this is the cure for "dead-slot
+      collapse" that otherwise shows up under straight-through argmax).
+    * Hard routing (``argmax``) is used at both write and read time with the
+      straight-through estimator
+      ``one_hot(argmax) + softmax - softmax.detach()`` so the forward pass is
+      a true one-hot dispatch while gradients still flow through the soft
+      version. This lets the model learn slot addresses that align with its
+      own projected key/query distributions.
+    * Writes are slot-local: at the routed slot the new ``tanh(value)``
+      replaces the old content; at every other slot the state passes through
+      unchanged. Combined with orthogonal slot addresses, distractor tokens
+      (the filler spans between a (key, value) binding and its query) almost
+      never pick the binding's slot, so the binding survives the full
+      filler span.
     """
 
-    def __init__(self, num_slots: int, dim: int, momentum: float = 0.9) -> None:
+    def __init__(self, num_slots: int, dim: int, momentum: float = 0.0) -> None:
+        super().__init__()
         if num_slots <= 0:
             raise ValueError("num_slots must be positive.")
         if dim <= 0:
             raise ValueError("dim must be positive.")
-        if not 0.0 <= momentum < 1.0:
-            raise ValueError("momentum must be in [0, 1).")
+        if not 0.0 <= momentum <= 1.0:
+            raise ValueError("momentum must be in [0, 1].")
         self.num_slots = num_slots
         self.dim = dim
         self.momentum = momentum
+        # `momentum` is now an *intra-slot persistence* knob: when a write
+        # addresses the same slot twice, the new value is blended with the
+        # previous content by ``(1 - momentum)``. ``momentum == 0`` keeps the
+        # original "replace" semantics at the routed slot; ``momentum == 1``
+        # freezes the slot on the first write. The default is 0 (replace)
+        # because that is the simplest fast-weight behaviour: each new
+        # binding wins at its slot, older contents at other slots are
+        # untouched.
+        self.slot_addresses = nn.Parameter(torch.empty(num_slots, dim))
+        nn.init.orthogonal_(self.slot_addresses)
 
     def reset(self, batch_size: int, device: torch.device, dtype: torch.dtype) -> torch.Tensor:
         return torch.zeros(batch_size, self.num_slots, self.dim, device=device, dtype=dtype)
 
+    def _route(self, signal: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """Hard-route ``signal`` to the slot whose address matches best.
+
+        Returns the STE one-hot mask and the soft distribution (the latter
+        is useful for diagnostics).
+        """
+        if signal.ndim != 2:
+            raise ValueError("signal must be [batch, dim].")
+        scores = torch.matmul(
+            self.slot_addresses.unsqueeze(0),
+            signal.unsqueeze(-1),
+        ).squeeze(-1) / max(self.dim, 1) ** 0.5
+        hard_idx = scores.argmax(dim=-1)
+        hard = F.one_hot(hard_idx, num_classes=self.num_slots).to(scores.dtype)
+        soft = scores.softmax(dim=-1)
+        ste = hard + soft - soft.detach()
+        return ste, soft
+
     def read(self, query: torch.Tensor, state: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         if query.ndim != 2:
             raise ValueError("query must be [batch, dim].")
-        scores = torch.matmul(state, query.unsqueeze(-1)).squeeze(-1) / max(self.dim, 1) ** 0.5
-        weights = torch.softmax(scores, dim=-1)
-        readout = torch.sum(state * weights.unsqueeze(-1), dim=1)
-        return readout, weights
+        ste, soft = self._route(query)
+        readout = torch.sum(state * ste.unsqueeze(-1), dim=1)
+        return readout, soft
 
     def write(self, key: torch.Tensor, value: torch.Tensor, state: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         if key.ndim != 2 or value.ndim != 2:
             raise ValueError("key and value must be [batch, dim].")
-        scores = torch.matmul(state, key.unsqueeze(-1)).squeeze(-1) / max(self.dim, 1) ** 0.5
-        weights = torch.softmax(scores, dim=-1)
-        update = weights.unsqueeze(-1) * torch.tanh(value).unsqueeze(1)
-        next_state = self.momentum * state + (1.0 - self.momentum) * update
-        next_state = torch.clamp(next_state, min=-1.0, max=1.0)
-        return next_state, weights
+        ste, soft = self._route(key)
+        new_value = torch.tanh(value)
+        # Selected slot: blend old and new by ``momentum``.
+        #   momentum == 0.0 -> "next = new_value" (replace)
+        #   momentum == 1.0 -> "next = state"     (freeze)
+        selected_blend = (
+            state * self.momentum + (1.0 - self.momentum) * new_value.unsqueeze(1)
+        )
+        # Unselected slots pass through unchanged: `state * (1 - ste) + selected_blend * ste`
+        #                                   = `state + ste * (selected_blend - state)`
+        merged = state * (1.0 - ste.unsqueeze(-1)) + ste.unsqueeze(-1) * selected_blend
+        next_state = torch.clamp(merged, min=-1.0, max=1.0)
+        return next_state, soft
 
     def step(
         self,
