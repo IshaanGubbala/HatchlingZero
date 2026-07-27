@@ -1,8 +1,8 @@
 # HATCHLING-ZERO: Project Status
 
-**Overall Status: HZ-0A, HZ-0B, HZ-0C Production-Ready. Ready for combined deployment.**
+**Overall Status: Research prototype. MLX backend working. Key validations pending.**
 
-Date: 2026-07-27
+Date: 2026-07-27 (Revised)
 
 ---
 
@@ -20,28 +20,34 @@ Date: 2026-07-27
 
 ## HZ-0A: Dense Recurrent Hybrid
 
-**Status: 100% Production-Ready**
+**Status: Research implementation, MLX backend working, quality validation pending**
 
 Architecture:
 - GDN-2 recurrent backbone (channel-wise decay + erase/write gates)
 - Periodic exact attention layers
 - Dense SwiGLU feed-forward
-- MLX/Metal backend with fallback
+- MLX implementation (reference)
+- Metal shader (forward kernel compiled, backward stub, integration pending)
 
-Performance:
-```
-Training:     310 tok/s (36M), 210 tok/s (110M)
-Inference:    306 tok/s (MLX), 3000+ tok/s (Metal, optional)
-Speedup:      61x from Phase 11 baseline
-Memory:       ~2% overhead vs transformer
-```
-
-Validation:
-- [x] Streaming decode working (5x speedup)
-- [x] Training stable (100+ steps, no NaN)
+Validated:
+- [x] Streaming decode implemented and working
+- [x] Training stable (100+ steps, no NaN) on toy data
 - [x] Gradient flow verified
-- [x] Checkpointing tested
-- [x] 8/8 gates passing
+- [x] Checkpointing working
+- [x] 306 tok/s measured on MLX
+
+Pending validation:
+- [ ] Fair transformer comparison on new MLX implementation
+- [ ] Streaming equivalence (full-seq vs chunked vs single-token)
+- [ ] Quality advantage on new backend vs older checkpoint
+- [ ] Metal forward kernel integration and benchmarking
+
+Performance (measured):
+```
+Training:     310 tok/s (36M), 210 tok/s (110M) - from earlier impl
+Inference:    306 tok/s (MLX) - current, validated
+Metal:        Projected 3000+ tok/s - not yet integrated
+```
 
 Files:
 - `src/hz0/model_port/mlx_gdn2_lm.py` - Main model
@@ -52,19 +58,27 @@ Files:
 
 ## HZ-0B: Dense + Hebbian Scratchpad
 
-**Status: 100% Production-Ready**
+**Status: Mechanism validated in isolation, full-model integration pending**
 
 Architecture:
 - Slot-addressed scratchpad memory
 - Learned write/erase gates per slot
 - Independent from recurrent state
-- Integrated with GDN-2 backbone
+- Laboratory validation complete
 
-Validation:
-- [x] Gate A: Stable training
-- [x] Gate B: Efficient (<5% overhead)
-- [x] Gate C: Scales (36M→110M)
-- [x] Gate D: Production-ready
+Validated:
+- [x] Mechanism works in controlled task
+- [x] No training instability
+- [x] Gates learn correctly in isolation
+
+Pending:
+- [ ] Integration into full 110M HZ-0A model
+- [ ] Associative recall benchmarks (full model)
+- [ ] Overwrite task validation
+- [ ] Protected-memory retention
+- [ ] Recall-distance curves
+- [ ] Comparison vs transformer + scratchpad baseline
+- [ ] Multi-seed validation
 
 Files:
 - `src/hz0/scratchpad_lab/tiny_memory_model.py` - Memory layer
@@ -74,22 +88,31 @@ Files:
 
 ## HZ-0C: Session-Local Fast Weights
 
-**Status: 100% Production-Ready**
+**Status: Infrastructure implemented, real adaptation gains pending**
 
 Architecture:
-- Temporary weights on attention projections
+- Temporary weights on attention projections (Q/K/V)
 - Session-local state (persists, resets between sessions)
-- Gradient-based meta-learning (framework in place)
-- Fully backward-compatible with HZ-0A
+- Gradient-based meta-learning (framework, not full backprop)
+- Backward-compatible with HZ-0A
 
-Validation:
-- [x] Mechanism validated on toy task
-- [x] Full model integration working
-- [x] Streaming decode compatible
-- [x] Session isolation verified
-- [x] Gradient clipping working
-- [x] NaN/inf detection active
-- [x] Checkpointing verified
+Implemented:
+- [x] FastWeightLinear and FastWeightAttention layers
+- [x] Session management (start/end/reset)
+- [x] Safety controls (gradient clipping, weight norm bounds)
+- [x] NaN/inf detection
+- [x] Checkpointing/rollback
+- [x] Infrastructure tested on toy 6-layer model
+
+Pending validation:
+- [ ] Real gradient-based optimization (current: simple perturbation)
+- [ ] In-context label mapping benchmark
+- [ ] Few-shot classification task
+- [ ] Domain-specific adaptation gains
+- [ ] Integration into full 110M model
+- [ ] Session isolation verification with real tasks
+- [ ] Catastrophic forgetting tests
+- [ ] Comparison vs non-adaptive baseline
 
 Files:
 - `src/hz0/fast_weights/` - Complete package
@@ -306,23 +329,31 @@ Expected gain: 10-20% latency reduction on easier tokens
 
 ```
 ╔════════════════════════════════════════════════════════════╗
-║          HATCHLING-ZERO: PRODUCTION READY                 ║
+║          HATCHLING-ZERO: RESEARCH PROTOTYPE                ║
 ╚════════════════════════════════════════════════════════════╝
 
-HZ-0A Dense Recurrent:       100% ✓ READY
-HZ-0B Hebbian Memory:        100% ✓ READY
-HZ-0C Fast Weights:          100% ✓ READY
+HZ-0A MLX Backend:           Implemented, 306 tok/s measured
+HZ-0A Quality:               Needs validation on new backend
+HZ-0B Memory Mechanism:      Lab-validated, full integration pending
+HZ-0C Fast Weights:          Infrastructure done, adaptation pending
+Metal Forward:               Compiles, integration pending
+Metal Backward:              Stub, not ready
 
-Combined Performance:        306 tok/s (MLX)
-Maximum Performance:         3000+ tok/s (Metal)
-Baseline Improvement:        61x (Phase 11 → Phase 14)
+Measured Performance:        306 tok/s (MLX inference)
+Projected Performance:       3000+ tok/s (Metal, not measured)
+Baseline Improvement:        61x (Phase 11 baseline)
 
-Deployment Status:           READY NOW
-Risk Level:                  LOW
-Blockers:                    NONE
+Deployment Status:           Research prototype
+Risk Level:                  Medium (validations needed)
+Blockers:                    Fair comparison, streaming equiv, integration
 
-Recommendation:              DEPLOY PHASE 14 (HZ-0A)
-                            Layers 0B/0C optional enhancements
+Next Work (not HZ-0D):
+  1. Validate HZ-0A quality on MLX vs transformer
+  2. Verify streaming equivalence
+  3. Integrate Metal forward kernel
+  4. Fix Metal backward or skip it
+  5. Integrate HZ-0B incrementally (tiny→36M→110M)
+  6. Real HZ-0C benchmarks (not toy tasks)
 ```
 
 ---
