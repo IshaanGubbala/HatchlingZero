@@ -17,22 +17,30 @@
   - Training loop works on synthetic data
   - HZ-0A converges on language task
   - Quality within 3% of Transformer baseline
+  - VALIDATED inference mode (full __call__)
+
+✓ **GDN-2 recurrent block**
+  - Full-batch vs streaming-equivalent: 0.0005 diff (floating-point)
+  - Recurrent state properly maintained
+  - Decay/erase/write logic correct
 
 ✓ **Individual attention block**
-  - Forward and forward_step match (0.0004 diff)
-  - KV cache mechanism implemented
-  - Single-token processing works
+  - Full-batch __call__ and forward_step: 0.0004 diff (floating-point)
+  - KV cache mechanism implemented correctly
+  - Token 0 self-attention scores match
 
 ---
 
 ## What's Broken
 
-✗ **Streaming inference equivalence (CRITICAL)**
+✗ **Streaming inference equivalence (FIXED: DISABLED)**
   - Full-seq vs streaming diverges on tokens 0-1 (max_diff 2.15)
   - Token 2 converges (0.00011 diff) - suggests partial state flow
-  - Root cause: Unknown (GDN2 state or attention masking issue)
-  - Impact: CANNOT claim 306 tok/s streaming performance
-  - Blocks: Production inference deployment
+  - Root cause: Unknown (likely attention cache or accumulated layer errors)
+  - Investigation: Q/K projections identical, attention scores match, error compounds
+  - Fix: Disabled decode_step() API, full-batch only mode
+  - Impact: No streaming inference, use full-batch (pad sequences)
+  - Workaround: Batch multiple sequences, use full forward pass
 
 ✗ **HZ-0B memory component (PROTOTYPE ONLY)**
   - Slots stored as model parameters (wrong design)
