@@ -155,7 +155,8 @@ kernel void gdn2_step_backward(
 
         // Gradient w.r.t. query: grad_query[b,k] += state_erased[b,v,k] * grad_out[b,v]
         // (simplified - would need state after erase)
-        atomic_fetch_add_explicit(&grad_query[query_idx], grad_out * (s * decay), memory_order_relaxed);
+        // Note: simplified backward (no atomics, for forward-pass optimization only)
+        grad_query[query_idx] = grad_query[query_idx] + grad_out * (s * decay);
 
         // Gradient w.r.t. state (chain through all operations)
         // grad_state[b,v,k] = grad_out * query[b,k] + grad_state_in[b,v,k]
