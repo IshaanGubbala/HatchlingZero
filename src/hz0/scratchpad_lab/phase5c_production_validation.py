@@ -15,10 +15,10 @@ import numpy as np
 import time
 from pathlib import Path
 
-from src.hz0.scratchpad_lab.tiny_memory_model import TinyMemoryModel
-from src.hz0.model_port.mlx_gdn2_lm import create_hz_36m_mlx
-from src.hz0.scratchpad_lab.test_tiny_model import MemoryCurriculumStage
-from src.hz0.scratchpad_lab.phase8_checkpointing import AtomicCheckpointManager, CheckpointPolicy
+from hz0.scratchpad_lab.tiny_memory_model import TinyMemoryModel
+from hz0.model_port.mlx_gdn2_lm import create_hz_36m_mlx
+from hz0.scratchpad_lab.test_tiny_model import MemoryCurriculumStage
+from hz0.scratchpad_lab.phase8_checkpointing import AtomicCheckpointManager, CheckpointPolicy
 
 
 class HybridWithGDN2(nn.Module):

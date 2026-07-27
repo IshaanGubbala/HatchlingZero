@@ -10,7 +10,7 @@ import mlx.core as mx
 import numpy as np
 import time
 
-from src.hz0.model_port.mlx_gdn2_lm import create_hz_36m_mlx
+from hz0.model_port.mlx_gdn2_lm import create_hz_36m_mlx
 
 
 def benchmark_full_sequence_decode():

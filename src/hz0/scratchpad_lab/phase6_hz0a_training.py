@@ -15,7 +15,7 @@ import numpy as np
 import time
 from pathlib import Path
 
-from src.hz0.model_port.mlx_gdn2_lm import create_hz_36m_mlx, create_hz_110m_mlx
+from hz0.model_port.mlx_gdn2_lm import create_hz_36m_mlx, create_hz_110m_mlx
 
 
 class SimpleTransformerBaseline(nn.Module):

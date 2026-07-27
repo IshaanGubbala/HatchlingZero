@@ -4,7 +4,7 @@ Tests for oracle memory diagnostics (Phase 7, Step 5).
 
 import pytest
 import numpy as np
-from src.hz0.metal_gdn2.scratchpad.oracle_memory import (
+from hz0.metal_gdn2.scratchpad.oracle_memory import (
     test_associative_recall,
     test_overwrite,
     test_protected_unrelated_memory,

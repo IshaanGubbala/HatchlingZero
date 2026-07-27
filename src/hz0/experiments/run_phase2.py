@@ -12,8 +12,8 @@ import numpy as np
 from typing import List, Dict
 import time
 
-from src.hz0.model_port.mlx_gdn2_lm import GDN2LanguageModel
-from src.hz0.experiments.phase2_ablations import (
+from hz0.model_port.mlx_gdn2_lm import GDN2LanguageModel
+from hz0.experiments.phase2_ablations import (
     AblationResult,
     AblationAnalyzer,
     AblationSuite,

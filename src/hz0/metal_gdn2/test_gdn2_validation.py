@@ -4,8 +4,8 @@ import mlx.core as mx
 
 sigmoid = lambda x: 1.0 / (1.0 + np.exp(-x))
 
-from src.hz0.metal_gdn2.reference.gdn2_numpy import gdn2_sequence as gdn2_numpy_sequence
-from src.hz0.metal_gdn2.reference.gdn2_mlx import gdn2_sequence_ops as gdn2_mlx_sequence
+from hz0.metal_gdn2.reference.gdn2_numpy import gdn2_sequence as gdn2_numpy_sequence
+from hz0.metal_gdn2.reference.gdn2_mlx import gdn2_sequence_ops as gdn2_mlx_sequence
 
 print("Testing GDN-2 forward equivalence...")
 B, T, H, Dk, Dv = 1, 2, 2, 16, 16

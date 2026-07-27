@@ -4,7 +4,7 @@ Phase 9: Validate HZ-0B memory gates against experimental results.
 Map curriculum training results to gate thresholds.
 """
 
-from src.hz0.scratchpad_lab.phase9_gate_contract import GateContract, HZ0B_GATES
+from hz0.scratchpad_lab.phase9_gate_contract import GateContract, HZ0B_GATES
 
 # Results from:
 # 1. train_with_ablations.py (7-stage curriculum training)

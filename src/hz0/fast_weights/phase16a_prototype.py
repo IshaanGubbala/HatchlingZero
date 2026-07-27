@@ -5,8 +5,8 @@ import mlx.nn as nn
 import mlx.optimizers as optim
 from typing import Tuple
 
-from src.hz0.fast_weights.fast_weight_layer import FastWeightLinear
-from src.hz0.fast_weights.meta_learner import FastWeightSession
+from hz0.fast_weights.fast_weight_layer import FastWeightLinear
+from hz0.fast_weights.meta_learner import FastWeightSession
 
 
 def create_toy_model(d_model: int = 64) -> nn.Module:

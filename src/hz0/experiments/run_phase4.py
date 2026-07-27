@@ -9,7 +9,7 @@ import numpy as np
 from typing import Dict
 import time
 
-from src.hz0.metal_gdn2.kernels.metal_optimization import (
+from hz0.metal_gdn2.kernels.metal_optimization import (
     MetalKernelOptimizer,
     MetalKernelImplementationPath,
 )

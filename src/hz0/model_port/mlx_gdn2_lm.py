@@ -7,7 +7,7 @@ Ports HZ-36M and HZ-110M from PyTorch to MLX.
 import mlx.core as mx
 import mlx.nn as nn
 from typing import Optional, Tuple
-from src.hz0.metal_gdn2.kernels.gdn2_forward import GDN2MetalModule
+from hz0.metal_gdn2.kernels.gdn2_forward import GDN2MetalModule
 
 
 class GDN2LanguageModel(nn.Module):

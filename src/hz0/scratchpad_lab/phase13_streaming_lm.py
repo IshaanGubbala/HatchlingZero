@@ -13,7 +13,7 @@ import numpy as np
 import time
 from typing import Tuple
 
-from src.hz0.metal_gdn2.reference.gdn2_streaming import StreamingGDN2, gdn2_step_streaming, gdn2_state_init
+from hz0.metal_gdn2.reference.gdn2_streaming import StreamingGDN2, gdn2_step_streaming, gdn2_state_init
 
 
 class MinimalStreamingLM(nn.Module):

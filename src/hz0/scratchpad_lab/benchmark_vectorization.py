@@ -9,8 +9,8 @@ import numpy as np
 import time
 from typing import Dict
 
-from src.hz0.scratchpad_lab.tiny_memory_model import TinyMemoryModel
-from src.hz0.scratchpad_lab.vectorized_scratchpad import VectorizedScratchpad
+from hz0.scratchpad_lab.tiny_memory_model import TinyMemoryModel
+from hz0.scratchpad_lab.vectorized_scratchpad import VectorizedScratchpad
 
 
 def benchmark_loop_based(

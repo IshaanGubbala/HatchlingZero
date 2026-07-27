@@ -13,8 +13,8 @@ import numpy as np
 from typing import Dict
 import time
 
-from src.hz0.scratchpad_lab.hz0b_hybrid_model import HZ0BHybridModel
-from src.hz0.scratchpad_lab.test_tiny_model import MemoryCurriculumStage
+from hz0.scratchpad_lab.hz0b_hybrid_model import HZ0BHybridModel
+from hz0.scratchpad_lab.test_tiny_model import MemoryCurriculumStage
 
 
 def train_phase5a(

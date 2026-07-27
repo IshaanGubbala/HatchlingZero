@@ -6,7 +6,7 @@ Self-contained scratchpad implementation + integration into HZ-0A.
 import mlx.core as mx
 import mlx.nn as nn
 from typing import Optional, Tuple
-from src.hz0.model_port.mlx_gdn2_lm import GDN2LanguageModel
+from hz0.model_port.mlx_gdn2_lm import GDN2LanguageModel
 
 
 class SimpleMemory(nn.Module):

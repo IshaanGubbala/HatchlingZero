@@ -18,8 +18,8 @@ import numpy as np
 import time
 from typing import Tuple, Optional
 
-from src.hz0.model_port.mlx_gdn2_lm import create_hz_36m_mlx
-from src.hz0.metal_gdn2.reference.gdn2_streaming import StreamingGDN2
+from hz0.model_port.mlx_gdn2_lm import create_hz_36m_mlx
+from hz0.metal_gdn2.reference.gdn2_streaming import StreamingGDN2
 
 
 class StreamingLanguageModel(nn.Module):

@@ -14,7 +14,7 @@ import json
 import time
 from pathlib import Path
 
-from src.hz0.model_port.mlx_gdn2_lm import create_hz_110m_mlx
+from hz0.model_port.mlx_gdn2_lm import create_hz_110m_mlx
 
 
 def load_checkpoint(checkpoint_path: Path):

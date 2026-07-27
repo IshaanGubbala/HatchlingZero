@@ -12,7 +12,7 @@ from mlx.nn import losses as mlx_losses
 import numpy as np
 import time
 
-from src.hz0.model_port.mlx_gdn2_lm import create_hz_36m_mlx
+from hz0.model_port.mlx_gdn2_lm import create_hz_36m_mlx
 
 
 def generate_memory_batch(task: str, batch_size: int = 1, seq_len: int = 256) -> mx.array:

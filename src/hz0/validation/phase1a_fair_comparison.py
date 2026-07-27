@@ -6,8 +6,8 @@ Train both models on identical data, measure quality advantage.
 import mlx.core as mx
 import mlx.optimizers as optim
 import time
-from src.hz0.model_port.mlx_gdn2_lm import GDN2LanguageModel
-from src.hz0.validation.phase1a_transformer_baseline import TransformerLM
+from hz0.model_port.mlx_gdn2_lm import GDN2LanguageModel
+from hz0.validation.phase1a_transformer_baseline import TransformerLM
 
 
 def loss_fn(logits: mx.array, targets: mx.array) -> mx.array:

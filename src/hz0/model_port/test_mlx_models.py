@@ -5,7 +5,7 @@ Tests for MLX-native GDN-2 models (Step 12: Port to MLX).
 import pytest
 import numpy as np
 import mlx.core as mx
-from src.hz0.model_port.mlx_gdn2_lm import (
+from hz0.model_port.mlx_gdn2_lm import (
     GDN2LanguageModel,
     create_hz_36m_mlx,
     create_hz_110m_mlx,

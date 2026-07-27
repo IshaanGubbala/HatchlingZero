@@ -7,8 +7,8 @@ Validate on memory tasks.
 import mlx.core as mx
 import mlx.nn as nn
 from typing import Optional, Tuple
-from src.hz0.model_port.mlx_gdn2_lm import GDN2LanguageModel
-from src.hz0.scratchpad_lab.tiny_memory_model import ScratchpadMemory
+from hz0.model_port.mlx_gdn2_lm import GDN2LanguageModel
+from hz0.scratchpad_lab.tiny_memory_model import ScratchpadMemory
 
 
 class HZ0AWithScratchpad(nn.Module):

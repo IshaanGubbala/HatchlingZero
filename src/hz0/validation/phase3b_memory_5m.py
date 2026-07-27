@@ -8,8 +8,8 @@ import mlx.nn as nn
 import mlx.optimizers as optim
 import time
 from typing import Tuple, List
-from src.hz0.model_port.mlx_gdn2_lm import GDN2LanguageModel
-from src.hz0.validation.phase3a_complete import HZ0AWithMemory
+from hz0.model_port.mlx_gdn2_lm import GDN2LanguageModel
+from hz0.validation.phase3a_complete import HZ0AWithMemory
 
 
 def generate_batches(num_batches: int = 50, batch_size: int = 4, seq_len: int = 256) -> List[Tuple]:

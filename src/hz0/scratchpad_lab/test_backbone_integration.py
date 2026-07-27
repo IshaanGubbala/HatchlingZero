@@ -9,8 +9,8 @@ import mlx.nn as nn
 import numpy as np
 from typing import Tuple
 
-from src.hz0.model_port.mlx_gdn2_lm import create_hz_36m_mlx
-from src.hz0.scratchpad_lab.tiny_memory_model import TinyMemoryModel
+from hz0.model_port.mlx_gdn2_lm import create_hz_36m_mlx
+from hz0.scratchpad_lab.tiny_memory_model import TinyMemoryModel
 
 
 class HybridWithScratchpad(nn.Module):

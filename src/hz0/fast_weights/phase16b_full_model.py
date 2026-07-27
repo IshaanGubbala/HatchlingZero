@@ -4,13 +4,13 @@ import mlx.core as mx
 import mlx.nn as nn
 from typing import Optional, Tuple
 
-from src.hz0.model_port.mlx_gdn2_lm import (
+from hz0.model_port.mlx_gdn2_lm import (
     GDN2LanguageModel,
     GDN2Block,
     AttentionBlock,
 )
-from src.hz0.fast_weights.fast_weight_layer import FastWeightLinear
-from src.hz0.fast_weights.meta_learner import FastWeightSession
+from hz0.fast_weights.fast_weight_layer import FastWeightLinear
+from hz0.fast_weights.meta_learner import FastWeightSession
 
 
 class FastWeightAttentionBlock(AttentionBlock):

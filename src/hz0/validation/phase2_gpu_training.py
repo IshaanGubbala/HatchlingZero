@@ -9,8 +9,8 @@ import mlx.optimizers as optim
 import time
 from typing import Tuple, List
 
-from src.hz0.model_port.mlx_gdn2_lm import GDN2LanguageModel
-from src.hz0.metal_gdn2.kernels.gdn2_backward_wrapper import GDN2BackwardMetal
+from hz0.model_port.mlx_gdn2_lm import GDN2LanguageModel
+from hz0.metal_gdn2.kernels.gdn2_backward_wrapper import GDN2BackwardMetal
 
 
 def create_synthetic_data(num_batches: int = 10, batch_size: int = 2, seq_len: int = 64) -> List[Tuple]:

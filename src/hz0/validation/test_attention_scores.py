@@ -4,7 +4,7 @@ Compare QKV and attention scores between __call__ and forward_step.
 """
 
 import mlx.core as mx
-from src.hz0.model_port.mlx_gdn2_lm import AttentionBlock
+from hz0.model_port.mlx_gdn2_lm import AttentionBlock
 
 
 def test_attention_scores():

@@ -5,7 +5,7 @@ Experiment with erase/write ratios to maximize overwrite capability.
 
 import mlx.core as mx
 import mlx.nn as nn
-from src.hz0.validation.phase3_memory_redesign import ImprovedScratchpadMemory
+from hz0.validation.phase3_memory_redesign import ImprovedScratchpadMemory
 
 
 def test_overwrite_scaling(erase_scale: float, write_scale: float) -> float:

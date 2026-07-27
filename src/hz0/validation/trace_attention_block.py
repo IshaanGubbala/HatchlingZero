@@ -4,7 +4,7 @@ Isolate where divergence happens: attention, residual, or MLP.
 """
 
 import mlx.core as mx
-from src.hz0.model_port.mlx_gdn2_lm import AttentionBlock
+from hz0.model_port.mlx_gdn2_lm import AttentionBlock
 
 
 def test_attention_block_modes():

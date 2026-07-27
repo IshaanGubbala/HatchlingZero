@@ -13,7 +13,7 @@ import numpy as np
 import time
 from typing import Tuple, Optional, List
 
-from src.hz0.model_port.mlx_gdn2_lm import create_hz_36m_mlx, GDN2LanguageModel
+from hz0.model_port.mlx_gdn2_lm import create_hz_36m_mlx, GDN2LanguageModel
 
 
 class StreamingHybridWrapper(nn.Module):

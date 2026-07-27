@@ -14,7 +14,7 @@ import sys
 
 sys.path.insert(0, '/Users/ishaangubbala/Documents/Training')
 
-from src.hz0.memory_diagnostics import MemoryDiagnostics
+from hz0.memory_diagnostics import MemoryDiagnostics
 
 
 def run_diagnostics_suite():

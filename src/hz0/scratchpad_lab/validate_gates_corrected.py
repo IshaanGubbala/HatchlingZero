@@ -9,7 +9,7 @@ Correct mapping:
   - distance_robustness ← distance (stage 6)
 """
 
-from src.hz0.scratchpad_lab.phase9_gate_contract import GateContract, HZ0B_GATES
+from hz0.scratchpad_lab.phase9_gate_contract import GateContract, HZ0B_GATES
 
 
 def validate_gates_from_enhanced_training():

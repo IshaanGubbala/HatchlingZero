@@ -19,7 +19,7 @@ import numpy as np
 import time
 from pathlib import Path
 
-from src.hz0.model_port.mlx_gdn2_lm import create_hz_36m_mlx
+from hz0.model_port.mlx_gdn2_lm import create_hz_36m_mlx
 
 
 def generate_batch(batch_size: int = 1, seq_len: int = 256) -> mx.array:

@@ -8,7 +8,7 @@ Validate gradients via finite differences on all parameters:
 """
 
 import numpy as np
-from src.hz0.metal_gdn2.reference.gdn2_numpy import gdn2_step
+from hz0.metal_gdn2.reference.gdn2_numpy import gdn2_step
 
 
 def check_gradient(param_name, param, delta=1e-5):

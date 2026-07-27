@@ -7,8 +7,8 @@ Are they using the hash-based oracle correctly?
 
 import mlx.core as mx
 import numpy as np
-from src.hz0.scratchpad_lab.tiny_memory_model import TinyMemoryModel
-from src.hz0.scratchpad_lab.test_tiny_model import MemoryCurriculumStage
+from hz0.scratchpad_lab.tiny_memory_model import TinyMemoryModel
+from hz0.scratchpad_lab.test_tiny_model import MemoryCurriculumStage
 
 
 def debug_oracle_routing():

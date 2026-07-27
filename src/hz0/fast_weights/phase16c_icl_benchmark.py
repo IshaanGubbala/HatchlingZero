@@ -5,7 +5,7 @@ import mlx.nn as nn
 from typing import Tuple
 import time
 
-from src.hz0.fast_weights.phase16b_full_model import HZ0AWithFastWeights
+from hz0.fast_weights.phase16b_full_model import HZ0AWithFastWeights
 
 
 def generate_simple_icl_task(

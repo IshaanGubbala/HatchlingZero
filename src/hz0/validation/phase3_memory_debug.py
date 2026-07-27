@@ -5,7 +5,7 @@ Trace what happens during overwrite to understand the issue.
 
 import mlx.core as mx
 import mlx.nn as nn
-from src.hz0.validation.phase3_memory_redesign import ImprovedScratchpadMemory
+from hz0.validation.phase3_memory_redesign import ImprovedScratchpadMemory
 
 
 def debug_overwrite():

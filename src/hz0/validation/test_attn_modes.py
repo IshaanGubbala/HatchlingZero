@@ -4,7 +4,7 @@ Same input, different execution modes.
 """
 
 import mlx.core as mx
-from src.hz0.model_port.mlx_gdn2_lm import AttentionBlock
+from hz0.model_port.mlx_gdn2_lm import AttentionBlock
 
 
 def compare_modes():

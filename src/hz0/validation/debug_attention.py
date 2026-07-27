@@ -5,7 +5,7 @@ Trace exact values through both forward paths for token 0.
 
 import mlx.core as mx
 import mlx.nn as nn
-from src.hz0.model_port.mlx_gdn2_lm import AttentionBlock
+from hz0.model_port.mlx_gdn2_lm import AttentionBlock
 
 
 def test_attention_token0():

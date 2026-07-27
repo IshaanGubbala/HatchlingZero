@@ -11,7 +11,7 @@ import time
 import json
 from pathlib import Path
 
-from src.hz0.model_port.mlx_gdn2_lm import create_hz_36m_mlx
+from hz0.model_port.mlx_gdn2_lm import create_hz_36m_mlx
 
 
 def run_phase1_baseline():

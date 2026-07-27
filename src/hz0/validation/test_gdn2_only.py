@@ -4,7 +4,7 @@ Isolate the cause: is it attention masking or GDN2 recurrence?
 """
 
 import mlx.core as mx
-from src.hz0.model_port.mlx_gdn2_lm import GDN2Block
+from hz0.model_port.mlx_gdn2_lm import GDN2Block
 
 
 def test_gdn2_equivalence():

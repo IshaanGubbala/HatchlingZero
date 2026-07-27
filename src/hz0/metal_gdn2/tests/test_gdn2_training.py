@@ -8,7 +8,7 @@ import numpy as np
 import mlx.core as mx
 import mlx.nn as nn
 import mlx.optimizers as optim
-from src.hz0.metal_gdn2.kernels.gdn2_forward import GDN2MetalModule
+from hz0.metal_gdn2.kernels.gdn2_forward import GDN2MetalModule
 
 
 class SimpleLanguageModel(nn.Module):

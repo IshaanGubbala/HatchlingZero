@@ -5,12 +5,12 @@ Tests for MLX GDN-2 reference implementation.
 import pytest
 import numpy as np
 import mlx.core as mx
-from src.hz0.metal_gdn2.reference.gdn2_mlx import (
+from hz0.metal_gdn2.reference.gdn2_mlx import (
     gdn2_step,
     gdn2_sequence_ops,
     gdn2_streaming_ops,
 )
-from src.hz0.metal_gdn2.reference.gdn2_numpy import gdn2_sequence_numpy
+from hz0.metal_gdn2.reference.gdn2_numpy import gdn2_sequence_numpy
 
 
 def numerical_gradient(

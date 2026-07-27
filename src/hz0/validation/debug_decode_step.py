@@ -4,7 +4,7 @@ Check if states are properly maintained across tokens.
 """
 
 import mlx.core as mx
-from src.hz0.model_port.mlx_gdn2_lm import GDN2LanguageModel
+from hz0.model_port.mlx_gdn2_lm import GDN2LanguageModel
 
 
 def test_decode_state_tracking():

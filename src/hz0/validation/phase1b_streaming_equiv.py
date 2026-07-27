@@ -5,7 +5,7 @@ Verify: full-sequence ≈ chunked ≈ single-token streaming
 
 import mlx.core as mx
 import mlx.nn as nn
-from src.hz0.model_port.mlx_gdn2_lm import GDN2LanguageModel
+from hz0.model_port.mlx_gdn2_lm import GDN2LanguageModel
 
 
 def full_sequence_forward(model, tokens: mx.array):

@@ -4,8 +4,8 @@ Debug: Check backbone output values for NaN/inf.
 
 import mlx.core as mx
 import numpy as np
-from src.hz0.model_port.mlx_gdn2_lm import create_hz_36m_mlx
-from src.hz0.scratchpad_lab.hz0b_hybrid_model import HZ0BHybridModel
+from hz0.model_port.mlx_gdn2_lm import create_hz_36m_mlx
+from hz0.scratchpad_lab.hz0b_hybrid_model import HZ0BHybridModel
 
 print("=" * 70)
 print("DEBUG: BACKBONE OUTPUT INSPECTION")

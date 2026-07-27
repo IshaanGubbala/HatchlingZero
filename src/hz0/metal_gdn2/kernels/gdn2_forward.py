@@ -34,7 +34,7 @@ def gdn2_forward_metal(
         final_state: [B, H, Dv, Dk]
     """
     # Placeholder: use MLX reference until Metal kernel ready
-    from src.hz0.metal_gdn2.reference.gdn2_mlx import gdn2_sequence_ops
+    from hz0.metal_gdn2.reference.gdn2_mlx import gdn2_sequence_ops
 
     return gdn2_sequence_ops(
         queries, keys, values, decays, erases, writes, initial_state

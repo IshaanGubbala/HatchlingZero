@@ -6,7 +6,7 @@ Hypothesis: Erase gate behavior or attention masking.
 """
 
 import mlx.core as mx
-from src.hz0.model_port.mlx_gdn2_lm import GDN2LanguageModel, AttentionBlock, GDN2Block
+from hz0.model_port.mlx_gdn2_lm import GDN2LanguageModel, AttentionBlock, GDN2Block
 
 
 def trace_layer_outputs():

@@ -6,7 +6,7 @@ import pytest
 import numpy as np
 import mlx.core as mx
 import mlx.nn as nn
-from src.hz0.metal_gdn2.kernels.gdn2_forward import GDN2MetalModule
+from hz0.metal_gdn2.kernels.gdn2_forward import GDN2MetalModule
 
 
 class TestGDN2Module:

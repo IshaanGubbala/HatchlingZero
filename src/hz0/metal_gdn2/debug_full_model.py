@@ -8,7 +8,7 @@ import sys
 
 sys.path.insert(0, '/Users/ishaangubbala/Documents/Training')
 
-from src.hz0.model_port.mlx_gdn2_lm import GDN2LanguageModel
+from hz0.model_port.mlx_gdn2_lm import GDN2LanguageModel
 
 
 def test_gdn2_model():

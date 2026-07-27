@@ -7,7 +7,7 @@ Tasks:
 """
 
 import mlx.core as mx
-from src.hz0.validation.phase3_memory_redesign import ImprovedScratchpadMemory
+from hz0.validation.phase3_memory_redesign import ImprovedScratchpadMemory
 
 
 def test_associative_recall():

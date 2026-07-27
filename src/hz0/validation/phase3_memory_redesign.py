@@ -11,7 +11,7 @@ import mlx.core as mx
 import mlx.nn as nn
 import mlx.optimizers as optim
 from typing import Tuple, Optional
-from src.hz0.model_port.mlx_gdn2_lm import GDN2LanguageModel
+from hz0.model_port.mlx_gdn2_lm import GDN2LanguageModel
 
 
 class ImprovedScratchpadMemory(nn.Module):

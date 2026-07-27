@@ -8,8 +8,8 @@ import mlx.nn as nn
 import mlx.optimizers as optim
 import time
 from typing import Tuple, List
-from src.hz0.model_port.mlx_gdn2_lm import GDN2LanguageModel
-from src.hz0.validation.phase1a_transformer_baseline import TransformerLM
+from hz0.model_port.mlx_gdn2_lm import GDN2LanguageModel
+from hz0.validation.phase1a_transformer_baseline import TransformerLM
 
 
 def load_wikitext_data(split: str = "train", max_batches: int = None) -> List[Tuple]:

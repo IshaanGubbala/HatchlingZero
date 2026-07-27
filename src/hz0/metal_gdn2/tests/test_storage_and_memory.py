@@ -5,13 +5,13 @@ Tests for storage alternatives (Step 6) and memory API (Step 7).
 import pytest
 import numpy as np
 import mlx.core as mx
-from src.hz0.metal_gdn2.scratchpad.storage import (
+from hz0.metal_gdn2.scratchpad.storage import (
     RMSNormStorage,
     adaptive_norm_clip,
     AdaptiveStorageBuffer,
     StorageComparison,
 )
-from src.hz0.metal_gdn2.scratchpad.persistent_memory import (
+from hz0.metal_gdn2.scratchpad.persistent_memory import (
     MemoryInterface,
     sequence_local_memory,
     chunk_persistent_memory,

@@ -5,7 +5,7 @@ Tests for GDN-2 backward pass and custom VJP.
 import pytest
 import numpy as np
 import mlx.core as mx
-from src.hz0.metal_gdn2.kernels.gdn2_backward import (
+from hz0.metal_gdn2.kernels.gdn2_backward import (
     gdn2_sequence_with_chunks,
     validate_gradient_structure,
 )

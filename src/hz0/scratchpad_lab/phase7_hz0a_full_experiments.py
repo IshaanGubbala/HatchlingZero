@@ -23,8 +23,8 @@ from pathlib import Path
 from dataclasses import dataclass, asdict
 from typing import Dict, List, Tuple
 
-from src.hz0.model_port.mlx_gdn2_lm import create_hz_110m_mlx
-from src.hz0.scratchpad_lab.phase6_hz0a_training import SimpleTransformerBaseline
+from hz0.model_port.mlx_gdn2_lm import create_hz_110m_mlx
+from hz0.scratchpad_lab.phase6_hz0a_training import SimpleTransformerBaseline
 
 
 @dataclass

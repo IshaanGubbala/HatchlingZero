@@ -10,7 +10,7 @@ import mlx.nn as nn
 import numpy as np
 from typing import Dict, Tuple
 
-from src.hz0.model_port.mlx_gdn2_lm import create_hz_36m_mlx
+from hz0.model_port.mlx_gdn2_lm import create_hz_36m_mlx
 
 
 class MemoryValidator:
