@@ -93,12 +93,18 @@ def evaluate(model, batches: List, num_batches: int = 5) -> float:
 
     for i, (tokens, targets) in enumerate(batches[:num_batches]):
         try:
-            logits = model(tokens)
+            if isinstance(model, GDN2LanguageModel):
+                logits, _ = model(tokens)
+            else:
+                logits = model(tokens)
             loss = compute_loss(logits, targets)
             total_loss += float(loss)
             count += 1
         except Exception as e:
-            print(f"  Batch {i}: skipped ({type(e).__name__})")
+            if i == 0:
+                print(f"  Batch {i}: Error: {type(e).__name__}: {e}")
+            else:
+                print(f"  Batch {i}: skipped ({type(e).__name__})")
 
     return total_loss / count if count > 0 else 0.0
 
@@ -126,10 +132,11 @@ def main():
     val_batches = create_batches(val_tokens, batch_size=1, seq_len=64)
     print(f"✓ {len(val_batches)} batches")
 
-    # Models
+    # Models (dimensions must be divisible by num_heads)
     print("\n[4/4] Creating models...")
-    hz = GDN2LanguageModel(vocab_size=256, model_dim=128, num_layers=4)
-    tf = TransformerLM(vocab_size=256, model_dim=128, num_layers=4, num_heads=4)
+    # Use 256-dim with 4 heads: 256/4 = 64 per head (valid)
+    hz = GDN2LanguageModel(vocab_size=256, model_dim=256, num_layers=4, num_heads=4)
+    tf = TransformerLM(vocab_size=256, model_dim=256, num_layers=4, num_heads=4)
     print("✓ Models ready")
 
     # Evaluate
