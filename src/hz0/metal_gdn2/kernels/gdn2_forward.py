@@ -8,6 +8,8 @@ Grid layout:
   - 32 SIMD lanes cooperate over key dimension
 """
 
+import math
+
 import mlx.core as mx
 import mlx.nn as nn
 from typing import Tuple, Optional
@@ -55,6 +57,7 @@ class GDN2MetalModule(nn.Module):
         hidden_dim: Optional[int] = None,
         num_heads: int = 1,
         chunk_size: int = 64,
+        safe_gate_init: bool = True,
     ):
         super().__init__()
         self.dim = dim
@@ -72,6 +75,45 @@ class GDN2MetalModule(nn.Module):
 
         # State buffer for streaming
         self._state = None
+
+        # Safe initial gate biases. Per HZ-0A plan Hypothesis 5, the
+        # `to_decay_erase_write` bias param is split into thirds:
+        #   indices [0 .. hidden_dim)       drive the decay gate
+        #   indices [hidden_dim .. 2*hidden) drive the erase gate
+        #   indices [2*hidden_dim .. 3*hidden) drive the write gate
+        # With MLX's default Linear init (bias = 0, weight ~
+        # N(0, 1/sqrt(d))), all three gates start around sigmoid(0)=0.5
+        # — a region where the GDN-2 recurrent state can run away.
+        # Phase 14's first diagnostic showed max grad L2 = 1.30e+17,
+        # which `_clip_grads_by_global_norm(max_norm=1.0)` then
+        # squashes to ~7.7e-18 and the model cannot learn.
+        # Pre-bias so the first forward pass is in a safe region:
+        #     decay target ≈ 0.99  →  bias = log(0.99/0.01) ≈ +4.5951
+        #     erase target ≈ 0.01  →  bias = log(0.01/0.99) ≈ -4.5951
+        #     write target ≈ 0.01  →  bias = log(0.01/0.99) ≈ -4.5951
+        if safe_gate_init:
+            half = self.hidden_dim
+            logit_99 = math.log(0.99 / 0.01)   # decay
+            logit_01 = math.log(0.01 / 0.99)  # erase, write
+            bias_template = mx.concatenate([
+                mx.full((half,), logit_99),
+                mx.full((half,), logit_01),
+                mx.full((half,), logit_01),
+            ])
+            # Update via the canonical MLX nn.Module idiom so autograd
+            # tracks the new bias correctly across optimizer steps.
+            self.to_decay_erase_write.update({"bias": bias_template})
+            mx.eval(self.to_decay_erase_write.bias)
+            # Runtime sanity: if a future MLX version silently breaks
+            # module.update() semantics, the bias replacement could
+            # regress and we'd silently return to the grad-explosion
+            # regime. Bail loudly at init so the failure surfaces.
+            if not bool(mx.all(mx.abs(self.to_decay_erase_write.bias) > 1.0)):
+                raise RuntimeError(
+                    "safe_gate_init failed: bias replacement did not "
+                    "propagate. Check MLX version compatibility with "
+                    "nn.Module.update() semantics."
+                )
 
     def __call__(
         self,

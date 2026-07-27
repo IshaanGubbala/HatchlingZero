@@ -9,10 +9,20 @@ Hardened against the failure modes that crashed the previous 5 attempts:
 * `--max-steps` and `--smoke-test` allow short-horizon validation runs.
 * Per the thinker's C1 verdict: 110M and 300M run sequentially, not
   concurrently, to avoid MPS memory fragmentation under unified memory.
+
+This rewrite repairs the indentation breakage from compounded str_replace
+edits in the prior session. The training loop is now consistently nested
+4-deep (try → for epoch → for step_idx → if grad_accum → if checkpoint_every),
+`epoch_loss += loss_value` actually accumulates (previous bug: train_loss
+printed as exactly 0.0000 forever), `steps_this_epoch` resets on checkpoint
+window so the avg denominator matches the numerator, and gradient clipping
+flushes the lazy graph with `mx.eval` to release the doubled-tensor tree.
 """
 
 import argparse
 import json
+import math
+import os
 import sys
 import time
 from pathlib import Path
@@ -104,7 +114,7 @@ class TrainingHarness:
         ).squeeze(-1)
         return -mx.mean(correct_log_probs)
 
-    def train_step(self, tokens: mx.array, targets: mx.array) -> float:
+    def train_step(self, tokens: mx.array, targets: mx.array) -> Tuple[float, Any]:
         """Single micro-batch training step."""
 
         def loss_fn(model):
@@ -112,14 +122,37 @@ class TrainingHarness:
                 logits, _ = model(tokens)
             else:
                 logits = model(tokens)
+            # Pre-loss logits finite guard (per user-prescribed protocol):
+            # catches state / gate explosion upstream of the loss
+            # computation so we crash with a meaningful min/max rather
+            # than silently baking NaN into the gradient.
+            if not bool(mx.all(mx.isfinite(logits))):
+                print(
+                    f"logit min/max: {float(mx.min(logits)):.4f} / "
+                    f"{float(mx.max(logits)):.4f}"
+                )
+                raise FloatingPointError("Non-finite logits in forward pass")
             return self.compute_loss(logits, targets)
 
         loss_value, grads = nn.value_and_grad(self.model, loss_fn)(self.model)
-        # Release the per-microbatch grad graph eagerly — without this, mlx's
-        # lazy graph cache grows proportional to grad_accum, which OOMs on
-        # long-running Phase 14 sessions (the very crash signature this
-        # hardening batch is meant to prevent).
-        mx.eval(grads)
+        # Eagerly materialize BOTH the loss and the grads so we can call
+        # mx.isfinite on them without keeping the lazy graph alive.
+        mx.eval(loss_value, grads)
+        # Hard-finite guards (per project protocol, see HATCHLING-ZERO
+        # plan: a non-finite loss, gradient, or LOGIT must NOT silently
+        # propagate through training — bail with a clear error that names
+        # the offending tensor. The logits check is FIRST because that's
+        # the earliest indicator of state / gate explosion upstream of
+        # the loss computation.
+        for grad_name, grad_value in tree_flatten(grads):
+            if not bool(mx.all(mx.isfinite(grad_value))):
+                raise FloatingPointError(
+                    f"Non-finite gradient: '{grad_name}'"
+                )
+        if not bool(mx.isfinite(loss_value)):
+            raise FloatingPointError(
+                f"Non-finite training loss: {float(loss_value)}"
+            )
         return float(loss_value), grads
 
     def step(self, grads_list, tokens_seen: int) -> float:
@@ -137,10 +170,37 @@ class TrainingHarness:
                 avg_grads = tree_map(avg, avg_grads, g)
             avg_grads = tree_map(lambda t: t / len(grads_list), avg_grads)
 
+        # Defensive global-norm gradient clip. The first training run
+        # produced NaN at step 50 — likely because one tall gradient
+        # spike pulled Adam into NaN territory. Standard transformer-
+        # training hygiene: clip the L2 norm to 1.0 before the update.
+        avg_grads = self._clip_grads_by_global_norm(avg_grads, max_norm=1.0)
+
         self.optimizer.update(self.model, avg_grads)
         mx.eval(self.model.parameters())
 
         return float(tokens_seen)
+
+    @staticmethod
+    def _clip_grads_by_global_norm(grads, max_norm: float = 1.0):
+        """Global L2-norm gradient clip (PyTorch's torch.nn.utils.clip_grad_norm_
+        equivalent, implemented across the pytree of grads that MLX uses).
+
+        Releases the doubled-gradient tree eagerly via `mx.eval` so the
+        lazy graph cache does not retain the full per-tensor rescale —
+        this is the same OOM signature that the prior `mx.eval(grads)`
+        patch was meant to prevent on the value_and_grad side.
+        """
+        flat = tree_flatten(grads)
+        norm_sq = mx.array(0.0)
+        for _, v in flat:
+            vf = v.astype(mx.float32)
+            norm_sq = norm_sq + mx.sum(vf * vf)
+        total_norm = mx.sqrt(norm_sq)
+        clip_coef = mx.minimum(mx.array(1.0), max_norm / (total_norm + 1e-6))
+        # Flush the lazy graph before tree_map doubles the parameter tree.
+        mx.eval(total_norm, clip_coef)
+        return tree_map(lambda t: t * clip_coef, grads)
 
     def train(
         self,
@@ -160,16 +220,18 @@ class TrainingHarness:
         """
         print(f"\n{'=' * 70}")
         print(f"Training: {self.model_name}")
-        print(f"  lr={self.lr} grad_accum={self.grad_accum} "
-              f"checkpoint_every={self.checkpoint_every} "
-              f"save_optimizer_every={self.save_optimizer_every}")
+        print(
+            f"  lr={self.lr} grad_accum={self.grad_accum} "
+            f"checkpoint_every={self.checkpoint_every} "
+            f"save_optimizer_every={self.save_optimizer_every}"
+        )
         print(f"{'=' * 70}")
 
         completed_cleanly = False
         total_tokens = 0
         start_time = time.time()
         global_step = 0
-        grads_buffer = []
+        grads_buffer: List[Any] = []
 
         try:
             for epoch in range(num_epochs):
@@ -178,6 +240,9 @@ class TrainingHarness:
                 for step_idx, (tokens, targets) in enumerate(train_batches):
                     loss_value, grads = self.train_step(tokens, targets)
                     grads_buffer.append(grads)
+                    # FIX: accumulate loss_value so avg_train_loss isn't
+                    # permanently 0.0 (the bug that masked the step-50 NaN).
+                    epoch_loss += float(loss_value)
                     token_count = int(tokens.size)
                     total_tokens += token_count
                     steps_this_epoch += 1
@@ -186,7 +251,10 @@ class TrainingHarness:
                         self.step(grads_buffer, token_count)
                         grads_buffer = []
 
-                        if global_step > 0 and global_step % self.checkpoint_every == 0:
+                        if (
+                            global_step > 0
+                            and global_step % self.checkpoint_every == 0
+                        ):
                             avg_train_loss = epoch_loss / max(1, steps_this_epoch)
                             val_loss = self._evaluate(val_batches[:10])
 
@@ -235,8 +303,14 @@ class TrainingHarness:
                                 flush=True,
                             )
 
-                        epoch_loss = 0.0
-                        steps_this_epoch = 0
+                            # Reset BOTH numerator and denominator together
+                            # so avg_train_loss in the next window is
+                            # genuinely the mean of micro-batch losses in
+                            # that window — not (window_loss /
+                            # cumulative_steps_since_epoch_start).
+                            epoch_loss = 0.0
+                            steps_this_epoch = 0
+
                         global_step += 1
 
                         if max_steps is not None and global_step >= max_steps:
@@ -297,8 +371,27 @@ class TrainingHarness:
         }
 
     def _flush_metrics(self) -> None:
+        """Atomic metrics flush with NaN-safe serialization.
+
+        Python's `json.dumps` writes unquoted `NaN`/`Infinity` tokens which
+        violate strict JSON spec — `jq` and most consumers reject the file.
+        Pre-process to substitute `null` for non-finite floats so the file
+        stays valid JSON even mid-divergence.
+        """
         tmp = self.metrics_path.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(self.metrics, indent=2), encoding="utf-8")
+        safe: List[Dict[str, Any]] = []
+        for m in self.metrics:
+            sanitized: Dict[str, Any] = {}
+            for k, v in m.items():
+                if isinstance(v, float):
+                    if math.isnan(v) or math.isinf(v):
+                        sanitized[k] = None
+                    else:
+                        sanitized[k] = v
+                else:
+                    sanitized[k] = v
+            safe.append(sanitized)
+        tmp.write_text(json.dumps(safe, indent=2, allow_nan=False), encoding="utf-8")
         os.replace(tmp, self.metrics_path)
 
     def _evaluate(self, batches: List[Tuple], num_batches: int = 10) -> float:
@@ -333,49 +426,64 @@ def load_wikitext_batches(
     """
     from pathlib import Path
 
-    print(f"[data] split={split} max_docs={max_docs} "
-          f"batch_size={batch_size} seq_len={seq_len}", flush=True)
+    print(
+        f"[data] split={split} max_docs={max_docs} "
+        f"batch_size={batch_size} seq_len={seq_len}",
+        flush=True,
+    )
     try:
         from tokenizers import Tokenizer
         tokenizer = Tokenizer.from_file("data/tokenizer/hz_24k.json")
         vocab_size = 24000
-        print(f"[data] 24K BPE tokenizer loaded", flush=True)
+        print("[data] 24K BPE tokenizer loaded", flush=True)
     except Exception as e:
         print(f"[data] tokenizer load failed: {e!s}; using char fallback", flush=True)
         vocab_size = 256
         tokenizer = None
 
-    mixed_path = Path("data/tokenizer_corpus/all.txt")
-    if mixed_path.exists():
-        text = mixed_path.read_text(errors="ignore")
+    # Split-aware file selection. Previously both train and validation
+    # resolved to the same `data/tokenizer_corpus/all.txt` slice, which
+    # silently produced identical batches in both splits and masked
+    # numerical problems with coincidentally-identical val_loss. After
+    # this fix: train falls through to mixed_corpus when available;
+    # validation is always loaded from `validation_sample_1k.jsonl`,
+    # which is a different file entirely.
+    data_dir = Path("data/processed/wikitext")
+    mixed_corpus = Path("data/tokenizer_corpus/all.txt")
+    jsonl_path = data_dir / f"{split}_sample_1k.jsonl"
+
+    text: str = ""
+    if split == "train" and mixed_corpus.exists():
+        text = mixed_corpus.read_text(errors="ignore")
         if smoke:
             text = text[: int(1e4)]  # tiny for smoke
         else:
             text = text[: int(1e7)]
-        print(f"[data] loaded mixed corpus: {len(text):,} chars "
-              f"({'smoke' if smoke else 'full'})", flush=True)
+        print(
+            f"[data] split=train from mixed corpus: {len(text):,} chars "
+            f"({'smoke' if smoke else 'full'})",
+            flush=True,
+        )
+    elif jsonl_path.exists():
+        docs: List[str] = []
+        with open(jsonl_path, "r") as f:
+            for i, line in enumerate(f):
+                if i >= max_docs:
+                    break
+                record = json.loads(line)
+                if record.get("text"):
+                    docs.append(record["text"])
+        text = "\n\n".join(docs)
+        print(
+            f"[data] split={split} from wikitext "
+            f"{jsonl_path.name}: {len(text):,} chars",
+            flush=True,
+        )
     else:
-        data_dir = Path("data/processed/wikitext")
-        path = data_dir / f"{split}_sample_1k.jsonl"
-        if path.exists():
-            docs: List[str] = []
-            with open(path, "r") as f:
-                for i, line in enumerate(f):
-                    if i >= max_docs:
-                        break
-                    record = json.loads(line)
-                    if record.get("text"):
-                        docs.append(record["text"])
-            text = "\n\n".join(docs)
-            print(f"[data] loaded WikiText sample: {len(text):,} chars", flush=True)
-        else:
-            print(f"[data] no corpus path hit; emitting synthetic streams", flush=True)
-            batches: List[Tuple] = []
-            for _ in range(20):
-                tokens = mx.random.randint(0, vocab_size, (batch_size, seq_len))
-                targets = mx.random.randint(0, vocab_size, (batch_size, seq_len))
-                batches.append((tokens, targets))
-            return batches
+        print(
+            f"[data] no corpus path for split={split}; emitting synthetic streams",
+            flush=True,
+        )
 
     if tokenizer:
         try:
@@ -461,16 +569,295 @@ def parse_args(argv=None) -> argparse.Namespace:
         "--batch-size", type=int, default=2,
         help="Microbatch size (kept small for unified memory headroom).",
     )
+    parser.add_argument(
+        "--diagnostic",
+        action="store_true",
+        help="Run a one-batch forward+backward diagnostic instead of "
+             "training. Verifies token ranges, fingerprint mismatch "
+             "between train+val, finite logits/loss/grads on both "
+             "splits, and plausibility of the initial loss magnitude. "
+             "Use BEFORE any restart smoke test.",
+    )
+    parser.add_argument(
+        "--lr",
+        type=float,
+        default=PHASE14_LEARNING_RATE,
+        help="Learning rate for Adam. Defaults to the Phase 6 sweep "
+             "winner (3e-4). User-recommended conservative value is "
+             "1e-4 for the post-divergence restart.",
+    )
     return parser.parse_args(argv)
+
+
+def run_diagnostic(args) -> int:
+    """One-batch forward + backward diagnostic. NO optimizer updates.
+
+    Pre-restart sanity check per HZ-0A plan. Verifies (in order):
+
+      [1/6] Token range + identity
+            - train and val tokens all in [0, vocab_size)
+            - train and val fingerprints (first 64 ids) are different
+              (this is the data-split bug detector)
+      [2/6] Forward pass on one TRAIN batch
+            - logits are finite (no NaN / Inf)
+      [3/6] Initial loss on TRAIN
+            - magnitude is roughly ln(vocab_size) ~ 10.09 for a model
+              with random init against uniform random targets
+      [4/6] Backward pass on TRAIN
+            - per-leaf grad finiteness
+            - max leaf L2 norm (sanity bound)
+      [5/6] Forward + loss on VALIDATION
+            - v_logits finite
+            - val loss finite
+      [6/6] PASS / FAIL summary
+
+    Builds a 110M HZ-0A model so the assertion is conservative — the
+    same arch the production run uses. Run BEFORE every restart smoke
+    to catch silent data-split, vocab, or numerical-explosion bugs.
+    """
+    print("=" * 70)
+    print("Phase 14: one-batch diagnostic (110M HZ architecture)")
+    print("=" * 70)
+
+    model = GDN2LanguageModel(
+        vocab_size=24000, model_dim=768,
+        num_layers=24, num_heads=12,
+    )
+
+    # max_docs=200 (NOT 1) so the validation split loads hundreds of
+    # wikitext records — the validation_sample_1k.jsonl has 1000 lines
+    # and each line holds a discrete document; max_docs=1 would yield ~20
+    # chars / 0 batches for the validation path.
+    train_batches = load_wikitext_batches(
+        "train", max_docs=200, batch_size=1,
+        seq_len=args.seq_len, smoke=False,
+    )
+    val_batches = load_wikitext_batches(
+        "validation", max_docs=200, batch_size=1,
+        seq_len=args.seq_len, smoke=False,
+    )
+
+    if not train_batches or not val_batches:
+        print(
+            f"FAIL: train_batches={len(train_batches)} "
+            f"val_batches={len(val_batches)} — loader returned empty"
+        )
+        return 1
+
+    train_tokens, train_targets = train_batches[0]
+    val_tokens, val_targets = val_batches[0]
+
+    # [1/6] Token range + identity
+    train_min = int(train_tokens.min())
+    train_max = int(train_tokens.max())
+    val_min = int(val_tokens.min())
+    val_max = int(val_tokens.max())
+    print("\n[1/6] Token range + identity")
+    print(
+        f"  train:  shape={tuple(train_tokens.shape)} "
+        f"min={train_min} max={train_max}"
+    )
+    print(
+        f"  val:    shape={tuple(val_tokens.shape)} "
+        f"min={val_min} max={val_max}"
+    )
+    if train_min < 0 or train_max >= 24000:
+        print("  FAIL: train tokens outside [0, 24000)")
+        return 2
+    if val_min < 0 or val_max >= 24000:
+        print("  FAIL: val tokens outside [0, 24000)")
+        return 2
+
+    train_fp = tuple(int(t) for t in train_tokens.reshape(-1).tolist()[:64])
+    val_fp = tuple(int(t) for t in val_tokens.reshape(-1).tolist()[:64])
+    if train_fp == val_fp:
+        print(
+            "  FAIL: train AND val fingerprints MATCH — "
+            "data split is broken (both splits resolved to the "
+            "same file/slice)"
+        )
+        return 3
+    print(f"  train fingerprint (first 16 ids): {train_fp[:16]}")
+    print(f"  val   fingerprint (first 16 ids): {val_fp[:16]}")
+    print("  fingerprints differ: OK")
+
+    # Stable cross-entropy inlined (mirror of TrainingHarness.compute_loss)
+    def _ce(logits: mx.array, targets: mx.array) -> float:
+        V = logits.shape[-1]
+        flat = logits.reshape(-1, V).astype(mx.float32)
+        tgt = targets.reshape(-1)
+        flat = mx.clip(flat, -100.0, 100.0)
+        max_l = mx.max(flat, axis=-1, keepdims=True)
+        lse = (
+            mx.log(mx.sum(mx.exp(flat - max_l), axis=-1, keepdims=True))
+            + max_l
+        )
+        log_probs = flat - lse
+        correct = mx.take_along_axis(
+            log_probs, tgt[:, None], axis=-1
+        ).squeeze(-1)
+        return float(-mx.mean(correct))
+
+    # [2/6] Forward on train
+    print("\n[2/6] Forward pass on one TRAIN batch")
+    logits, _ = model(train_tokens)
+    mx.eval(logits)
+    print(f"  train logits shape: {tuple(logits.shape)}")
+    print(f"  train logits min:   {float(logits.min()):.4f}")
+    print(f"  train logits max:   {float(logits.max()):.4f}")
+    if not bool(mx.all(mx.isfinite(logits))):
+        print("  FAIL: train logits contain NaN / Inf")
+        return 4
+
+    # [3/6] Initial train loss
+    print("\n[3/6] Initial TRAIN loss (no param update)")
+    train_loss = _ce(logits, train_targets)
+    print(
+        f"  train loss = {train_loss:.4f} "
+        f"(expected ~10.09 = ln(24000) for uniform random init)"
+    )
+    if not math.isfinite(train_loss):
+        print("  FAIL: train loss is not finite")
+        return 5
+    if train_loss < 5.0 or train_loss > 20.0:
+        print(
+            "  FAIL: train loss outside plausible range "
+            "[5, 20] — model architecture is structurally suspect"
+        )
+        return 5
+
+    # [4/6] Backward on train
+    print("\n[4/6] Backward pass on TRAIN — per-leaf grad finiteness")
+    V = logits.shape[-1]
+    tgt_flat = train_targets.reshape(-1)
+
+    def loss_fn(m):
+        lg, _ = m(train_tokens)
+        flat = lg.reshape(-1, V).astype(mx.float32)
+        flat = mx.clip(flat, -100.0, 100.0)
+        max_l = mx.max(flat, axis=-1, keepdims=True)
+        lse = mx.log(mx.sum(mx.exp(flat - max_l), axis=-1, keepdims=True)) + max_l
+        log_probs = flat - lse
+        correct = mx.take_along_axis(
+            log_probs, tgt_flat[:, None], axis=-1
+        ).squeeze(-1)
+        return -mx.mean(correct)
+
+    _, grads = nn.value_and_grad(model, loss_fn)(model)
+    mx.eval(grads)
+
+    n_total = 0
+    n_finite = 0
+    max_norm = 0.0
+    fail_names: List[str] = []
+    for name, g in tree_flatten(grads):
+        n_total += 1
+        if bool(mx.all(mx.isfinite(g))):
+            n_finite += 1
+            vf = g.astype(mx.float32)
+            sq = mx.sum(vf * vf)
+            norm = float(mx.sqrt(sq))
+            max_norm = max(max_norm, norm)
+        else:
+            fail_names.append(name)
+
+    print(f"  grad leaves finite: {n_finite}/{n_total}")
+    print(f"  max leaf L2 norm:   {max_norm:.4e}")
+    if fail_names:
+        print(
+            f"  FAIL: {len(fail_names)} non-finite leaves; "
+            f"first 5: {fail_names[:5]}"
+        )
+        return 6
+
+    # Gradient-norm red-flag check. A norm > 1e3 on the very first
+    # backward (immediately after random init, no updates yet) means
+    # the launcher's grad-clip at max_norm=1.0 will effectively quench
+    # the optimizer step to near-zero — training cannot make progress.
+    # Per HZ-0A plan Hypothesis 5, this strongly suggests that the
+    # GDN-2 gate initialization for decay / erase / write is too
+    # aggressive at construction. Apply safe initial gates
+    # (decay≈0.99 / erase≈0.01 / write≈0.01) before any restart.
+    if max_norm > 1e3:
+        print(
+            f"  WARN: max leaf L2 norm = {max_norm:.4e} is anomalously "
+            f"large for a fresh-init backward pass; grad-clip at "
+            f"max_norm=1.0 will scale the optimizer step to ~{1.0/max_norm:.2e} "
+            f"of nominal. Likely cause: aggressive GDN-2 gate init."
+        )
+        print(
+            "  Note: per-layer state norms NOT covered by this "
+            "diagnostic — GDN2 forward return signature does not "
+            "expose a per-layer state list. Surface area here is "
+            "grad + logit + loss finiteness only."
+        )
+
+    # [5/6] Forward + loss on validation
+    print("\n[5/6] Forward + loss on VALIDATION batch")
+    v_logits, _ = model(val_tokens)
+    mx.eval(v_logits)
+    print(f"  val logits min: {float(v_logits.min()):.4f}")
+    print(f"  val logits max: {float(v_logits.max()):.4f}")
+    if not bool(mx.all(mx.isfinite(v_logits))):
+        print("  FAIL: val logits contain NaN / Inf")
+        return 7
+    val_loss = _ce(v_logits, val_targets)
+    print(f"  val loss = {val_loss:.4f}")
+    if not math.isfinite(val_loss):
+        print("  FAIL: val loss is not finite")
+        return 8
+
+    print("\n[6/6] DIAGNOSTIC REPORT")
+    print("  train and val resolve to DIFFERENT files ✓")
+    print("  all tensors finite across forward + backward on both splits ✓")
+    print(
+        f"  initial train loss ~ {train_loss:.4f}, "
+        f"initial val loss ~ {val_loss:.4f} (≈ ln(24000) = 10.09 expected) ✓"
+    )
+    if max_norm > 1e3:
+        print(
+            f"  ✗ max grad L2 norm = {max_norm:.4e} is anomalous — "
+            f"training will not converge without safe initial gates."
+        )
+        print(
+            f"    Apply decay/logit_bias schedules in the GDN-2 model:\n"
+            f"      decay initializer bias → sigmoid(bias)≈0.99\n"
+            f"      erase initializer bias → sigmoid(bias)≈0.01\n"
+            f"      write initializer bias → sigmoid(bias)≈0.01"
+        )
+        print(
+            f"    Note: per-layer state norms NOT part of this "
+            f"diagnostic — GDN2 forward return signature does not "
+            f"expose a per-layer state list. To add coverage, expose "
+            f"`states: List[mx.array]` from GDN2MetalModule.__call__."
+        )
+        return 9  # Distinct exit code so CI can gate on this
+    else:
+        print(
+            f"  ✓ gradient norms bounded (max L2 = {max_norm:.4e}) — "
+            f"safe for restart"
+        )
+        print("DIAGNOSTIC PASS — all six checks green")
+        return 0
 
 
 def main(argv=None) -> int:
     args = parse_args(argv)
+
+    # Diagnostic dispatch must run BEFORE any training setup so that
+    # we never produce a polluted checkpoint from a structurally
+    # broken model / data split / vocab mismatch.
+    if args.diagnostic:
+        return run_diagnostic(args)
+
     print("=" * 70)
     print("Phase 14: Full Training Runs (hardened launcher)")
     print("=" * 70)
-    print(f"  models={args.models} arch={args.arch} "
-          f"smoke_test={args.smoke_test}", flush=True)
+    print(
+        f"  models={args.models} arch={args.arch} "
+        f"smoke_test={args.smoke_test}",
+        flush=True,
+    )
 
     if args.smoke_test:
         args.max_steps = args.max_steps or 5
@@ -493,8 +880,10 @@ def main(argv=None) -> int:
         batch_size=args.batch_size, seq_len=args.seq_len,
         smoke=args.smoke_test,
     )
-    print(f"  train_batches={len(train_batches)} val_batches={len(val_batches)}",
-          flush=True)
+    print(
+        f"  train_batches={len(train_batches)} val_batches={len(val_batches)}",
+        flush=True,
+    )
 
     train_archs = []
     if args.arch in ("both", "hz"):
@@ -502,9 +891,11 @@ def main(argv=None) -> int:
     if args.arch in ("both", "transformer"):
         train_archs.append("transformer")
 
-    print(f"\n[2/3] Training {len(model_specs)} model sizes × "
-          f"{len(train_archs)} architectures sequentially...",
-          flush=True)
+    print(
+        f"\n[2/3] Training {len(model_specs)} model sizes × "
+        f"{len(train_archs)} architectures sequentially...",
+        flush=True,
+    )
 
     for name, dim, layers, heads in model_specs:
         cfg = {
@@ -538,7 +929,7 @@ def main(argv=None) -> int:
                 model=model,
                 model_name=tag,
                 cfg=cfg,
-                learning_rate=PHASE14_LEARNING_RATE,
+                learning_rate=args.lr,
                 gradient_accumulation=PHASE14_GRAD_ACCUM,
                 output_dir=output_dir,
                 checkpoint_every=args.checkpoint_every,
@@ -558,5 +949,4 @@ def main(argv=None) -> int:
 
 
 if __name__ == "__main__":
-    import os  # noqa: E402  (need os.replace in finally block)
     raise SystemExit(main())
