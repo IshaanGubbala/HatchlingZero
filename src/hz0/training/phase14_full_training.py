@@ -155,22 +155,9 @@ class TrainingHarness:
 def load_wikitext_batches(
     split: str = "train", max_docs: int = 1000, batch_size: int = 2, seq_len: int = 256
 ) -> List[Tuple]:
-    """Load WikiText batches with 24K tokenizer."""
+    """Load mixed corpus (text + code + tools) with 24K tokenizer."""
     import json
     from pathlib import Path
-
-    data_dir = Path("data/processed/wikitext")
-    path = data_dir / f"{split}_sample_1k.jsonl"
-
-    if not path.exists():
-        print(f"✗ {path} not found. Using synthetic data.")
-        # Fallback: synthetic
-        batches = []
-        for _ in range(10):
-            tokens = mx.random.randint(0, 24000, (batch_size, seq_len))
-            targets = mx.random.randint(0, 24000, (batch_size, seq_len))
-            batches.append((tokens, targets))
-        return batches
 
     # Load 24K tokenizer
     print("Loading 24K BPE tokenizer...")
@@ -183,23 +170,46 @@ def load_wikitext_batches(
         vocab_size = 256
         tokenizer = None
 
-    # Load real data
-    docs = []
-    with open(path, "r") as f:
-        for i, line in enumerate(f):
-            if i >= max_docs:
-                break
-            record = json.loads(line)
-            if record.get("text"):
-                docs.append(record["text"])
+    # Try mixed corpus first
+    mixed_path = Path("data/tokenizer_corpus/all.txt")
+    if mixed_path.exists():
+        print(f"Loading mixed corpus from {mixed_path}...")
+        text = mixed_path.read_text()[:int(1e7)]  # 10M chars limit
+        print(f"✓ Loaded {len(text):,} chars from mixed corpus")
+    else:
+        # Fallback to WikiText
+        data_dir = Path("data/processed/wikitext")
+        path = data_dir / f"{split}_sample_1k.jsonl"
+
+        if not path.exists():
+            print(f"✗ No corpus found. Using synthetic data.")
+            batches = []
+            for _ in range(10):
+                tokens = mx.random.randint(0, vocab_size, (batch_size, seq_len))
+                targets = mx.random.randint(0, vocab_size, (batch_size, seq_len))
+                batches.append((tokens, targets))
+            return batches
+
+        docs = []
+        with open(path, "r") as f:
+            for i, line in enumerate(f):
+                if i >= max_docs:
+                    break
+                record = json.loads(line)
+                if record.get("text"):
+                    docs.append(record["text"])
+
+        text = "\n\n".join(docs)
+        print(f"✓ Loaded {len(text):,} chars from WikiText")
 
     # Tokenize
-    text = "\n\n".join(docs)
     if tokenizer:
         encoding = tokenizer.encode(text)
         tokens = encoding.ids
     else:
         tokens = [ord(c) % vocab_size for c in text]
+
+    print(f"✓ Tokenized to {len(tokens):,} tokens")
 
     # Batch
     batches = []
@@ -220,7 +230,7 @@ def load_wikitext_batches(
         if len(batch_tokens) == batch_size:
             batches.append((mx.array(batch_tokens), mx.array(batch_targets)))
 
-    print(f"✓ Loaded {len(batches)} batches from {len(docs)} docs (vocab={vocab_size})")
+    print(f"✓ Created {len(batches)} batches (vocab={vocab_size})")
     return batches
 
 
@@ -238,11 +248,11 @@ def main():
     print(f"Train: {len(train_batches)} batches")
     print(f"Val: {len(val_batches)} batches")
 
-    # Create models
+    # Create models (targeting 1.5-3B final, skip 36M)
     print("\n[2/4] Creating models...")
     configs = [
-        ("hz0a_36m", 256, 12, 4),  # 36M approx
         ("hz0a_110m", 768, 24, 12),  # 110M approx
+        ("hz0a_300m", 1024, 32, 16),  # 300M approx
     ]
 
     for name, dim, layers, heads in configs:
@@ -260,13 +270,13 @@ def main():
             num_heads=heads,
         )
 
-        # Train
+        # Train (use best LR from Phase 6: 3e-4)
         print(f"\nHZ-0A ({name}):")
-        hz_trainer = TrainingHarness(hz_model, name, learning_rate=2e-4)
+        hz_trainer = TrainingHarness(hz_model, name, learning_rate=3e-4)
         hz_trainer.train(train_batches, val_batches, num_epochs=1, checkpoint_every=50)
 
         print(f"\nTransformer ({name}):")
-        tf_trainer = TrainingHarness(tf_model, f"transformer_{name}", learning_rate=2e-4)
+        tf_trainer = TrainingHarness(tf_model, f"transformer_{name}", learning_rate=3e-4)
         tf_trainer.train(train_batches, val_batches, num_epochs=1, checkpoint_every=50)
 
     print("\n" + "="*70)
