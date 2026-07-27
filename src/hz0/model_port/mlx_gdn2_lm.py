@@ -61,7 +61,7 @@ class GDN2LanguageModel(nn.Module):
 
     def __call__(self, x: mx.array, memory: Optional[mx.array] = None) -> Tuple[mx.array, Optional[mx.array]]:
         """
-        Forward pass.
+        Forward pass (full-sequence, for training).
 
         Args:
             x: [B, T] token ids
@@ -89,9 +89,67 @@ class GDN2LanguageModel(nn.Module):
 
         return logits, memory
 
+    def decode_step(
+        self,
+        token_id: int,
+        layer_states: Optional[list] = None,
+        kv_caches: Optional[list] = None,
+    ) -> Tuple[mx.array, list, list]:
+        """
+        Single-token decode with accumulated states.
+
+        Args:
+            token_id: scalar token index
+            layer_states: List of [B, H, Dv, Dk] recurrent states from GDN2 layers
+            kv_caches: List of (K, V) caches from attention layers
+
+        Returns:
+            logits: [vocab_size] next-token distribution
+            layer_states: updated recurrent states
+            kv_caches: updated KV caches
+        """
+        B = 1  # Typically batch size 1 for generation
+
+        # Initialize states if not provided
+        if layer_states is None:
+            layer_states = [None] * len(self.layers)
+        if kv_caches is None:
+            kv_caches = [None] * len(self.layers)
+
+        # Embed single token
+        token_mx = mx.array([[token_id]], dtype=mx.int32)
+        x = self.embedding(token_mx)  # [1, 1, D]
+        x = mx.squeeze(x, axis=1)  # [1, D]
+
+        # Process through layers
+        new_layer_states = []
+        new_kv_caches = []
+        gdn2_idx = 0
+        attn_idx = 0
+
+        for i, layer in enumerate(self.layers):
+            if isinstance(layer, GDN2Block):
+                x, state = layer.forward_step(x, layer_states[gdn2_idx])
+                new_layer_states.append(state)
+                gdn2_idx += 1
+            else:  # AttentionBlock
+                x, kv_cache = layer.forward_step(x, kv_caches[attn_idx])
+                new_kv_caches.append(kv_cache)
+                attn_idx += 1
+
+        # Final norm
+        x = self.norm(mx.expand_dims(x, axis=1))  # [1, 1, D]
+        x = mx.squeeze(x)  # [D]
+
+        # Logits
+        logits = self.lm_head(mx.expand_dims(x, axis=0))  # [1, vocab]
+        logits = mx.squeeze(logits)  # [vocab]
+
+        return logits, new_layer_states, new_kv_caches
+
 
 class GDN2Block(nn.Module):
-    """GDN-2 recurrent block."""
+    """GDN-2 recurrent block with streaming support."""
 
     def __init__(self, dim: int, num_heads: int):
         super().__init__()
@@ -103,7 +161,7 @@ class GDN2Block(nn.Module):
         self.mlp = SwiGLUMLP(dim, dim * 4)
 
     def __call__(self, x: mx.array, memory: Optional[mx.array] = None) -> Tuple[mx.array, Optional[mx.array]]:
-        """GDN-2 + MLP block."""
+        """GDN-2 + MLP block (full-sequence, for training)."""
         # Norm + recurrence
         x_norm = self.norm(x)
         y, memory = self.gdn2(x_norm, state=memory)
@@ -117,9 +175,42 @@ class GDN2Block(nn.Module):
 
         return x, memory
 
+    def forward_step(self, x_t: mx.array, memory: Optional[mx.array] = None) -> Tuple[mx.array, Optional[mx.array]]:
+        """
+        Single-token forward (for streaming decode).
+
+        Args:
+            x_t: [B, D] single token representation
+            memory: [B, H, Dv, Dk] accumulated recurrent state
+
+        Returns:
+            output: [B, D] processed token
+            memory: updated state
+        """
+        # Reshape to [B, 1, D] for layer processing
+        x_expanded = mx.expand_dims(x_t, axis=1)  # [B, 1, D]
+
+        # Norm + recurrence
+        x_norm = self.norm(x_expanded)
+        y, memory = self.gdn2(x_norm, state=memory)  # [B, 1, D]
+
+        # Squeeze back to [B, D]
+        y = mx.squeeze(y, axis=1)
+
+        # Residual
+        x_out = x_t + y
+
+        # MLP
+        x_expanded = mx.expand_dims(x_out, axis=1)  # [B, 1, D]
+        mlp_out = self.mlp(x_expanded)  # [B, 1, D]
+        mlp_out = mx.squeeze(mlp_out, axis=1)  # [B, D]
+        x_out = x_out + mlp_out
+
+        return x_out, memory
+
 
 class AttentionBlock(nn.Module):
-    """Periodic exact attention block."""
+    """Periodic exact attention block with streaming support."""
 
     def __init__(self, dim: int, num_heads: int):
         super().__init__()
@@ -133,7 +224,7 @@ class AttentionBlock(nn.Module):
         self.mlp = SwiGLUMLP(dim, dim * 4)
 
     def __call__(self, x: mx.array) -> mx.array:
-        """Multi-head causal attention + MLP."""
+        """Multi-head causal attention + MLP (full-sequence, for training)."""
         B, T, D = x.shape
         H = self.num_heads
 
@@ -172,6 +263,67 @@ class AttentionBlock(nn.Module):
         x = x + mlp_out
 
         return x
+
+    def forward_step(self, x_t: mx.array, kv_cache: Optional[Tuple[mx.array, mx.array]] = None) -> Tuple[mx.array, Tuple[mx.array, mx.array]]:
+        """
+        Single-token forward with KV cache (for streaming decode).
+
+        Args:
+            x_t: [B, D] single token representation
+            kv_cache: ([B, T-1, D], [B, T-1, D]) cached keys and values from previous tokens
+
+        Returns:
+            output: [B, D] processed token
+            kv_cache: updated cache with new token's K,V
+        """
+        B, D = x_t.shape
+        H = self.num_heads
+
+        # Reshape to [B, 1, D] for processing
+        x_t_expanded = mx.expand_dims(x_t, axis=1)  # [B, 1, D]
+
+        # Norm + qkv
+        x_norm = self.norm(x_t_expanded)
+        qkv = self.qkv(x_norm)  # [B, 1, 3*D]
+        qkv = mx.reshape(qkv, (B, 1, 3, H, self.head_dim))
+        q, k, v = mx.split(qkv, 3, axis=2)
+        q = mx.squeeze(q, axis=2)  # [B, 1, H, Dk]
+        k = mx.squeeze(k, axis=2)  # [B, 1, H, Dk]
+        v = mx.squeeze(v, axis=2)  # [B, 1, H, Dv]
+
+        # Add to cache
+        if kv_cache is None:
+            k_cached = k  # [B, 1, H, Dk]
+            v_cached = v  # [B, 1, H, Dv]
+        else:
+            k_cached = mx.concatenate([kv_cache[0], k], axis=1)  # [B, T, H, Dk]
+            v_cached = mx.concatenate([kv_cache[1], v], axis=1)  # [B, T, H, Dv]
+
+        # Attention with cached KV: q[B,1,H,Dk] @ k_cached[B,T,H,Dk].T
+        # Reshape: [B, 1, H, Dk] @ [B, H, Dk, T] -> [B, 1, H, T]
+        k_cached_t = mx.transpose(k_cached, axes=(0, 2, 3, 1))  # [B, H, Dk, T]
+        q_reshaped = mx.transpose(q, axes=(0, 2, 1, 3))  # [B, H, 1, Dk]
+        scores = mx.matmul(q_reshaped, k_cached_t) / mx.sqrt(mx.array(self.head_dim))  # [B, H, 1, T]
+
+        # No mask needed for single query (all cached positions are valid)
+        attn = mx.softmax(scores, axis=-1)  # [B, H, 1, T]
+
+        # Output: [B, H, 1, T] @ [B, H, T, Dv] -> [B, H, 1, Dv]
+        v_cached_reshaped = mx.transpose(v_cached, axes=(0, 2, 1, 3))  # [B, H, T, Dv]
+        out = mx.matmul(attn, v_cached_reshaped)  # [B, H, 1, Dv]
+        out = mx.transpose(out, axes=(0, 2, 1, 3))  # [B, 1, H, Dv]
+        out = mx.reshape(out, (B, 1, D))
+        out = self.out(out)
+        out = mx.squeeze(out, axis=1)  # [B, D]
+
+        # Residual + MLP
+        x_out = x_t + out
+        mlp_input = mx.expand_dims(x_out, axis=1)  # [B, 1, D]
+        mlp_out = self.mlp(mlp_input)  # [B, 1, D]
+        mlp_out = mx.squeeze(mlp_out, axis=1)  # [B, D]
+        x_out = x_out + mlp_out
+
+        return x_out, (k_cached, v_cached)
 
 
 class SwiGLUMLP(nn.Module):
