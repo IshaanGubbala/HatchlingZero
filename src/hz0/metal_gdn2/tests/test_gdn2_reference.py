@@ -10,7 +10,7 @@ from hz0.metal_gdn2.reference.gdn2_mlx import (
     gdn2_sequence_ops,
     gdn2_streaming_ops,
 )
-from hz0.metal_gdn2.reference.gdn2_numpy import gdn2_sequence_numpy
+from hz0.metal_gdn2.reference.gdn2_numpy import gdn2_sequence as gdn2_sequence_numpy
 
 
 def numerical_gradient(
