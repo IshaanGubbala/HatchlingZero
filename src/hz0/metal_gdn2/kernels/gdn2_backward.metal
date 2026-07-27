@@ -107,20 +107,129 @@ kernel void gdn2_query_backward(
     d_query_out[d_query_idx] = d_q;
 }
 
+// MARK: - Erase Backward Kernel
+// erase_value = sum_k(state * erase * key)
+// d_state += d_erase_value * (erase * key)
+// d_erase += sum_dv(d_erase_value * state * key)
+// d_key += sum_dv(d_erase_value * state * erase)
+
+kernel void gdn2_erase_backward(
+    device float* d_erase_value [[ buffer(0) ]],  // [B, H, Dv]
+    device float* state [[ buffer(1) ]],          // [B, H, Dv, Dk]
+    device float* erase [[ buffer(2) ]],          // [B, H, Dk]
+    device float* key [[ buffer(3) ]],            // [B, H, Dk]
+    device float* d_state_out [[ buffer(4) ]],    // [B, H, Dv, Dk]
+    device float* d_erase_out [[ buffer(5) ]],    // [B, H, Dk]
+    device float* d_key_out [[ buffer(6) ]],      // [B, H, Dk]
+    constant GDN2BackwardParams& params [[ buffer(7) ]],
+    uint3 gid [[ threadgroup_position_in_grid ]],
+    uint3 tid [[ thread_position_in_threadgroup ]],
+    uint3 threads_per_threadgroup [[ threads_per_threadgroup ]]
+) {
+    uint b_h_idx = gid.x;
+    uint b = b_h_idx / params.num_heads;
+    uint h = b_h_idx % params.num_heads;
+    uint dv_dk_idx = tid.x;
+
+    if (b >= params.batch_size || h >= params.num_heads || dv_dk_idx >= params.dv * params.dk) {
+        return;
+    }
+
+    uint dv_idx = dv_dk_idx / params.dk;
+    uint dk_idx = dv_dk_idx % params.dk;
+
+    uint base_offset = (b * params.num_heads + h) * params.dv * params.dk;
+    uint flat_idx = base_offset + dv_idx * params.dk + dk_idx;
+    uint erase_idx = (b * params.num_heads + h) * params.dk + dk_idx;
+    uint d_erase_val_idx = (b * params.num_heads + h) * params.dv + dv_idx;
+
+    float d_ev = d_erase_value[d_erase_val_idx];
+    float er = erase[erase_idx];
+    float k = key[erase_idx];
+    float s = state[flat_idx];
+
+    // d_state += d_erase_value * erase * key
+    d_state_out[flat_idx] += d_ev * er * k;
+
+    // d_erase += d_erase_value * state * key
+    d_erase_out[erase_idx] += d_ev * s * k;
+
+    // d_key += d_erase_value * state * erase
+    d_key_out[erase_idx] += d_ev * s * er;
+}
+
+// MARK: - Update Backward Kernel
+// state = state - erase_update + write_update
+// erase_update = erase_value * key
+// write_update = (write * value) * key
+
+kernel void gdn2_update_backward(
+    device float* d_state_after [[ buffer(0) ]],  // [B, H, Dv, Dk]
+    device float* erase_value [[ buffer(1) ]],    // [B, H, Dv]
+    device float* write [[ buffer(2) ]],          // [B, H, Dv]
+    device float* value [[ buffer(3) ]],          // [B, H, Dv]
+    device float* key [[ buffer(4) ]],            // [B, H, Dk]
+    device float* d_erase_value_out [[ buffer(5) ]],  // [B, H, Dv]
+    device float* d_write_out [[ buffer(6) ]],    // [B, H, Dv]
+    device float* d_value_out [[ buffer(7) ]],    // [B, H, Dv]
+    device float* d_key_out [[ buffer(8) ]],      // [B, H, Dk]
+    constant GDN2BackwardParams& params [[ buffer(9) ]],
+    uint3 gid [[ threadgroup_position_in_grid ]],
+    uint3 tid [[ thread_position_in_threadgroup ]],
+    uint3 threads_per_threadgroup [[ threads_per_threadgroup ]]
+) {
+    uint b_h_idx = gid.x;
+    uint b = b_h_idx / params.num_heads;
+    uint h = b_h_idx % params.num_heads;
+    uint dv_dk_idx = tid.x;
+
+    if (b >= params.batch_size || h >= params.num_heads || dv_dk_idx >= params.dv * params.dk) {
+        return;
+    }
+
+    uint dv_idx = dv_dk_idx / params.dk;
+    uint dk_idx = dv_dk_idx % params.dk;
+
+    uint base_offset = (b * params.num_heads + h) * params.dv * params.dk;
+    uint flat_idx = base_offset + dv_idx * params.dk + dk_idx;
+    uint key_idx = (b * params.num_heads + h) * params.dk + dk_idx;
+    uint ev_idx = (b * params.num_heads + h) * params.dv + dv_idx;
+
+    float d_sa = d_state_after[flat_idx];
+    float ev = erase_value[ev_idx];
+    float w = write[ev_idx];
+    float v = value[ev_idx];
+    float k = key[key_idx];
+
+    // Erase contribution: state -= erase_value * key
+    // d_erase_value -= sum_k(d_state_after * key)
+    d_erase_value_out[ev_idx] -= d_sa * k;
+
+    // d_key -= (erase_value + write * value) * d_state_after
+    d_key_out[key_idx] -= d_sa * (ev + w * v);
+
+    // Write contribution: state += (write * value) * key
+    // d_write += sum_k(d_state_after * value * key)
+    d_write_out[ev_idx] += d_sa * v * k;
+
+    // d_value += sum_k(d_state_after * write * key)
+    d_value_out[ev_idx] += d_sa * w * k;
+}
+
 // MARK: - Full Backward Pipeline
 // Compose all stages in sequence
 
 kernel void gdn2_full_backward(
-    device float* d_output [[ buffer(0) ]],      // Loss gradient
-    device float* state_in [[ buffer(1) ]],      // Input state
-    device float* query [[ buffer(2) ]],
-    device float* key [[ buffer(3) ]],
-    device float* value [[ buffer(4) ]],
-    device float* decay [[ buffer(5) ]],
-    device float* erase [[ buffer(6) ]],
-    device float* write [[ buffer(7) ]],
+    device float* d_output [[ buffer(0) ]],      // Loss gradient [B, H, Dv]
+    device float* state_in [[ buffer(1) ]],      // Input state [B, H, Dv, Dk]
+    device float* query [[ buffer(2) ]],         // [B, H, Dk]
+    device float* key [[ buffer(3) ]],           // [B, H, Dk]
+    device float* value [[ buffer(4) ]],         // [B, H, Dv]
+    device float* decay [[ buffer(5) ]],         // [B, H, Dk]
+    device float* erase [[ buffer(6) ]],         // [B, H, Dk]
+    device float* write [[ buffer(7) ]],         // [B, H, Dv]
     // Outputs
-    device float* d_state [[ buffer(8) ]],
+    device float* d_state_out [[ buffer(8) ]],
     device float* d_query_out [[ buffer(9) ]],
     device float* d_key_out [[ buffer(10) ]],
     device float* d_value_out [[ buffer(11) ]],
@@ -132,17 +241,24 @@ kernel void gdn2_full_backward(
     uint3 tid [[ thread_position_in_threadgroup ]],
     uint3 threads_per_threadgroup [[ threads_per_threadgroup ]]
 ) {
-    // Placeholder: calls decay and query backward
-    // Full implementation will compose all four stages
+    // Full pipeline composition:
+    // 1. Query backward (compute d_query from d_output)
+    // 2. Decay backward (propagate gradients through decay)
+    // 3. Erase backward (compute d_erase_value, d_erase, d_key)
+    // 4. Update backward (compute d_write, d_value, accumulate d_key)
 
-    // Stage 1: Query backward
-    // (Reuse gdn2_query_backward logic)
+    // Note: In production, this would be split into multiple passes
+    // or fused into a single coherent kernel for efficiency.
+    // For now, this skeleton establishes the algorithm structure.
 
-    // Stage 2: Decay backward
-    // (Reuse gdn2_decay_backward logic)
+    uint b_h_idx = gid.x;
+    if (b_h_idx >= params.batch_size * params.num_heads) {
+        return;
+    }
 
-    // Stages 3-4: Erase and update backward
-    // (To be implemented)
+    // Placeholder: each stage would execute here
+    // Query backward: d_query = sum_dv(d_output * state)
+    // Then propagate through remaining stages
 }
 
 // MARK: - Testing Kernel
