@@ -253,3 +253,35 @@ def test_session_scratchpad_reset_isolates_sessions() -> None:
 
     assert torch.count_nonzero(next_state) > 0
     assert torch.count_nonzero(reset_state) == 0
+
+
+def test_session_scratchpad_log_includes_hard_routing_indices() -> None:
+    """Phase-3 diagnostics: the per-token log entry must surface the hard
+    routing index used at write AND read time so probe runs can aggregate
+    ``route_match_rate`` / ``slot_occupancy`` / ``slot_collision_rate``
+    metrics independent of LM-loss measurements.
+    """
+    scratchpad = SessionScratchpad(num_slots=4, dim=6, momentum=0.5)
+    state = scratchpad.reset(batch_size=2, device=torch.device("cpu"), dtype=torch.float32)
+    _, _, log = scratchpad.step(
+        torch.randn(2, 6),
+        torch.randn(2, 6),
+        torch.randn(2, 6),
+        state,
+        log=True,
+    )
+    assert log is not None
+    # read_hard_idx / write_hard_idx are int64 [batch] tensors holding the
+    # argmax slot picked at each step.
+    assert log.read_hard_idx.shape == (2,)
+    assert log.write_hard_idx.shape == (2,)
+    assert log.read_hard_idx.dtype == torch.int64
+    assert log.write_hard_idx.dtype == torch.int64
+    read_min, read_max = int(log.read_hard_idx.min()), int(log.read_hard_idx.max())
+    write_min, write_max = int(log.write_hard_idx.min()), int(log.write_hard_idx.max())
+    assert 0 <= read_min and read_max < 4
+    assert 0 <= write_min and write_max < 4
+    # Different query / key projections: read and write hard indices are
+    # allowed to differ on any single step. They are exposed *separately*
+    # so the probe CLI can compute a per-position match rate.
+    assert log.read_hard_idx.shape == log.write_hard_idx.shape

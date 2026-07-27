@@ -7,10 +7,15 @@ import torch
 from hz0.runtime import autocast_context, maybe_sync_device
 
 
-def _retrieval_vocab_bounds(vocab_size: int) -> tuple[int, int]:
+def retrieval_vocab_bounds(vocab_size: int) -> tuple[int, int]:
     filler_low = 32 if vocab_size > 64 else 0
     filler_high = min(vocab_size, 127) if vocab_size > 127 else vocab_size
     return filler_low, filler_high
+
+
+def _retrieval_vocab_bounds(vocab_size: int) -> tuple[int, int]:
+    # Back-compat alias. Prefer ``retrieval_vocab_bounds`` in new code.
+    return retrieval_vocab_bounds(vocab_size)
 
 
 def _sample_non_filler_token(device: torch.device, vocab_size: int) -> torch.Tensor:
@@ -18,7 +23,7 @@ def _sample_non_filler_token(device: torch.device, vocab_size: int) -> torch.Ten
     return torch.randint(low, vocab_size, (1, 1), device=device)
 
 
-def _sample_distinct_tokens(device: torch.device, vocab_size: int, count: int) -> list[torch.Tensor]:
+def sample_distinct_tokens(device: torch.device, vocab_size: int, count: int) -> list[torch.Tensor]:
     values: list[torch.Tensor] = []
     seen: set[int] = set()
     while len(values) < count:
@@ -29,6 +34,11 @@ def _sample_distinct_tokens(device: torch.device, vocab_size: int, count: int) -
         values.append(token)
         seen.add(token_value)
     return values
+
+
+def _sample_distinct_tokens(device: torch.device, vocab_size: int, count: int) -> list[torch.Tensor]:
+    # Back-compat alias. Prefer ``sample_distinct_tokens`` in new code.
+    return sample_distinct_tokens(device, vocab_size, count)
 
 
 @torch.no_grad()

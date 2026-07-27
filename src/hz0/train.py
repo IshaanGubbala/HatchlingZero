@@ -8,7 +8,7 @@ from pathlib import Path
 import torch
 from torch.utils.data import DataLoader
 
-from hz0.checkpoint import load_checkpoint, save_checkpoint
+from hz0.checkpoint import load_checkpoint, prune_checkpoints, save_checkpoint
 from hz0.config import Config
 from hz0.data import build_dataset
 from hz0.eval import benchmark_decode_latency, evaluate_copy_retrieval, evaluate_language_model, evaluate_multi_anchor_retrieval
@@ -204,9 +204,10 @@ def main() -> None:
             running_tokens = 0
             running_start = time.perf_counter()
 
+        eval_metrics: dict[str, float] | None = None
         if step > 0 and step % cfg["train"]["eval_every"] == 0:
-            metrics = evaluate_language_model(model, val_loader, device)
-            metrics.update(
+            eval_metrics = evaluate_language_model(model, val_loader, device)
+            eval_metrics.update(
                 evaluate_copy_retrieval(
                     model=model,
                     device=device,
@@ -215,7 +216,7 @@ def main() -> None:
                     num_samples=16,
                 )
             )
-            metrics.update(
+            eval_metrics.update(
                 evaluate_multi_anchor_retrieval(
                     model=model,
                     device=device,
@@ -224,7 +225,7 @@ def main() -> None:
                     num_samples=16,
                 )
             )
-            metrics.update(
+            eval_metrics.update(
                 benchmark_decode_latency(
                     model=model,
                     device=device,
@@ -233,7 +234,7 @@ def main() -> None:
                     vocab_size=cfg["data"]["vocab_size"],
                 )
             )
-            metrics.update(
+            eval_metrics.update(
                 {
                     "tokens_seen": float(total_tokens_seen),
                     "grad_norm": grad_norm,
@@ -243,12 +244,11 @@ def main() -> None:
             )
             print(
                 "eval "
-                f"loss={metrics['loss']:.4f} "
-                f"perplexity={metrics['perplexity']:.2f} "
-                f"copy_retrieval_accuracy={metrics['copy_retrieval_accuracy']:.3f} "
-                f"tokens_per_second={metrics['tokens_per_second']:.2f}"
+                f"loss={eval_metrics['loss']:.4f} "
+                f"perplexity={eval_metrics['perplexity']:.2f} "
+                f"copy_retrieval_accuracy={eval_metrics['copy_retrieval_accuracy']:.3f} "
+                f"tokens_per_second={eval_metrics['tokens_per_second']:.2f}"
             )
-            save_checkpoint(output_dir, step, model, optimizer, cfg, metrics)
             model.train()
 
         if step > 0 and step % cfg["train"]["sample_every"] == 0:
@@ -262,8 +262,46 @@ def main() -> None:
             text = tokenizer.decode(generated[0].cpu())
             print(f"sample step={step} text={text!r}")
 
-        if step > 0 and step % cfg["train"]["save_every"] == 0:
-            save_checkpoint(output_dir, step, model, optimizer, cfg)
+        # Consolidated save: per Phase 8 of hz0b-mem-fix-plan-2026-07-26.md,
+        # routine save_every checkpoints are model-only; full resumable
+        # checkpoints (with optimizer) saved much less often.
+        # Eval-time saves always use full state so the metrics + the
+        # optimizer together form a self-describing resumable artifact.
+        is_eval_step = step > 0 and step % cfg["train"]["eval_every"] == 0
+        is_save_step = step > 0 and step % cfg["train"]["save_every"] == 0
+        save_optimizer_every = int(cfg["train"].get("save_optimizer_every", 0))
+        if is_eval_step or is_save_step:
+            if is_eval_step:
+                # Always full on eval: snapshots the optimizer alongside
+                # the metrics, so any step where eval ran is a resumable
+                # checkpoint even if the routine save_every model_only
+                # path would otherwise have made it cheaper.
+                is_full_save = True
+                metrics_for_save = eval_metrics
+            else:
+                # Routine save_every path. Full only when step hits the
+                # save_optimizer_every multi-stride; otherwise model_only.
+                is_full_save = (
+                    save_optimizer_every > 0
+                    and (step % save_optimizer_every == 0)
+                )
+                metrics_for_save = None
+            save_checkpoint(
+                output_dir,
+                step,
+                model,
+                optimizer,
+                cfg,
+                metrics_for_save,
+                model_only=not is_full_save,
+            )
+            prune_checkpoints(
+                output_dir,
+                keep_last_full=int(cfg["train"].get("keep_last_full", 2)),
+                keep_last_model_only=int(
+                    cfg["train"].get("keep_last_model_only", 5)
+                ),
+            )
         step += 1
 
     save_checkpoint(output_dir, step, model, optimizer, cfg)

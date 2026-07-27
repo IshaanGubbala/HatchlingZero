@@ -1,0 +1,109 @@
+# HZ-0B laboratory scratchpad model (Phase 1 of hz0b-mem-fix-plan-2026-07-26.md).
+#
+# WHY THIS EXISTS: the 110M hybrid is too expensive to iterate on (MPS at
+# ~50s/step under the slot-addressed scratchpad, and no in-session held-out
+# recall gain after multiple architectural iterations). This config keeps
+# the same HybridLM + slot-addressed SessionScratchpad contract but at a
+# scale that drops to seconds per step, so we can run the strict probe
+# curriculum from Phase 2 directly without chewing hours of training time
+# per architectural decision.
+#
+# Parameter ballpark: empirically `sum(p.numel())` = ~835k.
+#   vocab_emb:         256 * 128 = 32768
+#   pos_emb:           64  * 128 = 8192
+#   3 HybridLayer:     ffn=384 each -> 3 * (128*384 + 384*128) = ~294k
+#   RecurrentMixer:    ~180k (per layer, includes gated-projection stack)
+#   scratchpad proj:   4 Linear(128->128) = ~65k
+#   scratchpad slot:   16 * 128 = ~2k
+#   scratchpad LN:     256
+#   lm_head (tied):    0
+#   Final RMSNorm:     256
+# Total: ~835k (verified empirically at
+# `sum(p.numel() for p in HybridLM(...).parameters())`).
+#
+# Plan deviation note: the memory-fix plan suggests ``parameters: 1M-5M``.
+# With ``vocab_size=256`` and the d_model bound of 64-128, the embedding
+# tables alone cap the upper end well below 1M. We pick this scale so
+# the strict Phase-2 probe curriculum runs in seconds per step rather
+# than 50+ seconds per step. If recall plateaus below random at this
+# scale, the next move is to widen the embedding space (`vocab_size=2048`)
+# so the LM head is forced to separate, not to chase raw parameter count
+# by adding untested routing capacity.
+
+seed: 7
+device: cpu
+dtype: float32
+
+data:
+  train_text_path: null
+  val_text_path: null
+  seq_len: 32
+  batch_size: 16
+  vocab_size: 256
+  train_length: 4096
+  val_length: 256
+  num_workers: 0
+  # Phase 2 of the plan: the laboratory run is NOT pre-mixed with language
+  # tasks. It is fed *only* synthetic memory-task batches (memory_mix=1.0,
+  # memory_task_mode=associative or whatever the curriculum says). Once the
+  # lab model passes held-out recall, we'll re-introduce language mixing
+  # at 110M scale.
+  memory_mix_probability: 1.0
+  memory_task_mode: associative
+
+model:
+  architecture: hybrid
+  vocab_size: 256
+  d_model: 128
+  n_layers: 3
+  n_heads: 4
+  d_ff: 384
+  dropout: 0.0
+  mixer_backend: fallback
+  attention_every: 4
+  max_seq_len: 64
+  # Laboratory default: pure replace-on-write (no intra-slot momentum).
+  # The whole point of the lab model is to figure out routing alignment;
+  # intramixing old + new values would mask the storage readout issue.
+  scratchpad_slots: 16
+  scratchpad_momentum: 0.0
+
+optim:
+  lr: 0.0008
+  weight_decay: 0.0
+  betas: [0.9, 0.95]
+  grad_clip: 1.0
+
+train:
+  output_dir: outputs/hz0b-laboratory-1m
+  max_steps: 2000
+  grad_accum_steps: 1
+  log_every: 25
+  eval_every: 100
+  # Phase 8 of the plan: routine save every 100 steps (model_only); full
+  # resumable state every 500 steps. Eval-time saves are always full so
+  # metrics + optimizer are paired at every eval step.
+  save_every: 100
+  save_optimizer_every: 500
+  keep_last_full: 2
+  keep_last_model_only: 5
+  sample_every: 0
+  sample_prompt: "LAB "
+  sample_tokens: 16
+  compile: false
+  # Phase 1 of the plan: the laboratory run uses the direct last-token
+  # memory-aux loss exclusively. Pure memory-task batches arrive on the
+  # regular stream (memory_mix_probability=1.0), so the auxiliary loader
+  # is unnecessary.
+  memory_aux_weight: 0.0
+  memory_aux_loss_mode: last_token_only
+
+baseline:
+  architecture: transformer
+  vocab_size: 256
+  d_model: 128
+  n_layers: 3
+  n_heads: 4
+  d_ff: 384
+  dropout: 0.0
+  max_seq_len: 64

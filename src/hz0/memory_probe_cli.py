@@ -18,7 +18,9 @@ from hz0.eval import (
     evaluate_protected_memory_retrieval,
     evaluate_recall_by_distance,
 )
+from hz0.eval.retrieval import retrieval_vocab_bounds, sample_distinct_tokens
 from hz0.model import build_model
+from hz0.model.session_scratchpad import ScratchpadLogEntry
 from hz0.runtime import autocast_context
 from hz0.utils import resolve_dtype, set_seed
 
@@ -74,6 +76,97 @@ def _collect_metrics(
     return {key: float(value) for key, value in metrics.items()}
 
 
+@torch.no_grad()
+def _collect_routing_diagnostics(
+    model: torch.nn.Module,
+    device: torch.device,
+    seq_len: int,
+    vocab_size: int,
+    num_samples: int,
+    num_slots: int,
+) -> dict[str, float]:
+    """Phase-3 hard-route diagnostics from ``docs/hz0b-mem-fix-plan-2026-07-26.md``.
+
+    The probe model is set to ``eval`` mode. We feed the same synthetic
+    ``[key, value, filler*N, key]`` associative-recall prompt used by
+    ``evaluate_associative_recall`` and inspect the per-token scratchpad
+    routing log to compute:
+
+    * ``route_match_rate``: fraction of positions where
+      ``read_hard_idx[t] == write_hard_idx[t]``. A healthy slot-addressed
+      scratchpad that is actually using different slots for read vs write
+      should be near 1.0 (because the orthogonal slot_addresses init
+      spreads points widely), but a routing-collapse failure mode
+      collapses to a single slot for everything.
+    * ``slot_occupancy``: fraction of slots that received at least one
+      write during the probe span.
+    * ``slot_collision_rate``: fraction of slots that received more than
+      one write (read AND write, so collision spikes with repeated keys).
+    * ``soft_routing_entropy_mean``: mean entropy of the soft routing
+      distribution (high near orthogonal-init, low when the model has
+      committed to a single slot).
+    * ``dead_slot_fraction``: fraction of slots that received zero writes
+      (collapses with slot-collision when the model gives up on the
+      orthogonal structure and routes everything to one slot).
+
+    Returns ``{}`` (empty dict) when the model has no scratchpad
+    configured (``num_slots <= 0``). The caller treats that as "diagnostic
+    not applicable" and omits the routing block from the JSON output
+    rather than writing NaN values that propagate to ``nan - nan = nan``
+    in the delta dict.
+    """
+    if num_slots <= 0:
+        return {}
+    model.eval()
+    model_dtype = next(model.parameters()).dtype
+    filler_low, filler_high = retrieval_vocab_bounds(vocab_size)
+    filler_width = max(1, (seq_len - 4) // 2)
+
+    route_match_count = 0
+    total_compared = 0
+    write_slot_count = torch.zeros(num_slots, dtype=torch.float32)
+    read_slot_count = torch.zeros(num_slots, dtype=torch.float32)
+    soft_entropy_sum = 0.0
+    n_log_positions = 0
+
+    for _ in range(num_samples):
+        key, value = sample_distinct_tokens(device, vocab_size, 2)
+        filler = torch.randint(filler_low, filler_high, (1, filler_width), device=device)
+        prompt = torch.cat([key, value, filler, key], dim=1)[:, : max(2, seq_len - 1)]
+        with autocast_context(device, model_dtype):
+            _, logs = model.forward_with_optional_logs(prompt, return_scratchpad_logs=True)
+        for entry in logs:
+            write_idx = entry.write_hard_idx.detach().to(torch.long)
+            read_idx = entry.read_hard_idx.detach().to(torch.long)
+            route_match_count += int((write_idx == read_idx).sum().item())
+            total_compared += int(write_idx.numel())
+            write_slot_count.scatter_add_(
+                0, write_idx, torch.ones(write_idx.shape[0], dtype=torch.float32)
+            )
+            read_slot_count.scatter_add_(
+                0, read_idx, torch.ones(read_idx.shape[0], dtype=torch.float32)
+            )
+            soft = entry.read_weights.detach()
+            soft = torch.clamp(soft, min=1e-12)
+            entropy = -(soft * torch.log(soft)).sum(dim=-1)
+            soft_entropy_sum += float(entropy.sum().item())
+            n_log_positions += int(soft.shape[0])
+
+    write_slots_used = (write_slot_count > 0).sum().item()
+    read_slots_used = (read_slot_count > 0).sum().item()
+    write_collisions = (write_slot_count > 1).sum().item()
+    read_collisions = (read_slot_count > 1).sum().item()
+
+    return {
+        "route_match_rate": route_match_count / max(total_compared, 1),
+        "slot_occupancy": max(write_slots_used, read_slots_used) / max(num_slots, 1),
+        "slot_collision_rate": (write_collisions + read_collisions) / max(2 * num_slots, 1),
+        "soft_routing_entropy_mean": soft_entropy_sum / max(n_log_positions, 1),
+        "dead_slot_fraction": (write_slot_count == 0).sum().item() / max(num_slots, 1),
+        "diagnostic_samples": float(num_samples),
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=Path, required=True)
@@ -120,6 +213,16 @@ def main() -> None:
 
     metric_name, _ = _eval_for_mode(args.task_mode)
     before = _collect_metrics(model, device, seq_len, vocab_size, args.eval_samples, args.task_mode)
+    scratchpad = getattr(model, "scratchpad", None)
+    num_slots = int(getattr(scratchpad, "num_slots", 0)) if scratchpad is not None else 0
+    has_scratchpad = num_slots > 0
+    before_routing = (
+        _collect_routing_diagnostics(
+            model, device, seq_len, vocab_size, args.eval_samples, num_slots
+        )
+        if has_scratchpad
+        else {}
+    )
 
     model.train()
     train_start = time.perf_counter()
@@ -145,6 +248,13 @@ def main() -> None:
         optimizer.step()
 
     after = _collect_metrics(model, device, seq_len, vocab_size, args.eval_samples, args.task_mode)
+    after_routing = (
+        _collect_routing_diagnostics(
+            model, device, seq_len, vocab_size, args.eval_samples, num_slots
+        )
+        if has_scratchpad
+        else {}
+    )
     elapsed = time.perf_counter() - train_start
 
     result = {
@@ -162,6 +272,16 @@ def main() -> None:
         "delta": float(after.get(metric_name, 0.0) - before.get(metric_name, 0.0)),
         "final_last_token_loss": final_loss,
     }
+    if has_scratchpad:
+        result["routing_diagnostics"] = {
+            "before": before_routing,
+            "after": after_routing,
+            "delta": {
+                key: float(after_routing[key] - before_routing[key])
+                for key in before_routing.keys()
+                if key != "diagnostic_samples"
+            },
+        }
 
     text = json.dumps(result, indent=2)
     if args.output_path is not None:

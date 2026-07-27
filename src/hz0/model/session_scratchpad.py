@@ -15,6 +15,16 @@ implementation that satisfies those three contract points explicitly:
   Unselected slots pass through unchanged, so distractor (filler) tokens
   cannot disturb a binding whose slot they do not route to, even after tens
   of filler steps.
+
+This iteration of the module adds **per-token hard-route diagnostics**
+(see ``hz0b-mem-fix-plan-2026-07-26.md`` Phase 3): the straight-through hard
+routing index (``argmax(slot_addresses @ signal)``) is now surfaced on every
+``ScratchpadLogEntry`` as ``read_hard_idx`` and ``write_hard_idx`` (``int64``
+shape ``[batch]``). Probe runs then aggregate ``route_match_rate``,
+``slot_occupancy``, ``slot_collision_rate``, ``soft_routing_entropy_mean``,
+and ``dead_slot_fraction`` directly from the logs. This separates three
+previously-conflated failure modes: routing failed vs storage failed vs
+readout injection failed.
 """
 
 from __future__ import annotations
@@ -31,6 +41,8 @@ class ScratchpadLogEntry:
     read_weights: torch.Tensor
     write_weights: torch.Tensor
     state_norm: torch.Tensor
+    read_hard_idx: torch.Tensor
+    write_hard_idx: torch.Tensor
 
 
 class SessionScratchpad(nn.Module):
@@ -55,6 +67,10 @@ class SessionScratchpad(nn.Module):
       (the filler spans between a (key, value) binding and its query) almost
       never pick the binding's slot, so the binding survives the full
       filler span.
+    * Per-token ``read_hard_idx`` and ``write_hard_idx`` (``int64`` shape
+      ``[batch]``) are surfaced on every ``ScratchpadLogEntry`` so probe
+      runs can compute ``route_match_rate`` and slot-occupancy diagnostics
+      independent of LM-loss measurements.
     """
 
     def __init__(self, num_slots: int, dim: int, momentum: float = 0.0) -> None:
@@ -82,11 +98,17 @@ class SessionScratchpad(nn.Module):
     def reset(self, batch_size: int, device: torch.device, dtype: torch.dtype) -> torch.Tensor:
         return torch.zeros(batch_size, self.num_slots, self.dim, device=device, dtype=dtype)
 
-    def _route(self, signal: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    def _route(
+        self, signal: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Hard-route ``signal`` to the slot whose address matches best.
 
-        Returns the STE one-hot mask and the soft distribution (the latter
-        is useful for diagnostics).
+        Returns:
+            ste: ``[batch, num_slots]`` one-hot routing mask with STE for gradients.
+            hard_idx: ``[batch]`` ``int64`` argmax index. Used for diagnostics
+                (route_match_rate, slot_occupancy, dead_slot_fraction).
+            soft: ``[batch, num_slots]`` the softmax distribution (for
+                entropy diagnostics).
         """
         if signal.ndim != 2:
             raise ValueError("signal must be [batch, dim].")
@@ -98,19 +120,23 @@ class SessionScratchpad(nn.Module):
         hard = F.one_hot(hard_idx, num_classes=self.num_slots).to(scores.dtype)
         soft = scores.softmax(dim=-1)
         ste = hard + soft - soft.detach()
-        return ste, soft
+        # Hard routing index (separate from the STE mask) so the probe
+        # runner can aggregate slot identity across the sequence.
+        return ste, hard_idx, soft
 
-    def read(self, query: torch.Tensor, state: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    def read(self, query: torch.Tensor, state: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         if query.ndim != 2:
             raise ValueError("query must be [batch, dim].")
-        ste, soft = self._route(query)
+        ste, hard_idx, soft = self._route(query)
         readout = torch.sum(state * ste.unsqueeze(-1), dim=1)
-        return readout, soft
+        return readout, hard_idx, soft
 
-    def write(self, key: torch.Tensor, value: torch.Tensor, state: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    def write(
+        self, key: torch.Tensor, value: torch.Tensor, state: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         if key.ndim != 2 or value.ndim != 2:
             raise ValueError("key and value must be [batch, dim].")
-        ste, soft = self._route(key)
+        ste, hard_idx, soft = self._route(key)
         new_value = torch.tanh(value)
         # Selected slot: blend old and new by ``momentum``.
         #   momentum == 0.0 -> "next = new_value" (replace)
@@ -122,7 +148,7 @@ class SessionScratchpad(nn.Module):
         #                                   = `state + ste * (selected_blend - state)`
         merged = state * (1.0 - ste.unsqueeze(-1)) + ste.unsqueeze(-1) * selected_blend
         next_state = torch.clamp(merged, min=-1.0, max=1.0)
-        return next_state, soft
+        return next_state, hard_idx, soft
 
     def step(
         self,
@@ -133,13 +159,15 @@ class SessionScratchpad(nn.Module):
         *,
         log: bool = False,
     ) -> tuple[torch.Tensor, torch.Tensor, ScratchpadLogEntry | None]:
-        readout, read_weights = self.read(query, state)
-        next_state, write_weights = self.write(key, value, state)
+        readout, read_hard_idx, read_soft = self.read(query, state)
+        next_state, write_hard_idx, write_soft = self.write(key, value, state)
         if not log:
             return readout, next_state, None
         entry = ScratchpadLogEntry(
-            read_weights=read_weights,
-            write_weights=write_weights,
+            read_weights=read_soft,
+            write_weights=write_soft,
             state_norm=next_state.norm(dim=-1).mean(dim=-1),
+            read_hard_idx=read_hard_idx,
+            write_hard_idx=write_hard_idx,
         )
         return readout, next_state, entry
