@@ -4,16 +4,19 @@ Fair comparison: HZ-0A vs Transformer baseline.
 Metrics: tokens, wall-clock, FLOPs, validation loss.
 """
 
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
 import mlx.core as mx
 import mlx.nn as nn
 import mlx.optimizers as optim
 import time
 import json
-from pathlib import Path
 from typing import Tuple, List, Dict, Any
 
-from src.hz0.model_port.mlx_gdn2_lm import GDN2LanguageModel
-from src.hz0.validation.phase1a_transformer_baseline import TransformerLM
+from hz0.model_port.mlx_gdn2_lm import GDN2LanguageModel
+from hz0.validation.phase1a_transformer_baseline import TransformerLM
 
 
 class TrainingHarness:
