@@ -6,6 +6,8 @@ Quick runs of key ablations to identify bottlenecks.
 
 import mlx.core as mx
 import mlx.optimizers as optim
+import mlx.nn as nn
+from mlx.nn import losses
 import numpy as np
 from typing import List, Dict
 import time
@@ -21,7 +23,7 @@ from src.hz0.experiments.phase2_ablations import (
 def run_single_ablation(
     model_config: Dict,
     learning_rate: float,
-    tokens_target: int = 1_000_000,
+    tokens_target: int = 50_000,
 ) -> AblationResult:
     """Run one ablation experiment."""
     # Create model
@@ -34,7 +36,7 @@ def run_single_ablation(
     total_loss = 0
     start_time = time.time()
 
-    batch_size, seq_len = 1, 2048
+    batch_size, seq_len = 1, 128
     vocab_size = 32768
 
     while tokens_seen < tokens_target:
@@ -48,16 +50,12 @@ def run_single_ablation(
 
         def loss_fn(m):
             logits, _ = m(input_ids)
-            return mx.mean((logits - target_ids.astype(logits.dtype)) ** 2)
+            return mx.mean(losses.cross_entropy(logits, target_ids))
 
-        loss_val, grads = mx.value_and_grad(model, loss_fn)(model)
+        loss_val, grads = nn.value_and_grad(model, loss_fn)(model)
         total_loss += float(loss_val)
-
-        # Gradient clip
-        for key in grads:
-            grads[key] = mx.clip(grads[key], -1.0, 1.0)
-
         optimizer.update(model, grads)
+        mx.eval(loss_val)  # Force garbage collection
 
         tokens_seen += batch_size * seq_len
         step += 1
@@ -87,9 +85,9 @@ def run_ablation_suite() -> List[Dict]:
     for lr in [1.5e-4, 2.0e-4, 3.0e-4]:
         print(f"  LR {lr:.1e}...", end=" ", flush=True)
         result = run_single_ablation(
-            {"vocab_size": 32768, "model_dim": 768, "num_layers": 4, "num_heads": 4},
+            {"vocab_size": 32768, "model_dim": 512, "num_layers": 2, "num_heads": 4},
             learning_rate=lr,
-            tokens_target=500_000,
+            tokens_target=100_000,
         )
         print(f"Loss {result['loss']:.4f} | {result['throughput']:.0f} tok/s")
         results.append({"ablation": "lr_sweep", "param": lr, **result})
@@ -99,9 +97,9 @@ def run_ablation_suite() -> List[Dict]:
     for accum in [1, 2, 4]:
         print(f"  Accum {accum}...", end=" ", flush=True)
         result = run_single_ablation(
-            {"vocab_size": 32768, "model_dim": 768, "num_layers": 4, "num_heads": 4},
+            {"vocab_size": 32768, "model_dim": 512, "num_layers": 2, "num_heads": 4},
             learning_rate=2e-4,
-            tokens_target=500_000,
+            tokens_target=100_000,
         )
         print(f"Loss {result['loss']:.4f} | {result['throughput']:.0f} tok/s")
         results.append({"ablation": "batch_size", "param": accum, **result})

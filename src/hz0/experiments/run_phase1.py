@@ -1,130 +1,83 @@
 """
-Phase 1: Execute fair hybrid vs transformer comparison.
-
-Trains both models on same data, tracks metrics.
+Phase 1: Fair comparison baseline.
 """
 
 import mlx.core as mx
 import mlx.optimizers as optim
 import mlx.nn as nn
+from mlx.nn import losses
 import numpy as np
-from dataclasses import dataclass
-from typing import Tuple
 import time
 import json
 from pathlib import Path
 
-from src.hz0.model_port.mlx_gdn2_lm import create_hz_110m_mlx
-from src.hz0.experiments.phase1_comparison import ComparisonRunner, ComparisonConfig
+from src.hz0.model_port.mlx_gdn2_lm import create_hz_36m_mlx
 
 
-@dataclass
-class SyntheticDataset:
-    """Synthetic dataset for comparison."""
-
-    vocab_size: int = 32768
-    seq_len: int = 2048
-    num_batches: int = 10
-
-    def __iter__(self):
-        for _ in range(self.num_batches):
-            input_ids = mx.array(
-                np.random.randint(0, self.vocab_size, (1, self.seq_len), dtype=np.int32)
-            )
-            target_ids = mx.array(
-                np.random.randint(0, self.vocab_size, (1, self.seq_len), dtype=np.int32)
-            )
-            yield {"input_ids": input_ids, "target_ids": target_ids}
-
-
-class HybridComparisonModel(nn.Module):
-    """Wrapper for comparison."""
-
-    def __init__(self):
-        super().__init__()
-        self.model = create_hz_110m_mlx()
-
-    def __call__(self, x: mx.array) -> Tuple[mx.array, mx.array]:
-        return self.model(x, memory=None)
-
-
-def run_phase1_quick() -> dict:
-    """Quick Phase 1 comparison (5M token budget for testing)."""
-    config = ComparisonConfig(
-        model_name="hybrid_110m",
-        vocab_size=32768,
-        seq_len=2048,
-        batch_size=1,
-        num_tokens_target=5_000_000,  # Quick test: 5M tokens
-        checkpoint_every_tokens=1_000_000,
-        eval_every_tokens=1_000_000,
-        learning_rate=2e-4,
-    )
-
+def run_phase1_baseline():
+    """Run Phase 1 fair comparison baseline."""
     print("=" * 60)
-    print("PHASE 1: FAIR COMPARISON (Quick Run)")
+    print("PHASE 1: FAIR COMPARISON BASELINE")
     print("=" * 60)
-    print(f"Model: {config.model_name}")
-    print(f"Tokens: {config.num_tokens_target:,}")
-    print(f"Seq len: {config.seq_len}")
-    print(f"Learning rate: {config.learning_rate}")
+
+    # Config
+    model_name = "hybrid_36m"
+    vocab_size = 32768
+    seq_len = 256
+    batch_size = 1
+    num_tokens_target = 10_000
+    learning_rate = 2e-4
+
+    print(f"Model: {model_name}")
+    print(f"Tokens: {num_tokens_target:,}")
+    print(f"Seq len: {seq_len}")
+    print(f"Learning rate: {learning_rate}")
     print()
 
     # Create model
-    model = HybridComparisonModel()
-    runner = ComparisonRunner(config)
+    model = create_hz_36m_mlx()
+    optimizer = optim.Adam(learning_rate=learning_rate)
 
-    # Create synthetic data
-    train_data = SyntheticDataset(num_batches=100)
-    val_data = SyntheticDataset(num_batches=10)
-
-    # Run comparison
     print("Starting training...")
     start = time.time()
-
-    optimizer = optim.Adam(learning_rate=config.learning_rate)
     tokens_seen = 0
     step = 0
 
-    for batch in train_data:
-        input_ids = batch["input_ids"]
-        target_ids = batch["target_ids"]
+    while tokens_seen < num_tokens_target:
+        # Generate batch
+        input_ids = mx.array(
+            np.random.randint(0, vocab_size, (batch_size, seq_len), dtype=np.int32)
+        )
+        target_ids = mx.array(
+            np.random.randint(0, vocab_size, (batch_size, seq_len), dtype=np.int32)
+        )
 
         def loss_fn(m):
             logits, _ = m(input_ids)
-            # MSE loss (simplified)
-            loss = mx.mean((logits - target_ids.astype(logits.dtype)) ** 2)
+            loss = mx.mean(losses.cross_entropy(logits, target_ids))
             return loss
 
-        loss_val, grads = mx.value_and_grad(model, loss_fn)(model)
-
-        # Clip gradients
-        max_grad = 1.0
-        for key in grads:
-            grads[key] = mx.clip(grads[key], -max_grad, max_grad)
-
+        # Train step
+        loss_val, grads = nn.value_and_grad(model, loss_fn)(model)
         optimizer.update(model, grads)
+        mx.eval(loss_val)
 
-        tokens_seen += input_ids.shape[0] * input_ids.shape[1]
+        tokens_seen += batch_size * seq_len
         step += 1
 
-        if step % 10 == 0:
+        if step % 5 == 0:
             elapsed = time.time() - start
             throughput = tokens_seen / elapsed
             print(
                 f"Step {step:4d} | Loss {float(loss_val):8.4f} | "
                 f"Tokens {tokens_seen:,} | "
-                f"Throughput {throughput:.0f} tok/s | "
-                f"Time {elapsed:.1f}s"
+                f"Throughput {throughput:.0f} tok/s"
             )
-
-        if tokens_seen >= config.num_tokens_target:
-            break
 
     elapsed = time.time() - start
 
     results = {
-        "model": config.model_name,
+        "model": model_name,
         "total_tokens": tokens_seen,
         "total_steps": step,
         "wall_clock_sec": elapsed,
@@ -138,25 +91,19 @@ def run_phase1_quick() -> dict:
     print("PHASE 1 RESULTS")
     print("=" * 60)
     for key, val in results.items():
-        if "throughput" in key or "time" in key:
+        if isinstance(val, str):
+            print(f"{key:20s}: {val}")
+        elif "throughput" in key or "time" in key:
             print(f"{key:20s}: {val:12.2f}")
         elif "tokens" in key or "steps" in key:
             print(f"{key:20s}: {val:12,d}")
         else:
             print(f"{key:20s}: {val:12.4f}")
 
-    return results
-
-
-def compare_models_quick() -> dict:
-    """Quick comparison: hybrid 110M only (baseline)."""
-    results = run_phase1_quick()
-
-    # Save results
-    output_path = Path("/tmp/phase1_comparison.json")
+    # Save
+    output_path = Path("/tmp/phase1_results.json")
     with open(output_path, "w") as f:
         json.dump(results, f, indent=2)
-
     print()
     print(f"Results saved to: {output_path}")
 
@@ -164,4 +111,4 @@ def compare_models_quick() -> dict:
 
 
 if __name__ == "__main__":
-    results = compare_models_quick()
+    results = run_phase1_baseline()
