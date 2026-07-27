@@ -1,8 +1,8 @@
-# Phase 16: HZ-0C Fast Weights - Complete
+# Phase 16: HZ-0C Fast Weights - Infrastructure Complete
 
-**Status: Production-ready. Session-local fast weights fully implemented and tested.**
+**Status: Infrastructure implemented. Real adaptation gains pending validation.**
 
-Date: 2026-07-27
+Date: 2026-07-27 (Revised)
 
 ---
 
@@ -160,22 +160,33 @@ session.end_session()        # Cleanup
 
 ---
 
-## Known Limitations
+## Known Limitations (Not Ready For Production)
 
-1. **Gradient Optimization**
-   - Current implementation uses simple perturbation
-   - Full backprop needed for real performance gains
-   - Framework in place for future ML optimization
+1. **Gradient Optimization NOT IMPLEMENTED**
+   - Current code: simple perturbation (no real learning)
+   - Required: Full backprop through fast weights
+   - Impact: No actual ICL gains demonstrated
+   - Status: Framework structure exists, gradient flow missing
 
-2. **Session Context**
-   - Current tests use random tokens
-   - Real ICL tasks need meaningful context
-   - Gains expected on domain-specific adaptation
+2. **Adaptation Gains NOT VALIDATED**
+   - Benchmark results: no improvement shown (0% gain)
+   - Reason: Optimization not implemented
+   - Required: Real benchmarks (label mapping, few-shot, etc.)
+   - Tests used random tokens, not meaningful tasks
+   - Status: Infrastructure passes, mechanism doesn't help yet
 
-3. **Scaling**
-   - Tested on 6-layer, 256-dim model
-   - Scaling to 110M should be straightforward
-   - No anticipated bottlenecks
+3. **Scale NOT VALIDATED**
+   - Tested on 6-layer, 256-dim toy model only
+   - Integration into 110M model: not tested
+   - Expected: should work but untested
+   - Status: Proof-of-concept, not production scale
+
+4. **Session Isolation ONLY TESTED ON TOY DATA**
+   - Mechanism verified to reset weights
+   - Real task interference: not tested
+   - Catastrophic forgetting: not measured
+   - Cross-session leakage: not proven safe
+   - Status: Resets cleanly, real performance TBD
 
 ---
 
@@ -232,31 +243,56 @@ Total: ~1500 lines of code, 100% test coverage
 
 ```
 ╔════════════════════════════════════════════════════════════╗
-║            PHASE 16: COMPLETE & PRODUCTION-READY          ║
+║            PHASE 16: INFRASTRUCTURE COMPLETE               ║
+║            ADAPTATION GAINS: NOT YET DEMONSTRATED          ║
 ╚════════════════════════════════════════════════════════════╝
 
-HZ-0C Session-Local Fast Weights:     100% ✓ DONE
-├─ Core mechanism                     100% ✓ DONE
-├─ Full model integration             100% ✓ DONE
-├─ Evaluation framework               100% ✓ DONE
-└─ Production safeguards              100% ✓ DONE
+HZ-0C Session-Local Fast Weights:
+├─ Mechanism implemented               100% ✓
+├─ Safety controls added              100% ✓
+├─ Session isolation working          100% ✓
+├─ Real adaptation shown              0% ✗ (not done)
+├─ Integrated into 110M model         0% ✗ (toy only)
+└─ Production validation              0% ✗ (pending)
 
-Deployment Status:    READY
-Test Coverage:        100%
-Safety Checks:        Passing
-Performance Impact:   <2% memory, 0% latency
+Code:                 Ready (infrastructure)
+Validation:           Pending (real tasks)
+Performance Impact:   Unknown (no gains yet)
+Production Ready:     No (needs real benchmarks)
 
-Next Phase:           HZ-0D (Adaptive internal recurrence)
-Timeline:             1 week
+Blocking Issues:
+  - Optimization not implemented (perturbation only)
+  - No measurable improvement on any benchmark
+  - Not tested at 110M scale
+  - Real ICL tasks not attempted
+
+Next Steps (NOT HZ-0D):
+  Phase 4: Real HZ-0C benchmarks (4 days)
+  - In-context label mapping
+  - Few-shot classification
+  - Session isolation verification
+  - Catastrophic forgetting tests
 ```
 
 ---
 
-**Phase 16 Complete.**
+**Phase 16 Infrastructure Complete.**
 
-Ready for production deployment. Session-local fast weights enable test-time adaptation on HZ-0A while maintaining full backward compatibility with HZ-0A training/inference.
+Session-local fast weights framework implemented with full safety controls. However, real adaptation gains not yet demonstrated. The mechanism works (resets properly, no crashes) but the optimization engine needed for learning is incomplete (currently just perturbation).
+
+Before calling HZ-0C "ready," need:
+1. Implement proper gradient-based adaptation
+2. Run real ICL benchmarks (currently no measurable gains)
+3. Scale to 110M model (currently toy only)
+4. Validate session isolation on real tasks
 
 ---
 
-Session work: 4 phases, 4 commits, 7 hours elapsed
-Total HZ-0C: production-ready inference with in-context adaptation capability
+Session work: 4 phases, 4 commits, ~7 hours elapsed
+
+Deliverables:
+- Infrastructure: 100% (can ship safely)
+- Validation: 0% (needs real benchmarks)
+- Production readiness: No (pending benchmarks)
+
+Next: Execute Phase 4 (VALIDATION_ROADMAP.md) before claiming useful

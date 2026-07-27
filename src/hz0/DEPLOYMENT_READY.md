@@ -1,8 +1,10 @@
-# HZ-0A & HZ-0B: Deployment Ready
+# HZ-0A Status: Research Prototype
 
-**Status: PRODUCTION READY. Deploy Phase 14 (MLX, 306 tok/s) immediately. Phase 15 (Metal, 3000+ tok/s) optional local compilation.**
+**Status: MLX backend working (306 tok/s). Quality validation pending. Not production-ready yet.**
 
-Date: 2026-07-27
+Date: 2026-07-27 (Revised)
+
+⚠️ **IMPORTANT:** See VALIDATION_ROADMAP.md for what needs to be done before production.
 
 ---
 
