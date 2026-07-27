@@ -38,9 +38,25 @@ def train_model(model, batch, targets, optimizer, num_steps: int, model_name: st
             return loss_fn(logits, targets)
 
         loss_val = compute_loss(model)
+
+        # Skip step if NaN
+        if mx.any(mx.isnan(loss_val)):
+            print(f"  Step {step+1:3d}: NaN detected, skipping update")
+            losses.append(losses[-1] if losses else 1e10)
+            continue
+
         losses.append(float(loss_val))
 
         loss_grad = mx.grad(compute_loss)(model)
+
+        # Gradient clipping for stability
+        for key in loss_grad:
+            if isinstance(loss_grad[key], dict):
+                for subkey in loss_grad[key]:
+                    grad_norm = mx.linalg.norm(loss_grad[key][subkey])
+                    if grad_norm > 1.0:
+                        loss_grad[key][subkey] = loss_grad[key][subkey] * (1.0 / grad_norm)
+
         optimizer.update(model, loss_grad)
         mx.eval(model)
 

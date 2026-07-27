@@ -94,12 +94,12 @@ class TransformerBlock(nn.Module):
         k = mx.squeeze(k, axis=2)
         v = mx.squeeze(v, axis=2)
 
-        # Scaled dot-product attention
+        # Scaled dot-product attention (stable numerics)
         scores = mx.matmul(
             mx.transpose(q, axes=(0, 2, 1, 3)),  # [B, H, T, Dk]
             mx.transpose(k, axes=(0, 2, 3, 1))   # [B, H, Dk, T]
         )
-        scores = scores / mx.sqrt(mx.array(self.head_dim))
+        scores = scores * (1.0 / (self.head_dim ** 0.5))  # Avoid division
 
         # Causal mask
         mask = mx.tril(mx.ones((T, T))) - 1
