@@ -155,8 +155,9 @@ class TrainingHarness:
 def load_wikitext_batches(
     split: str = "train", max_docs: int = 1000, batch_size: int = 2, seq_len: int = 256
 ) -> List[Tuple]:
-    """Load WikiText batches."""
+    """Load WikiText batches with 24K tokenizer."""
     import json
+    from pathlib import Path
 
     data_dir = Path("data/processed/wikitext")
     path = data_dir / f"{split}_sample_1k.jsonl"
@@ -166,10 +167,21 @@ def load_wikitext_batches(
         # Fallback: synthetic
         batches = []
         for _ in range(10):
-            tokens = mx.random.randint(0, 256, (batch_size, seq_len))
-            targets = mx.random.randint(0, 256, (batch_size, seq_len))
+            tokens = mx.random.randint(0, 24000, (batch_size, seq_len))
+            targets = mx.random.randint(0, 24000, (batch_size, seq_len))
             batches.append((tokens, targets))
         return batches
+
+    # Load 24K tokenizer
+    print("Loading 24K BPE tokenizer...")
+    try:
+        from tokenizers import Tokenizer
+        tokenizer = Tokenizer.from_file("data/tokenizer/hz_24k.json")
+        vocab_size = 24000
+    except Exception as e:
+        print(f"✗ Tokenizer load failed: {e}. Using char-level.")
+        vocab_size = 256
+        tokenizer = None
 
     # Load real data
     docs = []
@@ -183,7 +195,11 @@ def load_wikitext_batches(
 
     # Tokenize
     text = "\n\n".join(docs)
-    tokens = [ord(c) % 256 for c in text]
+    if tokenizer:
+        encoding = tokenizer.encode(text)
+        tokens = encoding.ids
+    else:
+        tokens = [ord(c) % vocab_size for c in text]
 
     # Batch
     batches = []
@@ -204,7 +220,7 @@ def load_wikitext_batches(
         if len(batch_tokens) == batch_size:
             batches.append((mx.array(batch_tokens), mx.array(batch_targets)))
 
-    print(f"✓ Loaded {len(batches)} batches from {len(docs)} docs")
+    print(f"✓ Loaded {len(batches)} batches from {len(docs)} docs (vocab={vocab_size})")
     return batches
 
 
@@ -232,13 +248,13 @@ def main():
     for name, dim, layers, heads in configs:
         print(f"\n[3/4] Training {name}...")
         hz_model = GDN2LanguageModel(
-            vocab_size=256,
+            vocab_size=24000,
             model_dim=dim,
             num_layers=layers,
             num_heads=heads,
         )
         tf_model = TransformerLM(
-            vocab_size=256,
+            vocab_size=24000,
             model_dim=dim,
             num_layers=layers,
             num_heads=heads,
