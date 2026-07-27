@@ -52,6 +52,14 @@ class MemoryCurriculumStage:
             return self._multiple_keys(batch_size, held_out)
         elif self.name == "random_values":
             return self._random_values(batch_size)
+        elif self.name == "distractors":
+            return self._with_distractors(batch_size)
+        elif self.name == "overwrite":
+            return self._with_overwrite(batch_size)
+        elif self.name == "protected":
+            return self._protected_memory(batch_size)
+        elif self.name == "distance":
+            return self._distance_scaling(batch_size)
         else:
             raise ValueError(f"Unknown stage: {self.name}")
 
@@ -96,11 +104,55 @@ class MemoryCurriculumStage:
     def _random_values(self, batch_size: int) -> Tuple[mx.array, mx.array]:
         """Stage 3: Random values, fixed keys."""
         seq = mx.array(np.random.randint(0, self.vocab_size, (batch_size, self.seq_len)), dtype=mx.int32)
-        # Overwrite first position with fixed key
         seq[:, 0] = 10
         seq[:, self.seq_len // 2] = 10
-        # Target: output random value
         target = mx.array(np.random.randint(0, self.vocab_size, (batch_size, self.seq_len)), dtype=mx.int32)
+        return seq, target
+
+    def _with_distractors(self, batch_size: int) -> Tuple[mx.array, mx.array]:
+        """Stage 4: Add interfering writes before read."""
+        seq = mx.array(np.random.randint(0, self.vocab_size, (batch_size, self.seq_len)), dtype=mx.int32)
+        seq[:, 0] = 10  # Write key=10, value=50
+        # Distractors at 1/4, 1/2
+        seq[:, self.seq_len // 4] = 11  # Interfering write
+        seq[:, self.seq_len // 2] = 10  # Read key=10 (should still work)
+        target = mx.ones_like(seq) * 50
+        target[:, :self.seq_len // 2] = 0
+        return seq, target
+
+    def _with_overwrite(self, batch_size: int) -> Tuple[mx.array, mx.array]:
+        """Stage 5: Sequential overwrites."""
+        seq = mx.array(np.random.randint(0, self.vocab_size, (batch_size, self.seq_len)), dtype=mx.int32)
+        seq[:, 0] = 10  # Write key=10→50
+        seq[:, self.seq_len // 4] = 10  # Overwrite key=10→60
+        seq[:, self.seq_len // 2] = 10  # Read key=10 (should get 60)
+        target = mx.ones_like(seq) * 60
+        target[:, :self.seq_len // 2] = 0
+        return seq, target
+
+    def _protected_memory(self, batch_size: int) -> Tuple[mx.array, mx.array]:
+        """Stage 6: Protect unrelated memory during overwrites."""
+        seq = mx.array(np.random.randint(0, self.vocab_size, (batch_size, self.seq_len)), dtype=mx.int32)
+        seq[:, 0] = 10  # Write key=10→50
+        seq[:, self.seq_len // 8] = 11  # Write key=11→51 (different slot)
+        seq[:, self.seq_len // 4] = 10  # Overwrite key=10→60
+        seq[:, self.seq_len // 2 - 1] = 11  # Read key=11 (should still be 51)
+        seq[:, self.seq_len // 2] = 10  # Read key=10 (should be 60)
+        target = mx.zeros_like(seq)
+        target[:, self.seq_len // 2 - 1] = 51
+        target[:, self.seq_len // 2] = 60
+        return seq, target
+
+    def _distance_scaling(self, batch_size: int) -> Tuple[mx.array, mx.array]:
+        """Stage 7: Recall degrades gracefully with distance."""
+        seq = mx.array(np.random.randint(0, self.vocab_size, (batch_size, self.seq_len)), dtype=mx.int32)
+        seq[:, 0] = 10  # Write at t=0
+        # Read at different distances: t/4, t/2, 3t/4
+        seq[:, self.seq_len // 4] = 10
+        seq[:, self.seq_len // 2] = 10
+        seq[:, 3 * self.seq_len // 4] = 10
+        target = mx.ones_like(seq) * 50
+        target[:, :self.seq_len // 4] = 0
         return seq, target
 
 
@@ -200,11 +252,15 @@ def run_tiny_model_curriculum():
     print(f"Model: {num_params / 1e6:.1f}M params")
     print()
 
-    # Curriculum stages
+    # Curriculum stages (8 total per HZ-0B plan)
     stages = [
         MemoryCurriculumStage("fixed_key_value", num_training_examples=50),
         MemoryCurriculumStage("multiple_keys", num_training_examples=100),
         MemoryCurriculumStage("random_values", num_training_examples=100),
+        MemoryCurriculumStage("distractors", num_training_examples=100),
+        MemoryCurriculumStage("overwrite", num_training_examples=100),
+        MemoryCurriculumStage("protected", num_training_examples=100),
+        MemoryCurriculumStage("distance", num_training_examples=100),
     ]
 
     results = []

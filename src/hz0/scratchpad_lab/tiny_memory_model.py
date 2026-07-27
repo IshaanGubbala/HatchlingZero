@@ -70,6 +70,12 @@ class TinyMemoryModel(nn.Module):
         """Initialize scratchpad state."""
         return mx.zeros((batch_size, self.num_slots, self.slot_dim))
 
+    @staticmethod
+    def get_oracle_slot(key: mx.array, num_slots: int) -> int:
+        """Deterministic slot via hash(key_id) % num_slots."""
+        key_id = int(key[0])
+        return key_id % num_slots
+
     def _forward_layer(self, x: mx.array, layer_idx: int) -> mx.array:
         """Forward through one layer (linear)."""
         layer = self.layers[layer_idx]
@@ -174,6 +180,55 @@ class TinyMemoryModel(nn.Module):
         logits = mx.stack(logits_list, axis=1)  # [B, T, vocab]
 
         return logits, state, diagnostics
+
+
+    def forward_oracle_routing(
+        self,
+        input_ids: mx.array,
+        state: Optional[mx.array] = None,
+    ) -> Tuple[mx.array, mx.array, Dict]:
+        """Oracle routing variant: deterministic slot assignment."""
+        batch_size, seq_len = input_ids.shape
+        if state is None:
+            state = self._get_initial_state(batch_size)
+
+        x = self.token_embed(input_ids)
+        for i in range(self.num_layers):
+            x = self._forward_layer(x, i)
+
+        logits_list = []
+        for t in range(seq_len):
+            x_t = x[:, t, :]
+            key_t = self.key_proj(x_t)
+            value_t = self.value_proj(x_t)
+            write_gate = mx.sigmoid(self.write_gate_proj(x_t))
+            erase_gate = mx.sigmoid(self.erase_gate_proj(x_t))
+
+            # Oracle routing: deterministic slot
+            write_slot = self.get_oracle_slot(key_t, self.num_slots)
+            read_slot = write_slot
+
+            # Write
+            for b in range(batch_size):
+                state_b = state[b]
+                state_b[write_slot] = (
+                    (1 - erase_gate[b]) * state_b[write_slot] +
+                    write_gate[b] * value_t[b]
+                )
+
+            # Read
+            retrieved = mx.zeros_like(value_t)
+            for b in range(batch_size):
+                retrieved[b] = state[b][read_slot]
+
+            # Output
+            readout = self.readout_proj(retrieved)
+            residual = x_t + readout
+            logit_t = self.output_head(residual)
+            logits_list.append(logit_t)
+
+        logits = mx.stack(logits_list, axis=1)
+        return logits, state, {"routing": "oracle", "write_slot": write_slot, "read_slot": read_slot}
 
 
 def create_tiny_memory_model(
