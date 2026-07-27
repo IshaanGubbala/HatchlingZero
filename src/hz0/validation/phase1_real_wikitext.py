@@ -15,25 +15,52 @@ from src.hz0.validation.phase1a_transformer_baseline import TransformerLM
 
 
 def load_wikitext103():
-    """Load WikiText-103 dataset.
+    """Load WikiText-103 dataset from local files or Hub.
 
     Returns (train_text, val_text)
     """
+    import json
+    from pathlib import Path
+
+    # Try local files first
+    local_path = Path("data/raw/wikitext")
+    if (local_path / "train.jsonl").exists():
+        print("Loading WikiText-103 from local files...")
+        train_text = []
+        val_text = []
+
+        with open(local_path / "train.jsonl", "r") as f:
+            for line in f:
+                record = json.loads(line)
+                train_text.append(record["text"])
+
+        with open(local_path / "validation.jsonl", "r") as f:
+            for line in f:
+                record = json.loads(line)
+                val_text.append(record["text"])
+
+        train_text = "\n\n".join(train_text)
+        val_text = "\n\n".join(val_text)
+
+        print(f"✓ Loaded {len(train_text) // 1000000:.1f}M train, {len(val_text) // 1000:.1f}K val characters")
+        return train_text, val_text
+
+    # Fallback to datasets package
     try:
         from datasets import load_dataset
 
-        print("Downloading WikiText-103...")
+        print("Downloading WikiText-103 from Hub...")
         dataset = load_dataset("wikitext", "wikitext-103", split="train")
         train_text = "\n\n".join([doc for doc in dataset["text"] if len(doc.strip()) > 0])
 
         dataset_val = load_dataset("wikitext", "wikitext-103", split="validation")
         val_text = "\n\n".join([doc for doc in dataset_val["text"] if len(doc.strip()) > 0])
 
-        print(f"✓ Loaded {len(train_text) // 1000:.1f}K train, {len(val_text) // 1000:.1f}K val characters")
+        print(f"✓ Loaded {len(train_text) // 1000000:.1f}M train, {len(val_text) // 1000:.1f}K val characters")
         return train_text, val_text
 
-    except ImportError:
-        print("WikiText-103 requires: pip install datasets")
+    except (ImportError, Exception) as e:
+        print(f"WikiText-103 unavailable: {e}")
         print("Using smaller synthetic corpus instead...")
         return None, None
 

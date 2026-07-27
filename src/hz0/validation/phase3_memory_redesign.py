@@ -98,15 +98,13 @@ class ImprovedScratchpadMemory(nn.Module):
         write_gates = mx.sigmoid(self.write_gate_proj(key))  # [B, num_slots]
         erase_gates = mx.sigmoid(self.erase_gate_proj(key))  # [B, num_slots]
 
-        # Erase: state *= (1 - erase_gates * 0.5)
-        # Balanced erase: clear 50% of old value
+        # Strong erase: clear target slots completely
         erase_effect = mx.expand_dims(erase_gates, axis=2)  # [B, num_slots, 1]
-        memory_state = memory_state * (1.0 - erase_effect * 0.5)  # Balanced erase
+        memory_state = memory_state * (1.0 - erase_effect)  # Full erase (not scaled)
 
-        # Write: state += write_gates * value * scale
-        # Moderate write for overwrite capability
+        # Write: state += write_gates * value (no scale, natural magnitude)
         write_effect = mx.expand_dims(write_gates, axis=2) * mx.expand_dims(v, axis=1)  # [B, num_slots, slot_dim]
-        memory_state = memory_state + write_effect * 0.5  # Moderate write accumulation
+        memory_state = memory_state + write_effect  # Full write accumulation
 
         # Stabilize
         memory_state = mx.clip(memory_state, -10.0, 10.0)
