@@ -77,3 +77,5 @@ These are the first A5 artifacts being added now.
 The source-manifest audit now uses an inverted normalized-five-token-shingle index to generate near-duplicate candidates, followed by exact Jaccard verification. This preserves the near-duplicate and cross-split contamination checks while avoiding the previous all-pairs comparison on large manifests.
 
 `scripts/hz0a_prepare_wikitext.py` streams archived Wikitext-103 JSONL, extracts the `text` field, preserves train/validation/test boundaries, and emits normalized text plus source/content hashes. This avoids packing JSON serialization and provides a reproducible external-corpus input for the 100M-token gate.
+
+`scripts/hz0a_count_tokens_streaming.py` counts tokenizer output in bounded batches, avoiding a full-corpus token array and making the stage budget measurable on large corpora.
