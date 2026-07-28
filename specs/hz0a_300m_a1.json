@@ -1,0 +1,73 @@
+{
+  "name": "hz0a_300m",
+  "version": "a1.v1",
+  "target_params": 301178112,
+  "target_params_millions": 301.178112,
+  "vocab_size": 24576,
+  "context_length_train": 1024,
+  "context_length_validation": [
+    1024,
+    2048,
+    4096
+  ],
+  "d_model": 768,
+  "num_layers": 31,
+  "num_heads": 12,
+  "head_dim_qk": 64,
+  "head_dim_v": 64,
+  "d_ff": 2304,
+  "attention_layer_indices": [
+    4,
+    9,
+    14,
+    19,
+    24,
+    29
+  ],
+  "recurrent_layer_count": 25,
+  "attention_layer_count": 6,
+  "attention_rule": "0-indexed layers listed in attention_layer_indices are causal attention blocks; all others are GDN-2 recurrent blocks",
+  "normalization": "RMSNorm pre-norm on mixer/attention and MLP sublayers, final RMSNorm before tied LM head",
+  "residual_order": "pre-norm -> mixer/attention -> residual add -> pre-norm -> SwiGLU MLP -> residual add",
+  "state_shape": [
+    "batch",
+    12,
+    64,
+    64
+  ],
+  "state_layout": "per recurrent layer state tensor is [batch, heads, d_v, d_k]",
+  "state_init": "zeros",
+  "gates": {
+    "decay": "per-head per-key-channel gate",
+    "erase": "per-head per-key-channel gate",
+    "write": "per-head per-value-channel gate"
+  },
+  "precision_policy": {
+    "reference": "fp32",
+    "training_target": "bf16 activations with fp32 master weights, optimizer state, reductions, and gradient accumulation",
+    "state_accumulation": "fp32 for reference and early PMetal correctness phases"
+  },
+  "initialization": {
+    "linear_weights": "mean 0 truncated normal with std 0.02",
+    "embedding": "mean 0 truncated normal with std 0.02",
+    "output_head": "tied to token embedding",
+    "gate_biases": {
+      "decay": 4.59512,
+      "erase": -4.59512,
+      "write": -4.59512
+    }
+  },
+  "tokenizer_policy": {
+    "status": "to be rebuilt in A4",
+    "current_contract": "model architecture assumes a rebuilt tokenizer with vocab_size fixed at 24576"
+  },
+  "lm_head": {
+    "tied_embeddings": true,
+    "bias": false
+  },
+  "backend_targets": {
+    "reference": "NumPy or plain MLX",
+    "training": "PMetal",
+    "inference": "fused Metal after correctness is established"
+  }
+}
