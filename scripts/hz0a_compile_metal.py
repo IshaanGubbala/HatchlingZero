@@ -3,13 +3,18 @@ import argparse
 import hashlib
 import json
 import subprocess
+import tempfile
 from pathlib import Path
 
 
 def compile_kernel(source: Path, output: Path, sdk: str = "macosx") -> dict:
     metal = subprocess.run(["xcrun", "-sdk", sdk, "-f", "metal"], check=True, capture_output=True, text=True).stdout.strip()
-    subprocess.run([metal, "-c", str(source), "-o", str(output)], check=True, capture_output=True, text=True)
-    return {"source": str(source), "output": str(output), "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(), "air_sha256": hashlib.sha256(output.read_bytes()).hexdigest(), "compiled": True}
+    with tempfile.TemporaryDirectory() as temporary:
+        air = Path(temporary) / "kernel.air"
+        subprocess.run([metal, "-c", str(source), "-o", str(air)], check=True, capture_output=True, text=True)
+        metallib = subprocess.run(["xcrun", "-sdk", sdk, "-f", "metallib"], check=True, capture_output=True, text=True).stdout.strip()
+        subprocess.run([metallib, str(air), "-o", str(output)], check=True, capture_output=True, text=True)
+    return {"source": str(source), "output": str(output), "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(), "metallib_sha256": hashlib.sha256(output.read_bytes()).hexdigest(), "compiled": True}
 
 
 def main() -> None:
