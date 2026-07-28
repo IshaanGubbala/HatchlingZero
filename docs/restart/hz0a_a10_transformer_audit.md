@@ -36,6 +36,10 @@ The parameter-count tool reports `301,179,928` parameters versus the HZ-0A targe
 - equal-token pretraining comparison
 - quality, memory, throughput, prefill, or decode results
 
+The full HZ-0A reference topology now has `scripts/hz0a_full_model_smoke.py`, which reports the locked parameter count, recurrent state shapes, real finite-logit status, elapsed time, and resident-memory high-water mark. The checked-in regression uses a meta-device shape smoke; real full-weight execution remains a separate runtime measurement.
+
+Verified real CPU smoke on the locked configuration at batch `1`, sequence length `1`: `301,178,112` parameters, finite logits, `0.4562` seconds, and `1,405,337,600` maximum resident bytes. This is forward correctness/allocation evidence, not a training result.
+
 ## A10 Assessment
 
 A10 is in progress. The architecture/count/reference sub-gate is satisfied; shared full-scale training protocol and comparison results remain pending.
