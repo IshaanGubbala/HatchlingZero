@@ -17,6 +17,7 @@ from restart.hz0a_pmetal.python.pmetal_reference import (  # noqa: E402
     adamw_step,
     gdn2_forward,
     gdn2_backward,
+    gdn2_backward_chunked,
     tiny_model_forward,
 )
 
@@ -84,6 +85,27 @@ def test_pmetal_style_backward_matches_a3_autodiff_contract() -> None:
     )
     for name, tensor in (("q", q), ("k", k), ("v", v), ("decay_logits", decay), ("erase_logits", erase), ("write_logits", write), ("initial_state", initial)):
         np.testing.assert_allclose(actual.gradients[name], tensor.grad.detach().numpy(), rtol=1e-8, atol=1e-8)
+
+
+def test_pmetal_chunked_backward_matches_full_backward_at_uneven_boundary() -> None:
+    rng = np.random.default_rng(21)
+    inputs = Gdn2ForwardInputs(
+        q=rng.normal(size=(1, 7, 2, 3)),
+        k=rng.normal(size=(1, 7, 2, 3)),
+        v=rng.normal(size=(1, 7, 2, 2)),
+        decay_logits=rng.normal(size=(1, 7, 2, 3)),
+        erase_logits=rng.normal(size=(1, 7, 2, 3)),
+        write_logits=rng.normal(size=(1, 7, 2, 2)),
+        initial_state=rng.normal(size=(1, 2, 2, 3)),
+    )
+    forward = gdn2_forward(inputs)
+    grad_outputs = rng.normal(size=forward.outputs.shape)
+    grad_final_state = rng.normal(size=forward.final_state.shape)
+    full = gdn2_backward(grad_outputs, grad_final_state, forward.backward_cache)
+    chunked = gdn2_backward_chunked(inputs, grad_outputs, grad_final_state, chunk_size=3)
+
+    for name in full.gradients:
+        np.testing.assert_allclose(chunked.gradients[name], full.gradients[name], rtol=1e-10, atol=1e-10)
 
 
 def test_pmetal_style_recurrent_block_matches_reference_block() -> None:

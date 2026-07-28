@@ -116,6 +116,50 @@ def gdn2_backward(
     return Gdn2BackwardResult(gradients=gradients)
 
 
+def gdn2_backward_chunked(
+    inputs: Gdn2ForwardInputs,
+    grad_outputs: np.ndarray,
+    grad_final_state: np.ndarray,
+    *,
+    chunk_size: int,
+) -> Gdn2BackwardResult:
+    """Checkpoint states per chunk, then reverse chunks with state cotangents."""
+    if chunk_size <= 0:
+        raise ValueError("chunk_size must be positive")
+    caches: list[Gdn2ForwardCache] = []
+    state = inputs.initial_state.copy()
+    for start in range(0, inputs.q.shape[1], chunk_size):
+        end = min(start + chunk_size, inputs.q.shape[1])
+        result = gdn2_forward(Gdn2ForwardInputs(
+            q=inputs.q[:, start:end],
+            k=inputs.k[:, start:end],
+            v=inputs.v[:, start:end],
+            decay_logits=inputs.decay_logits[:, start:end],
+            erase_logits=inputs.erase_logits[:, start:end],
+            write_logits=inputs.write_logits[:, start:end],
+            initial_state=state,
+        ))
+        caches.append(result.backward_cache)
+        state = result.final_state
+
+    chunk_gradients: list[dict[str, np.ndarray]] = []
+    state_gradient = grad_final_state
+    for index in reversed(range(len(caches))):
+        start = index * chunk_size
+        end = start + caches[index].q.shape[1]
+        result = gdn2_backward(grad_outputs[:, start:end], state_gradient, caches[index])
+        chunk_gradients.append(result.gradients)
+        state_gradient = result.gradients["initial_state"]
+    chunk_gradients.reverse()
+    gradients = {
+        name: np.concatenate([chunk[name] for chunk in chunk_gradients], axis=1)
+        if name != "initial_state"
+        else state_gradient
+        for name in chunk_gradients[0]
+    }
+    return Gdn2BackwardResult(gradients=gradients)
+
+
 @dataclass
 class BlockForwardInputs:
     block: HZ0ABlock

@@ -25,6 +25,8 @@ The Python parity surface now also includes a deterministic AdamW update contrac
 
 The forward cache now has an explicit `gdn2_backward(...)` reverse-scan implementation returning gradients for Q, K, V, all three gate-logit tensors, and the initial recurrent state. Its contract is validated against an independent torch recurrence oracle.
 
+`gdn2_backward_chunked(...)` now checkpoints the recurrent state at chunk boundaries and propagates the state cotangent backward across uneven chunks. Full-vs-chunked gradients are covered by a 7-token sequence with chunk size 3.
+
 ## Verified Results
 
 Executed successfully:
@@ -54,6 +56,7 @@ Observed results:
 - actual PMetal tensor execution
 - end-to-end PMetal training
 - chunked checkpoint/recompute backward execution
+- real PMetal tensor execution
 - end-to-end PMetal training
 
 ## A6 Current Assessment
