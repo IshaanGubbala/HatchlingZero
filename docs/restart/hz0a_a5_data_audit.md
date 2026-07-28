@@ -64,8 +64,9 @@ Included train sources currently are:
 - large-corpus deduplication/removal policy and contamination checks
 - large-corpus contamination enforcement and removal policy
 - large-scale resumable iteration beyond the current local scaffold
-- 100M-token rebuild target from the restart plan
+- the full staged mixture percentages beyond the archived Wikitext source
+- external-license coverage beyond the recorded Wikitext/internal labels
 
 ## A5 Current Assessment
 
-A5 is meaningfully in progress, but not complete. The restart now has validated deterministic source manifests, duplicate reporting, seeded document ordering, reproducible packed-sequence generation, and public-script regression tests. It remains far below the plan's 100M-token reconstruction gate and still needs near-duplicate removal, contamination checks, resumable large-scale iteration, and the full staged mixture.
+A5's 100M-token reconstruction sub-gate is now satisfied: the Wikitext source has a measured 196M-token budget, the train split has a deterministic 195M-token packed output, and the streaming cursor resumes exact batches. A5 remains open only for the broader staged mixture and external-source policy beyond this reproducible corpus.

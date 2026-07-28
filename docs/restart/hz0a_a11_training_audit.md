@@ -30,7 +30,7 @@ Multi-parameter checkpoints are independently validated by `scripts/hz0a_audit_t
 
 Stage launches now have an explicit data-budget gate in `scripts/hz0a_stage_gate.py`. Against the current local packed scaffold, the gate reports `16,896` available packed tokens (the source manifest contains `16,739` input tokens) and correctly refuses the `10,000,000`-token Stage 1 launch; this is an honest blocker until the staged corpus is rebuilt.
 
-The archived Wikitext source now has a measured `196,028,717` tokenizer tokens, but it has not yet been converted into the checked-in packed training artifact. Stage launches must continue to use the stage gate against the final packed output, not this raw token-count report alone.
+The archived Wikitext source has a measured `196,028,717` tokenizer tokens and a reproducible train packed artifact with `195,148,032` packed tokens. Stage launches use the stage gate against that packed output rather than the raw count alone.
 
 `scripts/hz0a_stage_runner.py` now executes both tiny reference models over the streaming packed format, writes optimizer/model/dataset-cursor checkpoints, and reports loss, validation loss, gradient norms, parameter fingerprints, throughput, and explicit `smoke_run`/`budget_complete` flags. A bounded run cannot be mistaken for a completed stage.
 
