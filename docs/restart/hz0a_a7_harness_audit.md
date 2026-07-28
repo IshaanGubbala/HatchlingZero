@@ -79,3 +79,5 @@ The tiny reference attention path now applies bounded per-head RMS scaling and e
 The multi-parameter tiny training checkpoint now has a separate audit command, `scripts/hz0a_audit_tiny_checkpoint.py`. It validates model/optimizer state, finite tensors, metric-step continuity, and the saved model parameter fingerprint; a corruption regression rejects an infinite parameter. This closes the tiny PyTorch checkpoint-audit gap, but not PMetal or device checkpoints.
 
 The harness now also executes and checkpoints a selectable constant or cosine learning-rate schedule, restores scheduler state on resume, and supports a separate packed validation split. Audit coverage verifies scheduler-step continuity and validation-dataset availability; the scheduler/validation regression confirms the resumed path remains deterministic.
+
+The staged runner now accepts `--device cpu|mps|auto`, moves both model and batches to the selected device, and records that device in stage reports and checkpoints. The default remains CPU for deterministic compatibility; MPS is available for the reconstructed full Stage 1 launch.

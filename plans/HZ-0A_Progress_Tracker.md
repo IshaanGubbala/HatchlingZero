@@ -162,6 +162,7 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
   - Wikitext-103 source budget measured at `196,028,717` tokens with train/validation/test hashes; protocol-aligned length-1024 packed-output gate passes
   - streaming train packing produced `1,524,594` fixed-length sequences and offset-indexed resumable iteration is now test-backed
   - auditable stage runner now executes tiny hybrid/transformer comparisons with checkpoints and explicit smoke/budget-complete flags
+  - stage runner now supports explicit CPU/MPS execution and records device identity in stage reports/checkpoints
   - stage runner resume restores model/optimizer/RNG/dataset cursor and matches uninterrupted fingerprints
   - stage runner now evaluates and checkpoints a separate validation packed split
   - stage runner now derives sequence length from packed data; protocol-aligned length-1024 packing is tracked separately from length-128 smoke data
