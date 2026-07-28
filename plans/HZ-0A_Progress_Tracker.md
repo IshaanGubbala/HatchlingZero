@@ -155,6 +155,7 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
   - scheduler and separate validation-split execution are now checkpointed and resume-tested
   - stage data-budget gate now reports available versus required tokens and refuses under-budget launches
   - native fused GDN-2 Metal forward kernel now compiles into a Metal library and matches a deterministic runtime smoke case; full-model integration and speed remain unverified
+  - config-driven PyTorch full topology now matches the locked `301,178,112` parameter target on a meta-device audit
 
 ## Next Actions
 
