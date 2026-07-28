@@ -81,3 +81,7 @@ The multi-parameter tiny training checkpoint now has a separate audit command, `
 The harness now also executes and checkpoints a selectable constant or cosine learning-rate schedule, restores scheduler state on resume, and supports a separate packed validation split. Audit coverage verifies scheduler-step continuity and validation-dataset availability; the scheduler/validation regression confirms the resumed path remains deterministic.
 
 The staged runner now accepts `--device cpu|mps|auto`, moves both model and batches to the selected device, and records that device in stage reports and checkpoints. The default remains CPU for deterministic compatibility; MPS is available for the reconstructed full Stage 1 launch.
+
+Stage validation loss now accumulates from fp32 logits even when the model runs fp16 on MPS, and the runner refuses a non-finite validation metric before checkpoint/report completion.
+
+The MPS fp16 mode keeps model parameters and AdamW state in fp32 and applies autocast only to activations, matching the configured `bf16_activations_fp32_master` intent without fp16 optimizer overflow. A real one-step gate run produced finite train/validation losses and parameter updates.

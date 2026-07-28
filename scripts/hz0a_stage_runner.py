@@ -33,11 +33,13 @@ def packed_sequence_length(path: Path) -> int:
     return len(first)
 
 
-def run_model(name: str, factory, data_path: Path, validation_data: Path, run_dir: Path, seed: int, steps: int, batch_size: int, vocab_size: int, checkpoint_interval: int, resume: bool, device: torch.device) -> dict:
+def run_model(name: str, factory, data_path: Path, validation_data: Path, run_dir: Path, seed: int, steps: int, batch_size: int, vocab_size: int, checkpoint_interval: int, resume: bool, device: torch.device, dtype: torch.dtype) -> dict:
     seed_everything(seed)
     dataset = StreamingResumablePackedDataset(data_path, shuffle_seed=seed)
     validation_dataset = StreamingResumablePackedDataset(validation_data, shuffle_seed=0)
+    # Keep fp32 master parameters and optimizer state; autocast only activations.
     model = factory(vocab_size=vocab_size).to(device)
+    activation_dtype = dtype if dtype != torch.float32 else None
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
     checkpoint = run_dir / f"{name}.pt"
     initial_hash = fingerprint(model)
@@ -57,13 +59,15 @@ def run_model(name: str, factory, data_path: Path, validation_data: Path, run_di
     for step in range(start_step + 1, steps + 1):
         batch = torch.from_numpy(dataset.next_batch(batch_size)).remainder(vocab_size).to(device)
         optimizer.zero_grad(set_to_none=True)
-        loss = loss_for(model, batch)
+        loss = loss_for(model, batch, activation_dtype)
         loss.backward()
         gradient_norm = float(torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0))
         optimizer.step()
         with torch.no_grad():
             validation_batch = torch.from_numpy(validation_dataset.next_batch(batch_size)).remainder(vocab_size).to(device)
-            validation_loss = float(loss_for(model, validation_batch).item())
+            validation_loss = float(loss_for(model, validation_batch, activation_dtype).item())
+            if not np.isfinite(validation_loss):
+                raise RuntimeError(f"non-finite validation loss at step {step}")
         metrics.append({"step": step, "loss": float(loss.item()), "validation_loss": validation_loss, "gradient_norm": gradient_norm, "batch_index": step - 1})
         if checkpoint_interval and step % checkpoint_interval == 0:
             torch.save({"model": model.state_dict(), "optimizer": optimizer.state_dict(), "step": step, "metrics": metrics, "dataset_cursor": dataset.snapshot(), "initial_parameter_sha256": initial_hash, "model_parameter_sha256": fingerprint(model), "torch_rng": torch.get_rng_state(), "device": str(device)}, checkpoint)
@@ -86,9 +90,13 @@ def main() -> None:
     parser.add_argument("--checkpoint-interval", type=int, default=100)
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--device", choices=("auto", "cpu", "mps"), default="cpu")
+    parser.add_argument("--dtype", choices=("fp32", "fp16"), default="fp32")
     args = parser.parse_args()
     device_name = "mps" if args.device == "auto" and torch.backends.mps.is_available() else args.device
     device = torch.device("mps" if device_name == "mps" else "cpu")
+    dtype = torch.float16 if args.dtype == "fp16" else torch.float32
+    if dtype == torch.float16 and device.type == "cpu":
+        raise RuntimeError("--dtype fp16 requires --device mps for this runner")
     if device.type == "mps" and not torch.backends.mps.is_available():
         raise RuntimeError("--device mps requested but MPS is unavailable")
     gate = stage_gate(args.stage_config, args.data, args.stage)
@@ -107,11 +115,12 @@ def main() -> None:
         raise ValueError("steps must be positive")
     results = {}
     for name, factory in (("hybrid", TinyHybridLM), ("transformer", TinyTransformerLM)):
-        result = run_model(name, factory, args.data, validation_data, args.run_dir, args.seed, steps, args.batch_size, args.vocab_size, args.checkpoint_interval, args.resume, device)
+        result = run_model(name, factory, args.data, validation_data, args.run_dir, args.seed, steps, args.batch_size, args.vocab_size, args.checkpoint_interval, args.resume, device, dtype)
         result["device"] = str(device)
+        result["dtype"] = str(dtype)
         result["budget_complete"] = result["tokens_seen"] >= gate["required_tokens"]
         results[name] = result
-    report = {"stage": args.stage, "stage_gate": gate, "target_tokens": gate["required_tokens"], "smoke_run": args.steps is not None, "device": str(device), "models": results}
+    report = {"stage": args.stage, "stage_gate": gate, "target_tokens": gate["required_tokens"], "smoke_run": args.steps is not None, "device": str(device), "dtype": str(dtype), "models": results}
     (args.run_dir / "stage_report.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(json.dumps(report, indent=2, sort_keys=True))
 

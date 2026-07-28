@@ -69,7 +69,7 @@ class TinyHybridLM(nn.Module):
 
     def forward(self, tokens: torch.Tensor) -> torch.Tensor:
         x = self.embedding(tokens)
-        state = torch.zeros(tokens.shape[0], self.heads, self.head_dim, self.head_dim, device=tokens.device)
+        state = torch.zeros(tokens.shape[0], self.heads, self.head_dim, self.head_dim, device=tokens.device, dtype=x.dtype)
         for block in self.blocks:
             x, state = block(x, state)
         return torch.einsum("btd,vd->btv", self.final_norm(x), self.embedding.weight)
@@ -100,9 +100,11 @@ def load_batches(path: Path, vocab_size: int, sequence_length: int, batch_size: 
     return batches
 
 
-def loss_for(model: nn.Module, batch: torch.Tensor) -> torch.Tensor:
-    logits = model(batch[:, :-1])
-    return nn.functional.cross_entropy(logits.reshape(-1, logits.shape[-1]), batch[:, 1:].reshape(-1))
+def loss_for(model: nn.Module, batch: torch.Tensor, activation_dtype: torch.dtype | None = None) -> torch.Tensor:
+    context = torch.autocast(device_type=batch.device.type, dtype=activation_dtype) if activation_dtype else torch.autocast(device_type=batch.device.type, enabled=False)
+    with context:
+        logits = model(batch[:, :-1])
+    return nn.functional.cross_entropy(logits.float().reshape(-1, logits.shape[-1]), batch[:, 1:].reshape(-1))
 
 
 def fingerprint(model: nn.Module) -> str:

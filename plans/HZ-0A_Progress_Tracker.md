@@ -163,6 +163,8 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
   - streaming train packing produced `1,524,594` fixed-length sequences and offset-indexed resumable iteration is now test-backed
   - auditable stage runner now executes tiny hybrid/transformer comparisons with checkpoints and explicit smoke/budget-complete flags
   - stage runner now supports explicit CPU/MPS execution and records device identity in stage reports/checkpoints
+  - fp16 MPS stage smoke now accumulates validation cross-entropy in fp32 and refuses non-finite validation metrics
+  - MPS fp16 path now keeps fp32 master parameters/AdamW state and uses autocast activations; finite one-step throughput is verified
   - stage runner resume restores model/optimizer/RNG/dataset cursor and matches uninterrupted fingerprints
   - stage runner now evaluates and checkpoints a separate validation packed split
   - stage runner now derives sequence length from packed data; protocol-aligned length-1024 packing is tracked separately from length-128 smoke data
