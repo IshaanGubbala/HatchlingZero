@@ -25,6 +25,14 @@ def seed_everything(seed: int) -> None:
     torch.manual_seed(seed)
 
 
+def packed_sequence_length(path: Path) -> int:
+    with path.open(encoding="utf-8") as reader:
+        first = json.loads(reader.readline())
+    if not isinstance(first, list) or not first:
+        raise ValueError("packed data must contain non-empty token sequences")
+    return len(first)
+
+
 def run_model(name: str, factory, data_path: Path, validation_data: Path, run_dir: Path, seed: int, steps: int, batch_size: int, vocab_size: int, checkpoint_interval: int, resume: bool) -> dict:
     seed_everything(seed)
     dataset = StreamingResumablePackedDataset(data_path, shuffle_seed=seed)
@@ -86,7 +94,7 @@ def main() -> None:
     validation_data = args.validation_data or args.data
     if not validation_data.is_file():
         raise FileNotFoundError(validation_data)
-    sequence_length = 128
+    sequence_length = packed_sequence_length(args.data)
     tokens_per_step = args.batch_size * (sequence_length - 1)
     target_steps = (gate["required_tokens"] + tokens_per_step - 1) // tokens_per_step
     steps = args.steps if args.steps is not None else target_steps

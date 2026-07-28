@@ -13,5 +13,9 @@
   },
   "total_characters": 538381271,
   "total_tokens": 196028717,
-  "counter": "scripts/hz0a_count_tokens_streaming.py"
+  "counter": "scripts/hz0a_count_tokens_streaming.py",
+  "packed_outputs": {
+    "sequence_length_1024": {"sequence_count": 190574, "packed_tokens": 195147776, "discarded_tail_tokens": 287, "sha256": "d55948ed3d6ee1e62397f1292ed0cf93d526da12b6b0d8edfb4ea04d0601a75c"},
+    "sequence_length_128_smoke": {"sequence_count": 1524594, "packed_tokens": 195148032, "discarded_tail_tokens": 31, "sha256": "3a1e439a75a61d7f21d552a32427afba7883217f4be4e468ee7e44595bcf7354"}
+  }
 }

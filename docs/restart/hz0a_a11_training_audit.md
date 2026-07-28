@@ -38,6 +38,8 @@ The runner now supports `--resume`; model weights, AdamW state, RNG, metrics, an
 
 The runner accepts `--validation-data` and evaluates a separate streaming packed split after each optimizer step; validation loss is stored in the metric history and survives resume.
 
+The runner derives sequence length from the packed artifact. The protocol-aligned length-1024 pack now passes the Stage 1 gate with `195,147,776` packed tokens; the earlier length-128 artifact is retained only as a data-pipeline smoke.
+
 `scripts/hz0a_evaluate_checkpoints.py` evaluates both checkpoints on shared packed data and reports loss, perplexity, evaluated tokens, parameter count/bytes, and evaluation throughput. This supplies the quality/throughput report shape required by the plan; current outputs are tiny-reference smoke evidence, not full-model capability claims.
 
 The locked 301M reference model also has a real-forward smoke command; it is intentionally separate from the tiny stage runner and does not claim a completed training stage.

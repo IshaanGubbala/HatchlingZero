@@ -158,11 +158,12 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
   - large-manifest near-duplicate auditing now uses an inverted shingle candidate index with exact Jaccard verification
   - archived Wikitext-103 JSONL normalization now preserves split boundaries and emits provenance/hash records for token packing
   - bounded-batch tokenizer counting now measures large-corpus token budgets without materializing all IDs
-  - Wikitext-103 source budget measured at `196,028,717` tokens with train/validation/test hashes; packed-output gate remains
+  - Wikitext-103 source budget measured at `196,028,717` tokens with train/validation/test hashes; protocol-aligned length-1024 packed-output gate passes
   - streaming train packing produced `1,524,594` fixed-length sequences and offset-indexed resumable iteration is now test-backed
   - auditable stage runner now executes tiny hybrid/transformer comparisons with checkpoints and explicit smoke/budget-complete flags
   - stage runner resume restores model/optimizer/RNG/dataset cursor and matches uninterrupted fingerprints
   - stage runner now evaluates and checkpoints a separate validation packed split
+  - stage runner now derives sequence length from packed data; protocol-aligned length-1024 packing is tracked separately from length-128 smoke data
   - standalone checkpoint evaluator now reports shared loss/perplexity/token/parameter/throughput metrics
   - locked 301M reference model now has a real/meta forward smoke command with memory and finite-logit reporting
   - real locked-model CPU forward smoke passed at sequence length 1 with finite logits and measured resident memory

@@ -8,7 +8,7 @@ The first deterministic A5 data-pipeline artifacts now exist and execute against
 
 The archived Wikitext-103 source has now been normalized and counted with the bounded tokenizer counter. The reproducible budget report is `docs/restart/hz0a_wikitext_token_budget.json`: `196,028,717` total tokens, including `195,148,063` train tokens and separate validation/test splits. The raw 100M-token availability sub-gate is therefore satisfied; packed-output reconstruction and large-scale resumable iteration remain to be verified.
 
-The streaming packer and `StreamingResumablePackedDataset` now provide the large-corpus path. The train pack produced `1,524,594` length-128 JSONL sequences (`195,148,032` packed tokens, `31` tail tokens), and the offset-indexed cursor has exact snapshot/resume regression coverage.
+The streaming packer and `StreamingResumablePackedDataset` now provide the large-corpus path. The protocol-aligned train pack produced `190,574` length-1024 JSONL sequences (`195,147,776` packed tokens, `287` tail tokens), and the offset-indexed cursor has exact snapshot/resume regression coverage. The length-128 pack remains a smaller smoke artifact.
 
 The pipeline now validates required provenance/license/split fields and source existence, reports exact-content duplicate groups, and records a seeded document order. Token packing uses a stable path sort followed by a seeded shuffle and records that policy in its audit.
 
