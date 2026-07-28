@@ -65,13 +65,18 @@ def run_model(name: str, factory, data_path: Path, validation_data: Path, run_di
         start_step = int(payload["step"])
         torch.set_rng_state(payload["torch_rng"])
     start = time.perf_counter()
+    peak_memory = 0
     for step in range(start_step + 1, steps + 1):
         batch = torch.from_numpy(dataset.next_batch(batch_size)).remainder(vocab_size).to(device)
         optimizer.zero_grad(set_to_none=True)
         loss = loss_for(model, batch, activation_dtype)
         loss.backward()
         gradient_norm = float(torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0))
+        old_parameters = [parameter.detach().clone() for parameter in model.parameters()]
         optimizer.step()
+        update_norm = float(torch.sqrt(sum((parameter.detach() - old).square().sum() for parameter, old in zip(model.parameters(), old_parameters))).item())
+        if device.type == "mps":
+            peak_memory = max(peak_memory, int(torch.mps.current_allocated_memory()))
         validation_loss = None
         if step % validation_interval == 0 or step == steps:
             with torch.no_grad():
@@ -79,12 +84,13 @@ def run_model(name: str, factory, data_path: Path, validation_data: Path, run_di
                 validation_loss = float(loss_for(model, validation_batch, activation_dtype).item())
                 if not np.isfinite(validation_loss):
                     raise RuntimeError(f"non-finite validation loss at step {step}")
-        metrics.append({"step": step, "loss": float(loss.item()), "validation_loss": validation_loss, "gradient_norm": gradient_norm, "batch_index": step - 1})
+        metrics.append({"step": step, "loss": float(loss.item()), "validation_loss": validation_loss, "validation_perplexity": float(np.exp(validation_loss)) if validation_loss is not None else None, "gradient_norm": gradient_norm, "update_norm": update_norm, "batch_index": step - 1})
         if checkpoint_interval and step % checkpoint_interval == 0:
             save_checkpoint(checkpoint, {"model": model.state_dict(), "optimizer": optimizer.state_dict(), "step": step, "metrics": metrics, "dataset_cursor": dataset.snapshot(), "initial_parameter_sha256": initial_hash, "model_parameter_sha256": fingerprint(model), "torch_rng": torch.get_rng_state(), "device": str(device), "dtype": str(dtype)})
     elapsed = time.perf_counter() - start
     tokens_seen = steps * batch_size * (int(batch.shape[1]) - 1)
-    return {"steps": steps, "tokens_seen": tokens_seen, "budget_complete": False, "metrics": metrics, "initial_parameter_sha256": initial_hash, "final_parameter_sha256": fingerprint(model), "parameters_changed": initial_hash != fingerprint(model), "parameter_count": sum(parameter.numel() for parameter in model.parameters()), "parameter_bytes": parameter_bytes(model), "final_loss": metrics[-1]["loss"], "validation_loss": float(loss_for(model, batch).item()), "training_seconds": elapsed, "tokens_per_second": tokens_seen / elapsed, "checkpoint": str(checkpoint), "resumed": resume}
+    final_validation_loss = float(loss_for(model, batch).item())
+    return {"steps": steps, "tokens_seen": tokens_seen, "budget_complete": False, "metrics": metrics, "initial_parameter_sha256": initial_hash, "final_parameter_sha256": fingerprint(model), "parameters_changed": initial_hash != fingerprint(model), "parameter_count": sum(parameter.numel() for parameter in model.parameters()), "parameter_bytes": parameter_bytes(model), "final_loss": metrics[-1]["loss"], "validation_loss": final_validation_loss, "validation_perplexity": float(np.exp(final_validation_loss)), "training_seconds": elapsed, "tokens_per_second": tokens_seen / elapsed, "peak_memory_bytes": peak_memory, "checkpoint": str(checkpoint), "resumed": resume}
 
 
 def main() -> None:
