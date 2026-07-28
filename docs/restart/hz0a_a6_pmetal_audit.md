@@ -19,7 +19,9 @@ Key contents:
 - Python parity helper:
   - `python/pmetal_reference.py`
 - Parity test:
-  - `/Users/ishaangubbala/Documents/Training/tests/reference/test_pmetal_reference.py`
+- `/Users/ishaangubbala/Documents/Training/tests/reference/test_pmetal_reference.py`
+
+The Python parity surface now also includes a deterministic AdamW update contract with explicit first/second-moment state and update-norm reporting.
 
 ## Verified Results
 
@@ -42,11 +44,12 @@ Observed results:
 - the current Python PMetal-style forward wrapper matches the NumPy oracle
 - the current Python PMetal-style block wrapper matches recurrent and attention reference blocks
 - the current Python PMetal-style tiny-model wrapper matches logits/state flow and a simple loss path
+- the optimizer reference matches the closed-form first AdamW update, including serialized moment state
 
 ## What This Does Not Yet Prove
 
 - actual PMetal tensor execution
-- optimizer-update parity
+- end-to-end PMetal training
 - end-to-end PMetal training
 
 ## A6 Current Assessment

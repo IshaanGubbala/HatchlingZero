@@ -10,7 +10,7 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
 
 - Overall phase: `A5/A7 in progress`
 - Confidence level: high for archaeology findings, low for any legacy implementation reuse
-- Last verified checkpoint: `July 28, 2026 - A5 deterministic packing and A7 safety pass`
+- Last verified checkpoint: `July 28, 2026 - A6 optimizer parity, A5 packing, and A7 safety pass`
 - Active artifacts:
   - `/Users/ishaangubbala/Documents/Training/docs/restart/hz0a_history_audit.md`
   - `/Users/ishaangubbala/Documents/Training/docs/restart/hz0a_recovered_spec.md`
@@ -31,7 +31,7 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
 | A3 | backward derivation + validation | Complete | backward math doc and gradient tests now exist and pass |
 | A4 | tokenizer rebuild | Complete | tokenizer artifact, corpus manifest, runtime wrapper, and audit now exist |
 | A5 | data pipeline rebuild | In progress | validated manifest audit, duplicate reporting, seeded ordering, reproducible packing, and public-script tests now exist |
-| A6 | PMetal reference implementation | In progress | fresh PMetal workspace now has Rust contract tests plus operator/block/loss Python parity checks |
+| A6 | PMetal reference implementation | In progress | Rust contracts, operator/block/loss parity, and deterministic AdamW update parity now pass |
 | A7 | training harness rebuild | In progress | deterministic harness now runs a real tiny reference-model forward/loss path with exact resume coverage and CLI smoke verification |
 | A8 | explicit PMetal GDN-2 backward | Not started | forward-cache/backward path still pending |
 | A9 | deterministic optimizer replay | Not started | replay and reproducibility gate still pending |
@@ -106,6 +106,7 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
   - clean restart workspace under `restart/hz0a_pmetal`
   - Rust crate split for kernel and bridge
   - parity coverage for recurrence operator, blocks, and loss path
+  - deterministic AdamW optimizer-state and update-norm parity test
 - Remaining:
   - fuller execution path beyond parity wrappers
   - backward-path implementation for GDN-2

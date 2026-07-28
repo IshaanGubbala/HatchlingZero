@@ -13,6 +13,8 @@ from restart.hz0a_pmetal.python.pmetal_reference import (  # noqa: E402
     Gdn2ForwardInputs,
     TinyModelForwardInputs,
     block_forward,
+    AdamWState,
+    adamw_step,
     gdn2_forward,
     tiny_model_forward,
 )
@@ -111,3 +113,17 @@ def test_pmetal_style_tiny_model_loss_matches_reference() -> None:
             np.testing.assert_allclose(actual_state, expected_state, rtol=1e-6, atol=1e-6)
     assert actual.loss is not None
     assert np.isfinite(actual.loss)
+
+
+def test_adamw_step_matches_first_step_reference_update() -> None:
+    parameters = np.array([1.0, -2.0, 0.5], dtype=np.float32)
+    gradients = np.array([0.25, -0.5, 1.0], dtype=np.float32)
+
+    result = adamw_step(parameters, gradients, learning_rate=1e-3, weight_decay=0.1)
+    expected_update = 1e-3 * (np.sign(gradients) + 0.1 * parameters)
+
+    np.testing.assert_allclose(result.parameters, parameters - expected_update, rtol=1e-6, atol=1e-6)
+    assert result.state.step == 1
+    np.testing.assert_allclose(result.state.first_moment, 0.1 * gradients)
+    np.testing.assert_allclose(result.state.second_moment, 0.001 * gradients**2)
+    np.testing.assert_allclose(result.update_norm, np.linalg.norm(expected_update), rtol=1e-6, atol=1e-9)
