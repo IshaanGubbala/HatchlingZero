@@ -85,3 +85,5 @@ The staged runner now accepts `--device cpu|mps|auto`, moves both model and batc
 Stage validation loss now accumulates from fp32 logits even when the model runs fp16 on MPS, and the runner refuses a non-finite validation metric before checkpoint/report completion.
 
 The MPS fp16 mode keeps model parameters and AdamW state in fp32 and applies autocast only to activations, matching the configured `bf16_activations_fp32_master` intent without fp16 optimizer overflow. A real one-step gate run produced finite train/validation losses and parameter updates.
+
+The stage runner now exposes `--validation-interval`; non-smoke launches can follow the protocol's 100-step validation cadence while still validating the final step.

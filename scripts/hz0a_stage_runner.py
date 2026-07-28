@@ -33,7 +33,7 @@ def packed_sequence_length(path: Path) -> int:
     return len(first)
 
 
-def run_model(name: str, factory, data_path: Path, validation_data: Path, run_dir: Path, seed: int, steps: int, batch_size: int, vocab_size: int, checkpoint_interval: int, resume: bool, device: torch.device, dtype: torch.dtype) -> dict:
+def run_model(name: str, factory, data_path: Path, validation_data: Path, run_dir: Path, seed: int, steps: int, batch_size: int, vocab_size: int, checkpoint_interval: int, validation_interval: int, resume: bool, device: torch.device, dtype: torch.dtype) -> dict:
     seed_everything(seed)
     dataset = StreamingResumablePackedDataset(data_path, shuffle_seed=seed)
     validation_dataset = StreamingResumablePackedDataset(validation_data, shuffle_seed=0)
@@ -63,11 +63,13 @@ def run_model(name: str, factory, data_path: Path, validation_data: Path, run_di
         loss.backward()
         gradient_norm = float(torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0))
         optimizer.step()
-        with torch.no_grad():
-            validation_batch = torch.from_numpy(validation_dataset.next_batch(batch_size)).remainder(vocab_size).to(device)
-            validation_loss = float(loss_for(model, validation_batch, activation_dtype).item())
-            if not np.isfinite(validation_loss):
-                raise RuntimeError(f"non-finite validation loss at step {step}")
+        validation_loss = None
+        if step % validation_interval == 0 or step == steps:
+            with torch.no_grad():
+                validation_batch = torch.from_numpy(validation_dataset.next_batch(batch_size)).remainder(vocab_size).to(device)
+                validation_loss = float(loss_for(model, validation_batch, activation_dtype).item())
+                if not np.isfinite(validation_loss):
+                    raise RuntimeError(f"non-finite validation loss at step {step}")
         metrics.append({"step": step, "loss": float(loss.item()), "validation_loss": validation_loss, "gradient_norm": gradient_norm, "batch_index": step - 1})
         if checkpoint_interval and step % checkpoint_interval == 0:
             torch.save({"model": model.state_dict(), "optimizer": optimizer.state_dict(), "step": step, "metrics": metrics, "dataset_cursor": dataset.snapshot(), "initial_parameter_sha256": initial_hash, "model_parameter_sha256": fingerprint(model), "torch_rng": torch.get_rng_state(), "device": str(device)}, checkpoint)
@@ -88,6 +90,7 @@ def main() -> None:
     parser.add_argument("--vocab-size", type=int, default=256)
     parser.add_argument("--seed", type=int, default=23)
     parser.add_argument("--checkpoint-interval", type=int, default=100)
+    parser.add_argument("--validation-interval", type=int, default=1)
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--device", choices=("auto", "cpu", "mps"), default="cpu")
     parser.add_argument("--dtype", choices=("fp32", "fp16"), default="fp32")
@@ -115,7 +118,7 @@ def main() -> None:
         raise ValueError("steps must be positive")
     results = {}
     for name, factory in (("hybrid", TinyHybridLM), ("transformer", TinyTransformerLM)):
-        result = run_model(name, factory, args.data, validation_data, args.run_dir, args.seed, steps, args.batch_size, args.vocab_size, args.checkpoint_interval, args.resume, device, dtype)
+        result = run_model(name, factory, args.data, validation_data, args.run_dir, args.seed, steps, args.batch_size, args.vocab_size, args.checkpoint_interval, args.validation_interval, args.resume, device, dtype)
         result["device"] = str(device)
         result["dtype"] = str(dtype)
         result["budget_complete"] = result["tokens_seen"] >= gate["required_tokens"]
