@@ -28,6 +28,11 @@ def flat_bytes(model):
     return b"".join(np.asarray(value).tobytes() for value in values)
 
 
+def canonical_fingerprint(model, decimals: int = 3) -> str:
+    values = [np.round(np.asarray(value), decimals=decimals).astype(np.float32) for _, value in tree_flatten(model.parameters())]
+    return hashlib.sha256(b"".join(value.tobytes() for value in values)).hexdigest()
+
+
 def flat_norm(values):
     return float(mx.sqrt(sum(mx.sum(value * value) for value in values)))
 
@@ -68,7 +73,12 @@ def run(steps: int) -> dict:
         metrics.append({"step": step, "native_loss": float(native_loss), "reference_loss": float(reference_loss), "loss_difference": abs(float(native_loss - reference_loss)), "max_gradient_error": gradient_error, "max_update_error": update_error, "native_update_norm": flat_norm([a - b for a, b in zip(native_after, native_before)]), "finite": bool(mx.all(mx.isfinite(native_loss)) and all(bool(mx.all(mx.isfinite(value))) for value in native_after))})
     native_fingerprint = hashlib.sha256(flat_bytes(native)).hexdigest()
     reference_fingerprint = hashlib.sha256(flat_bytes(reference)).hexdigest()
-    return {"steps": steps, "metrics": metrics, "native_fingerprint": native_fingerprint, "reference_fingerprint": reference_fingerprint, "fingerprints_match": native_fingerprint == reference_fingerprint, "max_loss_difference": max(item["loss_difference"] for item in metrics), "max_gradient_error": max(item["max_gradient_error"] for item in metrics), "max_update_error": max(item["max_update_error"] for item in metrics), "finite": all(item["finite"] for item in metrics), "peak_memory_bytes": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss, "execution_seconds": time.perf_counter() - started}
+    native_canonical = canonical_fingerprint(native)
+    reference_canonical = canonical_fingerprint(reference)
+    native_values = [value for _, value in tree_flatten(native.parameters())]
+    reference_values = [value for _, value in tree_flatten(reference.parameters())]
+    max_parameter_error = max(float(mx.max(mx.abs(a - b))) for a, b in zip(native_values, reference_values))
+    return {"steps": steps, "metrics": metrics, "native_fingerprint": native_fingerprint, "reference_fingerprint": reference_fingerprint, "canonical_native_fingerprint": native_canonical, "canonical_reference_fingerprint": reference_canonical, "fingerprints_match": native_fingerprint == reference_fingerprint, "canonical_fingerprints_match": native_canonical == reference_canonical, "max_parameter_error": max_parameter_error, "max_loss_difference": max(item["loss_difference"] for item in metrics), "max_gradient_error": max(item["max_gradient_error"] for item in metrics), "max_update_error": max(item["max_update_error"] for item in metrics), "finite": all(item["finite"] for item in metrics), "peak_memory_bytes": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss, "execution_seconds": time.perf_counter() - started}
 
 
 if __name__ == "__main__":

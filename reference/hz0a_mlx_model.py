@@ -35,7 +35,7 @@ class GDN2(nn.Module):
         d, e, w = (mx.sigmoid(item) for item in (d, e, w))
         outputs = []
         for t in range(steps):
-            state = d[:, t, :, None, :] * (1 - e[:, t, :, None, :]) * state + w[:, t, :, :, None] * v[:, t, :, :, None] * k[:, t, :, None, :]
+            state = d[:, t, :, :, None] * (1 - e[:, t, :, :, None]) * state + w[:, t, :, :, None] * v[:, t, :, :, None] * k[:, t, :, None, :]
             outputs.append(mx.sum(state * q[:, t, :, None, :], axis=-1))
         return self.out(mx.stack(outputs, axis=1).reshape(bsz, steps, self.dim)), state
 
