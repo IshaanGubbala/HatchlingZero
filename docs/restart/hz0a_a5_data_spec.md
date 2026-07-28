@@ -71,3 +71,5 @@ Packed batches must record:
 - packing audit JSON
 
 These are the first A5 artifacts being added now.
+
+`scripts/hz0a_ingest_local_sources.py` now provides deterministic local ingestion for approved text suffixes. It records source/content hashes, category, internal license/provenance labels, and hash-derived train/validation/test splits, while excluding virtual environments, build outputs, dependency trees, and binary files by default. This expands the pipeline contract without claiming that the resulting local corpus is the final external HZ-0A mixture.
