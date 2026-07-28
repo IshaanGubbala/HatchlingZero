@@ -45,6 +45,8 @@ The first native Metal forward kernel is now checked in at `restart/hz0a_pmetal/
 
 The same harness accepts an iteration count and reports `kernel_elapsed_ms`, measuring device dispatch/wait time separately from process startup. This is a kernel-only measurement, not an end-to-end model benchmark.
 
+The native kernel also passes a full locked recurrent-shape smoke (`12` heads, `64x64` state channels, sequence length `2`) against the CPU recurrence. Full model projection/attention integration and end-to-end speed remain open.
+
 ## A12 Assessment
 
 A12 reference-correctness sub-gate is satisfied for recurrent decode and causal-attention KV-cache decode. Fused Metal implementation and performance comparison remain incomplete.

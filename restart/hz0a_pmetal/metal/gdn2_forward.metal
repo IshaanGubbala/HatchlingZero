@@ -22,7 +22,7 @@ kernel void hz0a_gdn2_forward(
         float readout = 0.0f;
         for (uint key = 0; key < key_dim; ++key) {
             state[key] = decay[input_base + key] * (1.0f - erase[input_base + key]) * state[key]
-                + write[input_base + key] * v[value_base + value] * k[input_base + key];
+                + write[value_base + value] * v[value_base + value] * k[input_base + key];
             readout += state[key] * q[input_base + key];
         }
         output[((b * sequence_length + t) * heads + h) * value_dim + value] = readout;

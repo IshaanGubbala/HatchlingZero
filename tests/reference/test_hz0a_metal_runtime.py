@@ -31,7 +31,7 @@ def test_native_metal_forward_matches_reference(tmp_path: Path):
     for t in range(3):
         for value in range(2):
             for key in range(2):
-                state[0, 0, value, key] = decay[0, t, 0, key] * (1 - erase[0, t, 0, key]) * state[0, 0, value, key] + write[0, t, 0, key] * v[0, t, 0, value] * k[0, t, 0, key]
+                state[0, 0, value, key] = decay[0, t, 0, key] * (1 - erase[0, t, 0, key]) * state[0, 0, value, key] + write[0, t, 0, value] * v[0, t, 0, value] * k[0, t, 0, key]
                 expected[0, t, 0, value] += state[0, 0, value, key] * q[0, t, 0, key]
     np.testing.assert_allclose(result["output"], expected.reshape(-1), rtol=1e-5, atol=1e-6)
     np.testing.assert_allclose(result["final_state"], state.reshape(-1), rtol=1e-5, atol=1e-6)
