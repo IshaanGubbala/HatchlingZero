@@ -1,0 +1,10 @@
+run_name: hz0a_restart_smoke
+packed_data_path: data/packed/train_packed.json
+sequence_length: 128
+microbatch_size: 2
+grad_accum_steps: 4
+max_optimizer_steps: 3
+validation_interval: 1
+checkpoint_interval: 1
+learning_rate: 0.0001
+seed: 7
