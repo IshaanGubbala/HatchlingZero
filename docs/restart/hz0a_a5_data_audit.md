@@ -8,6 +8,8 @@ The first deterministic A5 data-pipeline artifacts now exist and execute against
 
 The pipeline now validates required provenance/license/split fields and source existence, reports exact-content duplicate groups, and records a seeded document order. Token packing uses a stable path sort followed by a seeded shuffle and records that policy in its audit.
 
+The manifest audit now also computes deterministic normalized five-token-shingle Jaccard similarity and reports near-duplicate pairs at a configurable threshold. The current eight-record manifest has zero exact or near-duplicate groups at threshold `0.9`.
+
 `restart/hz0a_dataset.py` now provides a resumable packed-sequence iterator with seeded permutation order, data-pass accounting, and JSON-serializable cursor snapshots. Resume tests prove the next batches are identical after restoring a snapshot.
 
 ## Source Artifacts
@@ -47,11 +49,12 @@ Included train sources currently are:
 - tokenizer and packer now interoperate deterministically
 - the repo can produce reproducible packed sequences from current source data
 - packed iteration can resume exactly from a serialized cursor
+- exact and normalized-shingle near-duplicate groups are reported
 
 ## What This Does Not Yet Prove
 
 - full external training-mixture reconstruction
-- deduplication / near-duplicate removal
+- large-corpus deduplication/removal policy and contamination checks
 - contamination checks
 - large-scale resumable iteration beyond the current local scaffold
 - 100M-token rebuild target from the restart plan

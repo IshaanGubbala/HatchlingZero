@@ -6,6 +6,7 @@ import hashlib
 import json
 from collections import Counter
 import random
+import re
 from pathlib import Path
 
 
@@ -13,11 +14,17 @@ def sha256_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def normalized_shingles(text: str, width: int = 5) -> set[str]:
+    tokens = re.findall(r"[a-z0-9]+", text.lower())
+    return {" ".join(tokens[index:index + width]) for index in range(max(0, len(tokens) - width + 1))}
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Audit the HZ-0A source manifest.")
     parser.add_argument("--manifest", default="data/hz0a_source_manifest.json")
     parser.add_argument("--output", default="data/source_manifest_audit.json")
     parser.add_argument("--shuffle-seed", type=int, default=0)
+    parser.add_argument("--near-duplicate-threshold", type=float, default=0.9)
     args = parser.parse_args()
 
     manifest_path = Path(args.manifest)
@@ -29,6 +36,8 @@ def main() -> None:
     required_fields = {"path", "category", "license", "provenance", "split"}
     allowed_splits = {"train", "validation", "test"}
     records_by_hash: dict[str, list[str]] = {}
+    hash_by_path: dict[str, str] = {}
+    shingles_by_path: dict[str, set[str]] = {}
     for record in manifest["records"]:
         missing = required_fields - record.keys()
         if missing:
@@ -43,6 +52,8 @@ def main() -> None:
         category_counts[record["category"]] += 1
         content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
         records_by_hash.setdefault(content_hash, []).append(str(path))
+        hash_by_path[str(path)] = content_hash
+        shingles_by_path[str(path)] = normalized_shingles(text)
         records.append({
                 **record,
                 "bytes": len(text.encode("utf-8")),
@@ -51,6 +62,17 @@ def main() -> None:
             })
 
     duplicate_groups = [paths for paths in records_by_hash.values() if len(paths) > 1]
+    near_duplicate_groups = []
+    paths = sorted(shingles_by_path)
+    for index, left in enumerate(paths):
+        for right in paths[index + 1:]:
+            if hash_by_path[left] == hash_by_path[right]:
+                continue
+            left_shingles, right_shingles = shingles_by_path[left], shingles_by_path[right]
+            union = left_shingles | right_shingles
+            similarity = len(left_shingles & right_shingles) / len(union) if union else 1.0
+            if similarity >= args.near_duplicate_threshold:
+                near_duplicate_groups.append({"paths": [left, right], "jaccard": round(similarity, 6)})
     ordered_records = sorted(records, key=lambda item: (item["split"], item["path"]))
     random.Random(args.shuffle_seed).shuffle(ordered_records)
 
@@ -63,6 +85,9 @@ def main() -> None:
         "records": records,
         "duplicate_content_groups": duplicate_groups,
         "duplicate_content_group_count": len(duplicate_groups),
+        "near_duplicate_threshold": args.near_duplicate_threshold,
+        "near_duplicate_groups": near_duplicate_groups,
+        "near_duplicate_group_count": len(near_duplicate_groups),
         "deterministic_order": "seeded-shuffle",
         "shuffle_seed": args.shuffle_seed,
         "ordered_paths": [record["path"] for record in ordered_records],

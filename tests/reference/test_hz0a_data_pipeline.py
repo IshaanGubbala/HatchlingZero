@@ -48,6 +48,24 @@ def test_manifest_audit_validates_provenance_and_reports_duplicates(tmp_path: Pa
     assert audit["split_counts"] == {"train": 1, "validation": 1}
 
 
+def test_manifest_audit_reports_near_duplicates(tmp_path: Path) -> None:
+    source_a = tmp_path / "a.txt"
+    source_b = tmp_path / "b.txt"
+    source_a.write_text("alpha beta gamma delta epsilon zeta eta theta", encoding="utf-8")
+    source_b.write_text("alpha beta gamma delta epsilon zeta eta theta extra", encoding="utf-8")
+    manifest = tmp_path / "manifest.json"
+    records = [
+        {"path": str(source_a), "category": "general_text", "license": "test", "provenance": "test", "split": "train"},
+        {"path": str(source_b), "category": "general_text", "license": "test", "provenance": "test", "split": "train"},
+    ]
+    manifest.write_text(json.dumps({"version": "test", "records": records}), encoding="utf-8")
+    audit_path = tmp_path / "audit.json"
+    run_script("hz0a_audit_source_manifest.py", "--manifest", str(manifest), "--output", str(audit_path), "--near-duplicate-threshold", "0.8")
+    audit = json.loads(audit_path.read_text(encoding="utf-8"))
+    assert audit["near_duplicate_group_count"] == 1
+    assert audit["near_duplicate_groups"][0]["jaccard"] >= 0.8
+
+
 def test_token_packing_is_reproducible_for_a_seed(tmp_path: Path) -> None:
     manifest = ROOT / "data/hz0a_source_manifest.json"
     tokenizer = ROOT / "data/tokenizer/hz0a_24576.json"
