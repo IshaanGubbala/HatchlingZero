@@ -8,13 +8,16 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
 
 ## Current Status
 
-- Overall phase: `A3 complete`, `A4 in progress`
+- Overall phase: `A6 in progress`
 - Confidence level: high for archaeology findings, low for any legacy implementation reuse
 - Active artifacts:
   - `/Users/ishaangubbala/Documents/Training/docs/restart/hz0a_history_audit.md`
   - `/Users/ishaangubbala/Documents/Training/docs/restart/hz0a_recovered_spec.md`
   - `/Users/ishaangubbala/Documents/Training/docs/restart/hz0a_a1_spec.md`
   - `/Users/ishaangubbala/Documents/Training/docs/restart/hz0a_a4_tokenizer_spec.md`
+  - `/Users/ishaangubbala/Documents/Training/docs/restart/hz0a_a4_tokenizer_audit.md`
+  - `/Users/ishaangubbala/Documents/Training/docs/restart/hz0a_a5_data_audit.md`
+  - `/Users/ishaangubbala/Documents/Training/docs/restart/hz0a_a6_pmetal_audit.md`
 
 ## Phase Tracker
 
@@ -26,10 +29,11 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
 | A3 | backward derivation + validation | Complete | backward math doc and gradient tests now exist and pass |
 | A4 | tokenizer rebuild | Complete | tokenizer artifact, corpus manifest, runtime wrapper, and audit now exist |
 | A5 | data pipeline rebuild | In progress | source-manifest audit and token-packing scaffolding now exist |
-| A6 | baseline transformer rebuild | Not started | Must be parameter-matched and launcher-compatible |
-| A7 | PMetal training implementation | Not started | Correctness before performance |
-| A8 | fused Metal inference path | Not started | Inference-only optimization until validated |
-| A9 | evaluation + comparison suite | Not started | Must answer the HZ-0A research question fairly |
+| A6 | PMetal reference implementation | In progress | fresh PMetal workspace + Rust contract tests + Python parity helper now exist |
+| A7 | training harness rebuild | Not started | deterministic counters, resume, audit, config snapshotting still needed |
+| A8 | explicit PMetal GDN-2 backward | Not started | forward-cache/backward path still pending |
+| A9 | deterministic optimizer replay | Not started | replay and reproducibility gate still pending |
+| A10 | matched transformer | Not started | must be parameter-matched and launcher-compatible |
 
 ## Confirmed Historical Findings To Carry Forward
 
@@ -73,10 +77,11 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
 - A1 exit gate: satisfied
 - A2 exit gate: satisfied
 - A3 exit gate: satisfied for the recurrence core
+- A4 exit gate: satisfied
 - Program rule: no PMetal kernel work until A2 and A3 exist and pass tests
 
 ## Next Actions
 
-1. Finish A4 by producing a real corpus manifest, tokenizer artifact, and tokenizer audit.
-2. Begin A5 data-pipeline rebuild once tokenizer source-of-truth files exist.
-3. Use the reference and gradient suites as the numerical oracle for A6 PMetal parity checks.
+1. Expand A5 beyond scaffolding into a more complete deterministic dataset pipeline.
+2. Deepen A6 from operator/cache parity into block/logit/loss parity checks.
+3. Begin A7 training-harness rebuild once the PMetal-side parity surface is broader.
