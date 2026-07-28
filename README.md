@@ -171,7 +171,7 @@ python -m hz0.profile_decode_cli --config configs/hz0a-mac-110m-tuned.yaml --che
 python -m hz0.scorecard_cli --config configs/hz0a-mac-110m-tuned.yaml \
   --hybrid-output-dir outputs/hz0a-mac-110m-tuned \
   --baseline-output-dir outputs/hz0a-mac-110m-baseline \
-  --output-path docs/hz0a-mac-scorecard.json
+  --output-path docs/hz0a/mac-scorecard.json
 ```
 
 ---
@@ -180,7 +180,8 @@ python -m hz0.scorecard_cli --config configs/hz0a-mac-110m-tuned.yaml \
 
 ```text
 configs/                 Experiment configs across all stages (A–E)
-docs/                    Architecture notes, audits, benchmark reports, scorecards
+docs/                    Organized docs index, status, HZ-0A/HZ-0B evidence, experiments
+restart/                 Clean restart workspaces (current PMetal reboot track)
 scripts/                 Local-launch and CUDA smoke scripts
 docker/                  Linux + CUDA handoff image
 src/hz0/                 Python package
@@ -218,11 +219,11 @@ bash scripts/hz0a_cuda_smoke.sh
 
 ## Where we are right now
 
-- **`docs/architecture.md`** — per-stage design notes
-- **`docs/hz0a-audit.md`** — checklist evidence for the `HZ-0A` requirements
-- **`docs/hz0a-benchmark-report-2026-07-26.md`** — latest Mac-local run numbers
-- **`docs/triton-msl-experiment.md`** — bringing a Triton runtime to Apple Silicon
-- **`docs/hz0a-mac-scorecard.json`** — reproducible checkpoint comparisons
+- **[docs/README.md](./docs/README.md)** — documentation index
+- **[docs/status/master-plan-status-2026-07-28.md](./docs/status/master-plan-status-2026-07-28.md)** — canonical master-plan checkpoint
+- **[docs/hz0a/audit.md](./docs/hz0a/audit.md)** — checklist evidence for the `HZ-0A` requirements
+- **[docs/hz0a/benchmark-report-2026-07-26.md](./docs/hz0a/benchmark-report-2026-07-26.md)** — latest HZ-0A benchmark/evidence report
+- **[restart/hz0a_pmetal/README.md](./restart/hz0a_pmetal/README.md)** — clean PMetal restart track
 
 ---
 

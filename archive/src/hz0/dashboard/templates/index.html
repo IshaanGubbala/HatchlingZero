@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HZ-0A Training Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0b1228; --bg2: #111a36; --card: #131c3a; --line: #1f2a48;
+    --fg: #e2e8f0; --muted: #94a3b8;
+    --c-cyan: #22d3ee; --c-pink: #f472b6; --c-amber: #fbbf24;
+    --c-violet: #a78bfa; --c-emerald: #34d399; --c-rose: #fb7185;
+    --c-blue: #60a5fa;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background:
+      radial-gradient(ellipse at top left, rgba(34, 211, 238, 0.06), transparent 60%),
+      radial-gradient(ellipse at bottom right, rgba(167, 139, 250, 0.06), transparent 60%),
+      var(--bg);
+    color: var(--fg);
+    font-family: ui-sans-serif, system-ui, -apple-system, "SF Pro Display", Inter, sans-serif;
+    margin: 0; min-height: 100vh;
+  }
+  header {
+    padding: 18px 28px; display: flex; align-items: center; justify-content: space-between;
+    border-bottom: 1px solid var(--line);
+    background: linear-gradient(180deg, rgba(11, 18, 40, 0.85) 0%, rgba(11, 18, 40, 0.55) 100%);
+    backdrop-filter: blur(8px);
+    position: sticky; top: 0; z-index: 10;
+  }
+  header h1 { margin: 0; font-size: 19px; letter-spacing: 0.3px; font-weight: 600; }
+  header .sub { color: var(--muted); font-size: 13px; margin-top: 2px; }
+  header .right { display: flex; gap: 12px; align-items: center; }
+  header .tag {
+    color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+    background: var(--bg2); padding: 6px 10px; border-radius: 8px;
+    border: 1px solid var(--line);
+  }
+  header .pill {
+    background: rgba(52, 211, 153, 0.12); color: var(--c-emerald);
+    padding: 6px 10px; border-radius: 999px; font-size: 11px;
+    letter-spacing: 0.5px; text-transform: uppercase; font-weight: 700;
+    border: 1px solid rgba(52, 211, 153, 0.3);
+    display: flex; align-items: center; gap: 6px;
+  }
+  header .pill .dot {
+    width: 8px; height: 8px; border-radius: 999px; background: var(--c-emerald);
+    box-shadow: 0 0 8px var(--c-emerald);
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
+  main { padding: 24px 28px 48px; }
+  .grid { display: grid; gap: 16px; }
+  .stat-grid { grid-template-columns: repeat(4, 1fr); }
+  .stat {
+    background: linear-gradient(180deg, rgba(255,255,255,0.02) 0%, rgba(255,255,255,0) 100%), var(--card);
+    border: 1px solid var(--line); border-radius: 14px;
+    padding: 18px 20px; position: relative; overflow: hidden;
+  }
+  .stat::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0;
+    height: 2px; background: var(--accent, var(--c-cyan));
+    box-shadow: 0 0 12px var(--accent, var(--c-cyan));
+  }
+  .stat .label {
+    color: var(--muted); font-size: 11px; letter-spacing: 0.7px;
+    text-transform: uppercase; font-weight: 600;
+  }
+  .stat .value {
+    font-size: 26px; font-weight: 600; margin-top: 6px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: var(--accent, var(--fg));
+  }
+  .stat .delta {
+    font-size: 11px; color: var(--muted); margin-top: 4px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  .stat.cyan { --accent: var(--c-cyan); }
+  .stat.pink { --accent: var(--c-pink); }
+  .stat.amber { --accent: var(--c-amber); }
+  .stat.emerald { --accent: var(--c-emerald); }
+
+  .chart-grid { grid-template-columns: 2fr 1fr; grid-auto-rows: 300px; margin-top: 4px; }
+  .panel {
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+    padding: 16px 18px 12px; min-height: 0; display: flex; flex-direction: column;
+    position: relative;
+  }
+  .panel h3 {
+    margin: 0 0 8px; font-size: 11px; color: var(--muted); font-weight: 700;
+    letter-spacing: 0.7px; text-transform: uppercase;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .panel h3 .badge {
+    font-size: 10px; padding: 2px 6px; border-radius: 4px;
+    background: var(--accent, var(--c-cyan)); color: var(--bg);
+    font-weight: 700;
+  }
+  .panel canvas { flex: 1; min-height: 0; }
+  .log {
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+    padding: 14px 18px; max-height: 220px; overflow: auto;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px; color: var(--muted); white-space: pre;
+    margin-top: 16px;
+  }
+  .log .ok { color: var(--c-emerald); }
+  .log .warn { color: var(--c-amber); }
+  footer {
+    padding: 12px 28px; color: var(--muted); font-size: 11px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    border-top: 1px solid var(--line);
+    display: flex; justify-content: space-between;
+  }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>HZ-0A Training Dashboard</h1>
+    <div class="sub" id="run-tag">run: connecting…</div>
+  </div>
+  <div class="right">
+    <span class="tag" id="ts-tag">ts: —</span>
+    <span class="pill"><span class="dot"></span>live</span>
+  </div>
+</header>
+<main>
+  <div class="grid stat-grid">
+    <div class="stat cyan"><div class="label">Step</div><div class="value" id="stat-step">—</div><div class="delta" id="stat-step-delta">—</div></div>
+    <div class="stat pink"><div class="label">Val Loss</div><div class="value" id="stat-val">—</div><div class="delta" id="stat-val-delta">best —</div></div>
+    <div class="stat amber"><div class="label">Throughput</div><div class="value" id="stat-throughput">—</div><div class="delta" id="stat-throughput-delta">tokens/sec</div></div>
+    <div class="stat emerald"><div class="label">Elapsed</div><div class="value" id="stat-elapsed">—</div><div class="delta" id="stat-elapsed-delta">—</div></div>
+  </div>
+
+  <div class="grid chart-grid" style="margin-top:16px">
+    <div class="panel" style="grid-row: span 2; --accent: var(--c-cyan);">
+      <h3><span class="badge">loss</span> Train &amp; Validation</h3>
+      <canvas id="loss-chart"></canvas>
+    </div>
+    <div class="panel" style="--accent: var(--c-amber);">
+      <h3><span class="badge">tok/s</span> Throughput</h3>
+      <canvas id="throughput-chart"></canvas>
+    </div>
+    <div class="panel" style="--accent: var(--c-violet);">
+      <h3><span class="badge">lr</span> Learning Rate</h3>
+      <canvas id="lr-chart"></canvas>
+    </div>
+  </div>
+
+  <div class="log" id="log-tail">log tail loading…</div>
+</main>
+<footer>
+  <span id="footer-left">HZ-0A · GDN-2 · fused-Metal track in parallel</span>
+  <span id="footer-right">poll 2s · stdlib-only server</span>
+</footer>
+<script>
+const COLORS = {
+  cyan: '#22d3ee', pink: '#f472b6', amber: '#fbbf24',
+  violet: '#a78bfa', emerald: '#34d399', blue: '#60a5fa',
+  line: '#1f2a48', fg: '#e2e8f0', muted: '#94a3b8',
+};
+Chart.defaults.color = COLORS.muted;
+Chart.defaults.borderColor = COLORS.line;
+Chart.defaults.font.family = 'ui-monospace, SFMono-Regular, Menlo, monospace';
+
+const fmt = v => (v === null || v === undefined || Number.isNaN(v)) ? '—' : v;
+const fmtN = (v, d) => (v === null || v === undefined ? '—' : Number(v).toFixed(d));
+const fmtInt = v => (v === null || v === undefined ? '—' : Math.round(v).toLocaleString());
+
+function makeLineChart(id) {
+  const ctx = document.getElementById(id).getContext('2d');
+  const grad = ctx.createLinearGradient(0, 0, 0, 200);
+  grad.addColorStop(0, 'rgba(34, 211, 238, 0.20)');
+  grad.addColorStop(1, 'rgba(34, 211, 238, 0.00)');
+  return new Chart(ctx, {
+    type: 'line',
+    data: { labels: [], datasets: [] },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      parsing: false,
+      interaction: { mode: 'nearest', intersect: false },
+      elements: { point: { radius: 0, hoverRadius: 4 } },
+      scales: {
+        x: { type: 'linear', grid: { color: COLORS.line, drawTicks: false },
+             ticks: { color: COLORS.muted, maxTicksLimit: 6 } },
+        y: { grid: { color: COLORS.line, drawTicks: false },
+             ticks: { color: COLORS.muted } },
+      },
+      plugins: {
+        legend: { labels: { color: COLORS.fg, usePointStyle: true, boxWidth: 6 } },
+        tooltip: {
+          backgroundColor: '#131c3a', borderColor: COLORS.line, borderWidth: 1,
+          titleColor: COLORS.fg, bodyColor: COLORS.fg,
+          callbacks: {
+            title: items => `step ${Math.round(items[0].parsed.x)}`,
+            label: ctx => `${ctx.dataset.label}: ${fmtN(ctx.parsed.y, 4)}`,
+          },
+        },
+      },
+    },
+  });
+}
+
+const lossChart = makeLineChart('loss-chart');
+lossChart.data.datasets = [
+  {
+    label: 'train_loss', data: [], borderColor: COLORS.cyan, borderWidth: 2,
+    backgroundColor: 'rgba(34, 211, 238, 0.12)', fill: true, tension: 0.25,
+  },
+  {
+    label: 'val_loss', data: [], borderColor: COLORS.pink, borderWidth: 2,
+    backgroundColor: 'rgba(244, 114, 182, 0.08)', fill: true, tension: 0.25,
+  },
+];
+
+const throughputChart = makeLineChart('throughput-chart');
+throughputChart.data.datasets = [{
+  label: 'tok/s', data: [], borderColor: COLORS.amber, borderWidth: 2,
+  backgroundColor: 'rgba(251, 191, 36, 0.10)', fill: true, tension: 0.25,
+}];
+
+const lrChart = makeLineChart('lr-chart');
+lrChart.data.datasets = [{
+  label: 'lr', data: [], borderColor: COLORS.violet, borderWidth: 2,
+  backgroundColor: 'rgba(167, 139, 250, 0.10)', fill: true, tension: 0.25,
+}];
+
+function paint({ ts, run, metrics, summary, log }) {
+  document.getElementById('run-tag').textContent = `run: ${run || 'none'} · ${metrics.length} checkpoints`;
+  document.getElementById('ts-tag').textContent =
+    `ts: ${new Date(ts * 1000).toLocaleTimeString()}`;
+
+  document.getElementById('stat-step').textContent = fmtInt(summary.step);
+  let delta = '';
+  if (metrics.length > 1) {
+    delta = `+${fmtInt(metrics[metrics.length-1].step - metrics[0].step)}`;
+  }
+  document.getElementById('stat-step-delta').textContent = delta;
+
+  document.getElementById('stat-val').textContent = fmtN(summary.val_loss, 4);
+  document.getElementById('stat-val-delta').textContent =
+    `best ${fmtN(summary.best_val_loss, 4)}`;
+
+  document.getElementById('stat-throughput').textContent = fmtInt(summary.throughput_tok_s);
+  document.getElementById('stat-throughput-delta').textContent =
+    `tokens ${fmtInt(summary.tokens)} elapsed`;
+
+  document.getElementById('stat-elapsed').textContent =
+    summary.elapsed_min === null ? '—' : `${fmtN(summary.elapsed_min, 1)} min`;
+  document.getElementById('stat-elapsed-delta').textContent =
+    summary.lr ? `lr ${Number(summary.lr).toExponential(2)}` : '';
+
+  lossChart.data.datasets[0].data = metrics.map(m => ({x: m.step, y: m.train_loss}));
+  lossChart.data.datasets[1].data = metrics.map(m => ({x: m.step, y: m.val_loss}));
+  lossChart.update('none');
+
+  throughputChart.data.datasets[0].data =
+    metrics.map(m => ({x: m.step, y: m.throughput_tok_s}));
+  throughputChart.update('none');
+
+  lrChart.data.datasets[0].data = metrics.map(m => ({x: m.step, y: m.lr}));
+  lrChart.update('none');
+
+  const logBox = document.getElementById('log-tail');
+  if (!log.length) { logBox.textContent = '(no log file found)'; return; }
+  logBox.innerHTML = log.map(line => {
+    let cls = '';
+    if (/NaN|inf|Error|exception/i.test(line)) cls = 'warn';
+    else if (/Step\s+\d+.*val_loss=/.test(line)) cls = 'ok';
+    return `<span class="${cls}">${line.replace(/[<>&]/g, c =>
+      ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]))}</span>`;
+  }).join('\n');
+  logBox.scrollTop = logBox.scrollHeight;
+}
+
+async function poll() {
+  try {
+    const r = await fetch('/api/state', { cache: 'no-store' });
+    if (!r.ok) return;
+    paint(await r.json());
+  } catch (e) { /* swallow transient */ }
+}
+
+setInterval(poll, 2000);
+poll();
+</script>
+</body>
+</html>

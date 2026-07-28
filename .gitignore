@@ -3,6 +3,7 @@
 .venv-py39/
 __pycache__/
 .pytest_cache/
+.DS_Store
 *.pyc
 dist/
 build/
