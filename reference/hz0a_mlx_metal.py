@@ -54,6 +54,7 @@ _SOURCE = r"""
 
 
 def _reference_forward(q, k, v, d, e, w, initial):
+    d, e, w = (mx.sigmoid(item) for item in (d, e, w))
     state = initial
     outputs = []
     for t in range(q.shape[1]):
