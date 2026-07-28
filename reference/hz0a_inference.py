@@ -8,12 +8,60 @@ from dataclasses import dataclass
 import numpy as np
 
 from reference.hz0a_gdn2_reference import TinyHZ0AModel
+from reference.hz0a_gdn2_reference import CausalSelfAttention, softmax
 
 
 @dataclass
 class DecodeResult:
     logits: np.ndarray
     states: list[np.ndarray | None]
+
+
+@dataclass
+class AttentionKVCache:
+    key: np.ndarray
+    value: np.ndarray
+
+
+def _normalize_projection(projection: np.ndarray) -> np.ndarray:
+    scale = np.maximum(np.max(np.abs(projection), axis=-1, keepdims=True), 1.0)
+    normalized = projection / scale
+    normalized /= np.sqrt(np.mean(np.square(normalized), axis=-1, keepdims=True) + 1e-6)
+    return np.clip(np.nan_to_num(normalized, nan=0.0, posinf=8.0, neginf=-8.0), -8.0, 8.0)
+
+
+def attention_decode_step(
+    attention: CausalSelfAttention,
+    x: np.ndarray,
+    cache: AttentionKVCache | None = None,
+) -> tuple[np.ndarray, AttentionKVCache]:
+    """Decode one causal-attention token using an append-only KV cache."""
+    bsz, steps, dim = x.shape
+    if steps != 1:
+        raise ValueError("attention_decode_step expects exactly one token")
+    head_dim = dim // attention.num_heads
+    q = attention.q_proj(x).astype(np.float64).reshape(bsz, 1, attention.num_heads, head_dim).transpose(0, 2, 1, 3)
+    k = attention.k_proj(x).astype(np.float64).reshape(bsz, 1, attention.num_heads, head_dim).transpose(0, 2, 1, 3)
+    v = attention.v_proj(x).astype(np.float64).reshape(bsz, 1, attention.num_heads, head_dim).transpose(0, 2, 1, 3)
+    q, k, v = _normalize_projection(q), _normalize_projection(k), _normalize_projection(v)
+    if cache is not None:
+        k = np.concatenate((cache.key, k), axis=2)
+        v = np.concatenate((cache.value, v), axis=2)
+    scores = np.matmul(q, np.swapaxes(k, -1, -2)) / np.sqrt(head_dim)
+    weights = softmax(scores, axis=-1)
+    out = np.matmul(weights, v).transpose(0, 2, 1, 3).reshape(bsz, 1, dim)
+    return attention.out_proj(out.astype(np.float32)), AttentionKVCache(key=k, value=v)
+
+
+def serialize_attention_cache(cache: AttentionKVCache) -> str:
+    buffer = io.BytesIO()
+    np.savez(buffer, key=cache.key, value=cache.value)
+    return base64.b64encode(buffer.getvalue()).decode("ascii")
+
+
+def deserialize_attention_cache(serialized: str) -> AttentionKVCache:
+    payload = np.load(io.BytesIO(base64.b64decode(serialized)), allow_pickle=False)
+    return AttentionKVCache(key=payload["key"], value=payload["value"])
 
 
 def _require_recurrent(model: TinyHZ0AModel) -> None:

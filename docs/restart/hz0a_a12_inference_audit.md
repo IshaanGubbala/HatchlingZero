@@ -6,6 +6,8 @@ Date: July 28, 2026
 
 `reference/hz0a_inference.py` provides a recurrent-only prefill and tokenwise decode API with explicit state reset and serialization. `scripts/hz0a_inference_benchmark.py` reports prefill and decode timings separately.
 
+The same module now provides an append-only causal-attention KV cache with tokenwise decode and serialization.
+
 Verified command:
 
 ```bash
@@ -29,15 +31,16 @@ The shared tiny reference attention path also has a bounded numerical policy; th
 
 - recurrent full-sequence and tokenwise decode are numerically equivalent
 - state carry, serialization, and reset behavior are deterministic
+- causal-attention full-sequence and KV-cached tokenwise outputs are numerically equivalent
 - prefill and decode are measured separately
 
 ## What This Does Not Yet Prove
 
 - PMetal-native or fused Metal execution
-- attention KV-cache decode
+- PMetal-native or fused Metal execution
 - end-to-end inference speedup over a transformer
 - chunked fused-kernel equivalence or device-level memory measurements
 
 ## A12 Assessment
 
-A12 reference-correctness sub-gate is satisfied for recurrent-only decode. Fused Metal implementation and performance comparison remain incomplete.
+A12 reference-correctness sub-gate is satisfied for recurrent decode and causal-attention KV-cache decode. Fused Metal implementation and performance comparison remain incomplete.

@@ -37,7 +37,7 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
 | A9 | deterministic optimizer replay | In progress | 100-step fixed-seed AdamW replay now produces exact repeated metrics and parameter fingerprint |
 | A10 | matched transformer | In progress | checked-in 301.180M dense baseline config/count and deterministic tiny reference now pass |
 | A11 | training stages | In progress | shared 4-stage protocol plus real multi-parameter tiny hybrid/transformer training, validation, and exact resume smoke now pass; full pretraining remains |
-| A12 | fused Metal inference | In progress | recurrent reference prefill/decode equivalence, state serialization/reset, and separate timing now pass; fused backend remains |
+| A12 | fused Metal inference | In progress | recurrent and causal-attention KV-cache reference equivalence, state serialization/reset, and separate timing now pass; fused backend remains |
 
 ## Confirmed Historical Findings To Carry Forward
 
@@ -91,6 +91,7 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
 - A11 stage-protocol sub-gate: satisfied for ordered budgets and shared optimizer/data/checkpoint settings
 - A11 tiny-training sub-gate: satisfied for real gradients, parameter updates, deterministic comparison, and exact resume
 - A12 recurrent-reference inference sub-gate: satisfied for tokenwise equivalence, state serialization/reset, and separate prefill/decode timing
+- A12 attention-cache sub-gate: satisfied for full-vs-tokenwise causal attention equivalence and cache serialization
 - Program rule: no PMetal kernel work until A2 and A3 exist and pass tests
 
 ## Detailed Progress
@@ -124,6 +125,7 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
   - machine-validated 10M/100M/500M/1B staged-training protocol
   - real PyTorch tiny hybrid/transformer smoke training with checkpoint/resume parity
   - recurrent reference inference benchmark with zero full-vs-tokenwise logit difference
+  - causal-attention KV-cache equivalence and serialization tests
 - Remaining:
   - fuller execution path beyond parity wrappers
   - backward-path implementation for GDN-2
