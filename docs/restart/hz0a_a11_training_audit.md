@@ -26,6 +26,8 @@ Both `hz0a_300m` and `hz0a_transformer_matched` share tokenizer, data manifest, 
 - interrupted/resumed tiny comparison runs reproduce uninterrupted metrics and fingerprints exactly
 - the smoke report records the metric fields needed for later quality/throughput comparison
 
+Multi-parameter checkpoints are independently validated by `scripts/hz0a_audit_tiny_checkpoint.py`, including finite model/optimizer tensors, metric continuity, and parameter fingerprint integrity.
+
 ## What This Does Not Yet Prove
 
 - that the full 1.61B tokens have been trained

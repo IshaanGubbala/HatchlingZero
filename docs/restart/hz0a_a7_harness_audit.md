@@ -75,3 +75,5 @@ A7 is meaningfully in progress, but not complete. The deterministic harness cont
 The harness now refuses non-finite logits, losses, gradients, and optimizer updates. Its `--audit-checkpoint` command verifies finite numeric payloads, record count, token accounting, and final record continuity before a checkpoint is accepted for resume.
 
 The tiny reference attention path now applies bounded per-head RMS scaling and explicit finite replacement around score/value matmuls. The targeted reference suite and CLI smoke run complete without the overflow warnings that previously remained.
+
+The multi-parameter tiny training checkpoint now has a separate audit command, `scripts/hz0a_audit_tiny_checkpoint.py`. It validates model/optimizer state, finite tensors, metric-step continuity, and the saved model parameter fingerprint; a corruption regression rejects an infinite parameter. This closes the tiny PyTorch checkpoint-audit gap, but not PMetal or device checkpoints.

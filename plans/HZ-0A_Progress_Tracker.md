@@ -151,7 +151,7 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
   - only a scalar `model_logit_scale` is train-updated today
   - scheduler remains a bookkeeping stub
   - bounded reference attention policy still needs validation against the intended PMetal numerical policy
-  - current audit covers the JSON harness checkpoint, not a full multi-parameter model checkpoint
+  - PMetal/device checkpoint audit is still pending; the tiny PyTorch multi-parameter checkpoint now has an independent integrity auditor
 
 ## Next Actions
 

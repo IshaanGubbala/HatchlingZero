@@ -107,8 +107,12 @@ def loss_for(model: nn.Module, batch: torch.Tensor) -> torch.Tensor:
 
 def fingerprint(model: nn.Module) -> str:
     digest = hashlib.sha256()
-    for parameter in model.parameters():
-        digest.update(parameter.detach().cpu().numpy().tobytes())
+    for name, parameter in sorted(model.named_parameters()):
+        tensor = parameter.detach().cpu().contiguous()
+        digest.update(name.encode("utf-8"))
+        digest.update(str(tensor.dtype).encode("ascii"))
+        digest.update(repr(tuple(tensor.shape)).encode("ascii"))
+        digest.update(tensor.numpy().tobytes())
     return digest.hexdigest()
 
 
@@ -141,7 +145,7 @@ def train_model(model: nn.Module, batches: list[torch.Tensor], steps: int, seed:
         batch_index += 1
         metrics.append({"step": step, "batch_index": batch_index - 1, "loss": float(loss.item()), "gradient_norm": grad_norm})
         if checkpoint:
-            torch.save({"model": model.state_dict(), "optimizer": optimizer.state_dict(), "step": step, "batch_index": batch_index, "metrics": metrics, "torch_rng": torch.get_rng_state(), "initial_parameter_sha256": initial_hash}, checkpoint)
+            torch.save({"model": model.state_dict(), "optimizer": optimizer.state_dict(), "step": step, "batch_index": batch_index, "metrics": metrics, "torch_rng": torch.get_rng_state(), "initial_parameter_sha256": initial_hash, "model_parameter_sha256": fingerprint(model)}, checkpoint)
     final_hash = fingerprint(model)
     elapsed = time.perf_counter() - start_time
     with torch.no_grad():
