@@ -1,0 +1,19 @@
+{
+  "version": "a11.v1",
+  "tokenizer_path": "data/tokenizer/hz0a_24576.json",
+  "data_manifest_path": "data/hz0a_source_manifest.json",
+  "sequence_length": 1024,
+  "effective_batch_tokens": 2048,
+  "precision": "bf16_activations_fp32_master",
+  "optimizer": "AdamW",
+  "learning_rate": 0.0001,
+  "validation_interval_optimizer_steps": 100,
+  "checkpoint_interval_optimizer_steps": 100,
+  "stages": [
+    {"name": "stage1_validation", "tokens": 10000000, "purpose": "pipeline_and_numerical_validation"},
+    {"name": "stage2_pilot", "tokens": 100000000, "purpose": "convergence_resume_and_data_mixture"},
+    {"name": "stage3_architecture_pilot", "tokens": 500000000, "purpose": "initial_hybrid_vs_transformer_signal"},
+    {"name": "stage4_full_comparison", "tokens": 1000000000, "purpose": "meaningful_architecture_evaluation"}
+  ],
+  "models": ["hz0a_300m", "hz0a_transformer_matched"]
+}

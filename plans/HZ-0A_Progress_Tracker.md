@@ -8,9 +8,9 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
 
 ## Current Status
 
-- Overall phase: `A5/A7 in progress`
+- Overall phase: `A5/A7/A11 in progress`
 - Confidence level: high for archaeology findings, low for any legacy implementation reuse
-- Last verified checkpoint: `July 28, 2026 - A10 matched transformer, A9 replay, A8 chunked backward, A6 optimizer parity, A5 packing, and A7 safety pass`
+- Last verified checkpoint: `July 28, 2026 - A11 staged protocol, A10 matched transformer, A9 replay, A8 chunked backward, A6 optimizer parity, A5 packing, and A7 safety pass`
 - Active artifacts:
   - `/Users/ishaangubbala/Documents/Training/docs/restart/hz0a_history_audit.md`
   - `/Users/ishaangubbala/Documents/Training/docs/restart/hz0a_recovered_spec.md`
@@ -36,6 +36,7 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
 | A8 | explicit PMetal GDN-2 backward | In progress | cached reverse scan plus uneven chunk checkpoint/recompute now match full gradients; real PMetal execution remains |
 | A9 | deterministic optimizer replay | In progress | 100-step fixed-seed AdamW replay now produces exact repeated metrics and parameter fingerprint |
 | A10 | matched transformer | In progress | checked-in 301.180M dense baseline config/count and deterministic tiny reference now pass |
+| A11 | training stages | In progress | machine-validated 4-stage, 1.61B-token shared hybrid/transformer protocol now exists; actual pretraining remains |
 
 ## Confirmed Historical Findings To Carry Forward
 
@@ -86,6 +87,7 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
 - A8 chunked-recompute sub-gate: satisfied for uneven full-vs-chunked gradient equivalence
 - A9 deterministic optimizer sub-gate: satisfied for fixed tiny-parameter 100-step replay
 - A10 matched-count/reference sub-gate: satisfied within 1,816 parameters and shared tiny LM-loss conventions
+- A11 stage-protocol sub-gate: satisfied for ordered budgets and shared optimizer/data/checkpoint settings
 - Program rule: no PMetal kernel work until A2 and A3 exist and pass tests
 
 ## Detailed Progress
@@ -115,6 +117,7 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
   - chunked backward with state-cotangent propagation across boundaries
   - 100-step fixed-seed optimizer replay with exact repeated output and parameter hash
   - matched-transformer config/count tool and deterministic tiny reference
+  - machine-validated 10M/100M/500M/1B staged-training protocol
 - Remaining:
   - fuller execution path beyond parity wrappers
   - backward-path implementation for GDN-2
