@@ -42,6 +42,10 @@ The locked 301M reference model also has a real-forward smoke command; it is int
 
 The real CPU smoke completed with finite logits and the locked parameter count; full-model optimizer training remains unverified.
 
+`scripts/hz0a_full_training_smoke.py` now runs bounded AdamW updates through the full config-driven model, refusing non-finite losses/gradients and reporting parameter norms, update evidence, throughput, and resident memory. The scaled regression passes; the locked one-step run is an integration smoke, not meaningful pretraining.
+
+Verified locked run: one AdamW update at batch `1`, sequence length `1` produced finite loss `107.5517`, gradient norm `1771.2943`, changed parameters, and `6,500,532,224` maximum resident bytes. It processed one token, so it is not a capability or convergence result.
+
 ## What This Does Not Yet Prove
 
 - that the full 1.61B tokens have been trained

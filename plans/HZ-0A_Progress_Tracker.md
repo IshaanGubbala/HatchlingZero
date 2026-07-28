@@ -165,6 +165,8 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
   - standalone checkpoint evaluator now reports shared loss/perplexity/token/parameter/throughput metrics
   - locked 301M reference model now has a real/meta forward smoke command with memory and finite-logit reporting
   - real locked-model CPU forward smoke passed at sequence length 1 with finite logits and measured resident memory
+  - bounded full-parameter AdamW smoke path now exists with finite-loss/gradient refusal and parameter-change evidence
+  - locked 301M one-step AdamW smoke completed with finite loss/gradients and measured 6.5GB resident memory
   - native fused GDN-2 Metal forward kernel now compiles into a Metal library and matches a deterministic runtime smoke case; full-model integration and speed remain unverified
   - config-driven PyTorch full topology now matches the locked `301,178,112` parameter target on a meta-device audit
 
