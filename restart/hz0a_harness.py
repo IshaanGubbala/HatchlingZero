@@ -5,10 +5,15 @@ import hashlib
 import json
 from pathlib import Path
 import random
+import sys
 from typing import Any
 
 import numpy as np
 import yaml
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from reference.hz0a_gdn2_reference import TinyHZ0AModel
 
 
 def sha256_file(path: Path) -> str:
@@ -31,6 +36,14 @@ class HarnessConfig:
     checkpoint_interval: int
     learning_rate: float
     seed: int
+    model_vocab_size: int = 256
+    model_d_model: int = 32
+    model_num_layers: int = 3
+    model_num_heads: int = 4
+    model_d_k: int = 8
+    model_d_v: int = 8
+    model_d_ff: int = 64
+    model_attention_layer_indices: list[int] | None = None
 
     @property
     def effective_batch_tokens(self) -> int:
@@ -52,6 +65,8 @@ class HarnessState:
     peak_memory_bytes: int = 0
     gradient_norm: float = 0.0
     parameter_update_norm: float = 0.0
+    model_logit_scale: float = 1.0
+    accumulated_scale_grad: float = 0.0
 
 
 @dataclass
@@ -62,6 +77,7 @@ class MicrobatchRecord:
     loss: float
     gradient_norm: float
     tokens: int
+    scale_grad: float
 
 
 class PackedSequenceDataset:
@@ -92,6 +108,17 @@ class DeterministicHarness:
             rng_seed=config.seed,
         )
         self.random = random.Random(config.seed)
+        self.model = TinyHZ0AModel.init(
+            rng_seed=config.seed,
+            vocab_size=config.model_vocab_size,
+            d_model=config.model_d_model,
+            num_layers=config.model_num_layers,
+            num_heads=config.model_num_heads,
+            d_k=config.model_d_k,
+            d_v=config.model_d_v,
+            d_ff=config.model_d_ff,
+            attention_layer_indices=config.model_attention_layer_indices or [1],
+        )
         self.records: list[MicrobatchRecord] = []
         self.validation_history: list[dict[str, Any]] = []
         self.peak_memory_bytes = 0
@@ -101,19 +128,38 @@ class DeterministicHarness:
             "config": asdict(self.config),
             "packed_data_sha256": sha256_file(Path(self.config.packed_data_path)),
             "effective_batch_tokens": self.config.effective_batch_tokens,
+            "model_shape": {
+                "vocab_size": self.config.model_vocab_size,
+                "d_model": self.config.model_d_model,
+                "num_layers": self.config.model_num_layers,
+                "num_heads": self.config.model_num_heads,
+                "d_k": self.config.model_d_k,
+                "d_v": self.config.model_d_v,
+                "d_ff": self.config.model_d_ff,
+                "attention_layer_indices": self.config.model_attention_layer_indices or [1],
+            },
         }
         path = self.run_dir / "config.snapshot.json"
         path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
         return path
 
-    def _fake_loss(self, batch: np.ndarray) -> float:
-        return float(np.mean(batch) / 1000.0 + self.state.optimizer_step * 1e-4)
+    def _batch_inputs_and_targets(self, batch: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        token_ids = batch[:, :-1] % self.config.model_vocab_size
+        targets = batch[:, 1:] % self.config.model_vocab_size
+        return token_ids.astype(np.int64), targets.astype(np.int64)
 
-    def _fake_gradient(self, loss: float) -> float:
-        return float(abs(loss) * 0.5 + 0.01)
-
-    def _fake_param_update(self, grad_norm: float) -> float:
-        return float(self.config.learning_rate * grad_norm)
+    def _cross_entropy_with_scale_grad(self, logits: np.ndarray, targets: np.ndarray) -> tuple[float, float]:
+        scaled_logits = logits * self.state.model_logit_scale
+        shifted = scaled_logits - np.max(scaled_logits, axis=-1, keepdims=True)
+        exp_shifted = np.exp(shifted)
+        probs = exp_shifted / np.sum(exp_shifted, axis=-1, keepdims=True)
+        vocab = scaled_logits.shape[-1]
+        one_hot = np.eye(vocab, dtype=np.float32)[targets]
+        log_probs = shifted - np.log(np.sum(exp_shifted, axis=-1, keepdims=True))
+        loss = float(-np.mean(np.take_along_axis(log_probs, targets[..., None], axis=-1)[..., 0]))
+        dloss_dscaled_logits = (probs - one_hot) / targets.size
+        scale_grad = float(np.sum(dloss_dscaled_logits * logits))
+        return loss, scale_grad
 
     def run_microbatch(self) -> MicrobatchRecord:
         batch, next_index, wrapped = self.dataset.get_microbatch(
@@ -123,13 +169,16 @@ class DeterministicHarness:
         self.state.dataset_index = next_index % len(self.dataset)
         self.state.epoch_or_data_pass += wrapped
 
-        loss = self._fake_loss(batch)
-        grad_norm = self._fake_gradient(loss)
+        token_ids, targets = self._batch_inputs_and_targets(batch)
+        logits, _ = self.model(token_ids)
+        loss, scale_grad = self._cross_entropy_with_scale_grad(logits, targets)
+        grad_norm = float(abs(scale_grad))
         tokens = self.config.microbatch_size * self.config.sequence_length
         self.state.microbatch_count += 1
         self.state.tokens_seen += tokens
         self.state.last_loss = loss
         self.state.gradient_norm = grad_norm
+        self.state.accumulated_scale_grad += scale_grad
         self.peak_memory_bytes = max(self.peak_memory_bytes, int(batch.nbytes))
         self.state.peak_memory_bytes = self.peak_memory_bytes
 
@@ -140,6 +189,7 @@ class DeterministicHarness:
             loss=loss,
             gradient_norm=grad_norm,
             tokens=tokens,
+            scale_grad=scale_grad,
         )
         self.records.append(record)
         return record
@@ -147,18 +197,26 @@ class DeterministicHarness:
     def maybe_step_optimizer(self) -> bool:
         if self.state.microbatch_count % self.config.grad_accum_steps != 0:
             return False
-        update_norm = self._fake_param_update(self.state.gradient_norm)
-        self.state.model_param -= update_norm
+        avg_grad = self.state.accumulated_scale_grad / self.config.grad_accum_steps
+        update_norm = float(abs(self.config.learning_rate * avg_grad))
+        self.state.model_logit_scale -= self.config.learning_rate * avg_grad
+        self.state.model_param = self.state.model_logit_scale
         self.state.parameter_update_norm = update_norm
         self.state.optimizer_step += 1
         self.state.scheduler_step += 1
+        self.state.accumulated_scale_grad = 0.0
         return True
 
     def validate(self) -> dict[str, Any]:
+        batch, _, _ = self.dataset.get_microbatch(self.state.dataset_index, self.config.microbatch_size)
+        token_ids, targets = self._batch_inputs_and_targets(batch)
+        logits, _ = self.model(token_ids)
+        validation_loss, _ = self._cross_entropy_with_scale_grad(logits, targets)
         metric = {
             "optimizer_step": self.state.optimizer_step,
             "tokens_seen": self.state.tokens_seen,
-            "validation_loss": round((self.state.last_loss or 0.0) + 0.123, 6),
+            "validation_loss": round(validation_loss, 6),
+            "model_logit_scale": round(self.state.model_logit_scale, 8),
         }
         self.validation_history.append(metric)
         return metric

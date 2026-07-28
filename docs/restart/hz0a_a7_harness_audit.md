@@ -4,7 +4,7 @@ Date: July 28, 2026
 
 ## Status
 
-The first deterministic restart-era HZ-0A training harness now exists and is test-backed.
+The restart-era HZ-0A training harness now exists, is test-backed, and now drives a real tiny reference-model forward/loss path instead of a synthetic stub.
 
 ## Source Artifacts
 
@@ -21,17 +21,22 @@ Executed successfully:
 
 ```bash
 python3 -m pytest -q tests/reference/test_hz0a_harness.py tests/reference/test_pmetal_reference.py tests/reference/test_gdn2_reference.py tests/reference/test_gdn2_gradients.py
-python3 restart/hz0a_harness.py --config configs/hz0a_restart_smoke.yaml --run-dir outputs/hz0a_restart_smoke --stop-after-microbatches 8
+python3 restart/hz0a_harness.py --config configs/hz0a_restart_smoke.yaml --run-dir outputs/hz0a_restart_smoke_modelaware --stop-after-microbatches 8
 ```
 
 Observed results:
 
-- combined suite: `17 passed`
+- combined suite: `18 passed`
 - smoke-run summary:
   - `microbatch_count = 8`
   - `optimizer_step = 2`
   - `tokens_seen = 2048`
   - `effective_batch_tokens = 1024`
+- model-aware harness details:
+  - a deterministic tiny `TinyHZ0AModel` forward pass is now part of each harness microbatch
+  - the harness computes true token cross-entropy on shifted next-token targets
+  - optimizer stepping now updates a real scalar `model_logit_scale` from accumulated loss gradients
+  - config snapshots now include a serialized `model_shape` section
 
 ## What This Proves
 
@@ -45,6 +50,8 @@ Observed results:
 - checkpoint save/load exists
 - deterministic resume behavior is covered by tests
 - gradient accumulation is independent of optimizer-step counting
+- microbatch loss is now derived from a concrete model forward path rather than a fake scalar schedule
+- resume exactness continues to hold with serialized real-loss records and validation history
 
 ## Historical Accounting Gate
 
@@ -54,12 +61,13 @@ The required historical accounting shape is also explicitly tested:
 
 ## What This Does Not Yet Prove
 
-- actual model training integration
-- optimizer-state semantics from a real PMetal model
-- scheduler behavior beyond the harness stub
+- full trainable parameter updates across the tiny reference model
+- optimizer-state semantics from a real PMetal or multi-parameter model
+- scheduler behavior beyond the current scalar-step stub
 - NaN/Inf refusal gates on true gradients
 - checkpoint audit command for full model checkpoints
+- elimination of the overflow warnings currently emitted by the tiny reference attention path during smoke/test runs
 
 ## A7 Current Assessment
 
-A7 is meaningfully in progress, but not complete. The deterministic harness contract is now in place and tested, which is the correct base for real model/training integration in later HZ-0A work.
+A7 is meaningfully in progress, but not complete. The deterministic harness contract is now in place, test-backed, CLI-runnable, and attached to a real reference-model loss path, which is the right base for A8/A9 replay and fuller model-training integration.

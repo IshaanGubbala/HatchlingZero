@@ -55,6 +55,32 @@ def test_harness_tracks_token_accounting_and_snapshots(tmp_path: Path) -> None:
     assert snapshot.exists()
     payload = json.loads(snapshot.read_text())
     assert payload["effective_batch_tokens"] == 1024
+    assert payload["model_shape"]["vocab_size"] == cfg.model_vocab_size
+    assert payload["model_shape"]["num_layers"] == cfg.model_num_layers
+    assert harness.state.model_logit_scale != 1.0
+    assert harness.state.model_param == harness.state.model_logit_scale
+    assert harness.state.accumulated_scale_grad == 0.0
+    assert len(harness.validation_history) == 3
+    assert all("model_logit_scale" in metric for metric in harness.validation_history)
+    assert all(record.scale_grad != 0.0 for record in harness.records)
+
+
+def test_harness_real_loss_matches_direct_reference_computation(tmp_path: Path) -> None:
+    cfg = make_config(tmp_path)
+    harness = DeterministicHarness(cfg, tmp_path / "run")
+
+    batch, _, _ = harness.dataset.get_microbatch(0, cfg.microbatch_size)
+    token_ids, targets = harness._batch_inputs_and_targets(batch)
+    logits, _ = harness.model(token_ids)
+    expected_loss, expected_scale_grad = harness._cross_entropy_with_scale_grad(logits, targets)
+
+    record = harness.run_microbatch()
+
+    assert record.loss == expected_loss
+    assert record.scale_grad == expected_scale_grad
+    assert record.gradient_norm == abs(expected_scale_grad)
+    assert harness.state.last_loss == expected_loss
+    assert harness.state.accumulated_scale_grad == expected_scale_grad
 
 
 def test_harness_resume_is_exact(tmp_path: Path) -> None:

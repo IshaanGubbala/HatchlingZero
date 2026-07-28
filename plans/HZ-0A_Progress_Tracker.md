@@ -10,6 +10,7 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
 
 - Overall phase: `A7 in progress`
 - Confidence level: high for archaeology findings, low for any legacy implementation reuse
+- Last verified checkpoint: `July 28, 2026 - model-aware A7 harness pass`
 - Active artifacts:
   - `/Users/ishaangubbala/Documents/Training/docs/restart/hz0a_history_audit.md`
   - `/Users/ishaangubbala/Documents/Training/docs/restart/hz0a_recovered_spec.md`
@@ -31,7 +32,7 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
 | A4 | tokenizer rebuild | Complete | tokenizer artifact, corpus manifest, runtime wrapper, and audit now exist |
 | A5 | data pipeline rebuild | In progress | source-manifest audit and token-packing scaffolding now exist |
 | A6 | PMetal reference implementation | In progress | fresh PMetal workspace now has Rust contract tests plus operator/block/loss Python parity checks |
-| A7 | training harness rebuild | In progress | deterministic harness, config snapshot, checkpoint/resume, and accounting tests now exist |
+| A7 | training harness rebuild | In progress | deterministic harness now runs a real tiny reference-model forward/loss path with exact resume coverage and CLI smoke verification |
 | A8 | explicit PMetal GDN-2 backward | Not started | forward-cache/backward path still pending |
 | A9 | deterministic optimizer replay | Not started | replay and reproducibility gate still pending |
 | A10 | matched transformer | Not started | must be parameter-matched and launcher-compatible |
@@ -79,10 +80,51 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
 - A2 exit gate: satisfied
 - A3 exit gate: satisfied for the recurrence core
 - A4 exit gate: satisfied
+- A7 partial gate: satisfied for deterministic accounting, checkpoint/restart, and model-aware scalar-loss stepping
 - Program rule: no PMetal kernel work until A2 and A3 exist and pass tests
+
+## Detailed Progress
+
+### A5 Data Pipeline
+
+- Completed:
+  - deterministic source manifest scaffold
+  - source-manifest audit script
+  - token-packing script and packed-data audit output
+- Remaining:
+  - broader corpus ingestion automation
+  - stricter reproducibility and provenance checks
+  - restart-era dataset validation beyond current packed JSON scaffold
+
+### A6 PMetal Reference
+
+- Completed:
+  - clean restart workspace under `restart/hz0a_pmetal`
+  - Rust crate split for kernel and bridge
+  - parity coverage for recurrence operator, blocks, and loss path
+- Remaining:
+  - fuller execution path beyond parity wrappers
+  - backward-path implementation for GDN-2
+  - tighter coupling to harness/optimizer replay requirements
+
+### A7 Harness
+
+- Completed:
+  - deterministic token accounting and historical effective-batch tracking
+  - config snapshot output with serialized model-shape metadata
+  - checkpoint save/load and exact resume test coverage
+  - real tiny-model forward pass wired into microbatch execution
+  - real next-token cross-entropy and accumulated scalar gradient stepping
+  - CLI smoke run verified from `restart/hz0a_harness.py`
+- Current limitations:
+  - only a scalar `model_logit_scale` is train-updated today
+  - scheduler remains a bookkeeping stub
+  - tiny reference attention path still emits overflow warnings under the current smoke/test setup
+  - no full checkpoint audit command or NaN/Inf hard-fail path yet
 
 ## Next Actions
 
-1. Expand A5 beyond scaffolding into a more complete deterministic dataset pipeline.
-2. Deepen A6 from parity wrappers into more realistic PMetal-side execution and optimizer-step parity.
-3. Integrate the A7 harness with a real model/optimizer path and extend it toward the A8/A9 replay requirements.
+1. Stabilize the tiny reference attention path so the harness runs without overflow warnings.
+2. Expand A5 beyond scaffolding into a more complete deterministic dataset pipeline.
+3. Deepen A6 from parity wrappers into more realistic PMetal-side execution and optimizer-step parity.
+4. Extend A7 from scalar logit-scale stepping toward fuller optimizer-state replay for A8/A9.
