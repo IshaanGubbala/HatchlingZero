@@ -69,9 +69,16 @@ def lr_at_step(step: int, total_steps: int, warmup_steps: int, max_lr: float, mi
 
 
 def assert_finite(label, values):
+    """One aggregate host round-trip instead of one bool() per parameter leaf.
+
+    The naive per-leaf `bool(mx.all(mx.isfinite(v)))` loop forces a separate
+    synchronous device-to-host transfer for every leaf (hundreds for a
+    300M-param model, called at least twice per chunk) -- stacking the
+    per-leaf flags and checking once cuts that to a single sync point.
+    """
     arrays = values if isinstance(values, (list, tuple)) else [values]
-    mx.eval(*arrays)
-    if not all(bool(mx.all(mx.isfinite(value))) for value in arrays):
+    finite_flags = mx.stack([mx.all(mx.isfinite(value)) for value in arrays])
+    if not bool(mx.all(finite_flags)):
         raise FloatingPointError(f"native Stage 1 produced non-finite {label}")
 
 
@@ -129,6 +136,8 @@ def main() -> None:
     parser.add_argument("--lr-min-ratio", type=float, default=0.1, help="Cosine floor as a fraction of --max-lr")
     parser.add_argument("--lr-schedule", choices=("cosine", "constant"), default="cosine")
     parser.add_argument("--architecture", choices=("hybrid", "transformer"), default="hybrid", help="hybrid = periodic GDN-2 recurrence + attention (the A1 spec); transformer = every layer is causal attention (the A10 matched baseline)")
+    parser.add_argument("--seed", type=int, default=7, help="Initialization seed (data order is deterministic/sequential regardless of seed)")
+    parser.add_argument("--validation-batch-size", type=int, default=32, help="Fixed number of validation sequences read once at startup and reused for every validation check (was a single rotating sequence -- high variance, not comparable across runs)")
     args = parser.parse_args()
     if args.gradient_accumulation_chunks <= 0:
         raise ValueError("--gradient-accumulation-chunks must be positive")
@@ -147,7 +156,7 @@ def main() -> None:
         total_optimizer_steps = max(1, math.ceil(total_chunks / args.gradient_accumulation_chunks))
     else:
         total_optimizer_steps = max(1, math.ceil(args.target_tokens / (args.batch_size * sequence_length)))
-    mx.random.seed(7)
+    mx.random.seed(args.seed)
     if args.architecture == "transformer":
         attention = tuple(range(args.layers))
     else:
@@ -171,6 +180,23 @@ def main() -> None:
     with args.data.open() as train, args.validation_data.open() as validation:
         for _ in range(batch_index):
             read_batch(train, args.batch_size, sequence_length)
+        # Fixed, deterministic validation set read once and reused for every
+        # check -- previously this was a single sequence off a rotating
+        # cursor (read_batch(validation, 1, ...) called fresh each time),
+        # which made validation_loss a high-variance single-sample estimate
+        # rather than a stable signal comparable across checkpoints/runs.
+        fixed_validation_tokens = read_batch(validation, args.validation_batch_size, sequence_length)
+        mx.eval(fixed_validation_tokens)
+        def evaluate_fixed_validation(current, sub_batch: int = 8) -> float:
+            total, count = 0.0, 0
+            for start in range(0, fixed_validation_tokens.shape[0], sub_batch):
+                chunk = fixed_validation_tokens[start:start + sub_batch]
+                logits, _ = current(chunk)
+                loss = mx.mean(nn.losses.cross_entropy(logits[:, :-1], chunk[:, 1:]))
+                mx.eval(loss)
+                total += float(loss)
+                count += 1
+            return total / count
         def loss_fn(current, tokens):
             states = None
             logits_parts = []
@@ -266,15 +292,11 @@ def main() -> None:
                     handle.write(json.dumps(item) + "\n")
                 gc.collect()
             if step % args.validation_interval == 0 or tokens_seen >= args.target_tokens:
-                validation_tokens = read_batch(validation, 1, sequence_length)
-                validation_logits, _ = model(validation_tokens)
-                validation_loss = mx.mean(nn.losses.cross_entropy(validation_logits[:, :-1], validation_tokens[:, 1:]))
-                mx.eval(validation_loss)
-                item["validation_loss"] = float(validation_loss)
+                item["validation_loss"] = evaluate_fixed_validation(model)
             metrics.append(item)
             if step % args.checkpoint_interval == 0 or tokens_seen >= args.target_tokens:
                 save_checkpoint(checkpoint, model, optimizer, step, tokens_seen, batch_index, metrics)
-    report = {"backend": "native_metal_mlx", "architecture": args.architecture, "stage": "stage1_validation", "dtype": args.dtype, "activation_checkpoint": args.activation_checkpoint, "chunk_length": args.chunk_length, "gradient_accumulation_chunks": args.gradient_accumulation_chunks, "gradient_accumulation_dtype": args.gradient_accumulation_dtype, "reset_attention_state": args.reset_attention_state, "carry_attention_state": carry_attention_state, "lr_schedule": args.lr_schedule, "max_lr": args.max_lr, "warmup_steps": args.warmup_steps, "lr_min_ratio": args.lr_min_ratio, "total_optimizer_steps_estimate": total_optimizer_steps, "final_lr": last_lr, "steps": step, "tokens_seen": tokens_seen, "target_tokens": args.target_tokens, "budget_complete": tokens_seen >= args.target_tokens, "parameter_count": sum(value.size for _, value in tree_flatten(model.parameters())), "initialization_seed": 7, "final_parameter_sha256": model_fingerprint(model), "metrics": metrics, "checkpoint": str(checkpoint), "training_seconds": time.perf_counter() - started, "tokens_per_second": tokens_seen / max(time.perf_counter() - started, 1e-9), "peak_memory_bytes": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss}
+    report = {"backend": "native_metal_mlx", "architecture": args.architecture, "stage": "stage1_validation", "dtype": args.dtype, "activation_checkpoint": args.activation_checkpoint, "chunk_length": args.chunk_length, "gradient_accumulation_chunks": args.gradient_accumulation_chunks, "gradient_accumulation_dtype": args.gradient_accumulation_dtype, "reset_attention_state": args.reset_attention_state, "carry_attention_state": carry_attention_state, "lr_schedule": args.lr_schedule, "max_lr": args.max_lr, "warmup_steps": args.warmup_steps, "lr_min_ratio": args.lr_min_ratio, "total_optimizer_steps_estimate": total_optimizer_steps, "final_lr": last_lr, "validation_batch_size": args.validation_batch_size, "steps": step, "tokens_seen": tokens_seen, "target_tokens": args.target_tokens, "budget_complete": tokens_seen >= args.target_tokens, "parameter_count": sum(value.size for _, value in tree_flatten(model.parameters())), "initialization_seed": args.seed, "final_parameter_sha256": model_fingerprint(model), "metrics": metrics, "checkpoint": str(checkpoint), "training_seconds": time.perf_counter() - started, "tokens_per_second": tokens_seen / max(time.perf_counter() - started, 1e-9), "peak_memory_bytes": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss}
     (args.run_dir / "native_metal.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(json.dumps(report, indent=2))
 
