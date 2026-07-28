@@ -194,6 +194,8 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
 - auditable PyTorch stage runner now accepts the locked config-driven HZ-0A model, preserves recurrent states through the shared loss path, and writes checkpoint/report evidence; tiny locked-topology execution is regression-tested
 - stage reports now include per-step update norms and validation perplexity plus MPS peak allocated memory, extending the checkpointed A7/A9 audit metrics
 - parameter-matched transformer reference now implements the A10 config with tied embeddings, bias-free RMSNorm, causal attention, SwiGLU, and exact `301,179,928` parameter count; tiny forward and stage integration are regression-tested
+- exact `301,179,928`-parameter matched transformer completed a real MPS fp16 one-step stage-runner smoke with finite loss `594.9077`, gradient norm `755.6633`, update norm `1.6729`, changed parameters, `141.8` tokens/s, and `6.72 GB` peak allocation; this is topology/training-path evidence, not a completed 10M-token stage
+- stage report final validation now correctly reuses the held-out validation metric instead of recomputing on the final training batch
   - config-driven PyTorch full topology now matches the locked `301,178,112` parameter target on a meta-device audit
   - model-level recurrent-only chunked state carry now matches full-sequence logits/state in regression coverage
 

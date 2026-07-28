@@ -54,6 +54,7 @@ def run_model(name: str, factory, data_path: Path, validation_data: Path, run_di
     checkpoint = run_dir / f"{name}.pt"
     initial_hash = fingerprint(model)
     metrics = []
+    last_validation_loss = None
     start_step = 0
     if resume:
         payload = torch.load(checkpoint, map_location=device, weights_only=False)
@@ -83,6 +84,7 @@ def run_model(name: str, factory, data_path: Path, validation_data: Path, run_di
             with torch.no_grad():
                 validation_batch = torch.from_numpy(validation_dataset.next_batch(batch_size)).remainder(vocab_size).to(device)
                 validation_loss = float(loss_for(model, validation_batch, activation_dtype).item())
+                last_validation_loss = validation_loss
                 if not np.isfinite(validation_loss):
                     raise RuntimeError(f"non-finite validation loss at step {step}")
         metrics.append({"step": step, "loss": float(loss.item()), "validation_loss": validation_loss, "validation_perplexity": float(np.exp(validation_loss)) if validation_loss is not None else None, "gradient_norm": gradient_norm, "update_norm": update_norm, "batch_index": step - 1})
@@ -90,7 +92,7 @@ def run_model(name: str, factory, data_path: Path, validation_data: Path, run_di
             save_checkpoint(checkpoint, {"model": model.state_dict(), "optimizer": optimizer.state_dict(), "step": step, "metrics": metrics, "dataset_cursor": dataset.snapshot(), "initial_parameter_sha256": initial_hash, "model_parameter_sha256": fingerprint(model), "torch_rng": torch.get_rng_state(), "device": str(device), "dtype": str(dtype)})
     elapsed = time.perf_counter() - start
     tokens_seen = steps * batch_size * (int(batch.shape[1]) - 1)
-    final_validation_loss = float(loss_for(model, batch).item())
+    final_validation_loss = last_validation_loss if last_validation_loss is not None else float(loss_for(model, batch).item())
     return {"steps": steps, "tokens_seen": tokens_seen, "budget_complete": False, "metrics": metrics, "initial_parameter_sha256": initial_hash, "final_parameter_sha256": fingerprint(model), "parameters_changed": initial_hash != fingerprint(model), "parameter_count": sum(parameter.numel() for parameter in model.parameters()), "parameter_bytes": parameter_bytes(model), "final_loss": metrics[-1]["loss"], "validation_loss": final_validation_loss, "validation_perplexity": float(np.exp(final_validation_loss)), "training_seconds": elapsed, "tokens_per_second": tokens_seen / elapsed, "peak_memory_bytes": peak_memory, "checkpoint": str(checkpoint), "resumed": resume}
 
 
