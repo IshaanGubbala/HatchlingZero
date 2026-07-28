@@ -10,7 +10,7 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
 
 - Overall phase: `A5/A7 in progress`
 - Confidence level: high for archaeology findings, low for any legacy implementation reuse
-- Last verified checkpoint: `July 28, 2026 - A9 deterministic replay, A8 chunked backward, A6 optimizer parity, A5 packing, and A7 safety pass`
+- Last verified checkpoint: `July 28, 2026 - A10 matched transformer, A9 replay, A8 chunked backward, A6 optimizer parity, A5 packing, and A7 safety pass`
 - Active artifacts:
   - `/Users/ishaangubbala/Documents/Training/docs/restart/hz0a_history_audit.md`
   - `/Users/ishaangubbala/Documents/Training/docs/restart/hz0a_recovered_spec.md`
@@ -35,7 +35,7 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
 | A7 | training harness rebuild | In progress | deterministic harness now runs a real tiny reference-model forward/loss path with exact resume coverage and CLI smoke verification |
 | A8 | explicit PMetal GDN-2 backward | In progress | cached reverse scan plus uneven chunk checkpoint/recompute now match full gradients; real PMetal execution remains |
 | A9 | deterministic optimizer replay | In progress | 100-step fixed-seed AdamW replay now produces exact repeated metrics and parameter fingerprint |
-| A10 | matched transformer | Not started | must be parameter-matched and launcher-compatible |
+| A10 | matched transformer | In progress | checked-in 301.180M dense baseline config/count and deterministic tiny reference now pass |
 
 ## Confirmed Historical Findings To Carry Forward
 
@@ -85,6 +85,7 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
 - A8 ordinary-reference backward sub-gate: satisfied for all Q/K/V/gate/initial-state gradients
 - A8 chunked-recompute sub-gate: satisfied for uneven full-vs-chunked gradient equivalence
 - A9 deterministic optimizer sub-gate: satisfied for fixed tiny-parameter 100-step replay
+- A10 matched-count/reference sub-gate: satisfied within 1,816 parameters and shared tiny LM-loss conventions
 - Program rule: no PMetal kernel work until A2 and A3 exist and pass tests
 
 ## Detailed Progress
@@ -113,6 +114,7 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
   - explicit cached GDN-2 backward with independent torch-oracle coverage
   - chunked backward with state-cotangent propagation across boundaries
   - 100-step fixed-seed optimizer replay with exact repeated output and parameter hash
+  - matched-transformer config/count tool and deterministic tiny reference
 - Remaining:
   - fuller execution path beyond parity wrappers
   - backward-path implementation for GDN-2
@@ -140,4 +142,4 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
 1. Stabilize the tiny reference attention path so the harness runs without overflow warnings.
 2. Expand A5 beyond scaffolding into a more complete deterministic dataset pipeline.
 3. Deepen A6 from parity wrappers into more realistic PMetal-side execution and optimizer-step parity.
-4. Connect the A9 replay to real model parameters, data batches, validation, checkpoints, and PMetal execution.
+4. Connect A9/A10 to real model parameters, data batches, validation, checkpoints, and PMetal execution.

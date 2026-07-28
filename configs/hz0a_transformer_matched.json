@@ -1,0 +1,22 @@
+{
+  "name": "hz0a_transformer_matched",
+  "version": "a10.v1",
+  "vocab_size": 24576,
+  "d_model": 768,
+  "num_layers": 29,
+  "num_heads": 12,
+  "head_dim": 64,
+  "d_ff": 3196,
+  "tied_embeddings": true,
+  "lm_head_bias": false,
+  "target_hz0a_params": 301178112,
+  "parameter_count": 301179928,
+  "absolute_parameter_difference": 1816,
+  "relative_parameter_difference": 0.0000060302,
+  "tokenizer_path": "data/tokenizer/hz0a_24576.json",
+  "data_manifest_path": "data/hz0a_source_manifest.json",
+  "sequence_length": 1024,
+  "precision": "fp32_reference_bf16_training_target",
+  "optimizer": "AdamW",
+  "learning_rate": 0.0001
+}
