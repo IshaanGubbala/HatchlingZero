@@ -149,6 +149,7 @@ def main() -> None:
                     mx.eval(loss, model.parameters(), optimizer.state)
                     new = [value for _, value in tree_flatten(model.parameters())]
                     update_norm = float(mx.sqrt(sum(mx.sum((a - b) * (a - b)) for a, b in zip(new, old))))
+                    mx.clear_cache()
                     step += 1; tokens_seen += args.batch_size * chunk.shape[1]
                     chunk_metrics.append({"step": step, "tokens_seen": tokens_seen, "loss": float(loss), "gradient_norm": grad_norm, "update_norm": update_norm})
                 batch_index += 1
