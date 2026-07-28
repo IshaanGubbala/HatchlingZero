@@ -161,6 +161,7 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
   - Wikitext-103 source budget measured at `196,028,717` tokens with train/validation/test hashes; packed-output gate remains
   - streaming train packing produced `1,524,594` fixed-length sequences and offset-indexed resumable iteration is now test-backed
   - auditable stage runner now executes tiny hybrid/transformer comparisons with checkpoints and explicit smoke/budget-complete flags
+  - stage runner resume restores model/optimizer/RNG/dataset cursor and matches uninterrupted fingerprints
   - native fused GDN-2 Metal forward kernel now compiles into a Metal library and matches a deterministic runtime smoke case; full-model integration and speed remain unverified
   - config-driven PyTorch full topology now matches the locked `301,178,112` parameter target on a meta-device audit
 
