@@ -17,6 +17,17 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 
+@torch.jit.script
+def gdn_scan(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, decay: torch.Tensor, erase: torch.Tensor, write: torch.Tensor, state: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    outputs = torch.jit.annotate(list[torch.Tensor], [])
+    steps = q.size(1)
+    for t in range(steps):
+        state = decay[:, t, :, None, :] * (1.0 - erase[:, t, :, None, :]) * state
+        state = state + write[:, t, :, :, None] * v[:, t, :, :, None] * k[:, t, :, None, :]
+        outputs.append(torch.einsum("bhvk,bhk->bhv", state, q[:, t]))
+    return torch.stack(outputs, dim=1), state
+
+
 def seed_everything(seed: int) -> None:
     random.seed(seed)
     np.random.seed(seed)
@@ -49,12 +60,8 @@ class TinyGDNLayer(nn.Module):
         decay = torch.sigmoid(self.decay(x).view(bsz, steps, self.heads, self.head_dim))
         erase = torch.sigmoid(self.erase(x).view(bsz, steps, self.heads, self.head_dim))
         write = torch.sigmoid(self.write(x).view(bsz, steps, self.heads, self.head_dim))
-        outputs = []
-        for t in range(steps):
-            state = decay[:, t, :, None, :] * (1.0 - erase[:, t, :, None, :]) * state
-            state = state + write[:, t, :, :, None] * v[:, t, :, :, None] * k[:, t, :, None, :]
-            outputs.append(torch.einsum("bhvk,bhk->bhv", state, q[:, t]))
-        mixed = self.out(torch.stack(outputs, dim=1).reshape(bsz, steps, dim))
+        outputs, state = gdn_scan(q, k, v, decay, erase, write, state)
+        mixed = self.out(outputs.reshape(bsz, steps, dim))
         x = residual + mixed
         return x + self.mlp(self.norm2(x)), state
 
