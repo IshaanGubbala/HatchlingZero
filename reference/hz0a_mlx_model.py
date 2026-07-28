@@ -47,15 +47,20 @@ class CausalAttention(nn.Module):
         self.qkv = nn.Linear(dim, 3 * dim)
         self.out = nn.Linear(dim, dim)
 
-    def __call__(self, x):
+    def __call__(self, x, cache=None):
         bsz, steps, _ = x.shape
         q, k, v = mx.split(self.qkv(x).reshape(bsz, steps, 3, self.heads, self.head_dim), 3, axis=2)
         q, k, v = (mx.squeeze(item, axis=2).transpose(0, 2, 1, 3) for item in (q, k, v))
+        if cache is not None:
+            k = mx.concatenate([cache[0], k], axis=2)
+            v = mx.concatenate([cache[1], v], axis=2)
         scores = mx.matmul(q, k.transpose(0, 1, 3, 2)) / mx.sqrt(mx.array(self.head_dim, dtype=mx.float32))
-        mask = mx.triu(mx.full((steps, steps), -1e9), 1)
+        total_steps = k.shape[2]
+        past_steps = total_steps - steps
+        mask = mx.triu(mx.full((steps, total_steps), -1e9), past_steps + 1)
         weights = mx.softmax(scores + mask[None, None], axis=-1)
         out = mx.matmul(weights, v).transpose(0, 2, 1, 3).reshape(bsz, steps, self.dim)
-        return self.out(out)
+        return self.out(out), (k, v)
 
 
 class Block(nn.Module):
@@ -68,7 +73,7 @@ class Block(nn.Module):
 
     def __call__(self, x, state=None):
         if self.attention:
-            mixed, next_state = self.mixer(self.norm1(x)), None
+            mixed, next_state = self.mixer(self.norm1(x), state)
         else:
             mixed, next_state = self.mixer(self.norm1(x), state)
         x = x + mixed

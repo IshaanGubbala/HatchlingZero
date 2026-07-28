@@ -186,7 +186,8 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
   - clean MLX locked-topology model surface now exists with scaled GPU forward/state coverage
   - MLX now dispatches a native Metal GDN-2 forward kernel with deterministic parity coverage
   - native-forward MLX model now has a real AdamW two-step smoke with finite loss and parameter-update evidence
-  - scaled clean MLX recurrent model now has end-to-end native Metal parity and timing coverage
+- scaled clean MLX recurrent model now has end-to-end native Metal parity and timing coverage
+- MLX causal-attention blocks now expose a serializable KV-cache state; mixed recurrent/attention token-by-token decoding matches full-sequence logits in regression coverage
   - config-driven PyTorch full topology now matches the locked `301,178,112` parameter target on a meta-device audit
   - model-level recurrent-only chunked state carry now matches full-sequence logits/state in regression coverage
 
