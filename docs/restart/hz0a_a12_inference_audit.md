@@ -47,6 +47,8 @@ The same harness accepts an iteration count and reports `kernel_elapsed_ms`, mea
 
 The native kernel also passes a full locked recurrent-shape smoke (`12` heads, `64x64` state channels, sequence length `2`) against the CPU recurrence. Full model projection/attention integration and end-to-end speed remain open.
 
+`scripts/hz0a_mlx_native_benchmark.py` now runs the clean scaled recurrent model end to end through both pure MLX and the native Metal recurrence. It copies identical parameters, checks fp32 logits/final-state equivalence within `1e-2` dispatch tolerance, and reports model-level timing/speedup; attention-containing full-model integration remains open. A sequence-4 run measured approximately `5.8x` native-forward speedup.
+
 ## A12 Assessment
 
 A12 reference-correctness sub-gate is satisfied for recurrent decode and causal-attention KV-cache decode. Fused Metal implementation and performance comparison remain incomplete.

@@ -26,12 +26,13 @@ class GDN2(nn.Module):
         q, k, v = mx.split(self.qkv(x).reshape(bsz, steps, 3, self.heads, self.head_dim), 3, axis=2)
         q, k, v = (mx.squeeze(item, axis=2) for item in (q, k, v))
         d, e, w = mx.split(self.gates(x).reshape(bsz, steps, 3, self.heads, self.head_dim), 3, axis=2)
-        d, e, w = (mx.sigmoid(mx.squeeze(item, axis=2)) for item in (d, e, w))
+        d, e, w = (mx.squeeze(item, axis=2) for item in (d, e, w))
         if state is None:
             state = mx.zeros((bsz, self.heads, self.head_dim, self.head_dim), dtype=x.dtype)
         if self.native_metal:
             output, state = native_gdn2_forward_differentiable(q, k, v, d, e, w, state)
             return self.out(output.reshape(bsz, steps, self.dim)), state
+        d, e, w = (mx.sigmoid(item) for item in (d, e, w))
         outputs = []
         for t in range(steps):
             state = d[:, t, :, None, :] * (1 - e[:, t, :, None, :]) * state + w[:, t, :, :, None] * v[:, t, :, :, None] * k[:, t, :, None, :]
