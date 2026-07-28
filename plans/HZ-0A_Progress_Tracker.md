@@ -208,14 +208,15 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
 
 ## Next Actions
 
-## Live Execution Checkpoint (2026-07-27)
+## Live Execution Checkpoint (2026-07-28)
 
 - Stage 1 transformer independent run is budget-complete on MPS fp16 with 10,000,848 tokens, finite metrics, changed parameters, and final loss `6.726313`; checkpoint: `/tmp/hz0a_stage1_transformer/transformer.pt`.
-- Stage 1 hybrid run remains active on MPS fp16 with atomic checkpoints and validation cadence 100; latest observed checkpoint is step `1270` / `2,598,420` tokens (`25.98%` of the 10M-token budget), with latest validation loss `10.949509` at step `1200`.
-- Stages 2-4 and matched full-size training/evaluation are not yet complete. The current run is intentionally left active for resumable continuation.
+- Stage 1 hybrid run remains active on MPS fp16 with atomic checkpoints and validation cadence 100; latest observed checkpoint is step `3960` / `8,102,160` tokens (`81.02%` of the 10M-token budget), with validation loss `6.926033` and perplexity `1018.45` at step `3900`.
+- The standalone native backward gate passes 13 tests, and the PMetal optimizer/full-topology Torch bridge has 100-step exact resume coverage. These are not native full-model PMetal execution.
+- The Rust native surface remains a dependency-free CPU GDN-2 operator reference; a parameterized native PMetal graph and native model-level backward are still missing.
+- Stages 2-4, native full-model training, and matched full-size comparisons are not yet complete. The current Stage 1 run remains intentionally active for resumable continuation.
 
-1. Validate the bounded tiny reference attention policy against the intended PMetal numerical policy.
-2. Expand A5 beyond scaffolding into a more complete deterministic dataset pipeline.
-3. Deepen A6 from parity wrappers into more realistic PMetal-side execution and optimizer-step parity.
-4. Connect A9/A10 to real model parameters, data batches, validation, checkpoints, and PMetal execution.
-5. Implement attention KV-cache and PMetal/fused Metal inference after reference equivalence is established.
+1. Build the parameterized native PMetal model graph and model-level backward; replace the Torch-autograd bridge.
+2. Run the 100-200 step native PMetal replay against the MLX path with loss, gradients, updates, fingerprints, memory, and throughput comparisons.
+3. Finish Stage 1 for both real 301M architectures, then run the declared 100M, 500M, and 1B-token comparisons.
+4. Complete native BF16 training and fused Metal end-to-end inference measurements, including prefill/decode and mixed attention recurrence.
