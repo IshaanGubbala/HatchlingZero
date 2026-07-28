@@ -33,69 +33,50 @@ _BACKWARD_BODY = r"""
         float write_gradient = 0.0f;
         for (uint key = 0; key < K; ++key) {
             float total = grad_state[key] + grad_output[value_base + value] * q[input_base + key];
-            grad_q_partial[partial_base + key] = grad_output[value_base + value] * states[t + 1][key];
-            grad_k_partial[partial_base + key] = total * w[value_base + value] * v[value_base + value];
-            grad_d_partial[partial_base + key] = total * (1.0f - e[input_base + key]) * states[t][key];
-            grad_e_partial[partial_base + key] = -total * d[input_base + key] * states[t][key];
+            grad_q_partial[partial_base + key] = static_cast<DType>(grad_output[value_base + value] * states[t + 1][key]);
+            grad_k_partial[partial_base + key] = static_cast<DType>(total * w[value_base + value] * v[value_base + value]);
+            grad_d_partial[partial_base + key] = static_cast<DType>(total * (1.0f - e[input_base + key]) * states[t][key]);
+            grad_e_partial[partial_base + key] = static_cast<DType>(-total * d[input_base + key] * states[t][key]);
             value_gradient += total * w[value_base + value] * k[input_base + key];
             write_gradient += total * v[value_base + value] * k[input_base + key];
             grad_state[key] = total * d[input_base + key] * (1.0f - e[input_base + key]);
         }
-        grad_v[value_base + value] = value_gradient;
-        grad_w[value_base + value] = write_gradient;
+        grad_v[value_base + value] = static_cast<DType>(value_gradient);
+        grad_w[value_base + value] = static_cast<DType>(write_gradient);
     }
     for (uint key = 0; key < K; ++key)
-        grad_initial[((batch * H + head) * V + value) * K + key] = grad_state[key];
+        grad_initial[((batch * H + head) * V + value) * K + key] = static_cast<DType>(grad_state[key]);
 """
 
 
 _SOURCE = r"""
     uint tid = thread_position_in_grid.x;
-    uint key = tid % K;
-    uint value = (tid / K) % V;
-    uint head = (tid / (K * V)) % H;
-    uint batch = tid / (K * V * H);
-    if (batch >= B) return;
+    uint value = tid % V;
+    uint head = (tid / V) % H;
+    uint batch = tid / (V * H);
+    if (batch >= B || K > 64) return;
 
+    thread float state[64];
     uint state_base = ((batch * H + head) * V + value) * K;
+    for (uint key = 0; key < K; ++key)
+        state[key] = initial[state_base + key];
+
     for (uint t = 0; t < S; ++t) {
+        uint key_row = ((batch * S + t) * H + head) * K;
         uint row = ((batch * S + t) * H + head) * V + value;
-        uint key_row = ((batch * S + t) * H + head) * K + key;
-        float decay = hz_sigmoid(d[key_row]);
-        float erase = hz_sigmoid(e[key_row]);
         float write = hz_sigmoid(w[row]);
-        float old_state = initial[state_base + key];
-        for (uint u = 0; u < t; ++u) {
-            uint prior = ((batch * S + u) * H + head) * V + value;
-            uint prior_key = ((batch * S + u) * H + head) * K + key;
-            old_state = hz_sigmoid(d[prior_key]) * (1.0f - hz_sigmoid(e[prior_key])) * old_state
-                + hz_sigmoid(w[prior]) * v[prior] * k[((batch * S + u) * H + head) * K + key];
+        float value_t = v[row];
+        float output = 0.0f;
+        for (uint key = 0; key < K; ++key) {
+            float decay = hz_sigmoid(d[key_row + key]);
+            float erase = hz_sigmoid(e[key_row + key]);
+            state[key] = decay * (1.0f - erase) * state[key] + write * value_t * k[key_row + key];
+            output += state[key] * q[key_row + key];
         }
-        float next = decay * (1.0f - erase) * old_state
-            + write * v[row] * k[((batch * S + t) * H + head) * K + key];
-        if (key == 0) {
-            float output = 0.0f;
-            for (uint j = 0; j < K; ++j) {
-                float state_j = initial[state_base + j];
-                for (uint u = 0; u <= t; ++u) {
-                    uint prior = ((batch * S + u) * H + head) * V + value;
-                    float prior_decay = hz_sigmoid(d[prior]);
-                    float prior_erase = hz_sigmoid(e[prior]);
-                    float prior_write = hz_sigmoid(w[prior]);
-                    if (u == 0) {
-                        state_j = prior_decay * (1.0f - prior_erase) * state_j
-                            + prior_write * v[prior] * k[((batch * S + u) * H + head) * K + j];
-                    } else {
-                        state_j = prior_decay * (1.0f - prior_erase) * state_j
-                            + prior_write * v[prior] * k[((batch * S + u) * H + head) * K + j];
-                    }
-                }
-                output += state_j * q[((batch * S + t) * H + head) * K + j];
-            }
-            y[((batch * S + t) * H + head) * V + value] = output;
-        }
-        final_state[state_base + key] = next;
+        y[row] = static_cast<DType>(output);
     }
+    for (uint key = 0; key < K; ++key)
+        final_state[state_base + key] = static_cast<DType>(state[key]);
 """
 
 
@@ -151,8 +132,8 @@ def native_gdn2_forward(q, k, v, d, e, w, initial):
     outputs = kernel(
         inputs=[q, k, v, d, e, w, initial],
         template=[("DType", q.dtype), ("B", bsz), ("S", steps), ("H", heads), ("K", key_dim), ("V", value_dim)],
-        grid=(bsz * heads * value_dim * key_dim, 1, 1),
-        threadgroup=(min(256, bsz * heads * value_dim * key_dim), 1, 1),
+        grid=(bsz * heads * value_dim, 1, 1),
+        threadgroup=(min(256, bsz * heads * value_dim), 1, 1),
         output_shapes=[(bsz, steps, heads, value_dim), initial.shape],
         output_dtypes=[q.dtype, initial.dtype],
     )
@@ -172,7 +153,7 @@ def native_gdn2_backward(q, k, v, d, e, w, initial, grad_output, grad_final):
     partial_shape = (bsz, steps, heads, value_dim, key_dim)
     outputs = kernel(
         inputs=[q, k, v, d, e, w, initial, grad_output, grad_final],
-        template=[("B", bsz), ("S", steps), ("H", heads), ("K", key_dim), ("V", value_dim)],
+        template=[("DType", q.dtype), ("B", bsz), ("S", steps), ("H", heads), ("K", key_dim), ("V", value_dim)],
         grid=(bsz * heads * value_dim, 1, 1),
         threadgroup=(min(256, bsz * heads * value_dim), 1, 1),
         output_shapes=[partial_shape, partial_shape, v.shape, partial_shape, partial_shape, w.shape, initial.shape],

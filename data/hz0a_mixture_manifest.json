@@ -1,32 +1,88 @@
 {
-  "version": "a5.mixture.v1",
-  "tokenizer_path": "data/tokenizer/hz0a_24576.json",
-  "sequence_length": 1024,
-  "shuffle_seed": 0,
-  "near_duplicate_threshold": 0.9,
-  "policy": {
-    "primary_corpus": "wikitext-103",
-    "primary_weight": 1.0,
-    "reserved_domains": [],
-    "reserved_domain_policy": "No unverified external source is silently mixed into the reproducible A5 baseline; additions require provenance, license, split, hash, and contamination audit records.",
-    "packing": "document-order-preserving seeded shuffle followed by fixed-length concatenation with dropped tail recorded",
-    "validation_isolation": "validation and test sources are never packed into train"
+  "actual_mixture_pct_of_grand_total": {
+    "code": 0.0574,
+    "documentation": 0.0223,
+    "general_text": 99.86,
+    "json_and_configuration": 0.0566,
+    "mathematical_and_structured": 0.001,
+    "terminal_and_debugging": 0.0023
+  },
+  "actual_mixture_status": "REAL BUT SUB-SCALE: all sources below are genuine, deduplicated, contamination-checked, hash-verified local material. Total corpus volume is far below the plan A5 100M-token exit gate. general_text (wikitext-103) alone is at real 100M+ token scale; code/documentation/json/terminal/math are only as large as currently exists in this repository (~274K tokens total). No content was repeated, resampled, or padded to hit target percentages.",
+  "gap_vs_plan": "code/documentation/json_and_configuration/terminal_and_debugging/mathematical_and_structured collectively need to reach 60% of a 100M-token corpus (60M tokens) per the plan; only ~274K tokens of real, non-duplicated local material exist today (~0.27% of the 60M target). Closing this gap requires either substantial repository growth over time or ingesting an external, properly licensed and provenance-tracked corpus for these domains -- neither is done here.",
+  "generated": "2026-07-28",
+  "grand_total_tokens": 196302893,
+  "plan_target_mixture_pct": {
+    "code": 35,
+    "documentation_and_api": 10,
+    "general_text": 40,
+    "json_and_configuration": 5,
+    "mathematical_and_structured": 5,
+    "terminal_and_debugging": 5
   },
   "sources": [
     {
+      "category": "general_text",
+      "manifest": "docs/restart/hz0a_wikitext_token_budget.json",
       "name": "wikitext-103",
-      "format": "jsonl",
-      "provenance": "archived-local-wikitext-103",
-      "license": "recorded-in-archive-manifest",
+      "source_hashes": {
+        "archive/data/raw/wikitext/test.jsonl": "390c92f651b2f6112a43a5e86593df057382238b672a6447c554033ceb35a447",
+        "archive/data/raw/wikitext/train.jsonl": "e80fe02afa3c3f720310039394e1f05c73cf27d4a0071d490abfb0b50a8aeb70",
+        "archive/data/raw/wikitext/validation.jsonl": "9304e2a4dfb6a6e484672d98de8beb9ab8b458449dbeb49e71ea021fbf088ccb"
+      },
       "splits": {
-        "train": "archive/data/raw/wikitext/train.jsonl",
-        "validation": "archive/data/raw/wikitext/validation.jsonl",
-        "test": "archive/data/raw/wikitext/test.jsonl"
-      }
+        "test": {
+          "characters": 1279840,
+          "tokens": 466237
+        },
+        "train": {
+          "characters": 535964206,
+          "tokens": 195148063
+        },
+        "validation": {
+          "characters": 1137225,
+          "tokens": 414417
+        }
+      },
+      "total_tokens": 196028717
+    },
+    {
+      "categories": [
+        "code",
+        "documentation",
+        "json_and_configuration",
+        "terminal_and_debugging",
+        "mathematical_and_structured"
+      ],
+      "category_token_totals": {
+        "code": 112618,
+        "documentation": 43831,
+        "json_and_configuration": 111131,
+        "mathematical_and_structured": 2022,
+        "terminal_and_debugging": 4574
+      },
+      "manifest": "data/hz0a_source_manifest_v2.json",
+      "manifest_audit": "data/hz0a_source_manifest_v2_audit.json",
+      "name": "hz0a_local_repo_corpus",
+      "splits": {
+        "test": {
+          "packed_audit": "data/packed/local_mixture_test.audit.json",
+          "packed_output": "data/packed/local_mixture_test.json",
+          "tokens": 8416
+        },
+        "train": {
+          "packed_audit": "data/packed/local_mixture_train.audit.json",
+          "packed_output": "data/packed/local_mixture_train.json",
+          "tokens": 263728
+        },
+        "validation": {
+          "packed_audit": "data/packed/local_mixture_validation.audit.json",
+          "packed_output": "data/packed/local_mixture_validation.json",
+          "tokens": 2032
+        }
+      },
+      "total_tokens": 274176
     }
   ],
-  "packed_outputs": {
-    "train": "data/packed/repro_1024_train.jsonl",
-    "validation": "data/packed/repro_1024_val.jsonl"
-  }
+  "tokenizer_path": "data/tokenizer/hz0a_24576.json",
+  "version": "a5.mixture.v2"
 }

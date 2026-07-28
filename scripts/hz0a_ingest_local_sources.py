@@ -7,18 +7,20 @@ import json
 from pathlib import Path
 
 
-TEXT_SUFFIXES = {".c", ".cpp", ".h", ".hpp", ".json", ".md", ".py", ".rs", ".sh", ".swift", ".toml", ".txt", ".yaml", ".yml"}
-DEFAULT_EXCLUDES = {".git", ".venv", ".venv-py39", "__pycache__", "node_modules", "target", "build", "dist"}
+TEXT_SUFFIXES = {".c", ".cpp", ".h", ".hpp", ".json", ".md", ".metal", ".py", ".rs", ".sh", ".swift", ".toml", ".txt", ".yaml", ".yml", ".log"}
+DEFAULT_EXCLUDES = {".git", ".venv", ".venv-msl", ".venv-py39", "__pycache__", "node_modules", "target", "build", "dist", "archive", ".pytest_cache"}
 
 
 def category_for(path: Path) -> str:
     suffix = path.suffix.lower()
-    if suffix in {".py", ".rs", ".c", ".cpp", ".h", ".hpp", ".sh", ".swift"}:
+    if "math" in path.parts:
+        return "mathematical_and_structured"
+    if suffix == ".log" or "debug" in path.name.lower() or "status" in path.parts:
+        return "terminal_and_debugging"
+    if suffix in {".py", ".rs", ".c", ".cpp", ".h", ".hpp", ".sh", ".swift", ".metal"}:
         return "code"
     if suffix in {".json", ".yaml", ".yml", ".toml"}:
         return "json_and_configuration"
-    if "debug" in path.name.lower() or "status" in path.parts:
-        return "terminal_and_debugging"
     return "documentation"
 
 
