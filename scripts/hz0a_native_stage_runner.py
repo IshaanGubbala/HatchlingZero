@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import gc
 import hashlib
 import json
 import resource
@@ -100,10 +101,15 @@ def main() -> None:
     parser.add_argument("--sequence-length", type=int, default=0)
     parser.add_argument("--dtype", choices=("float32", "float16"), default="float32")
     parser.add_argument("--reset-attention-state", action="store_true")
+    parser.add_argument("--carry-attention-state", action="store_true", help="Retain periodic-attention KV caches across truncated training chunks; off by default")
     parser.add_argument("--activation-checkpoint", action="store_true")
     parser.add_argument("--exact-update-norm", action="store_true", help="Clone parameters for exact update norm; expensive and off by default")
     args = parser.parse_args()
+    if args.activation_checkpoint and args.truncate_backward and (args.carry_attention_state and not args.reset_attention_state):
+        raise ValueError("--activation-checkpoint is not compatible with carried attention state; use --reset-attention-state or disable activation checkpointing")
     args.run_dir.mkdir(parents=True, exist_ok=True)
+    memory_log = args.run_dir / "native_metal_memory.jsonl"
+    memory_log.write_text("", encoding="utf-8")
     checkpoint = args.run_dir / "native_metal_checkpoint"
     sequence_length = args.sequence_length or len(json.loads(args.data.open().readline()))
     mx.random.seed(7)
@@ -117,6 +123,7 @@ def main() -> None:
         payload = restore_checkpoint(checkpoint, model, optimizer)
         metrics, step, tokens_seen, batch_index = payload["metrics"], payload["step"], payload["tokens_seen"], payload["batch_index"]
     started = time.perf_counter()
+    carry_attention_state = args.carry_attention_state and not args.reset_attention_state
     with args.data.open() as train, args.validation_data.open() as validation:
         for _ in range(batch_index):
             read_batch(train, args.batch_size, sequence_length)
@@ -142,7 +149,7 @@ def main() -> None:
                 for start in chunks:
                     chunk = tokens[:, start:start + args.chunk_length]
                     logits, states = model(chunk, states)
-                    states = [None if args.reset_attention_state and isinstance(state, tuple) else detach_state(state) for state in states]
+                    states = [detach_state(state) if (carry_attention_state or not isinstance(state, tuple)) else None for state in states]
                     mx.eval(*[state for state in states if state is not None for state in (state if isinstance(state, tuple) else (state,))])
                     del logits
                     loss, grads = chunk_value_and_grad(model, chunk, states)
@@ -157,9 +164,16 @@ def main() -> None:
                     assert_finite("updated parameters", new)
                     update_norm = float(mx.sqrt(sum(mx.sum((a - b) * (a - b)) for a, b in zip(new, old)))) if old is not None else None
                     mx.clear_cache()
+                    gc.collect()
+                    active_memory = int(mx.get_active_memory())
+                    cache_memory = int(mx.get_cache_memory())
+                    peak_memory = int(mx.get_peak_memory())
                     step += 1; tokens_seen += args.batch_size * chunk.shape[1]
-                    chunk_metrics.append({"step": step, "tokens_seen": tokens_seen, "loss": float(loss), "gradient_norm": grad_norm, "update_norm": update_norm})
+                    chunk_metrics.append({"step": step, "tokens_seen": tokens_seen, "loss": float(loss), "gradient_norm": grad_norm, "update_norm": update_norm, "active_memory_bytes": active_memory, "cache_memory_bytes": cache_memory, "peak_memory_bytes": peak_memory})
+                    with memory_log.open("a", encoding="utf-8") as handle:
+                        handle.write(json.dumps(chunk_metrics[-1]) + "\n")
                     del grads, old, new, loss, chunk
+                    gc.collect()
                 batch_index += 1
                 item = chunk_metrics[-1]
             else:
@@ -176,6 +190,7 @@ def main() -> None:
                 update_norm = float(mx.sqrt(sum(mx.sum((a - b) * (a - b)) for a, b in zip(new, old)))) if old is not None else None
                 step += 1; batch_index += 1; tokens_seen += args.batch_size * sequence_length
                 item = {"step": step, "tokens_seen": tokens_seen, "loss": float(loss), "gradient_norm": grad_norm, "update_norm": update_norm}
+                gc.collect()
             if step % args.validation_interval == 0 or tokens_seen >= args.target_tokens:
                 validation_tokens = read_batch(validation, 1, sequence_length)
                 validation_logits, _ = model(validation_tokens)
@@ -185,7 +200,7 @@ def main() -> None:
             metrics.append(item)
             if step % args.checkpoint_interval == 0 or tokens_seen >= args.target_tokens:
                 save_checkpoint(checkpoint, model, optimizer, step, tokens_seen, batch_index, metrics)
-    report = {"backend": "native_metal_mlx", "stage": "stage1_validation", "dtype": args.dtype, "activation_checkpoint": args.activation_checkpoint, "chunk_length": args.chunk_length, "reset_attention_state": args.reset_attention_state, "steps": step, "tokens_seen": tokens_seen, "target_tokens": args.target_tokens, "budget_complete": tokens_seen >= args.target_tokens, "parameter_count": sum(value.size for _, value in tree_flatten(model.parameters())), "initialization_seed": 7, "final_parameter_sha256": model_fingerprint(model), "metrics": metrics, "checkpoint": str(checkpoint), "training_seconds": time.perf_counter() - started, "tokens_per_second": tokens_seen / max(time.perf_counter() - started, 1e-9), "peak_memory_bytes": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss}
+    report = {"backend": "native_metal_mlx", "stage": "stage1_validation", "dtype": args.dtype, "activation_checkpoint": args.activation_checkpoint, "chunk_length": args.chunk_length, "reset_attention_state": args.reset_attention_state, "carry_attention_state": carry_attention_state, "steps": step, "tokens_seen": tokens_seen, "target_tokens": args.target_tokens, "budget_complete": tokens_seen >= args.target_tokens, "parameter_count": sum(value.size for _, value in tree_flatten(model.parameters())), "initialization_seed": 7, "final_parameter_sha256": model_fingerprint(model), "metrics": metrics, "checkpoint": str(checkpoint), "training_seconds": time.perf_counter() - started, "tokens_per_second": tokens_seen / max(time.perf_counter() - started, 1e-9), "peak_memory_bytes": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss}
     (args.run_dir / "native_metal.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(json.dumps(report, indent=2))
 
