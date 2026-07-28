@@ -8,11 +8,14 @@ from pathlib import Path
 import mlx.core as mx
 import mlx.nn as nn
 
+from reference.hz0a_mlx_metal import native_gdn2_forward
+
 
 class GDN2(nn.Module):
-    def __init__(self, dim: int, heads: int):
+    def __init__(self, dim: int, heads: int, native_metal: bool = False):
         super().__init__()
         self.dim, self.heads, self.head_dim = dim, heads, dim // heads
+        self.native_metal = native_metal
         self.qkv = nn.Linear(dim, 3 * dim)
         self.gates = nn.Linear(dim, 3 * dim)
         self.out = nn.Linear(dim, dim)
@@ -26,6 +29,9 @@ class GDN2(nn.Module):
         d, e, w = (mx.sigmoid(mx.squeeze(item, axis=2)) for item in (d, e, w))
         if state is None:
             state = mx.zeros((bsz, self.heads, self.head_dim, self.head_dim), dtype=x.dtype)
+        if self.native_metal:
+            output, state = native_gdn2_forward(q, k, v, d, e, w, state)
+            return self.out(output.reshape(bsz, steps, self.dim)), state
         outputs = []
         for t in range(steps):
             state = d[:, t, :, None, :] * (1 - e[:, t, :, None, :]) * state + w[:, t, :, :, None] * v[:, t, :, :, None] * k[:, t, :, None, :]
@@ -52,11 +58,11 @@ class CausalAttention(nn.Module):
 
 
 class Block(nn.Module):
-    def __init__(self, dim: int, heads: int, d_ff: int, attention: bool):
+    def __init__(self, dim: int, heads: int, d_ff: int, attention: bool, native_metal: bool = False):
         super().__init__()
         self.attention = attention
         self.norm1, self.norm2 = nn.RMSNorm(dim), nn.RMSNorm(dim)
-        self.mixer = CausalAttention(dim, heads) if attention else GDN2(dim, heads)
+        self.mixer = CausalAttention(dim, heads) if attention else GDN2(dim, heads, native_metal)
         self.gate, self.up, self.down = nn.Linear(dim, d_ff), nn.Linear(dim, d_ff), nn.Linear(d_ff, dim)
 
     def __call__(self, x, state=None):
@@ -70,11 +76,11 @@ class Block(nn.Module):
 
 
 class HZ0AMlxModel(nn.Module):
-    def __init__(self, vocab_size: int, dim: int, layers: int, heads: int, d_ff: int, attention_indices: tuple[int, ...]):
+    def __init__(self, vocab_size: int, dim: int, layers: int, heads: int, d_ff: int, attention_indices: tuple[int, ...], native_metal: bool = False):
         super().__init__()
         self.vocab_size, self.dim, self.heads = vocab_size, dim, heads
         self.embedding = nn.Embedding(vocab_size, dim)
-        self.blocks = [Block(dim, heads, d_ff, index in attention_indices) for index in range(layers)]
+        self.blocks = [Block(dim, heads, d_ff, index in attention_indices, native_metal) for index in range(layers)]
         self.final_norm = nn.RMSNorm(dim)
 
     def __call__(self, token_ids, states=None):

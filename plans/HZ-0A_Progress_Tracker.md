@@ -176,6 +176,7 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
   - native Metal AdamW first-step parameters/moments now match the NumPy optimizer contract
   - native Metal cached GDN-2 backward gradients now match Torch autograd on a deterministic multi-token case
   - clean MLX locked-topology model surface now exists with scaled GPU forward/state coverage
+  - MLX now dispatches a native Metal GDN-2 forward kernel with deterministic parity coverage
   - config-driven PyTorch full topology now matches the locked `301,178,112` parameter target on a meta-device audit
   - model-level recurrent-only chunked state carry now matches full-sequence logits/state in regression coverage
 

@@ -80,3 +80,7 @@ The native Metal recurrence now also has a bounded cached reverse-scan kernel. I
 This establishes native Metal operator forward/backward parity, but the workspace still does not contain a PMetal tensor graph, full-model device bridge, or end-to-end device optimizer loop.
 
 `reference/hz0a_mlx_model.py` now provides a clean MLX model surface for the locked topology, with exact A1 gate/state semantics and tied output embeddings. Its initial scaled GPU forward/state test passes; it is the bridge point for replacing the MLX recurrence with the native Metal operator.
+
+`reference/hz0a_mlx_metal.py` now dispatches a native Metal recurrence through MLX's `metal_kernel` API. A deterministic MLX-vs-native test covers output and final-state parity; this is forward integration only, and the cached backward/optimizer bridge remains open.
+
+The clean MLX model accepts `native_metal=True` to route recurrent blocks through that kernel while retaining the pure-MLX autodiff path by default. The opt-in full-model scaled smoke passes; native backward integration is intentionally not claimed yet.
