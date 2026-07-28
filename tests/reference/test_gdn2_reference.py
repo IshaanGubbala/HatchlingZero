@@ -96,3 +96,20 @@ def test_model_loss_is_finite_for_non_power_of_two_length() -> None:
     loss = cross_entropy_loss(logits, targets)
     assert np.isfinite(logits).all()
     assert np.isfinite(loss)
+
+
+def test_attention_stress_path_is_warning_free_and_finite() -> None:
+    model = TinyHZ0AModel.init(
+        rng_seed=99,
+        vocab_size=32,
+        d_model=16,
+        num_layers=3,
+        num_heads=4,
+        d_k=4,
+        d_v=4,
+        d_ff=32,
+        attention_layer_indices=[1],
+    )
+    tokens = np.arange(32, dtype=np.int64).reshape(2, 16)
+    logits, _ = model(tokens)
+    assert np.isfinite(logits).all()

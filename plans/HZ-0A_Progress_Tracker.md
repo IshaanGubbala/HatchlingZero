@@ -143,12 +143,12 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
 - Current limitations:
   - only a scalar `model_logit_scale` is train-updated today
   - scheduler remains a bookkeeping stub
-  - tiny reference attention path still emits overflow warnings under the current smoke/test setup
+  - bounded reference attention policy still needs validation against the intended PMetal numerical policy
   - current audit covers the JSON harness checkpoint, not a full multi-parameter model checkpoint
 
 ## Next Actions
 
-1. Stabilize the tiny reference attention path so the harness runs without overflow warnings.
+1. Validate the bounded tiny reference attention policy against the intended PMetal numerical policy.
 2. Expand A5 beyond scaffolding into a more complete deterministic dataset pipeline.
 3. Deepen A6 from parity wrappers into more realistic PMetal-side execution and optimizer-step parity.
 4. Connect A9/A10 to real model parameters, data batches, validation, checkpoints, and PMetal execution.

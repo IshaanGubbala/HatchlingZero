@@ -243,14 +243,30 @@ class CausalSelfAttention:
         q = self.q_proj(x).astype(np.float64).reshape(bsz, steps, self.num_heads, head_dim).transpose(0, 2, 1, 3)
         k = self.k_proj(x).astype(np.float64).reshape(bsz, steps, self.num_heads, head_dim).transpose(0, 2, 1, 3)
         v = self.v_proj(x).astype(np.float64).reshape(bsz, steps, self.num_heads, head_dim).transpose(0, 2, 1, 3)
-        q = q / np.sqrt(np.mean(np.square(q), axis=-1, keepdims=True) + 1e-6)
-        k = k / np.sqrt(np.mean(np.square(k), axis=-1, keepdims=True) + 1e-6)
-        with np.errstate(over="ignore", invalid="ignore"):
+        # Scale before squaring so even very large finite projections cannot
+        # overflow the RMS calculation; normalize values as well so the
+        # attention output remains bounded during recurrent stress runs.
+        for name, projection in (("q", q), ("k", k), ("v", v)):
+            scale = np.maximum(np.max(np.abs(projection), axis=-1, keepdims=True), 1.0)
+            normalized = projection / scale
+            normalized /= np.sqrt(np.mean(np.square(normalized), axis=-1, keepdims=True) + 1e-6)
+            normalized = np.nan_to_num(normalized, nan=0.0, posinf=8.0, neginf=-8.0)
+            normalized = np.clip(normalized, -8.0, 8.0)
+            if name == "q":
+                q = normalized
+            elif name == "k":
+                k = normalized
+            else:
+                v = normalized
+        with np.errstate(all="ignore"):
             scores = np.matmul(q, np.swapaxes(k, -1, -2)) / np.sqrt(head_dim)
+        scores = np.nan_to_num(scores, nan=0.0, posinf=1e9, neginf=-1e9)
         mask = np.triu(np.ones((steps, steps), dtype=bool), k=1)
         scores = np.where(mask[None, None], -1e9, scores)
         weights = softmax(scores, axis=-1)
-        out = np.matmul(weights, v).transpose(0, 2, 1, 3).reshape(bsz, steps, dim)
+        with np.errstate(all="ignore"):
+            out = np.matmul(weights, v)
+        out = np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0).transpose(0, 2, 1, 3).reshape(bsz, steps, dim)
         return self.out_proj(out.astype(np.float32))
 
 

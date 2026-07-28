@@ -23,6 +23,8 @@ Observed in the current environment:
 
 State serialization/resume and reset equivalence are covered. Models containing attention blocks are rejected by this recurrent-only decode API until an attention KV-cache implementation exists.
 
+The shared tiny reference attention path also has a bounded numerical policy; the A7 harness smoke run is warning-free after this guard was added.
+
 ## What This Proves
 
 - recurrent full-sequence and tokenwise decode are numerically equivalent
