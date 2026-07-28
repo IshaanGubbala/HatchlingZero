@@ -79,13 +79,19 @@ def main() -> None:
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--chunk-length", type=int, default=128)
     parser.add_argument("--truncate-backward", action="store_true")
+    parser.add_argument("--vocab-size", type=int, default=24576)
+    parser.add_argument("--dim", type=int, default=768)
+    parser.add_argument("--layers", type=int, default=31)
+    parser.add_argument("--heads", type=int, default=12)
+    parser.add_argument("--d-ff", type=int, default=2304)
+    parser.add_argument("--sequence-length", type=int, default=0)
     args = parser.parse_args()
     args.run_dir.mkdir(parents=True, exist_ok=True)
     checkpoint = args.run_dir / "native_metal.pt"
-    sequence_length = len(json.loads(args.data.open().readline()))
+    sequence_length = args.sequence_length or len(json.loads(args.data.open().readline()))
     mx.random.seed(7)
-    attention = (4, 9, 14, 19, 24, 29)
-    model = HZ0AMlxModel(24576, 768, 31, 12, 2304, attention, native_metal=True)
+    attention = tuple(index for index in (4, 9, 14, 19, 24, 29) if index < args.layers)
+    model = HZ0AMlxModel(args.vocab_size, args.dim, args.layers, args.heads, args.d_ff, attention, native_metal=True)
     optimizer = optim.AdamW(learning_rate=1e-4, weight_decay=0.01)
     metrics, step, tokens_seen, batch_index = [], 0, 0, 0
     if args.resume and checkpoint.exists():
@@ -118,6 +124,8 @@ def main() -> None:
                     chunk = tokens[:, start:start + args.chunk_length]
                     logits, states = model(chunk, states)
                     states = [detach_state(state) for state in states]
+                    mx.eval(*[state for state in states if state is not None for state in (state if isinstance(state, tuple) else (state,))])
+                    del logits
                     loss, grads = chunk_value_and_grad(model, chunk, states)
                     mx.eval(loss, grads)
                     flat_grads = [value for _, value in tree_flatten(grads)]
