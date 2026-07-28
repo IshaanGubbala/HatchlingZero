@@ -188,6 +188,7 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
   - native-forward MLX model now has a real AdamW two-step smoke with finite loss and parameter-update evidence
 - scaled clean MLX recurrent model now has end-to-end native Metal parity and timing coverage
 - MLX causal-attention blocks now expose a serializable KV-cache state; mixed recurrent/attention token-by-token decoding matches full-sequence logits in regression coverage
+- mixed MLX HZ-0A native-Metal benchmark now covers attention layer 1, recurrent state parity, prefill timing, and cached decode timing; sample 4-token run measured 5.33x native prefill speedup with max logit/state errors `0.0031`/`0.0014`
   - config-driven PyTorch full topology now matches the locked `301,178,112` parameter target on a meta-device audit
   - model-level recurrent-only chunked state carry now matches full-sequence logits/state in regression coverage
 
