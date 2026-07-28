@@ -108,6 +108,24 @@ def test_pmetal_chunked_backward_matches_full_backward_at_uneven_boundary() -> N
         np.testing.assert_allclose(chunked.gradients[name], full.gradients[name], rtol=1e-10, atol=1e-10)
 
 
+def test_pmetal_float32_matches_bfloat16_recurrence_within_operator_tolerance() -> None:
+    import torch
+
+    rng = np.random.default_rng(29)
+    arrays = [rng.normal(size=shape).astype(np.float32) for shape in ((1, 7, 2, 3), (1, 7, 2, 3), (1, 7, 2, 2), (1, 7, 2, 3), (1, 7, 2, 3), (1, 7, 2, 2))]
+    initial = rng.normal(size=(1, 2, 2, 3)).astype(np.float32)
+    actual = gdn2_forward(Gdn2ForwardInputs(*arrays, initial)).outputs
+    q, k, v, decay, erase, write = (torch.from_numpy(item).to(torch.bfloat16) for item in arrays)
+    state = torch.from_numpy(initial).to(torch.bfloat16)
+    outputs = []
+    for t in range(q.shape[1]):
+        state = torch.sigmoid(decay[:, t, :, None, :]) * (1 - torch.sigmoid(erase[:, t, :, None, :])) * state
+        state = state + torch.sigmoid(write[:, t, :, :, None]) * v[:, t, :, :, None] * k[:, t, :, None, :]
+        outputs.append(torch.einsum("bhvk,bhk->bhv", state, q[:, t]))
+    expected = torch.stack(outputs, dim=1).float().numpy()
+    np.testing.assert_allclose(actual, expected, rtol=0.08, atol=0.08)
+
+
 def test_pmetal_style_recurrent_block_matches_reference_block() -> None:
     rng = np.random.default_rng(7)
     block = HZ0ABlock.init(
