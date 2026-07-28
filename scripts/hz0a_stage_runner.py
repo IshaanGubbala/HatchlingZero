@@ -18,6 +18,27 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from restart.hz0a_dataset import StreamingResumablePackedDataset
 from reference.hz0a_torch_model import HZ0AConfig, HZ0AModel
 from reference.hz0a_matched_transformer import MatchedTransformerConfig, MatchedTransformerLM
+
+
+def adamw_update_norm(model: torch.nn.Module, optimizer: torch.optim.Optimizer) -> float:
+    """Predict the AdamW update norm without cloning the model parameters."""
+    total = torch.zeros((), device=next(model.parameters()).device, dtype=torch.float64)
+    for group in optimizer.param_groups:
+        lr, (beta1, beta2), eps, weight_decay = group["lr"], group["betas"], group["eps"], group["weight_decay"]
+        for parameter in group["params"]:
+            if parameter.grad is None:
+                continue
+            state = optimizer.state[parameter]
+            step = int(state["step"].item()) + 1 if "step" in state else 1
+            old_exp_avg = state.get("exp_avg", torch.zeros_like(parameter))
+            old_exp_avg_sq = state.get("exp_avg_sq", torch.zeros_like(parameter))
+            grad = parameter.grad
+            exp_avg = beta1 * old_exp_avg + (1.0 - beta1) * grad
+            exp_avg_sq = beta2 * old_exp_avg_sq + (1.0 - beta2) * grad.square()
+            denominator = (exp_avg_sq / (1.0 - beta2**step)).sqrt() + eps
+            update = lr * exp_avg / ((1.0 - beta1**step) * denominator) + lr * weight_decay * parameter
+            total = total + update.detach().double().square().sum()
+    return float(total.sqrt().item())
 from scripts.hz0a_stage_gate import stage_gate
 from scripts.hz0a_tiny_training_comparison import TinyHybridLM, TinyTransformerLM, fingerprint, loss_for, parameter_bytes
 
@@ -74,9 +95,10 @@ def run_model(name: str, factory, data_path: Path, validation_data: Path, run_di
         loss = loss_for(model, batch, activation_dtype)
         loss.backward()
         gradient_norm = float(torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0))
+        predicted_update_norm = adamw_update_norm(model, optimizer)
         old_parameters = [parameter.detach().clone() for parameter in model.parameters()] if record_update_norm else None
         optimizer.step()
-        update_norm = None
+        update_norm = predicted_update_norm
         if old_parameters is not None:
             update_norm = float(torch.sqrt(sum((parameter.detach() - old).square().sum() for parameter, old in zip(model.parameters(), old_parameters))).item())
         if device.type == "mps":
