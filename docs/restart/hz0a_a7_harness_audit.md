@@ -87,3 +87,5 @@ Stage validation loss now accumulates from fp32 logits even when the model runs 
 The MPS fp16 mode keeps model parameters and AdamW state in fp32 and applies autocast only to activations, matching the configured `bf16_activations_fp32_master` intent without fp16 optimizer overflow. A real one-step gate run produced finite train/validation losses and parameter updates.
 
 The stage runner now exposes `--validation-interval`; non-smoke launches can follow the protocol's 100-step validation cadence while still validating the final step.
+
+Stage checkpoints are now written to a temporary file and atomically replaced, so an interrupted save cannot leave a corrupt checkpoint at the canonical resume path.

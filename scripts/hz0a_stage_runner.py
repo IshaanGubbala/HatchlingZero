@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import random
 import sys
 import time
@@ -17,6 +18,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from restart.hz0a_dataset import StreamingResumablePackedDataset
 from scripts.hz0a_stage_gate import stage_gate
 from scripts.hz0a_tiny_training_comparison import TinyHybridLM, TinyTransformerLM, fingerprint, loss_for, parameter_bytes
+
+
+def save_checkpoint(path: Path, payload: dict) -> None:
+    """Write checkpoints atomically so an interruption cannot leave a false file."""
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    torch.save(payload, temporary)
+    os.replace(temporary, path)
 
 
 def seed_everything(seed: int) -> None:
@@ -72,7 +80,7 @@ def run_model(name: str, factory, data_path: Path, validation_data: Path, run_di
                     raise RuntimeError(f"non-finite validation loss at step {step}")
         metrics.append({"step": step, "loss": float(loss.item()), "validation_loss": validation_loss, "gradient_norm": gradient_norm, "batch_index": step - 1})
         if checkpoint_interval and step % checkpoint_interval == 0:
-            torch.save({"model": model.state_dict(), "optimizer": optimizer.state_dict(), "step": step, "metrics": metrics, "dataset_cursor": dataset.snapshot(), "initial_parameter_sha256": initial_hash, "model_parameter_sha256": fingerprint(model), "torch_rng": torch.get_rng_state(), "device": str(device)}, checkpoint)
+            save_checkpoint(checkpoint, {"model": model.state_dict(), "optimizer": optimizer.state_dict(), "step": step, "metrics": metrics, "dataset_cursor": dataset.snapshot(), "initial_parameter_sha256": initial_hash, "model_parameter_sha256": fingerprint(model), "torch_rng": torch.get_rng_state(), "device": str(device), "dtype": str(dtype)})
     elapsed = time.perf_counter() - start
     tokens_seen = steps * batch_size * (int(batch.shape[1]) - 1)
     return {"steps": steps, "tokens_seen": tokens_seen, "budget_complete": False, "metrics": metrics, "initial_parameter_sha256": initial_hash, "final_parameter_sha256": fingerprint(model), "parameters_changed": initial_hash != fingerprint(model), "parameter_count": sum(parameter.numel() for parameter in model.parameters()), "parameter_bytes": parameter_bytes(model), "final_loss": metrics[-1]["loss"], "validation_loss": float(loss_for(model, batch).item()), "training_seconds": elapsed, "tokens_per_second": tokens_seen / elapsed, "checkpoint": str(checkpoint), "resumed": resume}
