@@ -70,7 +70,7 @@ The required historical accounting shape is also explicitly tested:
 
 ## A7 Current Assessment
 
-A7 is meaningfully in progress, but not complete. The deterministic harness contract is now in place, test-backed, CLI-runnable, and attached to a real reference-model loss path, which is the right base for A8/A9 replay and fuller model-training integration.
+The A7 safety/audit sub-gate is complete: deterministic accounting, finite refusal, scheduler/validation split resume, atomic checkpointing, and independent checkpoint auditors are test-backed and CLI-runnable. Full-model PMetal/device checkpoint semantics and full parameter-update integration remain later A8/A11 work and are not claimed as A7 completion.
 
 The harness now refuses non-finite logits, losses, gradients, and optimizer updates. Its `--audit-checkpoint` command verifies finite numeric payloads, record count, token accounting, and final record continuity before a checkpoint is accepted for resume.
 

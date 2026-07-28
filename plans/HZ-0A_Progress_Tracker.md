@@ -84,6 +84,10 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
 - A4 exit gate: satisfied
 - A5 exit gate: satisfied for the declared deterministic Wikitext-backed mixture baseline and resumable split-isolated packing
 - A6 exit gate: satisfied for the declared parity-oriented Python/Rust PMetal reference scope; device execution is explicitly deferred to later phases
+- A7 safety/audit sub-gate: satisfied; deterministic accounting, scheduler/validation resume, finite refusal, atomic checkpoints, and independent checkpoint auditors pass. Full PMetal/device checkpoint semantics remain open.
+- A9 deterministic replay sub-gate: satisfied; canonical 100-step machine-readable report is checked in under `docs/restart/reports/` with fixed seed/batches, norms, finite status, and final fingerprint. Full model/data/PMetal integration remains open.
+- A10 count/reference sub-gate: satisfied; matched-transformer config/count, tiny deterministic reference, and finite full-topology smoke are documented and regression-tested. Equal-token pretraining remains A11.
+- A12 reference-inference sub-gate: satisfied; recurrent and causal-attention state carry, serialization/reset, and full-vs-tokenwise equivalence are documented and regression-tested. Fused production inference remains open.
 - A7 partial gate: satisfied for deterministic accounting, checkpoint/restart, and model-aware scalar-loss stepping
 - A7 safety sub-gate: satisfied for finite-value refusal and checkpoint accounting audit
 - A8 ordinary-reference backward sub-gate: satisfied for all Q/K/V/gate/initial-state gradients

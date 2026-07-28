@@ -42,4 +42,4 @@ Verified real CPU smoke on the locked configuration at batch `1`, sequence lengt
 
 ## A10 Assessment
 
-A10 is in progress. The architecture/count/reference sub-gate is satisfied; shared full-scale training protocol and comparison results remain pending.
+The architecture/count/reference sub-gate is complete. The checked-in config, count command, deterministic tiny reference, and finite full-topology smoke provide reproducible audit evidence. Shared full-scale training protocol, equal-token pretraining, and quality comparison remain later A11 gates and are not claimed as A10 reference completion.

@@ -37,6 +37,6 @@ Observed:
 
 ## A9 Assessment
 
-A9 is in progress. The deterministic optimizer replay sub-gate is satisfied, but the full scientific-validity comparison remains pending until the model, data, checkpoint, and PMetal execution paths are connected.
+The deterministic optimizer replay sub-gate is complete. The canonical machine-readable report is `docs/restart/reports/hz0a_a9_optimizer_replay.json`; it contains the seed, step/batch order, per-step loss/gradient/update/parameter norms, finite status, and final parameter fingerprint. Full scientific validity across model/data/checkpoint/PMetal execution remains a later integration gate and is intentionally not claimed here.
 
 The native Metal path now includes a small AdamW kernel. Its first-step parameters and moment buffers match the NumPy AdamW contract in a runtime regression; this closes device-level optimizer-operator parity, not end-to-end PMetal training.

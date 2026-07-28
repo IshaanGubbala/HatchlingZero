@@ -51,4 +51,4 @@ The native kernel also passes a full locked recurrent-shape smoke (`12` heads, `
 
 ## A12 Assessment
 
-A12 reference-correctness sub-gate is satisfied for recurrent decode and causal-attention KV-cache decode. Fused Metal implementation and performance comparison remain incomplete.
+The A12 reference-correctness sub-gate is complete for recurrent decode and causal-attention KV-cache decode, including state carry, serialization, reset, and full-vs-tokenwise numerical equivalence. Fused Metal implementation, production full-model integration, and performance comparison remain explicitly open.
