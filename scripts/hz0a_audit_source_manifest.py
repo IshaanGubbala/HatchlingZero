@@ -38,6 +38,7 @@ def main() -> None:
     records_by_hash: dict[str, list[str]] = {}
     hash_by_path: dict[str, str] = {}
     shingles_by_path: dict[str, set[str]] = {}
+    split_by_path: dict[str, str] = {}
     for record in manifest["records"]:
         missing = required_fields - record.keys()
         if missing:
@@ -54,6 +55,7 @@ def main() -> None:
         records_by_hash.setdefault(content_hash, []).append(str(path))
         hash_by_path[str(path)] = content_hash
         shingles_by_path[str(path)] = normalized_shingles(text)
+        split_by_path[str(path)] = record["split"]
         records.append({
                 **record,
                 "bytes": len(text.encode("utf-8")),
@@ -63,16 +65,23 @@ def main() -> None:
 
     duplicate_groups = [paths for paths in records_by_hash.values() if len(paths) > 1]
     near_duplicate_groups = []
+    contamination_groups = []
     paths = sorted(shingles_by_path)
     for index, left in enumerate(paths):
         for right in paths[index + 1:]:
+            cross_split = split_by_path[left] != split_by_path[right]
             if hash_by_path[left] == hash_by_path[right]:
+                if cross_split:
+                    contamination_groups.append({"paths": [left, right], "type": "exact", "splits": [split_by_path[left], split_by_path[right]]})
                 continue
             left_shingles, right_shingles = shingles_by_path[left], shingles_by_path[right]
             union = left_shingles | right_shingles
             similarity = len(left_shingles & right_shingles) / len(union) if union else 1.0
             if similarity >= args.near_duplicate_threshold:
-                near_duplicate_groups.append({"paths": [left, right], "jaccard": round(similarity, 6)})
+                group = {"paths": [left, right], "jaccard": round(similarity, 6)}
+                near_duplicate_groups.append(group)
+                if cross_split:
+                    contamination_groups.append({**group, "type": "near", "splits": [split_by_path[left], split_by_path[right]]})
     ordered_records = sorted(records, key=lambda item: (item["split"], item["path"]))
     random.Random(args.shuffle_seed).shuffle(ordered_records)
 
@@ -88,6 +97,8 @@ def main() -> None:
         "near_duplicate_threshold": args.near_duplicate_threshold,
         "near_duplicate_groups": near_duplicate_groups,
         "near_duplicate_group_count": len(near_duplicate_groups),
+        "contamination_groups": contamination_groups,
+        "contamination_group_count": len(contamination_groups),
         "deterministic_order": "seeded-shuffle",
         "shuffle_seed": args.shuffle_seed,
         "ordered_paths": [record["path"] for record in ordered_records],

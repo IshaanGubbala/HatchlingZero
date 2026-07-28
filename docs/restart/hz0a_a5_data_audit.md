@@ -10,6 +10,8 @@ The pipeline now validates required provenance/license/split fields and source e
 
 The manifest audit now also computes deterministic normalized five-token-shingle Jaccard similarity and reports near-duplicate pairs at a configurable threshold. The current eight-record manifest has zero exact or near-duplicate groups at threshold `0.9`.
 
+Cross-split contamination is reported separately for exact and near-duplicate pairs. The current manifest has zero contamination groups across train, validation, and test.
+
 `restart/hz0a_dataset.py` now provides a resumable packed-sequence iterator with seeded permutation order, data-pass accounting, and JSON-serializable cursor snapshots. Resume tests prove the next batches are identical after restoring a snapshot.
 
 ## Source Artifacts
@@ -50,12 +52,13 @@ Included train sources currently are:
 - the repo can produce reproducible packed sequences from current source data
 - packed iteration can resume exactly from a serialized cursor
 - exact and normalized-shingle near-duplicate groups are reported
+- cross-split exact/near-duplicate contamination is reported
 
 ## What This Does Not Yet Prove
 
 - full external training-mixture reconstruction
 - large-corpus deduplication/removal policy and contamination checks
-- contamination checks
+- large-corpus contamination enforcement and removal policy
 - large-scale resumable iteration beyond the current local scaffold
 - 100M-token rebuild target from the restart plan
 

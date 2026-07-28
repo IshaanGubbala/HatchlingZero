@@ -30,7 +30,7 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
 | A2 | tiny mathematical reference | Complete | NumPy reference model and tests now exist and pass |
 | A3 | backward derivation + validation | Complete | backward math doc and gradient tests now exist and pass |
 | A4 | tokenizer rebuild | Complete | tokenizer artifact, corpus manifest, runtime wrapper, and audit now exist |
-| A5 | data pipeline rebuild | In progress | validated manifests, seeded packing, resumable cursor, exact/near-duplicate reporting, and public tests now exist |
+| A5 | data pipeline rebuild | In progress | validated manifests, seeded packing, resumable cursor, exact/near-duplicate and cross-split contamination reporting now exist |
 | A6 | PMetal reference implementation | In progress | Rust CPU GDN-2 forward/state/chunk execution now passes alongside Python backward, block/loss, and AdamW parity |
 | A7 | training harness rebuild | In progress | deterministic harness now runs a real tiny reference-model forward/loss path with exact resume coverage and CLI smoke verification |
 | A8 | explicit PMetal GDN-2 backward | In progress | Python and Rust CPU cached reverse scans now return required gradients; device-side PMetal execution remains |
@@ -105,6 +105,7 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
   - token-packing script and packed-data audit output
   - required-field, split, source-existence, and exact-content duplicate validation
   - normalized-shingle near-duplicate reporting with fixture coverage
+  - cross-split contamination reporting with exact-leakage fixture coverage
   - seeded document ordering and reproducible packing regression tests
   - resumable seeded packed-dataset iterator with exact cursor restore tests
 - Remaining:

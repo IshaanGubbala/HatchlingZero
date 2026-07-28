@@ -46,6 +46,7 @@ def test_manifest_audit_validates_provenance_and_reports_duplicates(tmp_path: Pa
     assert audit["duplicate_content_group_count"] == 1
     assert audit["shuffle_seed"] == 17
     assert audit["split_counts"] == {"train": 1, "validation": 1}
+    assert audit["contamination_group_count"] == 1
 
 
 def test_manifest_audit_reports_near_duplicates(tmp_path: Path) -> None:
