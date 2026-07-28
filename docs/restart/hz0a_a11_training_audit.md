@@ -32,6 +32,8 @@ Stage launches now have an explicit data-budget gate in `scripts/hz0a_stage_gate
 
 The archived Wikitext source now has a measured `196,028,717` tokenizer tokens, but it has not yet been converted into the checked-in packed training artifact. Stage launches must continue to use the stage gate against the final packed output, not this raw token-count report alone.
 
+`scripts/hz0a_stage_runner.py` now executes both tiny reference models over the streaming packed format, writes optimizer/model/dataset-cursor checkpoints, and reports loss, validation loss, gradient norms, parameter fingerprints, throughput, and explicit `smoke_run`/`budget_complete` flags. A bounded run cannot be mistaken for a completed stage.
+
 ## What This Does Not Yet Prove
 
 - that the full 1.61B tokens have been trained
