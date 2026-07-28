@@ -1,6 +1,6 @@
 import mlx.core as mx
 
-from reference.hz0a_mlx_metal import native_gdn2_forward, native_gdn2_forward_differentiable
+from reference.hz0a_mlx_metal import _reference_forward, native_gdn2_forward, native_gdn2_forward_differentiable
 from reference.hz0a_mlx_model import HZ0AMlxModel
 
 
@@ -49,3 +49,23 @@ def test_native_forward_vjp_produces_finite_gradients():
     mx.eval(value, *gradients)
     assert bool(mx.isfinite(value))
     assert all(bool(mx.all(mx.isfinite(gradient))) for gradient in gradients)
+
+
+def test_native_backward_matches_reference_vjp():
+    mx.random.seed(23)
+    values = [mx.random.normal((1, 3, 1, 2)) for _ in range(6)]
+    values.append(mx.random.normal((1, 1, 2, 2)))
+
+    def native_loss(*args):
+        output, final_state = native_gdn2_forward_differentiable(*args)
+        return mx.sum(output * 0.7) + mx.sum(final_state * -0.2)
+
+    def reference_loss(*args):
+        output, final_state = _reference_forward(*args)
+        return mx.sum(output * 0.7) + mx.sum(final_state * -0.2)
+
+    _, native_gradients = mx.value_and_grad(native_loss)(*values)
+    _, reference_gradients = mx.value_and_grad(reference_loss)(*values)
+    mx.eval(*native_gradients, *reference_gradients)
+    for native, reference in zip(native_gradients, reference_gradients):
+        assert bool(mx.allclose(native, reference, atol=2e-5, rtol=2e-5))

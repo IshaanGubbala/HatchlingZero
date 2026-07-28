@@ -224,8 +224,8 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
 - Stage 1 transformer independent run is budget-complete on MPS fp16 with 10,000,848 tokens, finite metrics, changed parameters, and final loss `6.726313`; checkpoint: `/tmp/hz0a_stage1_transformer/transformer.pt`.
 - Stage 1 hybrid run is now budget-complete on MPS fp16 with `10,000,848` tokens, finite metrics, changed parameters, final loss `6.582576`, validation loss `6.506499`, and validation perplexity `669.478`; checkpoint: `/tmp/hz0a_stage1_budget/hybrid.pt`.
 - The standalone native backward gate passes 13 tests, and the PMetal optimizer/full-topology Torch bridge has 100-step exact resume coverage. These are not native full-model PMetal execution.
-- The Python native surface now has a parameterized manual-backward tiny graph and optimizer replay; the Rust/Metal native surface remains a dependency-free CPU GDN-2 operator reference, and full PMetal tensor execution is still missing.
-- A first attempt to route MLX custom VJP through the checked-in Metal backward kernel was rejected by the compiler because the kernel's atomic gradient outputs require a per-value partial-gradient layout and reduction; the existing MLX reference VJP remains green and is not claimed as native backward.
+- The Python native surface now has a parameterized manual-backward tiny graph and optimizer replay; the MLX path now has native Metal GDN-2 forward/backward training coverage, but the Rust/Metal PMetal bridge still lacks full parameterized model execution and optimizer integration.
+- Native Metal GDN-2 backward is now wired into the MLX custom VJP using private per-value partial gradients plus value-axis reduction; all Q/K/V/gate/initial-state gradients match the MLX reference VJP at `2e-5`, and the native MLX training smoke passes `8` tests.
 - Stages 2-4, native full-model training, and matched full-size comparisons are not yet complete. The current Stage 1 run remains intentionally active for resumable continuation.
 
 1. Finish native numerical guards and full machine-readable parity reporting.
