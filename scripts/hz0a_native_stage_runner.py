@@ -50,6 +50,13 @@ def detach_state(state):
     return mx.stop_gradient(state)
 
 
+def assert_finite(label, values):
+    arrays = values if isinstance(values, (list, tuple)) else [values]
+    mx.eval(*arrays)
+    if not all(bool(mx.all(mx.isfinite(value))) for value in arrays):
+        raise FloatingPointError(f"native Stage 1 produced non-finite {label}")
+
+
 def save_checkpoint(path: Path, model, optimizer, step: int, tokens_seen: int, batch_index: int, metrics: list[dict]) -> None:
     model_values = tree_flatten(model.parameters())
     optimizer_values = tree_flatten(optimizer.state)
@@ -99,6 +106,7 @@ def main() -> None:
     parser.add_argument("--heads", type=int, default=12)
     parser.add_argument("--d-ff", type=int, default=2304)
     parser.add_argument("--sequence-length", type=int, default=0)
+    parser.add_argument("--dtype", choices=("float32", "float16"), default="float32")
     args = parser.parse_args()
     args.run_dir.mkdir(parents=True, exist_ok=True)
     checkpoint = args.run_dir / "native_metal.pt"
@@ -106,6 +114,8 @@ def main() -> None:
     mx.random.seed(7)
     attention = tuple(index for index in (4, 9, 14, 19, 24, 29) if index < args.layers)
     model = HZ0AMlxModel(args.vocab_size, args.dim, args.layers, args.heads, args.d_ff, attention, native_metal=True)
+    if args.dtype == "float16":
+        model.update(tree_unflatten([(key, value.astype(mx.float16)) for key, value in tree_flatten(model.parameters())]))
     optimizer = optim.AdamW(learning_rate=1e-4, weight_decay=0.01)
     metrics, step, tokens_seen, batch_index = [], 0, 0, 0
     if args.resume and checkpoint.exists():
@@ -142,12 +152,14 @@ def main() -> None:
                     del logits
                     loss, grads = chunk_value_and_grad(model, chunk, states)
                     mx.eval(loss, grads)
+                    assert_finite("loss/gradients", [loss] + [value for _, value in tree_flatten(grads)])
                     flat_grads = [value for _, value in tree_flatten(grads)]
                     grad_norm = float(mx.sqrt(sum(mx.sum(value * value) for value in flat_grads)))
                     old = [mx.array(value) for _, value in tree_flatten(model.parameters())]
                     optimizer.update(model, grads)
                     mx.eval(loss, model.parameters(), optimizer.state)
                     new = [value for _, value in tree_flatten(model.parameters())]
+                    assert_finite("updated parameters", new)
                     update_norm = float(mx.sqrt(sum(mx.sum((a - b) * (a - b)) for a, b in zip(new, old))))
                     mx.clear_cache()
                     step += 1; tokens_seen += args.batch_size * chunk.shape[1]
@@ -157,12 +169,14 @@ def main() -> None:
             else:
                 loss, grads = value_and_grad(model, tokens)
                 mx.eval(loss, grads)
+                assert_finite("loss/gradients", [loss] + [value for _, value in tree_flatten(grads)])
                 flat_grads = [value for _, value in tree_flatten(grads)]
                 grad_norm = float(mx.sqrt(sum(mx.sum(value * value) for value in flat_grads)))
                 old = [mx.array(value) for _, value in tree_flatten(model.parameters())]
                 optimizer.update(model, grads)
                 mx.eval(loss, model.parameters(), optimizer.state)
                 new = [value for _, value in tree_flatten(model.parameters())]
+                assert_finite("updated parameters", new)
                 update_norm = float(mx.sqrt(sum(mx.sum((a - b) * (a - b)) for a, b in zip(new, old))))
                 step += 1; batch_index += 1; tokens_seen += args.batch_size * sequence_length
                 item = {"step": step, "tokens_seen": tokens_seen, "loss": float(loss), "gradient_norm": grad_norm, "update_norm": update_norm}
@@ -175,7 +189,7 @@ def main() -> None:
             metrics.append(item)
             if step % args.checkpoint_interval == 0 or tokens_seen >= args.target_tokens:
                 save_checkpoint(checkpoint, model, optimizer, step, tokens_seen, batch_index, metrics)
-    report = {"backend": "native_metal_mlx", "stage": "stage1_validation", "chunk_length": args.chunk_length, "steps": step, "tokens_seen": tokens_seen, "target_tokens": args.target_tokens, "budget_complete": tokens_seen >= args.target_tokens, "parameter_count": sum(value.size for _, value in tree_flatten(model.parameters())), "initialization_seed": 7, "final_parameter_sha256": model_fingerprint(model), "metrics": metrics, "checkpoint": str(checkpoint), "training_seconds": time.perf_counter() - started, "tokens_per_second": tokens_seen / max(time.perf_counter() - started, 1e-9), "peak_memory_bytes": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss}
+    report = {"backend": "native_metal_mlx", "stage": "stage1_validation", "dtype": args.dtype, "chunk_length": args.chunk_length, "steps": step, "tokens_seen": tokens_seen, "target_tokens": args.target_tokens, "budget_complete": tokens_seen >= args.target_tokens, "parameter_count": sum(value.size for _, value in tree_flatten(model.parameters())), "initialization_seed": 7, "final_parameter_sha256": model_fingerprint(model), "metrics": metrics, "checkpoint": str(checkpoint), "training_seconds": time.perf_counter() - started, "tokens_per_second": tokens_seen / max(time.perf_counter() - started, 1e-9), "peak_memory_bytes": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss}
     (args.run_dir / "native_metal.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(json.dumps(report, indent=2))
 
