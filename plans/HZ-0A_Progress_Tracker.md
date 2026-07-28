@@ -226,6 +226,7 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
 - The standalone native backward gate passes 13 tests, and the PMetal optimizer/full-topology Torch bridge has 100-step exact resume coverage. These are not native full-model PMetal execution.
 - The Python native surface now has a parameterized manual-backward tiny graph and optimizer replay; the MLX path now has native Metal GDN-2 forward/backward training coverage, but the Rust/Metal PMetal bridge still lacks full parameterized model execution and optimizer integration.
 - Native Metal GDN-2 backward is now wired into the MLX custom VJP using private per-value partial gradients plus value-axis reduction; all Q/K/V/gate/initial-state gradients match the MLX reference VJP at `2e-5`, and the native MLX training smoke passes `8` tests.
+- Native-Metal-versus-reference MLX 100-step replay is now executable and finite with identical initialization/batches; current drift is `0.00255` max loss, `0.00503` max gradient, and `0.00141` max update, with differing final fingerprints, so long-replay parity remains an open gate.
 - Stages 2-4, native full-model training, and matched full-size comparisons are not yet complete. The current Stage 1 run remains intentionally active for resumable continuation.
 
 1. Finish native numerical guards and full machine-readable parity reporting.
