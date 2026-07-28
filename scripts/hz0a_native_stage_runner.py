@@ -42,6 +42,14 @@ def model_fingerprint(model) -> str:
     return hashlib.sha256(b"".join(values)).hexdigest()
 
 
+def detach_state(state):
+    if state is None:
+        return None
+    if isinstance(state, tuple):
+        return tuple(detach_state(item) for item in state)
+    return mx.stop_gradient(state)
+
+
 def save_checkpoint(path: Path, model, optimizer, step: int, tokens_seen: int, batch_index: int, metrics: list[dict]) -> None:
     payload = {"step": step, "tokens_seen": tokens_seen, "batch_index": batch_index, "metrics": metrics, "model": [(key, np.asarray(value)) for key, value in tree_flatten(model.parameters())], "optimizer": [(key, np.asarray(value)) for key, value in tree_flatten(optimizer.state)]}
     temporary = path.with_suffix(path.suffix + ".tmp")
@@ -70,6 +78,7 @@ def main() -> None:
     parser.add_argument("--validation-interval", type=int, default=100)
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--chunk-length", type=int, default=128)
+    parser.add_argument("--truncate-backward", action="store_true")
     args = parser.parse_args()
     args.run_dir.mkdir(parents=True, exist_ok=True)
     checkpoint = args.run_dir / "native_metal.pt"
@@ -95,19 +104,45 @@ def main() -> None:
             logits = mx.concatenate(logits_parts, axis=1)
             return mx.mean(nn.losses.cross_entropy(logits[:, :-1], tokens[:, 1:]))
         value_and_grad = nn.value_and_grad(model, loss_fn)
+        def chunk_loss(current, chunk, carry):
+            logits, _ = current(chunk, carry)
+            return mx.mean(nn.losses.cross_entropy(logits[:, :-1], chunk[:, 1:]))
+        chunk_value_and_grad = nn.value_and_grad(model, chunk_loss)
         while tokens_seen < args.target_tokens:
             tokens = read_batch(train, args.batch_size, sequence_length)
-            loss, grads = value_and_grad(model, tokens)
-            mx.eval(loss, grads)
-            flat_grads = [value for _, value in tree_flatten(grads)]
-            grad_norm = float(mx.sqrt(sum(mx.sum(value * value) for value in flat_grads)))
-            old = [mx.array(value) for _, value in tree_flatten(model.parameters())]
-            optimizer.update(model, grads)
-            mx.eval(loss, model.parameters(), optimizer.state)
-            new = [value for _, value in tree_flatten(model.parameters())]
-            update_norm = float(mx.sqrt(sum(mx.sum((a - b) * (a - b)) for a, b in zip(new, old))))
-            step += 1; batch_index += 1; tokens_seen += args.batch_size * sequence_length
-            item = {"step": step, "tokens_seen": tokens_seen, "loss": float(loss), "gradient_norm": grad_norm, "update_norm": update_norm}
+            chunk_metrics = []
+            if args.truncate_backward:
+                states = None
+                chunks = range(0, sequence_length, args.chunk_length)
+                for start in chunks:
+                    chunk = tokens[:, start:start + args.chunk_length]
+                    logits, states = model(chunk, states)
+                    states = [detach_state(state) for state in states]
+                    loss, grads = chunk_value_and_grad(model, chunk, states)
+                    mx.eval(loss, grads)
+                    flat_grads = [value for _, value in tree_flatten(grads)]
+                    grad_norm = float(mx.sqrt(sum(mx.sum(value * value) for value in flat_grads)))
+                    old = [mx.array(value) for _, value in tree_flatten(model.parameters())]
+                    optimizer.update(model, grads)
+                    mx.eval(loss, model.parameters(), optimizer.state)
+                    new = [value for _, value in tree_flatten(model.parameters())]
+                    update_norm = float(mx.sqrt(sum(mx.sum((a - b) * (a - b)) for a, b in zip(new, old))))
+                    step += 1; tokens_seen += args.batch_size * chunk.shape[1]
+                    chunk_metrics.append({"step": step, "tokens_seen": tokens_seen, "loss": float(loss), "gradient_norm": grad_norm, "update_norm": update_norm})
+                batch_index += 1
+                item = chunk_metrics[-1]
+            else:
+                loss, grads = value_and_grad(model, tokens)
+                mx.eval(loss, grads)
+                flat_grads = [value for _, value in tree_flatten(grads)]
+                grad_norm = float(mx.sqrt(sum(mx.sum(value * value) for value in flat_grads)))
+                old = [mx.array(value) for _, value in tree_flatten(model.parameters())]
+                optimizer.update(model, grads)
+                mx.eval(loss, model.parameters(), optimizer.state)
+                new = [value for _, value in tree_flatten(model.parameters())]
+                update_norm = float(mx.sqrt(sum(mx.sum((a - b) * (a - b)) for a, b in zip(new, old))))
+                step += 1; batch_index += 1; tokens_seen += args.batch_size * sequence_length
+                item = {"step": step, "tokens_seen": tokens_seen, "loss": float(loss), "gradient_norm": grad_norm, "update_norm": update_norm}
             if step % args.validation_interval == 0 or tokens_seen >= args.target_tokens:
                 validation_tokens = read_batch(validation, 1, sequence_length)
                 validation_logits, _ = model(validation_tokens)
