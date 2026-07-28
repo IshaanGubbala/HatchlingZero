@@ -8,9 +8,9 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
 
 ## Current Status
 
-- Overall phase: `A5/A7/A11 in progress`
+- Overall phase: `A5/A7/A11/A12 in progress`
 - Confidence level: high for archaeology findings, low for any legacy implementation reuse
-- Last verified checkpoint: `July 28, 2026 - A11 staged protocol, A10 matched transformer, A9 replay, A8 chunked backward, A6 optimizer parity, A5 packing, and A7 safety pass`
+- Last verified checkpoint: `July 28, 2026 - A12 recurrent inference, A11 staged protocol, A10 matched transformer, A9 replay, A8 chunked backward, A6 optimizer parity, A5 packing, and A7 safety pass`
 - Active artifacts:
   - `/Users/ishaangubbala/Documents/Training/docs/restart/hz0a_history_audit.md`
   - `/Users/ishaangubbala/Documents/Training/docs/restart/hz0a_recovered_spec.md`
@@ -37,6 +37,7 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
 | A9 | deterministic optimizer replay | In progress | 100-step fixed-seed AdamW replay now produces exact repeated metrics and parameter fingerprint |
 | A10 | matched transformer | In progress | checked-in 301.180M dense baseline config/count and deterministic tiny reference now pass |
 | A11 | training stages | In progress | machine-validated 4-stage, 1.61B-token shared hybrid/transformer protocol now exists; actual pretraining remains |
+| A12 | fused Metal inference | In progress | recurrent reference prefill/decode equivalence, state serialization/reset, and separate timing now pass; fused backend remains |
 
 ## Confirmed Historical Findings To Carry Forward
 
@@ -88,6 +89,7 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
 - A9 deterministic optimizer sub-gate: satisfied for fixed tiny-parameter 100-step replay
 - A10 matched-count/reference sub-gate: satisfied within 1,816 parameters and shared tiny LM-loss conventions
 - A11 stage-protocol sub-gate: satisfied for ordered budgets and shared optimizer/data/checkpoint settings
+- A12 recurrent-reference inference sub-gate: satisfied for tokenwise equivalence, state serialization/reset, and separate prefill/decode timing
 - Program rule: no PMetal kernel work until A2 and A3 exist and pass tests
 
 ## Detailed Progress
@@ -118,6 +120,7 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
   - 100-step fixed-seed optimizer replay with exact repeated output and parameter hash
   - matched-transformer config/count tool and deterministic tiny reference
   - machine-validated 10M/100M/500M/1B staged-training protocol
+  - recurrent reference inference benchmark with zero full-vs-tokenwise logit difference
 - Remaining:
   - fuller execution path beyond parity wrappers
   - backward-path implementation for GDN-2
@@ -146,3 +149,4 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
 2. Expand A5 beyond scaffolding into a more complete deterministic dataset pipeline.
 3. Deepen A6 from parity wrappers into more realistic PMetal-side execution and optimizer-step parity.
 4. Connect A9/A10 to real model parameters, data batches, validation, checkpoints, and PMetal execution.
+5. Implement attention KV-cache and PMetal/fused Metal inference after reference equivalence is established.
