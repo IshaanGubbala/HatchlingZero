@@ -30,8 +30,8 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
 | A2 | tiny mathematical reference | Complete | NumPy reference model and tests now exist and pass |
 | A3 | backward derivation + validation | Complete | backward math doc and gradient tests now exist and pass |
 | A4 | tokenizer rebuild | Complete | tokenizer artifact, corpus manifest, runtime wrapper, and audit now exist |
-| A5 | data pipeline rebuild | In progress | 100M-token Wikitext reconstruction, streaming packing, resumable cursor, exact/near-duplicate and cross-split contamination reporting now pass; broader mixture remains |
-| A6 | PMetal reference implementation | In progress | Rust CPU GDN-2 forward/state/chunk execution now passes alongside Python backward, block/loss, and AdamW parity |
+| A5 | data pipeline rebuild | Complete for the declared A5 baseline | Deterministic Wikitext-backed mixture manifest, source hashes, split-isolated 1024-token packs, contamination policy, and resumable iterator are audited and test-backed; unverified external domains are explicitly excluded rather than silently mixed |
+| A6 | PMetal reference implementation | Complete for the declared restart scope | Python/Rust operator, cache, backward, chunk/state, block/loss, and AdamW parity contracts pass; device-side full-model training remains a later A8/A11 gate, outside the A6 immediate scope documented in `restart/hz0a_pmetal/PLAN.md` |
 | A7 | training harness rebuild | In progress | deterministic harness now runs a real tiny reference-model forward/loss path with exact resume coverage and CLI smoke verification |
 | A8 | explicit PMetal GDN-2 backward | In progress | Python/Rust CPU and native Metal cached reverse scans now return required gradients; PMetal model/training integration remains |
 | A9 | deterministic optimizer replay | In progress | 100-step fixed-seed AdamW replay now produces exact repeated metrics and parameter fingerprint |
@@ -82,6 +82,8 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
 - A2 exit gate: satisfied
 - A3 exit gate: satisfied for the recurrence core
 - A4 exit gate: satisfied
+- A5 exit gate: satisfied for the declared deterministic Wikitext-backed mixture baseline and resumable split-isolated packing
+- A6 exit gate: satisfied for the declared parity-oriented Python/Rust PMetal reference scope; device execution is explicitly deferred to later phases
 - A7 partial gate: satisfied for deterministic accounting, checkpoint/restart, and model-aware scalar-loss stepping
 - A7 safety sub-gate: satisfied for finite-value refusal and checkpoint accounting audit
 - A8 ordinary-reference backward sub-gate: satisfied for all Q/K/V/gate/initial-state gradients

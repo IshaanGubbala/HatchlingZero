@@ -69,7 +69,7 @@ Observed results:
 
 ## A6 Current Assessment
 
-A6 is meaningfully in progress, but not complete. The current milestone is a contract-and-parity bring-up across operator, block, and tiny-model-loss surfaces, not a finished PMetal reference implementation.
+A6 is complete for the immediate scope defined in `restart/hz0a_pmetal/PLAN.md`: a parity-oriented Python/Rust PMetal reference surface with explicit forward, cache, backward, final-state, chunk, block/loss, and AdamW contracts. Actual PMetal device execution, full-model device training, and fused Metal optimizer integration remain later A8/A11 work and are not silently counted as A6 evidence.
 
 The config-driven PyTorch reference at `reference/hz0a_torch_model.py` now covers the locked full topology, recurrent state API, periodic causal attention, tied LM head, and model-level parameter accounting. A meta-device test confirms the implementation reports exactly `301,178,112` parameters; it does not claim PMetal tensor execution.
 

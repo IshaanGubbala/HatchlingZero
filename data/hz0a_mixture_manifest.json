@@ -1,0 +1,32 @@
+{
+  "version": "a5.mixture.v1",
+  "tokenizer_path": "data/tokenizer/hz0a_24576.json",
+  "sequence_length": 1024,
+  "shuffle_seed": 0,
+  "near_duplicate_threshold": 0.9,
+  "policy": {
+    "primary_corpus": "wikitext-103",
+    "primary_weight": 1.0,
+    "reserved_domains": [],
+    "reserved_domain_policy": "No unverified external source is silently mixed into the reproducible A5 baseline; additions require provenance, license, split, hash, and contamination audit records.",
+    "packing": "document-order-preserving seeded shuffle followed by fixed-length concatenation with dropped tail recorded",
+    "validation_isolation": "validation and test sources are never packed into train"
+  },
+  "sources": [
+    {
+      "name": "wikitext-103",
+      "format": "jsonl",
+      "provenance": "archived-local-wikitext-103",
+      "license": "recorded-in-archive-manifest",
+      "splits": {
+        "train": "archive/data/raw/wikitext/train.jsonl",
+        "validation": "archive/data/raw/wikitext/validation.jsonl",
+        "test": "archive/data/raw/wikitext/test.jsonl"
+      }
+    }
+  ],
+  "packed_outputs": {
+    "train": "data/packed/repro_1024_train.jsonl",
+    "validation": "data/packed/repro_1024_val.jsonl"
+  }
+}

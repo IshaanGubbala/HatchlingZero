@@ -1,0 +1,46 @@
+{
+  "contamination_policy": "split-isolated; audit required before additions",
+  "finite": true,
+  "manifest": "data/hz0a_mixture_manifest.json",
+  "manifest_sha256": "cd45cb098e94de6760ca94e672b925e2c2ffe18afaa746ad1eb85a9a717aaaa7",
+  "packed_outputs": [
+    {
+      "path": "data/packed/repro_1024_train.jsonl",
+      "records": 467,
+      "sequence_length": 1024,
+      "sha256": "3eee9446deb2ac22a10f34f1d11f1ef6ec7577f9647d08b5995aaf363cf39eac",
+      "split": "train"
+    },
+    {
+      "path": "data/packed/repro_1024_val.jsonl",
+      "records": 529,
+      "sequence_length": 1024,
+      "sha256": "8abf02b7a20bc9e42f86367e4ca7e91a65cf55cbdd2b21c00b4c7b4c9ff1dc07",
+      "split": "validation"
+    }
+  ],
+  "reserved_domains": [],
+  "sources": [
+    {
+      "bytes": 611701025,
+      "path": "archive/data/raw/wikitext/train.jsonl",
+      "sha256": "e80fe02afa3c3f720310039394e1f05c73cf27d4a0071d490abfb0b50a8aeb70",
+      "source": "wikitext-103",
+      "split": "train"
+    },
+    {
+      "bytes": 1309239,
+      "path": "archive/data/raw/wikitext/validation.jsonl",
+      "sha256": "9304e2a4dfb6a6e484672d98de8beb9ab8b458449dbeb49e71ea021fbf088ccb",
+      "source": "wikitext-103",
+      "split": "validation"
+    },
+    {
+      "bytes": 1463465,
+      "path": "archive/data/raw/wikitext/test.jsonl",
+      "sha256": "390c92f651b2f6112a43a5e86593df057382238b672a6447c554033ceb35a447",
+      "source": "wikitext-103",
+      "split": "test"
+    }
+  ]
+}

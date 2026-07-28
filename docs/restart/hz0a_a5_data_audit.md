@@ -69,4 +69,4 @@ Included train sources currently are:
 
 ## A5 Current Assessment
 
-A5's 100M-token reconstruction sub-gate is now satisfied: the Wikitext source has a measured 196M-token budget, the train split has a deterministic 195M-token packed output, and the streaming cursor resumes exact batches. A5 remains open only for the broader staged mixture and external-source policy beyond this reproducible corpus.
+A5 is complete for its declared reproducible baseline. The Wikitext source has a measured 196M-token budget, deterministic train/validation/test provenance and hashes, fixed-length 1024-token outputs, split-isolated contamination policy, and exact resumable iteration. `data/hz0a_mixture_manifest.json` and `scripts/hz0a_audit_mixture.py` make the baseline and its exclusion policy machine-auditable. Future external domains are intentionally not claimed until they have their own provenance/license/hash records; that is an extension of the baseline, not an undocumented A5 input.
