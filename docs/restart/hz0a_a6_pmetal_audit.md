@@ -74,3 +74,5 @@ A6 is meaningfully in progress, but not complete. The current milestone is a con
 The config-driven PyTorch reference at `reference/hz0a_torch_model.py` now covers the locked full topology, recurrent state API, periodic causal attention, tied LM head, and model-level parameter accounting. A meta-device test confirms the implementation reports exactly `301,178,112` parameters; it does not claim PMetal tensor execution.
 
 The scaled recurrent-only model also has an exact full-sequence versus chunked-state-carry regression, establishing the model-level state boundary that a PMetal/fused implementation must preserve.
+
+The native Metal recurrence now also has a bounded cached reverse-scan kernel. Its Q/K/V/gate/initial gradients match a Torch autograd oracle on a deterministic three-token case; longer production sequences still require chunked checkpointing.
