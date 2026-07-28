@@ -238,6 +238,7 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
 - The native runner now has explicit finite guards for loss, gradients, updated parameters, and validation; a locked 301M float16 one-step probe produced NaN update/validation metrics and is rejected rather than checkpointed, so float32 remains the only verified precision at this scale.
 - The runner now exposes an explicit attention-cache reset mode and deletes chunk-local gradient/snapshot objects after each update; neither removes the locked 301M four-or-more-chunk failure, so full-record native execution remains unverified.
 - Stages 2-4, native full-model training, and matched full-size comparisons are not yet complete. The current Stage 1 run remains intentionally active for resumable continuation.
+- OOM mitigation: the native runner no longer clones every parameter for update-norm measurement by default; exact update norms are now an explicit `--exact-update-norm` diagnostic because the clone can add roughly another 1.2 GB at FP32. Native checkpoints now save parameter and optimizer leaves as individual MLX `.npy` arrays instead of concatenating full model and optimizer copies. Focused native runner/model/replay tests pass; the locked 301M full-record stability gate remains open.
 
 1. Finish native numerical guards and full machine-readable parity reporting.
 2. Replace the Python CPU reference execution with native PMetal tensor/Metal execution, then run the 100-200 step replay against MLX.

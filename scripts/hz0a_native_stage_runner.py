@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import pickle
 import resource
 import sys
 import time
@@ -58,32 +57,25 @@ def assert_finite(label, values):
 
 
 def save_checkpoint(path: Path, model, optimizer, step: int, tokens_seen: int, batch_index: int, metrics: list[dict]) -> None:
+    path.mkdir(parents=True, exist_ok=True)
     model_values = tree_flatten(model.parameters())
     optimizer_values = tree_flatten(optimizer.state)
-    model_flat = mx.concatenate([value.reshape(-1) for _, value in model_values])
-    optimizer_flat = mx.concatenate([value.reshape(-1) for _, value in optimizer_values]) if optimizer_values else mx.zeros((0,))
-    arrays = {"model": model_flat, "optimizer": optimizer_flat}
-    temporary = path.with_suffix(".tmp.npz")
-    mx.eval(*arrays.values())
-    mx.savez(str(temporary), **arrays)
-    temporary.replace(path)
-    path.with_suffix(path.suffix + ".json").write_text(json.dumps({"step": step, "tokens_seen": tokens_seen, "batch_index": batch_index, "metrics": metrics, "model_keys": [key for key, _ in model_values], "model_shapes": [list(value.shape) for _, value in model_values], "optimizer_keys": [key for key, _ in optimizer_values], "optimizer_shapes": [list(value.shape) for _, value in optimizer_values]}), encoding="utf-8")
+    arrays = []
+    for group, values in (("model", model_values), ("optimizer", optimizer_values)):
+        for index, (key, value) in enumerate(values):
+            filename = f"{group}-{index:04d}.npy"
+            mx.save(str(path / filename), value)
+            arrays.append({"group": group, "key": key, "shape": list(value.shape), "file": filename})
+    (path / "state.json").write_text(json.dumps({"step": step, "tokens_seen": tokens_seen, "batch_index": batch_index, "metrics": metrics, "arrays": arrays}), encoding="utf-8")
 
 
 def restore_checkpoint(path: Path, model, optimizer) -> dict:
-    payload = json.loads(path.with_suffix(path.suffix + ".json").read_text(encoding="utf-8"))
-    arrays = np.load(path)
-    def unpack(name, keys, shapes):
-        flat = mx.array(arrays[name])
-        offset = 0
-        values = []
-        for key, shape in zip(keys, shapes):
-            size = int(np.prod(shape))
-            values.append((key, flat[offset:offset + size].reshape(tuple(shape))))
-            offset += size
-        return values
-    model.update(tree_unflatten(unpack("model", payload["model_keys"], payload["model_shapes"])))
-    optimizer.state = tree_unflatten(unpack("optimizer", payload["optimizer_keys"], payload["optimizer_shapes"]))
+    payload = json.loads((path / "state.json").read_text(encoding="utf-8"))
+    groups = {"model": [], "optimizer": []}
+    for item in payload["arrays"]:
+        groups[item["group"]].append((item["key"], mx.load(str(path / item["file"]))))
+    model.update(tree_unflatten(groups["model"]))
+    optimizer.state = tree_unflatten(groups["optimizer"])
     mx.eval(model.parameters(), optimizer.state)
     return payload
 
@@ -108,13 +100,15 @@ def main() -> None:
     parser.add_argument("--sequence-length", type=int, default=0)
     parser.add_argument("--dtype", choices=("float32", "float16"), default="float32")
     parser.add_argument("--reset-attention-state", action="store_true")
+    parser.add_argument("--activation-checkpoint", action="store_true")
+    parser.add_argument("--exact-update-norm", action="store_true", help="Clone parameters for exact update norm; expensive and off by default")
     args = parser.parse_args()
     args.run_dir.mkdir(parents=True, exist_ok=True)
-    checkpoint = args.run_dir / "native_metal.pt"
+    checkpoint = args.run_dir / "native_metal_checkpoint"
     sequence_length = args.sequence_length or len(json.loads(args.data.open().readline()))
     mx.random.seed(7)
     attention = tuple(index for index in (4, 9, 14, 19, 24, 29) if index < args.layers)
-    model = HZ0AMlxModel(args.vocab_size, args.dim, args.layers, args.heads, args.d_ff, attention, native_metal=True)
+    model = HZ0AMlxModel(args.vocab_size, args.dim, args.layers, args.heads, args.d_ff, attention, native_metal=True, checkpoint_blocks=args.activation_checkpoint)
     if args.dtype == "float16":
         model.update(tree_unflatten([(key, value.astype(mx.float16)) for key, value in tree_flatten(model.parameters())]))
     optimizer = optim.AdamW(learning_rate=1e-4, weight_decay=0.01)
@@ -156,12 +150,12 @@ def main() -> None:
                     assert_finite("loss/gradients", [loss] + [value for _, value in tree_flatten(grads)])
                     flat_grads = [value for _, value in tree_flatten(grads)]
                     grad_norm = float(mx.sqrt(sum(mx.sum(value * value) for value in flat_grads)))
-                    old = [mx.array(value) for _, value in tree_flatten(model.parameters())]
+                    old = [mx.array(value) for _, value in tree_flatten(model.parameters())] if args.exact_update_norm else None
                     optimizer.update(model, grads)
                     mx.eval(loss, model.parameters(), optimizer.state)
                     new = [value for _, value in tree_flatten(model.parameters())]
                     assert_finite("updated parameters", new)
-                    update_norm = float(mx.sqrt(sum(mx.sum((a - b) * (a - b)) for a, b in zip(new, old))))
+                    update_norm = float(mx.sqrt(sum(mx.sum((a - b) * (a - b)) for a, b in zip(new, old)))) if old is not None else None
                     mx.clear_cache()
                     step += 1; tokens_seen += args.batch_size * chunk.shape[1]
                     chunk_metrics.append({"step": step, "tokens_seen": tokens_seen, "loss": float(loss), "gradient_norm": grad_norm, "update_norm": update_norm})
@@ -174,12 +168,12 @@ def main() -> None:
                 assert_finite("loss/gradients", [loss] + [value for _, value in tree_flatten(grads)])
                 flat_grads = [value for _, value in tree_flatten(grads)]
                 grad_norm = float(mx.sqrt(sum(mx.sum(value * value) for value in flat_grads)))
-                old = [mx.array(value) for _, value in tree_flatten(model.parameters())]
+                old = [mx.array(value) for _, value in tree_flatten(model.parameters())] if args.exact_update_norm else None
                 optimizer.update(model, grads)
                 mx.eval(loss, model.parameters(), optimizer.state)
                 new = [value for _, value in tree_flatten(model.parameters())]
                 assert_finite("updated parameters", new)
-                update_norm = float(mx.sqrt(sum(mx.sum((a - b) * (a - b)) for a, b in zip(new, old))))
+                update_norm = float(mx.sqrt(sum(mx.sum((a - b) * (a - b)) for a, b in zip(new, old)))) if old is not None else None
                 step += 1; batch_index += 1; tokens_seen += args.batch_size * sequence_length
                 item = {"step": step, "tokens_seen": tokens_seen, "loss": float(loss), "gradient_norm": grad_norm, "update_norm": update_norm}
             if step % args.validation_interval == 0 or tokens_seen >= args.target_tokens:
@@ -191,7 +185,7 @@ def main() -> None:
             metrics.append(item)
             if step % args.checkpoint_interval == 0 or tokens_seen >= args.target_tokens:
                 save_checkpoint(checkpoint, model, optimizer, step, tokens_seen, batch_index, metrics)
-    report = {"backend": "native_metal_mlx", "stage": "stage1_validation", "dtype": args.dtype, "chunk_length": args.chunk_length, "reset_attention_state": args.reset_attention_state, "steps": step, "tokens_seen": tokens_seen, "target_tokens": args.target_tokens, "budget_complete": tokens_seen >= args.target_tokens, "parameter_count": sum(value.size for _, value in tree_flatten(model.parameters())), "initialization_seed": 7, "final_parameter_sha256": model_fingerprint(model), "metrics": metrics, "checkpoint": str(checkpoint), "training_seconds": time.perf_counter() - started, "tokens_per_second": tokens_seen / max(time.perf_counter() - started, 1e-9), "peak_memory_bytes": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss}
+    report = {"backend": "native_metal_mlx", "stage": "stage1_validation", "dtype": args.dtype, "activation_checkpoint": args.activation_checkpoint, "chunk_length": args.chunk_length, "reset_attention_state": args.reset_attention_state, "steps": step, "tokens_seen": tokens_seen, "target_tokens": args.target_tokens, "budget_complete": tokens_seen >= args.target_tokens, "parameter_count": sum(value.size for _, value in tree_flatten(model.parameters())), "initialization_seed": 7, "final_parameter_sha256": model_fingerprint(model), "metrics": metrics, "checkpoint": str(checkpoint), "training_seconds": time.perf_counter() - started, "tokens_per_second": tokens_seen / max(time.perf_counter() - started, 1e-9), "peak_memory_bytes": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss}
     (args.run_dir / "native_metal.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(json.dumps(report, indent=2))
 

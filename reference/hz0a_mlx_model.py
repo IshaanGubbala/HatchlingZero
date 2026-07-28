@@ -7,6 +7,7 @@ from pathlib import Path
 
 import mlx.core as mx
 import mlx.nn as nn
+from mlx.nn.utils import checkpoint
 
 from reference.hz0a_mlx_metal import native_gdn2_forward_differentiable
 
@@ -82,11 +83,13 @@ class Block(nn.Module):
 
 
 class HZ0AMlxModel(nn.Module):
-    def __init__(self, vocab_size: int, dim: int, layers: int, heads: int, d_ff: int, attention_indices: tuple[int, ...], native_metal: bool = False):
+    def __init__(self, vocab_size: int, dim: int, layers: int, heads: int, d_ff: int, attention_indices: tuple[int, ...], native_metal: bool = False, checkpoint_blocks: bool = False):
         super().__init__()
         self.vocab_size, self.dim, self.heads = vocab_size, dim, heads
+        self.checkpoint_blocks = checkpoint_blocks
         self.embedding = nn.Embedding(vocab_size, dim)
         self.blocks = [Block(dim, heads, d_ff, index in attention_indices, native_metal) for index in range(layers)]
+        self._checkpointed_blocks = [checkpoint(block) for block in self.blocks] if checkpoint_blocks else self.blocks
         self.final_norm = nn.RMSNorm(dim)
 
     def __call__(self, token_ids, states=None):
@@ -94,7 +97,7 @@ class HZ0AMlxModel(nn.Module):
         if states is None:
             states = [None] * len(self.blocks)
         next_states = []
-        for block, state in zip(self.blocks, states):
+        for block, state in zip(self._checkpointed_blocks, states):
             x, state = block(x, state)
             next_states.append(state)
         return mx.matmul(self.final_norm(x), self.embedding.weight.T), next_states
