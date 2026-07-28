@@ -51,18 +51,32 @@ def detach_state(state):
 
 
 def save_checkpoint(path: Path, model, optimizer, step: int, tokens_seen: int, batch_index: int, metrics: list[dict]) -> None:
-    payload = {"step": step, "tokens_seen": tokens_seen, "batch_index": batch_index, "metrics": metrics, "model": [(key, np.asarray(value)) for key, value in tree_flatten(model.parameters())], "optimizer": [(key, np.asarray(value)) for key, value in tree_flatten(optimizer.state)]}
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    with temporary.open("wb") as handle:
-        pickle.dump(payload, handle, protocol=pickle.HIGHEST_PROTOCOL)
+    model_values = tree_flatten(model.parameters())
+    optimizer_values = tree_flatten(optimizer.state)
+    model_flat = mx.concatenate([value.reshape(-1) for _, value in model_values])
+    optimizer_flat = mx.concatenate([value.reshape(-1) for _, value in optimizer_values]) if optimizer_values else mx.zeros((0,))
+    arrays = {"model": model_flat, "optimizer": optimizer_flat}
+    temporary = path.with_suffix(".tmp.npz")
+    mx.eval(*arrays.values())
+    mx.savez(str(temporary), **arrays)
     temporary.replace(path)
+    path.with_suffix(path.suffix + ".json").write_text(json.dumps({"step": step, "tokens_seen": tokens_seen, "batch_index": batch_index, "metrics": metrics, "model_keys": [key for key, _ in model_values], "model_shapes": [list(value.shape) for _, value in model_values], "optimizer_keys": [key for key, _ in optimizer_values], "optimizer_shapes": [list(value.shape) for _, value in optimizer_values]}), encoding="utf-8")
 
 
 def restore_checkpoint(path: Path, model, optimizer) -> dict:
-    with path.open("rb") as handle:
-        payload = pickle.load(handle)
-    model.update(tree_unflatten([(key, mx.array(value)) for key, value in payload["model"]]))
-    optimizer.state = tree_unflatten([(key, mx.array(value)) for key, value in payload["optimizer"]])
+    payload = json.loads(path.with_suffix(path.suffix + ".json").read_text(encoding="utf-8"))
+    arrays = np.load(path)
+    def unpack(name, keys, shapes):
+        flat = mx.array(arrays[name])
+        offset = 0
+        values = []
+        for key, shape in zip(keys, shapes):
+            size = int(np.prod(shape))
+            values.append((key, flat[offset:offset + size].reshape(tuple(shape))))
+            offset += size
+        return values
+    model.update(tree_unflatten(unpack("model", payload["model_keys"], payload["model_shapes"])))
+    optimizer.state = tree_unflatten(unpack("optimizer", payload["optimizer_keys"], payload["optimizer_shapes"]))
     mx.eval(model.parameters(), optimizer.state)
     return payload
 
