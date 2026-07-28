@@ -78,3 +78,5 @@ The scaled recurrent-only model also has an exact full-sequence versus chunked-s
 The native Metal recurrence now also has a bounded cached reverse-scan kernel. Its Q/K/V/gate/initial gradients match a Torch autograd oracle on a deterministic three-token case; longer production sequences still require chunked checkpointing.
 
 This establishes native Metal operator forward/backward parity, but the workspace still does not contain a PMetal tensor graph, full-model device bridge, or end-to-end device optimizer loop.
+
+`reference/hz0a_mlx_model.py` now provides a clean MLX model surface for the locked topology, with exact A1 gate/state semantics and tied output embeddings. Its initial scaled GPU forward/state test passes; it is the bridge point for replacing the MLX recurrence with the native Metal operator.
