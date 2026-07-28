@@ -36,6 +36,8 @@ The archived Wikitext source now has a measured `196,028,717` tokenizer tokens, 
 
 The runner now supports `--resume`; model weights, AdamW state, RNG, metrics, and the streaming dataset cursor are restored. A CLI regression confirms an interrupted two-step run has the same final fingerprints as an uninterrupted run.
 
+`scripts/hz0a_evaluate_checkpoints.py` evaluates both checkpoints on shared packed data and reports loss, perplexity, evaluated tokens, parameter count/bytes, and evaluation throughput. This supplies the quality/throughput report shape required by the plan; current outputs are tiny-reference smoke evidence, not full-model capability claims.
+
 ## What This Does Not Yet Prove
 
 - that the full 1.61B tokens have been trained
