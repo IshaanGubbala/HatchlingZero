@@ -236,6 +236,7 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
 - Native Stage 1 checkpoints now use packed MLX arrays plus metadata instead of host-pickling every parameter leaf; the locked 301M topology completes and checkpoints at sequence 128 with finite loss `10.6469`, gradient norm `55.1043`, update norm `5.44625`, exact `301,178,112` parameters, and peak memory `7.31 GB`. Carrying multiple chunks in one 1,024-token record still triggers GPU recovery.
 - Explicit `mx.clear_cache()` after each truncated update stabilizes a two-chunk locked 301M run (`256` tokens) with finite loss `10.3203`, validation loss `10.0695`, and `7.31 GB` peak memory; four or more chunks still fail as periodic attention KV caches grow, leaving the full 1,024-token gate open.
 - The native runner now has explicit finite guards for loss, gradients, updated parameters, and validation; a locked 301M float16 one-step probe produced NaN update/validation metrics and is rejected rather than checkpointed, so float32 remains the only verified precision at this scale.
+- The runner now exposes an explicit attention-cache reset mode and deletes chunk-local gradient/snapshot objects after each update; neither removes the locked 301M four-or-more-chunk failure, so full-record native execution remains unverified.
 - Stages 2-4, native full-model training, and matched full-size comparisons are not yet complete. The current Stage 1 run remains intentionally active for resumable continuation.
 
 1. Finish native numerical guards and full machine-readable parity reporting.

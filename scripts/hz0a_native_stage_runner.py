@@ -107,6 +107,7 @@ def main() -> None:
     parser.add_argument("--d-ff", type=int, default=2304)
     parser.add_argument("--sequence-length", type=int, default=0)
     parser.add_argument("--dtype", choices=("float32", "float16"), default="float32")
+    parser.add_argument("--reset-attention-state", action="store_true")
     args = parser.parse_args()
     args.run_dir.mkdir(parents=True, exist_ok=True)
     checkpoint = args.run_dir / "native_metal.pt"
@@ -147,7 +148,7 @@ def main() -> None:
                 for start in chunks:
                     chunk = tokens[:, start:start + args.chunk_length]
                     logits, states = model(chunk, states)
-                    states = [detach_state(state) for state in states]
+                    states = [None if args.reset_attention_state and isinstance(state, tuple) else detach_state(state) for state in states]
                     mx.eval(*[state for state in states if state is not None for state in (state if isinstance(state, tuple) else (state,))])
                     del logits
                     loss, grads = chunk_value_and_grad(model, chunk, states)
@@ -164,6 +165,7 @@ def main() -> None:
                     mx.clear_cache()
                     step += 1; tokens_seen += args.batch_size * chunk.shape[1]
                     chunk_metrics.append({"step": step, "tokens_seen": tokens_seen, "loss": float(loss), "gradient_norm": grad_norm, "update_norm": update_norm})
+                    del grads, old, new, loss, chunk
                 batch_index += 1
                 item = chunk_metrics[-1]
             else:
@@ -189,7 +191,7 @@ def main() -> None:
             metrics.append(item)
             if step % args.checkpoint_interval == 0 or tokens_seen >= args.target_tokens:
                 save_checkpoint(checkpoint, model, optimizer, step, tokens_seen, batch_index, metrics)
-    report = {"backend": "native_metal_mlx", "stage": "stage1_validation", "dtype": args.dtype, "chunk_length": args.chunk_length, "steps": step, "tokens_seen": tokens_seen, "target_tokens": args.target_tokens, "budget_complete": tokens_seen >= args.target_tokens, "parameter_count": sum(value.size for _, value in tree_flatten(model.parameters())), "initialization_seed": 7, "final_parameter_sha256": model_fingerprint(model), "metrics": metrics, "checkpoint": str(checkpoint), "training_seconds": time.perf_counter() - started, "tokens_per_second": tokens_seen / max(time.perf_counter() - started, 1e-9), "peak_memory_bytes": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss}
+    report = {"backend": "native_metal_mlx", "stage": "stage1_validation", "dtype": args.dtype, "chunk_length": args.chunk_length, "reset_attention_state": args.reset_attention_state, "steps": step, "tokens_seen": tokens_seen, "target_tokens": args.target_tokens, "budget_complete": tokens_seen >= args.target_tokens, "parameter_count": sum(value.size for _, value in tree_flatten(model.parameters())), "initialization_seed": 7, "final_parameter_sha256": model_fingerprint(model), "metrics": metrics, "checkpoint": str(checkpoint), "training_seconds": time.perf_counter() - started, "tokens_per_second": tokens_seen / max(time.perf_counter() - started, 1e-9), "peak_memory_bytes": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss}
     (args.run_dir / "native_metal.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(json.dumps(report, indent=2))
 
