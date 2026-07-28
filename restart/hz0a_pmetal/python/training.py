@@ -63,7 +63,10 @@ class PmetalOptimizerPath:
 
     @classmethod
     def restore(cls, path: str | Path) -> "PmetalOptimizerPath":
-        payload = json.loads(Path(path).read_text(encoding="utf-8"))
+        return cls.restore_payload(json.loads(Path(path).read_text(encoding="utf-8")))
+
+    @classmethod
+    def restore_payload(cls, payload: dict) -> "PmetalOptimizerPath":
         runner = cls(np.asarray(payload["parameters"], dtype=np.float64), accumulation_steps=payload["accumulation_steps"], max_grad_norm=payload["max_grad_norm"], learning_rate=payload["base_learning_rate"], total_steps=payload["total_steps"], weight_decay=payload["weight_decay"])
         runner.state.microbatch_count, runner.state.optimizer_step, runner.state.tokens_seen = payload["microbatch_count"], payload["optimizer_step"], payload["tokens_seen"]
         runner.state.accumulated_gradient = np.asarray(payload["accumulated_gradient"], dtype=np.float64)

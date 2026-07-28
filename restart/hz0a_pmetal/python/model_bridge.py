@@ -9,6 +9,7 @@ separate backend gate.
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 
 import numpy as np
@@ -58,3 +59,20 @@ class PmetalModelBridge:
         if metric is not None:
             self._load_parameters(self.optimizer.state.parameters)
         return loss, metric, next_states
+
+    def checkpoint(self, path: str | Path) -> None:
+        payload = {"optimizer": None, "fingerprint": self.fingerprint(), "parameters": self.parameters().tolist()}
+        temporary = Path(path).with_suffix(Path(path).suffix + ".tmp")
+        self.optimizer.checkpoint(temporary)
+        payload["optimizer"] = json.loads(temporary.read_text(encoding="utf-8"))
+        temporary.unlink()
+        target = Path(path)
+        target.write_text(json.dumps(payload), encoding="utf-8")
+
+    @classmethod
+    def restore(cls, config_path: str | Path, path: str | Path) -> "PmetalModelBridge":
+        payload = json.loads(Path(path).read_text(encoding="utf-8"))
+        bridge = cls(config_path)
+        bridge.optimizer = PmetalOptimizerPath.restore_payload(payload["optimizer"])
+        bridge._load_parameters(bridge.optimizer.state.parameters)
+        return bridge

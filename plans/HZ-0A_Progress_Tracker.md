@@ -187,6 +187,7 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
 - PMetal operator precision coverage now includes float32-versus-Torch-BF16 recurrence parity at explicit `0.08` tolerance; native BF16 Metal training remains open
 - PMetal optimizer protocol now covers gradient accumulation, cosine scheduler, clipping, finite guards, AdamW state, token accounting, atomic checkpoint/resume, and exact parameter fingerprint replay; optimizer/model graph integration remains open
 - full-topology PMetal optimizer bridge now exercises recurrent and attention blocks, MLPs, embeddings, tied LM head, cross-entropy, parameter updates, and detached recurrent state carry on a small locked config; forward/backward still use Torch autograd pending native PMetal tensor execution
+- full-topology bridge replay now passes 100 deterministic steps with identical batches/initialization, step-50 interruption, exact 800-token accounting, optimizer restoration, and matching final parameter fingerprints
   - clean MLX locked-topology model surface now exists with scaled GPU forward/state coverage
   - MLX now dispatches a native Metal GDN-2 forward kernel with deterministic parity coverage
   - native-forward MLX model now has a real AdamW two-step smoke with finite loss and parameter-update evidence
