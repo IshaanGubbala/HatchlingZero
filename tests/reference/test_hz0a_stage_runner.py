@@ -33,3 +33,4 @@ def test_stage_runner_resume_matches_uninterrupted_run(tmp_path: Path):
     full = json.loads((full_dir / "stage_report.json").read_text())
     for name in ("hybrid", "transformer"):
         assert resumed["models"][name]["final_parameter_sha256"] == full["models"][name]["final_parameter_sha256"]
+        assert "validation_loss" in resumed["models"][name]["metrics"][-1]

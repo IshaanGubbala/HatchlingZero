@@ -25,9 +25,10 @@ def seed_everything(seed: int) -> None:
     torch.manual_seed(seed)
 
 
-def run_model(name: str, factory, data_path: Path, run_dir: Path, seed: int, steps: int, batch_size: int, vocab_size: int, checkpoint_interval: int, resume: bool) -> dict:
+def run_model(name: str, factory, data_path: Path, validation_data: Path, run_dir: Path, seed: int, steps: int, batch_size: int, vocab_size: int, checkpoint_interval: int, resume: bool) -> dict:
     seed_everything(seed)
     dataset = StreamingResumablePackedDataset(data_path, shuffle_seed=seed)
+    validation_dataset = StreamingResumablePackedDataset(validation_data, shuffle_seed=0)
     model = factory(vocab_size=vocab_size)
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
     checkpoint = run_dir / f"{name}.pt"
@@ -39,6 +40,7 @@ def run_model(name: str, factory, data_path: Path, run_dir: Path, seed: int, ste
         model.load_state_dict(payload["model"])
         optimizer.load_state_dict(payload["optimizer"])
         dataset = StreamingResumablePackedDataset.from_snapshot(data_path, payload["dataset_cursor"])
+        validation_dataset = StreamingResumablePackedDataset(validation_data, shuffle_seed=0)
         initial_hash = payload["initial_parameter_sha256"]
         metrics = payload["metrics"]
         start_step = int(payload["step"])
@@ -51,7 +53,10 @@ def run_model(name: str, factory, data_path: Path, run_dir: Path, seed: int, ste
         loss.backward()
         gradient_norm = float(torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0))
         optimizer.step()
-        metrics.append({"step": step, "loss": float(loss.item()), "gradient_norm": gradient_norm, "batch_index": step - 1})
+        with torch.no_grad():
+            validation_batch = torch.from_numpy(validation_dataset.next_batch(batch_size)).remainder(vocab_size)
+            validation_loss = float(loss_for(model, validation_batch).item())
+        metrics.append({"step": step, "loss": float(loss.item()), "validation_loss": validation_loss, "gradient_norm": gradient_norm, "batch_index": step - 1})
         if checkpoint_interval and step % checkpoint_interval == 0:
             torch.save({"model": model.state_dict(), "optimizer": optimizer.state_dict(), "step": step, "metrics": metrics, "dataset_cursor": dataset.snapshot(), "initial_parameter_sha256": initial_hash, "model_parameter_sha256": fingerprint(model), "torch_rng": torch.get_rng_state()}, checkpoint)
     elapsed = time.perf_counter() - start
@@ -64,6 +69,7 @@ def main() -> None:
     parser.add_argument("--stage-config", default="configs/hz0a_training_stages.json", type=Path)
     parser.add_argument("--stage", default="stage1_validation")
     parser.add_argument("--data", required=True, type=Path)
+    parser.add_argument("--validation-data", type=Path)
     parser.add_argument("--run-dir", required=True, type=Path)
     parser.add_argument("--steps", type=int, help="Optional bounded smoke run; omitted means the full stage budget.")
     parser.add_argument("--batch-size", type=int, default=2)
@@ -77,6 +83,9 @@ def main() -> None:
         print(json.dumps(gate, indent=2, sort_keys=True))
         raise SystemExit(2)
     args.run_dir.mkdir(parents=True, exist_ok=True)
+    validation_data = args.validation_data or args.data
+    if not validation_data.is_file():
+        raise FileNotFoundError(validation_data)
     sequence_length = 128
     tokens_per_step = args.batch_size * (sequence_length - 1)
     target_steps = (gate["required_tokens"] + tokens_per_step - 1) // tokens_per_step
@@ -85,7 +94,7 @@ def main() -> None:
         raise ValueError("steps must be positive")
     results = {}
     for name, factory in (("hybrid", TinyHybridLM), ("transformer", TinyTransformerLM)):
-        result = run_model(name, factory, args.data, args.run_dir, args.seed, steps, args.batch_size, args.vocab_size, args.checkpoint_interval, args.resume)
+        result = run_model(name, factory, args.data, validation_data, args.run_dir, args.seed, steps, args.batch_size, args.vocab_size, args.checkpoint_interval, args.resume)
         result["budget_complete"] = result["tokens_seen"] >= gate["required_tokens"]
         results[name] = result
     report = {"stage": args.stage, "stage_gate": gate, "target_tokens": gate["required_tokens"], "smoke_run": args.steps is not None, "models": results}

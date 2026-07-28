@@ -162,6 +162,7 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
   - streaming train packing produced `1,524,594` fixed-length sequences and offset-indexed resumable iteration is now test-backed
   - auditable stage runner now executes tiny hybrid/transformer comparisons with checkpoints and explicit smoke/budget-complete flags
   - stage runner resume restores model/optimizer/RNG/dataset cursor and matches uninterrupted fingerprints
+  - stage runner now evaluates and checkpoints a separate validation packed split
   - standalone checkpoint evaluator now reports shared loss/perplexity/token/parameter/throughput metrics
   - locked 301M reference model now has a real/meta forward smoke command with memory and finite-logit reporting
   - real locked-model CPU forward smoke passed at sequence length 1 with finite logits and measured resident memory

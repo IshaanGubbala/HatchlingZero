@@ -36,6 +36,8 @@ The archived Wikitext source has a measured `196,028,717` tokenizer tokens and a
 
 The runner now supports `--resume`; model weights, AdamW state, RNG, metrics, and the streaming dataset cursor are restored. A CLI regression confirms an interrupted two-step run has the same final fingerprints as an uninterrupted run.
 
+The runner accepts `--validation-data` and evaluates a separate streaming packed split after each optimizer step; validation loss is stored in the metric history and survives resume.
+
 `scripts/hz0a_evaluate_checkpoints.py` evaluates both checkpoints on shared packed data and reports loss, perplexity, evaluated tokens, parameter count/bytes, and evaluation throughput. This supplies the quality/throughput report shape required by the plan; current outputs are tiny-reference smoke evidence, not full-model capability claims.
 
 The locked 301M reference model also has a real-forward smoke command; it is intentionally separate from the tiny stage runner and does not claim a completed training stage.
