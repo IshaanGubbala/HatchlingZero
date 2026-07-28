@@ -192,6 +192,12 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
 
 ## Next Actions
 
+## Live Execution Checkpoint (2026-07-27)
+
+- Stage 1 transformer independent run is budget-complete on MPS fp16 with 10,000,848 tokens, finite metrics, changed parameters, and final loss `6.726313`; checkpoint: `/tmp/hz0a_stage1_transformer/transformer.pt`.
+- Stage 1 hybrid run remains active on MPS fp16 with atomic checkpoints and validation cadence 100; latest observed checkpoint is step `1270` / `2,598,420` tokens (`25.98%` of the 10M-token budget), with latest validation loss `10.949509` at step `1200`.
+- Stages 2-4 and matched full-size training/evaluation are not yet complete. The current run is intentionally left active for resumable continuation.
+
 1. Validate the bounded tiny reference attention policy against the intended PMetal numerical policy.
 2. Expand A5 beyond scaffolding into a more complete deterministic dataset pipeline.
 3. Deepen A6 from parity wrappers into more realistic PMetal-side execution and optimizer-step parity.
