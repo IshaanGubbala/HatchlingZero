@@ -18,7 +18,7 @@ _BACKWARD_BODY = r"""
         uint input_base = ((batch * S + t) * H + head) * K;
         uint value_base = ((batch * S + t) * H + head) * V;
         for (uint key = 0; key < K; ++key)
-            states[t + 1][key] = d[value_base + value] * (1.0f - e[value_base + value]) * states[t][key]
+            states[t + 1][key] = d[input_base + key] * (1.0f - e[input_base + key]) * states[t][key]
                 + w[value_base + value] * v[value_base + value] * k[input_base + key];
     }
     thread float grad_state[64];
@@ -35,11 +35,11 @@ _BACKWARD_BODY = r"""
             float total = grad_state[key] + grad_output[value_base + value] * q[input_base + key];
             grad_q_partial[partial_base + key] = grad_output[value_base + value] * states[t + 1][key];
             grad_k_partial[partial_base + key] = total * w[value_base + value] * v[value_base + value];
-            grad_d_partial[partial_base + key] = total * (1.0f - e[value_base + value]) * states[t][key];
-            grad_e_partial[partial_base + key] = -total * d[value_base + value] * states[t][key];
+            grad_d_partial[partial_base + key] = total * (1.0f - e[input_base + key]) * states[t][key];
+            grad_e_partial[partial_base + key] = -total * d[input_base + key] * states[t][key];
             value_gradient += total * w[value_base + value] * k[input_base + key];
             write_gradient += total * v[value_base + value] * k[input_base + key];
-            grad_state[key] = total * d[value_base + value] * (1.0f - e[value_base + value]);
+            grad_state[key] = total * d[input_base + key] * (1.0f - e[input_base + key]);
         }
         grad_v[value_base + value] = value_gradient;
         grad_w[value_base + value] = write_gradient;
@@ -60,13 +60,15 @@ _SOURCE = r"""
     uint state_base = ((batch * H + head) * V + value) * K;
     for (uint t = 0; t < S; ++t) {
         uint row = ((batch * S + t) * H + head) * V + value;
-        float decay = hz_sigmoid(d[row]);
-        float erase = hz_sigmoid(e[row]);
+        uint key_row = ((batch * S + t) * H + head) * K + key;
+        float decay = hz_sigmoid(d[key_row]);
+        float erase = hz_sigmoid(e[key_row]);
         float write = hz_sigmoid(w[row]);
         float old_state = initial[state_base + key];
         for (uint u = 0; u < t; ++u) {
             uint prior = ((batch * S + u) * H + head) * V + value;
-            old_state = hz_sigmoid(d[prior]) * (1.0f - hz_sigmoid(e[prior])) * old_state
+            uint prior_key = ((batch * S + u) * H + head) * K + key;
+            old_state = hz_sigmoid(d[prior_key]) * (1.0f - hz_sigmoid(e[prior_key])) * old_state
                 + hz_sigmoid(w[prior]) * v[prior] * k[((batch * S + u) * H + head) * K + key];
         }
         float next = decay * (1.0f - erase) * old_state
@@ -102,7 +104,7 @@ def _reference_forward(q, k, v, d, e, w, initial):
     state = initial
     outputs = []
     for t in range(q.shape[1]):
-        state = d[:, t, :, :, None] * (1 - e[:, t, :, :, None]) * state
+        state = d[:, t, :, None, :] * (1 - e[:, t, :, None, :]) * state
         state = state + w[:, t, :, :, None] * v[:, t, :, :, None] * k[:, t, :, None, :]
         outputs.append(mx.sum(state * q[:, t, :, None, :], axis=-1))
     return mx.stack(outputs, axis=1), state
@@ -176,4 +178,4 @@ def native_gdn2_backward(q, k, v, d, e, w, initial, grad_output, grad_final):
         output_shapes=[partial_shape, partial_shape, v.shape, partial_shape, partial_shape, w.shape, initial.shape],
         output_dtypes=[q.dtype, k.dtype, v.dtype, d.dtype, e.dtype, w.dtype, initial.dtype],
     )
-    return (mx.sum(outputs[0], axis=3), mx.sum(outputs[1], axis=3), outputs[2], mx.sum(outputs[3], axis=4), mx.sum(outputs[4], axis=4), outputs[5], outputs[6])
+    return (mx.sum(outputs[0], axis=3), mx.sum(outputs[1], axis=3), outputs[2], mx.sum(outputs[3], axis=3), mx.sum(outputs[4], axis=3), outputs[5], outputs[6])
