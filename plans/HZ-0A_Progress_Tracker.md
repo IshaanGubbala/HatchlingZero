@@ -182,7 +182,8 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
   - native fused GDN-2 Metal forward kernel now compiles into a Metal library and matches a deterministic runtime smoke case; full-model integration and speed remain unverified
   - native Metal recurrence now matches CPU output/final state at the locked 12-head 64x64 state shape
   - native Metal AdamW first-step parameters/moments now match the NumPy optimizer contract
-  - native Metal cached GDN-2 backward gradients now match Torch autograd on a deterministic multi-token case
+- native Metal cached GDN-2 backward gradients now match Torch autograd on a deterministic multi-token case
+- ordered native backward gate suite now passes `13` tests covering Q/K/V, decay/erase/write, initial-state and final-state cotangents, uneven chunk boundaries, and Metal parity; full-model PMetal integration remains explicitly open
   - clean MLX locked-topology model surface now exists with scaled GPU forward/state coverage
   - MLX now dispatches a native Metal GDN-2 forward kernel with deterministic parity coverage
   - native-forward MLX model now has a real AdamW two-step smoke with finite loss and parameter-update evidence
