@@ -6,6 +6,8 @@ The staged protocol is checked in at `configs/hz0a_training_stages.json` and val
 
 The executable smoke runner `scripts/hz0a_tiny_training_comparison.py` now trains a multi-parameter GDN-style hybrid and causal transformer on the same packed batches with real PyTorch autograd and AdamW. Its test covers deterministic repeated runs and exact interruption/resume behavior for both models.
 
+Each model report now includes validation loss, parameter count, parameter bytes, tokens seen, measured training seconds, and tokens/second, in addition to per-step loss and gradient norms.
+
 It defines the required order and budgets:
 
 - Stage 1: 10M-token validation
@@ -22,6 +24,7 @@ Both `hz0a_300m` and `hz0a_transformer_matched` share tokenizer, data manifest, 
 - the protocol records the exact optimizer/checkpoint/evaluation settings
 - the tiny reference models receive real gradients and parameter updates
 - interrupted/resumed tiny comparison runs reproduce uninterrupted metrics and fingerprints exactly
+- the smoke report records the metric fields needed for later quality/throughput comparison
 
 ## What This Does Not Yet Prove
 

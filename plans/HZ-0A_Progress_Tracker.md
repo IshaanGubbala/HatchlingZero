@@ -128,7 +128,7 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
   - 100-step fixed-seed optimizer replay with exact repeated output and parameter hash
   - matched-transformer config/count tool and deterministic tiny reference
   - machine-validated 10M/100M/500M/1B staged-training protocol
-  - real PyTorch tiny hybrid/transformer smoke training with checkpoint/resume parity
+  - real PyTorch tiny hybrid/transformer smoke training with checkpoint/resume parity and validation/throughput/parameter metrics
   - recurrent reference inference benchmark with zero full-vs-tokenwise logit difference
   - causal-attention KV-cache equivalence and serialization tests
 - Remaining:

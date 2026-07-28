@@ -20,6 +20,13 @@ def run(run_dir: Path, steps: int, resume: bool = False) -> dict:
 def test_tiny_models_train_on_shared_batches_and_resume_exactly(tmp_path: Path) -> None:
     first = run(tmp_path / "first", 4)
     repeated = run(tmp_path / "repeated", 4)
+    for result in first["models"].values():
+        assert result["tokens_per_second"] > 0
+    for name in first["models"]:
+        first["models"][name].pop("training_seconds")
+        first["models"][name].pop("tokens_per_second")
+        repeated["models"][name].pop("training_seconds")
+        repeated["models"][name].pop("tokens_per_second")
     assert first == repeated
     assert first["shared_effective_batch_tokens"] == 128
     for result in first["models"].values():
@@ -27,7 +34,13 @@ def test_tiny_models_train_on_shared_batches_and_resume_exactly(tmp_path: Path) 
         assert result["parameters_changed"] is True
         assert all(metric["gradient_norm"] > 0 for metric in result["metrics"])
         assert result["final_parameter_sha256"]
+        assert result["validation_loss"] > 0
+        assert result["tokens_seen"] == 4 * 2 * 63
+        assert result["parameter_count"] > 0
 
     interrupted = run(tmp_path / "resume", 2)
     resumed = run(tmp_path / "resume", 4, resume=True)
+    for name in resumed["models"]:
+        resumed["models"][name].pop("training_seconds")
+        resumed["models"][name].pop("tokens_per_second")
     assert resumed["models"] == first["models"]

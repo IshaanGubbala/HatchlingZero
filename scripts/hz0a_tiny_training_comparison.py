@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import random
 import sys
+import time
 
 import numpy as np
 import torch
@@ -111,12 +112,17 @@ def fingerprint(model: nn.Module) -> str:
     return digest.hexdigest()
 
 
+def parameter_bytes(model: nn.Module) -> int:
+    return sum(parameter.numel() * parameter.element_size() for parameter in model.parameters())
+
+
 def train_model(model: nn.Module, batches: list[torch.Tensor], steps: int, seed: int, checkpoint: Path | None = None, resume: Path | None = None) -> dict:
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
     initial_hash = fingerprint(model)
     step = 0
     batch_index = 0
     metrics: list[dict] = []
+    start_time = time.perf_counter()
     if resume:
         payload = torch.load(resume, weights_only=False)
         model.load_state_dict(payload["model"])
@@ -137,7 +143,24 @@ def train_model(model: nn.Module, batches: list[torch.Tensor], steps: int, seed:
         if checkpoint:
             torch.save({"model": model.state_dict(), "optimizer": optimizer.state_dict(), "step": step, "batch_index": batch_index, "metrics": metrics, "torch_rng": torch.get_rng_state(), "initial_parameter_sha256": initial_hash}, checkpoint)
     final_hash = fingerprint(model)
-    return {"steps": step, "metrics": metrics, "initial_parameter_sha256": initial_hash, "final_parameter_sha256": final_hash, "parameters_changed": initial_hash != final_hash, "final_loss": metrics[-1]["loss"]}
+    elapsed = time.perf_counter() - start_time
+    with torch.no_grad():
+        validation_loss = float(loss_for(model, batches[-1]).item())
+    tokens_seen = step * int(batches[0].shape[0] * (batches[0].shape[1] - 1))
+    return {
+        "steps": step,
+        "metrics": metrics,
+        "initial_parameter_sha256": initial_hash,
+        "final_parameter_sha256": final_hash,
+        "parameters_changed": initial_hash != final_hash,
+        "parameter_count": sum(parameter.numel() for parameter in model.parameters()),
+        "parameter_bytes": parameter_bytes(model),
+        "tokens_seen": tokens_seen,
+        "validation_loss": validation_loss,
+        "training_seconds": elapsed,
+        "tokens_per_second": float(tokens_seen / elapsed),
+        "final_loss": metrics[-1]["loss"],
+    }
 
 
 def main() -> None:
