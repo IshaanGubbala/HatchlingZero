@@ -168,6 +168,7 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
   - staged runner now honors configurable validation cadence; full Stage 1 launch uses the declared 100-step cadence instead of validating every update
   - tiny GDN training recurrence now uses a TorchScript exact scan, preserving token-level math while removing Python dispatch from the MPS path
   - stage checkpoints now use atomic replace semantics, preventing interrupted writes from being mistaken for resumable state
+  - standalone stage-checkpoint auditor now reports token budget fraction, validation, finite tensors, cursor, and device metadata
   - stage runner resume restores model/optimizer/RNG/dataset cursor and matches uninterrupted fingerprints
   - stage runner now evaluates and checkpoints a separate validation packed split
   - stage runner now derives sequence length from packed data; protocol-aligned length-1024 packing is tracked separately from length-128 smoke data

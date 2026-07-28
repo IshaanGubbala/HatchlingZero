@@ -46,6 +46,8 @@ The locked 301M reference model also has a real-forward smoke command; it is int
 
 The tiny stage runner's GDN recurrence now uses a TorchScript-compiled exact scan rather than a Python token loop. Its existing deterministic resume and gradient tests remain green; this reduces interpreter overhead without changing the recurrence contract.
 
+`scripts/hz0a_audit_stage_checkpoint.py` independently audits any atomic stage checkpoint for token-budget fraction, validation history, finite model tensors, dataset cursor, parameter fingerprint, and device/dtype metadata.
+
 The real CPU smoke completed with finite logits and the locked parameter count; full-model optimizer training remains unverified.
 
 `scripts/hz0a_full_training_smoke.py` now runs bounded AdamW updates through the full config-driven model, refusing non-finite losses/gradients and reporting parameter norms, update evidence, throughput, and resident memory. The scaled regression passes; the locked one-step run is an integration smoke, not meaningful pretraining.
