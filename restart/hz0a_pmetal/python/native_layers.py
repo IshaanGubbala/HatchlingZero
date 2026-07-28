@@ -50,10 +50,10 @@ class NativeLinear:
         grad_output = np.asarray(grad_output, dtype=np.float32)
         x2 = self._input.reshape(-1, self._input.shape[-1])
         g2 = grad_output.reshape(-1, grad_output.shape[-1])
-        self.weight.grad += (g2.T @ x2).reshape(self.weight.data.shape)
+        self.weight.grad += (g2.astype(np.float64).T @ x2.astype(np.float64)).astype(np.float32).reshape(self.weight.data.shape)
         if self.bias is not None:
-            self.bias.grad += g2.sum(axis=0)
-        return (g2 @ self.weight.data).reshape(self._input.shape)
+            self.bias.grad += g2.astype(np.float64).sum(axis=0).astype(np.float32)
+        return (g2.astype(np.float64) @ self.weight.data.astype(np.float64)).astype(np.float32).reshape(self._input.shape)
 
 
 class NativeEmbedding:
@@ -84,8 +84,8 @@ class NativeTiedLMHead:
     def backward(self, grad_logits: np.ndarray) -> np.ndarray:
         g2 = np.asarray(grad_logits, dtype=np.float32).reshape(-1, grad_logits.shape[-1])
         h2 = self._hidden.reshape(-1, self._hidden.shape[-1])
-        self.embedding.weight.grad += g2.T @ h2
-        return (g2 @ self.embedding.weight.data).reshape(self._hidden.shape)
+        self.embedding.weight.grad += (g2.astype(np.float64).T @ h2.astype(np.float64)).astype(np.float32)
+        return (g2.astype(np.float64) @ self.embedding.weight.data.astype(np.float64)).astype(np.float32).reshape(self._hidden.shape)
 
 
 @dataclass

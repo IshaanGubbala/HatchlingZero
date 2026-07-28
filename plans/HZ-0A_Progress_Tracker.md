@@ -207,20 +207,26 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
 - native manual RMSNorm/SiLU/residual/SwiGLU blocks now pass Torch parity, and trainable NativeGDN2Block propagates cached operator gradients through Q/K/V/gate and output projections with state carry
 - native tiny complete graph now assembles embeddings, periodic GDN-2/attention blocks, RMSNorm, SwiGLU MLPs, final norm, tied LM head, cross-entropy, and manual backward/state carry; finite-guard stress still reports overflow warnings during a carried-state follow-up and is not yet a clean parity gate
 - native tiny full-model parity now matches Torch logits, loss, and every named parameter gradient after semantic parameter copying; the test passes at `5e-4` output/loss and `2e-3` gradient tolerances, while numerical warning cleanup remains open
+- native tiny full-model one-step AdamW parity now passes against Torch; `scripts/hz0a_native_model_replay.py` and its regression test cover 100 deterministic native steps, 800-token accounting, optimizer checkpoint/restore, and exact resumed parameter fingerprint
+- native model parameter flatten/load and manual optimizer synchronization are now explicit; native graph execution does not call Torch autograd, while Torch remains the independent oracle
   - config-driven PyTorch full topology now matches the locked `301,178,112` parameter target on a meta-device audit
   - model-level recurrent-only chunked state carry now matches full-sequence logits/state in regression coverage
 
 ## Next Actions
+
+- eliminate the remaining NumPy matmul divide/overflow/invalid warnings and make finite guards fail at the first bad native intermediate rather than relying only on final parameter checks
+- add full machine-readable native-vs-Torch replay metrics for loss, per-parameter gradients, update norms, fingerprints, peak memory, and execution time
+- run native BF16/float32 parity at model level, then the 110M one-step smoke and 100-200 step replay; do not restart the 10M-token Stage 1 through native code until those gates pass
 
 ## Live Execution Checkpoint (2026-07-28)
 
 - Stage 1 transformer independent run is budget-complete on MPS fp16 with 10,000,848 tokens, finite metrics, changed parameters, and final loss `6.726313`; checkpoint: `/tmp/hz0a_stage1_transformer/transformer.pt`.
 - Stage 1 hybrid run remains active on MPS fp16 with atomic checkpoints and validation cadence 100; latest observed checkpoint is step `3960` / `8,102,160` tokens (`81.02%` of the 10M-token budget), with validation loss `6.926033` and perplexity `1018.45` at step `3900`.
 - The standalone native backward gate passes 13 tests, and the PMetal optimizer/full-topology Torch bridge has 100-step exact resume coverage. These are not native full-model PMetal execution.
-- The Rust native surface remains a dependency-free CPU GDN-2 operator reference; a parameterized native PMetal graph and native model-level backward are still missing.
+- The Python native surface now has a parameterized manual-backward tiny graph and optimizer replay; the Rust/Metal native surface remains a dependency-free CPU GDN-2 operator reference, and full PMetal tensor execution is still missing.
 - Stages 2-4, native full-model training, and matched full-size comparisons are not yet complete. The current Stage 1 run remains intentionally active for resumable continuation.
 
-1. Build the parameterized native PMetal model graph and model-level backward; replace the Torch-autograd bridge.
-2. Run the 100-200 step native PMetal replay against the MLX path with loss, gradients, updates, fingerprints, memory, and throughput comparisons.
-3. Finish Stage 1 for both real 301M architectures, then run the declared 100M, 500M, and 1B-token comparisons.
-4. Complete native BF16 training and fused Metal end-to-end inference measurements, including prefill/decode and mixed attention recurrence.
+1. Finish native numerical guards and full machine-readable parity reporting.
+2. Replace the Python CPU reference execution with native PMetal tensor/Metal execution, then run the 100-200 step replay against MLX.
+3. Run the 110M smoke and only then rerun Stage 1 through the fully native path.
+4. Complete the declared 100M, 500M, and 1B-token comparisons and native BF16/fused Metal measurements.

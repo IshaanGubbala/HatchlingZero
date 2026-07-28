@@ -56,6 +56,23 @@ class NativeTinyHZ0AModel:
     def parameters(self):
         return self.embedding.parameters() + [parameter for block in self.blocks for parameter in block.parameters()] + self.final_norm.parameters()
 
+    def zero_grad(self):
+        for parameter in self.parameters():
+            parameter.zero_grad()
+
+    def flat_parameters(self) -> np.ndarray:
+        return np.concatenate([parameter.data.reshape(-1) for parameter in self.parameters()]).astype(np.float64)
+
+    def load_flat_parameters(self, values: np.ndarray) -> None:
+        values = np.asarray(values, dtype=np.float64)
+        offset = 0
+        for parameter in self.parameters():
+            size = parameter.data.size
+            parameter.data[...] = values[offset:offset + size].reshape(parameter.data.shape)
+            offset += size
+        if offset != values.size:
+            raise ValueError("flat parameter size does not match model")
+
     def init_states(self, batch_size, heads, d_v, d_k):
         return [None if block.attention else np.zeros((batch_size, heads, d_v, d_k), dtype=np.float32) for block in self.blocks]
 
