@@ -4,7 +4,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-from collections import Counter
+from collections import Counter, defaultdict
 import random
 import re
 from pathlib import Path
@@ -66,9 +66,24 @@ def main() -> None:
     duplicate_groups = [paths for paths in records_by_hash.values() if len(paths) > 1]
     near_duplicate_groups = []
     contamination_groups = []
-    paths = sorted(shingles_by_path)
-    for index, left in enumerate(paths):
-        for right in paths[index + 1:]:
+    # Use an inverted shingle index to avoid an all-pairs scan on large corpora.
+    # Exact Jaccard is still computed for every generated candidate.
+    candidate_pairs: set[tuple[str, str]] = set()
+    paths_by_shingle: defaultdict[str, list[str]] = defaultdict(list)
+    for path, shingles in shingles_by_path.items():
+        for shingle in shingles:
+            paths_by_shingle[shingle].append(path)
+    for candidates in paths_by_shingle.values():
+        candidates.sort()
+        for index, left in enumerate(candidates):
+            for right in candidates[index + 1:]:
+                candidate_pairs.add((left, right))
+    for candidates in records_by_hash.values():
+        candidates = sorted(candidates)
+        for index, left in enumerate(candidates):
+            for right in candidates[index + 1:]:
+                candidate_pairs.add((left, right))
+    for left, right in sorted(candidate_pairs):
             cross_split = split_by_path[left] != split_by_path[right]
             if hash_by_path[left] == hash_by_path[right]:
                 if cross_split:
@@ -102,6 +117,8 @@ def main() -> None:
         "deterministic_order": "seeded-shuffle",
         "shuffle_seed": args.shuffle_seed,
         "ordered_paths": [record["path"] for record in ordered_records],
+        "near_duplicate_candidate_policy": "inverted-normalized-five-token-shingle-index",
+        "near_duplicate_candidate_pair_count": len(candidate_pairs),
     }
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
