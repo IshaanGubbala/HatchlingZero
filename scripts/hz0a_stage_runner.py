@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from restart.hz0a_dataset import StreamingResumablePackedDataset
 from reference.hz0a_torch_model import HZ0AConfig, HZ0AModel
+from reference.hz0a_matched_transformer import MatchedTransformerConfig, MatchedTransformerLM
 from scripts.hz0a_stage_gate import stage_gate
 from scripts.hz0a_tiny_training_comparison import TinyHybridLM, TinyTransformerLM, fingerprint, loss_for, parameter_bytes
 
@@ -111,6 +112,7 @@ def main() -> None:
     parser.add_argument("--dtype", choices=("fp32", "fp16"), default="fp32")
     parser.add_argument("--models", default="hybrid,transformer", help="Comma-separated model names to run")
     parser.add_argument("--model-config", type=Path, help="Locked HZ-0A JSON model config for the 'locked' model")
+    parser.add_argument("--transformer-config", type=Path, help="Matched transformer JSON config for the 'matched_transformer' model")
     args = parser.parse_args()
     device_name = "mps" if args.device == "auto" and torch.backends.mps.is_available() else args.device
     device = torch.device("mps" if device_name == "mps" else "cpu")
@@ -139,6 +141,11 @@ def main() -> None:
         if config.vocab_size != args.vocab_size:
             raise ValueError(f"--vocab-size {args.vocab_size} disagrees with model config vocab_size {config.vocab_size}")
         factories["locked"] = lambda vocab_size: HZ0AModel(config)
+    if args.transformer_config:
+        transformer_config = MatchedTransformerConfig.from_json(args.transformer_config)
+        if transformer_config.vocab_size != args.vocab_size:
+            raise ValueError(f"--vocab-size {args.vocab_size} disagrees with transformer config vocab_size {transformer_config.vocab_size}")
+        factories["matched_transformer"] = lambda vocab_size: MatchedTransformerLM(transformer_config)
     requested_models = [name.strip() for name in args.models.split(",") if name.strip()]
     if not requested_models or any(name not in factories for name in requested_models):
         raise ValueError(f"--models must contain only: {', '.join(factories)}")

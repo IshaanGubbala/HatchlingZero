@@ -193,6 +193,7 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
 - native MLX custom VJP now applies sigmoid to raw gate logits, matching the Metal forward contract and restoring finite optimizer gradients
 - auditable PyTorch stage runner now accepts the locked config-driven HZ-0A model, preserves recurrent states through the shared loss path, and writes checkpoint/report evidence; tiny locked-topology execution is regression-tested
 - stage reports now include per-step update norms and validation perplexity plus MPS peak allocated memory, extending the checkpointed A7/A9 audit metrics
+- parameter-matched transformer reference now implements the A10 config with tied embeddings, bias-free RMSNorm, causal attention, SwiGLU, and exact `301,179,928` parameter count; tiny forward and stage integration are regression-tested
   - config-driven PyTorch full topology now matches the locked `301,178,112` parameter target on a meta-device audit
   - model-level recurrent-only chunked state carry now matches full-sequence logits/state in regression coverage
 
