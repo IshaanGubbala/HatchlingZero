@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import random
 import sys
 from pathlib import Path
 
@@ -24,6 +25,7 @@ def main() -> None:
     parser.add_argument("--split", default="train")
     parser.add_argument("--output", default="data/packed/train_packed.json")
     parser.add_argument("--audit-out", default="data/packed/train_packed.audit.json")
+    parser.add_argument("--shuffle-seed", type=int, default=0)
     args = parser.parse_args()
 
     manifest_path = Path(args.manifest)
@@ -33,9 +35,10 @@ def main() -> None:
 
     all_tokens: list[int] = []
     included_records = []
-    for record in manifest["records"]:
-        if record["split"] != args.split:
-            continue
+    records = sorted(manifest["records"], key=lambda item: item["path"])
+    records = [record for record in records if record["split"] == args.split]
+    random.Random(args.shuffle_seed).shuffle(records)
+    for record in records:
         path = Path(record["path"])
         text = path.read_text(encoding="utf-8")
         ids = tokenizer.encode(text)
@@ -63,6 +66,8 @@ def main() -> None:
         "included_records": included_records,
         "output_path": str(output_path),
         "output_sha256": sha256_file(output_path),
+        "document_order_policy": "path-sort-then-seeded-shuffle",
+        "shuffle_seed": args.shuffle_seed,
     }
     audit_path = Path(args.audit_out)
     audit_path.parent.mkdir(parents=True, exist_ok=True)

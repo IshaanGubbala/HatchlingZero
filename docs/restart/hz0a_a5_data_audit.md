@@ -6,6 +6,8 @@ Date: July 28, 2026
 
 The first deterministic A5 data-pipeline artifacts now exist and execute against the rebuilt A4 tokenizer.
 
+The pipeline now validates required provenance/license/split fields and source existence, reports exact-content duplicate groups, and records a seeded document order. Token packing uses a stable path sort followed by a seeded shuffle and records that policy in its audit.
+
 ## Source Artifacts
 
 - Source manifest:
@@ -53,4 +55,4 @@ Included train sources currently are:
 
 ## A5 Current Assessment
 
-A5 is meaningfully in progress, but not complete. The restart now has deterministic source manifests and packed-sequence generation, which is the right base for expanding toward the larger planned corpus.
+A5 is meaningfully in progress, but not complete. The restart now has validated deterministic source manifests, duplicate reporting, seeded document ordering, reproducible packed-sequence generation, and public-script regression tests. It remains far below the plan's 100M-token reconstruction gate and still needs near-duplicate removal, contamination checks, resumable large-scale iteration, and the full staged mixture.
