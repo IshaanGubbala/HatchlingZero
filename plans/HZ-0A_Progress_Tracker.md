@@ -10,7 +10,7 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
 
 - Overall phase: `A5/A7/A11/A12 in progress`
 - Confidence level: high for archaeology findings, low for any legacy implementation reuse
-- Last verified checkpoint: `July 28, 2026 - A12 recurrent inference, A11 staged protocol, A10 matched transformer, A9 replay, A8 chunked backward, A6 optimizer parity, A5 packing, and A7 safety pass`
+- Last verified checkpoint: `July 28, 2026 - Rust PMetal CPU forward, A12 recurrent inference, A11 staged protocol, A10 matched transformer, A9 replay, A8 chunked backward, A6 parity, A5 packing, and A7 safety pass`
 - Active artifacts:
   - `/Users/ishaangubbala/Documents/Training/docs/restart/hz0a_history_audit.md`
   - `/Users/ishaangubbala/Documents/Training/docs/restart/hz0a_recovered_spec.md`
@@ -31,7 +31,7 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
 | A3 | backward derivation + validation | Complete | backward math doc and gradient tests now exist and pass |
 | A4 | tokenizer rebuild | Complete | tokenizer artifact, corpus manifest, runtime wrapper, and audit now exist |
 | A5 | data pipeline rebuild | In progress | validated manifest audit, duplicate reporting, seeded ordering, reproducible packing, and public-script tests now exist |
-| A6 | PMetal reference implementation | In progress | Rust contracts, operator/block/loss parity, and deterministic AdamW update parity now pass |
+| A6 | PMetal reference implementation | In progress | Rust CPU GDN-2 forward/state/chunk execution now passes alongside Python backward, block/loss, and AdamW parity |
 | A7 | training harness rebuild | In progress | deterministic harness now runs a real tiny reference-model forward/loss path with exact resume coverage and CLI smoke verification |
 | A8 | explicit PMetal GDN-2 backward | In progress | cached reverse scan plus uneven chunk checkpoint/recompute now match full gradients; real PMetal execution remains |
 | A9 | deterministic optimizer replay | In progress | 100-step fixed-seed AdamW replay now produces exact repeated metrics and parameter fingerprint |
@@ -118,6 +118,7 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
   - deterministic AdamW optimizer-state and update-norm parity test
   - explicit cached GDN-2 backward with independent torch-oracle coverage
   - chunked backward with state-cotangent propagation across boundaries
+  - executable Rust CPU GDN-2 forward with shape validation and chunk carry tests
   - 100-step fixed-seed optimizer replay with exact repeated output and parameter hash
   - matched-transformer config/count tool and deterministic tiny reference
   - machine-validated 10M/100M/500M/1B staged-training protocol

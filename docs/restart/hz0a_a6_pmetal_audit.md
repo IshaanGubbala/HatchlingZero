@@ -25,6 +25,8 @@ The Python parity surface now also includes a deterministic AdamW update contrac
 
 The forward cache now has an explicit `gdn2_backward(...)` reverse-scan implementation returning gradients for Q, K, V, all three gate-logit tensors, and the initial recurrent state. Its contract is validated against an independent torch recurrence oracle.
 
+The Rust kernel crate now includes an executable dependency-free CPU `gdn2_forward_f32` implementation with flat `[batch, sequence, heads, channel]` inputs, explicit `[batch, heads, value, key]` state, shape validation, state carry, and chunk equivalence tests.
+
 `gdn2_backward_chunked(...)` now checkpoints the recurrent state at chunk boundaries and propagates the state cotangent backward across uneven chunks. Full-vs-chunked gradients are covered by a 7-token sequence with chunk size 3.
 
 ## Verified Results
@@ -48,12 +50,14 @@ Observed results:
 - the current Python PMetal-style forward wrapper matches the NumPy oracle
 - the current Python PMetal-style block wrapper matches recurrent and attention reference blocks
 - the current Python PMetal-style tiny-model wrapper matches logits/state flow and a simple loss path
+- the Rust CPU reference executes the recurrence and carries state across chunk boundaries
 - the optimizer reference matches the closed-form first AdamW update, including serialized moment state
 - the PMetal-style GDN-2 backward matches the independent A3 recurrence oracle for all required gradients
 
 ## What This Does Not Yet Prove
 
 - actual PMetal tensor execution
+- actual PMetal tensor/device execution
 - end-to-end PMetal training
 - chunked checkpoint/recompute backward execution
 - real PMetal tensor execution
