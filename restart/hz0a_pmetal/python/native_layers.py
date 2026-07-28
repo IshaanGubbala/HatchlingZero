@@ -14,6 +14,15 @@ from pathlib import Path
 import numpy as np
 
 
+def _checked_matmul(left: np.ndarray, right: np.ndarray) -> np.ndarray:
+    # Accelerate may report spurious divide/overflow warnings for finite GEMMs.
+    with np.errstate(divide="ignore", over="ignore", invalid="ignore"):
+        result = left.astype(np.float64) @ right.astype(np.float64)
+    if not np.isfinite(result).all():
+        raise FloatingPointError("native matmul produced non-finite values")
+    return result
+
+
 @dataclass
 class NativeParameter:
     name: str
@@ -50,10 +59,10 @@ class NativeLinear:
         grad_output = np.asarray(grad_output, dtype=np.float32)
         x2 = self._input.reshape(-1, self._input.shape[-1])
         g2 = grad_output.reshape(-1, grad_output.shape[-1])
-        self.weight.grad += (g2.astype(np.float64).T @ x2.astype(np.float64)).astype(np.float32).reshape(self.weight.data.shape)
+        self.weight.grad += _checked_matmul(g2.T, x2).astype(np.float32).reshape(self.weight.data.shape)
         if self.bias is not None:
             self.bias.grad += g2.astype(np.float64).sum(axis=0).astype(np.float32)
-        return (g2.astype(np.float64) @ self.weight.data.astype(np.float64)).astype(np.float32).reshape(self._input.shape)
+        return _checked_matmul(g2, self.weight.data).astype(np.float32).reshape(self._input.shape)
 
 
 class NativeEmbedding:
@@ -84,8 +93,8 @@ class NativeTiedLMHead:
     def backward(self, grad_logits: np.ndarray) -> np.ndarray:
         g2 = np.asarray(grad_logits, dtype=np.float32).reshape(-1, grad_logits.shape[-1])
         h2 = self._hidden.reshape(-1, self._hidden.shape[-1])
-        self.embedding.weight.grad += (g2.astype(np.float64).T @ h2.astype(np.float64)).astype(np.float32)
-        return (g2.astype(np.float64) @ self.embedding.weight.data.astype(np.float64)).astype(np.float32).reshape(self._hidden.shape)
+        self.embedding.weight.grad += _checked_matmul(g2.T, h2).astype(np.float32)
+        return _checked_matmul(g2, self.embedding.weight.data).astype(np.float32).reshape(self._hidden.shape)
 
 
 @dataclass

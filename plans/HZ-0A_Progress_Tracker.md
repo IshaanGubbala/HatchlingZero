@@ -209,13 +209,14 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
 - native tiny full-model parity now matches Torch logits, loss, and every named parameter gradient after semantic parameter copying; the test passes at `5e-4` output/loss and `2e-3` gradient tolerances, while numerical warning cleanup remains open
 - native tiny full-model one-step AdamW parity now passes against Torch; `scripts/hz0a_native_model_replay.py` and its regression test cover 100 deterministic native steps, 800-token accounting, optimizer checkpoint/restore, and exact resumed parameter fingerprint
 - native model parameter flatten/load and manual optimizer synchronization are now explicit; native graph execution does not call Torch autograd, while Torch remains the independent oracle
+- `scripts/hz0a_native_model_parity.py` now emits full tiny-model machine-readable parity evidence: output/loss errors, every named gradient error, AdamW update/fingerprint comparisons, finite status, peak memory, and execution time; current report is finite with max absolute output/gradient errors `2.4e-6`/`1.1e-6`
   - config-driven PyTorch full topology now matches the locked `301,178,112` parameter target on a meta-device audit
   - model-level recurrent-only chunked state carry now matches full-sequence logits/state in regression coverage
 
 ## Next Actions
 
 - eliminate the remaining NumPy matmul divide/overflow/invalid warnings and make finite guards fail at the first bad native intermediate rather than relying only on final parameter checks
-- add full machine-readable native-vs-Torch replay metrics for loss, per-parameter gradients, update norms, fingerprints, peak memory, and execution time
+- extend the machine-readable parity report across the 100-200 step replay and add native-vs-MLX loss/gradient/update/throughput comparisons
 - run native BF16/float32 parity at model level, then the 110M one-step smoke and 100-200 step replay; do not restart the 10M-token Stage 1 through native code until those gates pass
 
 ## Live Execution Checkpoint (2026-07-28)
