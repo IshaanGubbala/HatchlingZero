@@ -22,7 +22,7 @@ from reference.hz0a_matched_transformer import MatchedTransformerConfig, Matched
 
 def adamw_update_norm(model: torch.nn.Module, optimizer: torch.optim.Optimizer) -> float:
     """Predict the AdamW update norm without cloning the model parameters."""
-    total = torch.zeros((), device=next(model.parameters()).device, dtype=torch.float64)
+    total = torch.zeros((), device=next(model.parameters()).device, dtype=torch.float32)
     for group in optimizer.param_groups:
         lr, (beta1, beta2), eps, weight_decay = group["lr"], group["betas"], group["eps"], group["weight_decay"]
         for parameter in group["params"]:
@@ -37,7 +37,7 @@ def adamw_update_norm(model: torch.nn.Module, optimizer: torch.optim.Optimizer) 
             exp_avg_sq = beta2 * old_exp_avg_sq + (1.0 - beta2) * grad.square()
             denominator = (exp_avg_sq / (1.0 - beta2**step)).sqrt() + eps
             update = lr * exp_avg / ((1.0 - beta1**step) * denominator) + lr * weight_decay * parameter
-            total = total + update.detach().double().square().sum()
+            total = total + update.detach().float().square().sum()
     return float(total.sqrt().item())
 from scripts.hz0a_stage_gate import stage_gate
 from scripts.hz0a_tiny_training_comparison import TinyHybridLM, TinyTransformerLM, fingerprint, loss_for, parameter_bytes
@@ -86,7 +86,9 @@ def run_model(name: str, factory, data_path: Path, validation_data: Path, run_di
         initial_hash = payload["initial_parameter_sha256"]
         metrics = payload["metrics"]
         start_step = int(payload["step"])
-        torch.set_rng_state(payload["torch_rng"])
+        rng_state = payload.get("torch_rng")
+        if isinstance(rng_state, torch.Tensor) and rng_state.dtype == torch.uint8 and rng_state.device.type == "cpu":
+            torch.set_rng_state(rng_state)
     start = time.perf_counter()
     peak_memory = 0
     for step in range(start_step + 1, steps + 1):

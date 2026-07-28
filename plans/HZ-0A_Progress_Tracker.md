@@ -197,6 +197,7 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
 - exact `301,179,928`-parameter matched transformer completed a real MPS fp16 one-step stage-runner smoke with finite loss `594.9077`, gradient norm `755.6633`, update norm `1.6729`, changed parameters, `141.8` tokens/s, and `6.72 GB` peak allocation; this is topology/training-path evidence, not a completed 10M-token stage
 - stage report final validation now evaluates a fresh deterministic validation cursor, avoiding mislabeled training-batch summaries and persistent validation-cursor mutation
 - ordered A11 stage-sequence driver now launches locked and matched models through the declared stage configs, writes per-stage plus top-level sequence reports, resumes on request, and stops when any requested model fails its budget gate
+- legacy MPS Stage 1 checkpoints now resume through the corrected runner even when their saved RNG state is not a CPU byte tensor; the clone-free update norm uses an MPS-supported float32 accumulator
   - config-driven PyTorch full topology now matches the locked `301,178,112` parameter target on a meta-device audit
   - model-level recurrent-only chunked state carry now matches full-sequence logits/state in regression coverage
 
