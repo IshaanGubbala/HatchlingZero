@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import resource
 import sys
 from pathlib import Path
 
@@ -23,11 +24,19 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--validation-interval", type=int, default=10)
     parser.add_argument("--learning-rate", type=float, default=1e-4)
+    parser.add_argument("--vocab-size", type=int, default=64)
+    parser.add_argument("--dim", type=int, default=32)
+    parser.add_argument("--layers", type=int, default=3)
+    parser.add_argument("--heads", type=int, default=4)
+    parser.add_argument("--d-ff", type=int, default=64)
+    parser.add_argument("--sequence-length", type=int, default=16)
+    parser.add_argument("--attention-every", type=int, default=0)
     args = parser.parse_args()
     mx.random.seed(args.seed)
-    model = HZ0AMlxModel(64, 32, 3, 4, 64, (), native_metal=True)
+    attention = tuple(index for index in range(args.layers) if args.attention_every and (index + 1) % args.attention_every == 0)
+    model = HZ0AMlxModel(args.vocab_size, args.dim, args.layers, args.heads, args.d_ff, attention, native_metal=True)
     optimizer = optim.AdamW(learning_rate=args.learning_rate, weight_decay=0.01)
-    tokens = mx.arange(16).reshape(1, 16) % 64
+    tokens = mx.arange(args.sequence_length).reshape(1, args.sequence_length) % args.vocab_size
     validation_tokens = (tokens + 7) % 64
 
     def loss_fn(model):
@@ -58,7 +67,8 @@ def main() -> None:
     delta = float(max(mx.max(mx.abs(new - old)) for old, new in zip(flat_before, flat_after)))
     if not all(metric["loss"] == metric["loss"] for metric in metrics) or delta <= 0:
         raise RuntimeError("non-finite loss or missing parameter update")
-    print(json.dumps({"native_forward": True, "seed": args.seed, "steps": args.steps, "metrics": metrics, "max_parameter_delta": delta, "final_validation_loss": metrics[-1]["validation_loss"]}))
+    parameter_count = sum(value.size for _, value in tree_flatten(model.parameters()))
+    print(json.dumps({"native_forward": True, "seed": args.seed, "steps": args.steps, "vocab_size": args.vocab_size, "dim": args.dim, "layers": args.layers, "heads": args.heads, "d_ff": args.d_ff, "attention_layers": attention, "parameter_count": parameter_count, "metrics": metrics, "max_parameter_delta": delta, "final_validation_loss": metrics[-1]["validation_loss"], "peak_memory_bytes": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss}))
 
 
 if __name__ == "__main__":
