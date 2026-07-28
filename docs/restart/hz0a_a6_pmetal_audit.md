@@ -72,3 +72,5 @@ Observed results:
 A6 is meaningfully in progress, but not complete. The current milestone is a contract-and-parity bring-up across operator, block, and tiny-model-loss surfaces, not a finished PMetal reference implementation.
 
 The config-driven PyTorch reference at `reference/hz0a_torch_model.py` now covers the locked full topology, recurrent state API, periodic causal attention, tied LM head, and model-level parameter accounting. A meta-device test confirms the implementation reports exactly `301,178,112` parameters; it does not claim PMetal tensor execution.
+
+The scaled recurrent-only model also has an exact full-sequence versus chunked-state-carry regression, establishing the model-level state boundary that a PMetal/fused implementation must preserve.
