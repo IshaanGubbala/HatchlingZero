@@ -102,6 +102,7 @@ def main() -> None:
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--device", choices=("auto", "cpu", "mps"), default="cpu")
     parser.add_argument("--dtype", choices=("fp32", "fp16"), default="fp32")
+    parser.add_argument("--models", default="hybrid,transformer", help="Comma-separated model names to run")
     args = parser.parse_args()
     device_name = "mps" if args.device == "auto" and torch.backends.mps.is_available() else args.device
     device = torch.device("mps" if device_name == "mps" else "cpu")
@@ -124,14 +125,19 @@ def main() -> None:
     steps = args.steps if args.steps is not None else target_steps
     if steps <= 0:
         raise ValueError("steps must be positive")
+    factories = {"hybrid": TinyHybridLM, "transformer": TinyTransformerLM}
+    requested_models = [name.strip() for name in args.models.split(",") if name.strip()]
+    if not requested_models or any(name not in factories for name in requested_models):
+        raise ValueError(f"--models must contain only: {', '.join(factories)}")
     results = {}
-    for name, factory in (("hybrid", TinyHybridLM), ("transformer", TinyTransformerLM)):
+    for name in requested_models:
+        factory = factories[name]
         result = run_model(name, factory, args.data, validation_data, args.run_dir, args.seed, steps, args.batch_size, args.vocab_size, args.checkpoint_interval, args.validation_interval, args.resume, device, dtype)
         result["device"] = str(device)
         result["dtype"] = str(dtype)
         result["budget_complete"] = result["tokens_seen"] >= gate["required_tokens"]
         results[name] = result
-    report = {"stage": args.stage, "stage_gate": gate, "target_tokens": gate["required_tokens"], "smoke_run": args.steps is not None, "device": str(device), "dtype": str(dtype), "models": results}
+    report = {"stage": args.stage, "stage_gate": gate, "target_tokens": gate["required_tokens"], "smoke_run": args.steps is not None, "device": str(device), "dtype": str(dtype), "models_requested": requested_models, "models": results}
     (args.run_dir / "stage_report.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(json.dumps(report, indent=2, sort_keys=True))
 
