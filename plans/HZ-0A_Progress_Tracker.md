@@ -204,6 +204,7 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
 - ordered A11 stage-sequence driver now launches locked and matched models through the declared stage configs, writes per-stage plus top-level sequence reports, resumes on request, and stops when any requested model fails its budget gate
 - legacy MPS Stage 1 checkpoints now resume through the corrected runner even when their saved RNG state is not a CPU byte tensor; the clone-free update norm uses an MPS-supported float32 accumulator
 - native NumPy parameter/linear/embedding/tied-LM-head/cross-entropy primitives now have Torch parity tests; `scripts/hz0a_native_embedding_parity.py` emits machine-readable output/loss/gradient/update/fingerprint/finite/memory/time evidence
+- native manual RMSNorm/SiLU/residual/SwiGLU blocks now pass Torch parity, and trainable NativeGDN2Block propagates cached operator gradients through Q/K/V/gate and output projections with state carry
   - config-driven PyTorch full topology now matches the locked `301,178,112` parameter target on a meta-device audit
   - model-level recurrent-only chunked state carry now matches full-sequence logits/state in regression coverage
 
