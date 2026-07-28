@@ -33,7 +33,7 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
 | A5 | data pipeline rebuild | In progress | validated manifest audit, duplicate reporting, seeded ordering, reproducible packing, and public-script tests now exist |
 | A6 | PMetal reference implementation | In progress | Rust CPU GDN-2 forward/state/chunk execution now passes alongside Python backward, block/loss, and AdamW parity |
 | A7 | training harness rebuild | In progress | deterministic harness now runs a real tiny reference-model forward/loss path with exact resume coverage and CLI smoke verification |
-| A8 | explicit PMetal GDN-2 backward | In progress | cached reverse scan plus uneven chunk checkpoint/recompute now match full gradients; real PMetal execution remains |
+| A8 | explicit PMetal GDN-2 backward | In progress | Python and Rust CPU cached reverse scans now return required gradients; device-side PMetal execution remains |
 | A9 | deterministic optimizer replay | In progress | 100-step fixed-seed AdamW replay now produces exact repeated metrics and parameter fingerprint |
 | A10 | matched transformer | In progress | checked-in 301.180M dense baseline config/count and deterministic tiny reference now pass |
 | A11 | training stages | In progress | shared 4-stage protocol plus real multi-parameter tiny hybrid/transformer training, validation, and exact resume smoke now pass; full pretraining remains |
@@ -86,6 +86,7 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
 - A7 safety sub-gate: satisfied for finite-value refusal and checkpoint accounting audit
 - A8 ordinary-reference backward sub-gate: satisfied for all Q/K/V/gate/initial-state gradients
 - A8 chunked-recompute sub-gate: satisfied for uneven full-vs-chunked gradient equivalence
+- A8 native-CPU backward sub-gate: satisfied for Rust flat-buffer gradients and finite-difference Q validation
 - A9 deterministic optimizer sub-gate: satisfied for fixed tiny-parameter 100-step replay
 - A10 matched-count/reference sub-gate: satisfied within 1,816 parameters and shared tiny LM-loss conventions
 - A11 stage-protocol sub-gate: satisfied for ordered budgets and shared optimizer/data/checkpoint settings
@@ -120,6 +121,7 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
   - explicit cached GDN-2 backward with independent torch-oracle coverage
   - chunked backward with state-cotangent propagation across boundaries
   - executable Rust CPU GDN-2 forward with shape validation and chunk carry tests
+  - executable Rust CPU GDN-2 backward with required gradients and finite-difference validation
   - 100-step fixed-seed optimizer replay with exact repeated output and parameter hash
   - matched-transformer config/count tool and deterministic tiny reference
   - machine-validated 10M/100M/500M/1B staged-training protocol

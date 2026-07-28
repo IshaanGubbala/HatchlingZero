@@ -67,6 +67,17 @@ pub struct Gdn2ForwardOutput {
     pub final_state: Vec<f32>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct Gdn2BackwardOutput {
+    pub grad_q: Vec<f32>,
+    pub grad_k: Vec<f32>,
+    pub grad_v: Vec<f32>,
+    pub grad_decay_logits: Vec<f32>,
+    pub grad_erase_logits: Vec<f32>,
+    pub grad_write_logits: Vec<f32>,
+    pub grad_initial_state: Vec<f32>,
+}
+
 fn sigmoid(value: f32) -> f32 {
     1.0 / (1.0 + (-value.clamp(-30.0, 30.0)).exp())
 }
@@ -136,6 +147,113 @@ pub fn gdn2_forward_f32(
     Ok(Gdn2ForwardOutput { outputs, final_state: state })
 }
 
+/// Dependency-free reverse scan for the same flat-buffer contract. The
+/// forward states are recomputed internally so callers need only retain inputs.
+pub fn gdn2_backward_f32(
+    shape: &Gdn2ForwardShape,
+    q: &[f32],
+    k: &[f32],
+    v: &[f32],
+    decay_logits: &[f32],
+    erase_logits: &[f32],
+    write_logits: &[f32],
+    initial_state: &[f32],
+    grad_outputs: &[f32],
+    grad_final_state: &[f32],
+) -> Result<Gdn2BackwardOutput, String> {
+    let _forward = gdn2_forward_f32(shape, q, k, v, decay_logits, erase_logits, write_logits, initial_state)?;
+    let q_len = expected_len(shape, shape.key_dim);
+    let v_len = expected_len(shape, shape.value_dim);
+    let state_len = shape.batch * shape.heads * shape.value_dim * shape.key_dim;
+    if grad_outputs.len() != v_len || grad_final_state.len() != state_len {
+        return Err("gradient cotangent shape does not match forward output".to_string());
+    }
+    let mut snapshots = vec![0.0; (shape.seq + 1) * state_len];
+    snapshots[..state_len].copy_from_slice(initial_state);
+    for step in 0..shape.seq {
+        let prior = &snapshots[step * state_len..(step + 1) * state_len];
+        let mut next = prior.to_vec();
+        for batch in 0..shape.batch {
+            for head in 0..shape.heads {
+                let state_base = (batch * shape.heads + head) * shape.value_dim * shape.key_dim;
+                let token_base = (batch * shape.seq + step) * shape.heads + head;
+                let kb = token_base * shape.key_dim;
+                let vb = token_base * shape.value_dim;
+                for value in 0..shape.value_dim {
+                    for key in 0..shape.key_dim {
+                        let d = sigmoid(decay_logits[kb + key]);
+                        let e = sigmoid(erase_logits[kb + key]);
+                        let w = sigmoid(write_logits[vb + value]);
+                        next[state_base + value * shape.key_dim + key] = d * (1.0 - e) * prior[state_base + value * shape.key_dim + key]
+                            + w * v[vb + value] * k[kb + key];
+                    }
+                }
+            }
+        }
+        snapshots[(step + 1) * state_len..(step + 2) * state_len].copy_from_slice(&next);
+    }
+    let mut result = Gdn2BackwardOutput {
+        grad_q: vec![0.0; q_len],
+        grad_k: vec![0.0; q_len],
+        grad_v: vec![0.0; v_len],
+        grad_decay_logits: vec![0.0; q_len],
+        grad_erase_logits: vec![0.0; q_len],
+        grad_write_logits: vec![0.0; v_len],
+        grad_initial_state: vec![0.0; state_len],
+    };
+    let mut grad_state = grad_final_state.to_vec();
+    for step in (0..shape.seq).rev() {
+        let current = &snapshots[(step + 1) * state_len..(step + 2) * state_len];
+        let prior = &snapshots[step * state_len..(step + 1) * state_len];
+        let mut grad_prev = vec![0.0; state_len];
+        for batch in 0..shape.batch {
+            for head in 0..shape.heads {
+                let sb = (batch * shape.heads + head) * shape.value_dim * shape.key_dim;
+                let tb = (batch * shape.seq + step) * shape.heads + head;
+                let kb = tb * shape.key_dim;
+                let vb = tb * shape.value_dim;
+                let token_vb = (batch * shape.seq + step) * shape.heads * shape.value_dim + head * shape.value_dim;
+                for key in 0..shape.key_dim {
+                    let d = sigmoid(decay_logits[kb + key]);
+                    let e = sigmoid(erase_logits[kb + key]);
+                    let a = d * (1.0 - e);
+                    let mut grad_a = 0.0;
+                    for value in 0..shape.value_dim {
+                        let cell = sb + value * shape.key_dim + key;
+                        let total = grad_state[cell] + grad_outputs[token_vb + value] * q[kb + key];
+                        grad_prev[cell] = total * a;
+                        grad_a += total * prior[cell];
+                        let w = sigmoid(write_logits[vb + value]);
+                        result.grad_v[token_vb + value] += total * w * k[kb + key];
+                        result.grad_k[kb + key] += total * w * v[token_vb + value];
+                    }
+                    result.grad_decay_logits[kb + key] += grad_a * (1.0 - e) * d * (1.0 - d);
+                    result.grad_erase_logits[kb + key] += grad_a * (-d) * e * (1.0 - e);
+                }
+                for value in 0..shape.value_dim {
+                    let mut grad_write = 0.0;
+                    for key in 0..shape.key_dim {
+                        let cell = sb + value * shape.key_dim + key;
+                        let total = grad_state[cell] + grad_outputs[token_vb + value] * q[kb + key];
+                        grad_write += total * v[token_vb + value] * k[kb + key];
+                    }
+                    let w = sigmoid(write_logits[vb + value]);
+                    result.grad_write_logits[vb + value] += grad_write * w * (1.0 - w);
+                }
+                for value in 0..shape.value_dim {
+                    for key in 0..shape.key_dim {
+                        let cell = sb + value * shape.key_dim + key;
+                        result.grad_q[kb + key] += grad_outputs[token_vb + value] * current[cell];
+                    }
+                }
+            }
+        }
+        grad_state = grad_prev;
+    }
+    result.grad_initial_state = grad_state;
+    Ok(result)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -190,5 +308,29 @@ mod tests {
         assert_eq!(&full.outputs[..2], &first.outputs[..]);
         assert_eq!(&full.outputs[2..], &second.outputs[..]);
         assert_eq!(full.final_state, second.final_state);
+    }
+
+    #[test]
+    fn cpu_backward_q_matches_finite_difference() {
+        let shape = Gdn2ForwardShape { batch: 1, seq: 2, heads: 1, key_dim: 1, value_dim: 1 };
+        let q = vec![0.7, -0.2];
+        let k = vec![0.4, 0.8];
+        let v = vec![1.2, -0.5];
+        let gates = vec![0.3, -0.4];
+        let initial = vec![0.1];
+        let grad_outputs = vec![1.5, -0.7];
+        let grad_final = vec![0.9];
+        let analytic = gdn2_backward_f32(&shape, &q, &k, &v, &gates, &gates, &gates, &initial, &grad_outputs, &grad_final).unwrap();
+        let eps = 1e-3;
+        let mut positive = q.clone();
+        let mut negative = q.clone();
+        positive[0] += eps;
+        negative[0] -= eps;
+        let objective = |query: &[f32]| {
+            let output = gdn2_forward_f32(&shape, query, &k, &v, &gates, &gates, &gates, &initial).unwrap();
+            output.outputs.iter().zip(&grad_outputs).map(|(a, b)| a * b).sum::<f32>() + output.final_state[0] * grad_final[0]
+        };
+        let numeric = (objective(&positive) - objective(&negative)) / (2.0 * eps);
+        assert!((analytic.grad_q[0] - numeric).abs() < 2e-3, "analytic={} numeric={}", analytic.grad_q[0], numeric);
     }
 }
