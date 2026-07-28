@@ -111,6 +111,8 @@ def loss_for(model: nn.Module, batch: torch.Tensor, activation_dtype: torch.dtyp
     context = torch.autocast(device_type=batch.device.type, dtype=activation_dtype) if activation_dtype else torch.autocast(device_type=batch.device.type, enabled=False)
     with context:
         logits = model(batch[:, :-1])
+        if isinstance(logits, tuple):
+            logits = logits[0]
     return nn.functional.cross_entropy(logits.float().reshape(-1, logits.shape[-1]), batch[:, 1:].reshape(-1))
 
 

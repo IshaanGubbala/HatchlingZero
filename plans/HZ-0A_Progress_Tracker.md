@@ -191,6 +191,7 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
 - mixed MLX HZ-0A native-Metal benchmark now covers attention layer 1, recurrent state parity, prefill timing, and cached decode timing; sample 4-token run measured 5.33x native prefill speedup with max logit/state errors `0.0031`/`0.0014`
 - native MLX optimizer replay now has deterministic 100-step evidence with gradient/update norms and validation checkpoints; seed 11 loss moved `4.8275 -> 0.1913`, validation loss ended at `2.5389`, and all updates remained finite
 - native MLX custom VJP now applies sigmoid to raw gate logits, matching the Metal forward contract and restoring finite optimizer gradients
+- auditable PyTorch stage runner now accepts the locked config-driven HZ-0A model, preserves recurrent states through the shared loss path, and writes checkpoint/report evidence; tiny locked-topology execution is regression-tested
   - config-driven PyTorch full topology now matches the locked `301,178,112` parameter target on a meta-device audit
   - model-level recurrent-only chunked state carry now matches full-sequence logits/state in regression coverage
 
