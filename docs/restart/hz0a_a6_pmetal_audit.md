@@ -23,6 +23,8 @@ Key contents:
 
 The Python parity surface now also includes a deterministic AdamW update contract with explicit first/second-moment state and update-norm reporting.
 
+The forward cache now has an explicit `gdn2_backward(...)` reverse-scan implementation returning gradients for Q, K, V, all three gate-logit tensors, and the initial recurrent state. Its contract is validated against an independent torch recurrence oracle.
+
 ## Verified Results
 
 Executed successfully:
@@ -45,11 +47,13 @@ Observed results:
 - the current Python PMetal-style block wrapper matches recurrent and attention reference blocks
 - the current Python PMetal-style tiny-model wrapper matches logits/state flow and a simple loss path
 - the optimizer reference matches the closed-form first AdamW update, including serialized moment state
+- the PMetal-style GDN-2 backward matches the independent A3 recurrence oracle for all required gradients
 
 ## What This Does Not Yet Prove
 
 - actual PMetal tensor execution
 - end-to-end PMetal training
+- chunked checkpoint/recompute backward execution
 - end-to-end PMetal training
 
 ## A6 Current Assessment

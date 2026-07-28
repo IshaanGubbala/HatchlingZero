@@ -16,6 +16,7 @@ from restart.hz0a_pmetal.python.pmetal_reference import (  # noqa: E402
     AdamWState,
     adamw_step,
     gdn2_forward,
+    gdn2_backward,
     tiny_model_forward,
 )
 
@@ -47,6 +48,42 @@ def test_pmetal_style_forward_matches_numpy_oracle() -> None:
     np.testing.assert_allclose(actual.final_state, expected_state, rtol=1e-6, atol=1e-6)
     np.testing.assert_allclose(actual.backward_cache.q, q)
     np.testing.assert_allclose(actual.backward_cache.initial_state, state)
+
+
+def test_pmetal_style_backward_matches_a3_autodiff_contract() -> None:
+    import torch
+
+    torch.manual_seed(12)
+    q = torch.randn(1, 4, 2, 3, dtype=torch.float64, requires_grad=True)
+    k = torch.randn(1, 4, 2, 3, dtype=torch.float64, requires_grad=True)
+    v = torch.randn(1, 4, 2, 2, dtype=torch.float64, requires_grad=True)
+    decay = torch.randn(1, 4, 2, 3, dtype=torch.float64, requires_grad=True)
+    erase = torch.randn(1, 4, 2, 3, dtype=torch.float64, requires_grad=True)
+    write = torch.randn(1, 4, 2, 2, dtype=torch.float64, requires_grad=True)
+    initial = torch.randn(1, 2, 2, 3, dtype=torch.float64, requires_grad=True)
+    def torch_gdn2_scan(q_, k_, v_, decay_, erase_, write_, state_):
+        outputs = []
+        state = state_
+        for t in range(q_.shape[1]):
+            d = torch.sigmoid(decay_[:, t])
+            e = torch.sigmoid(erase_[:, t])
+            w = torch.sigmoid(write_[:, t])
+            state = d[:, :, None, :] * (1.0 - e[:, :, None, :]) * state
+            state = state + w[:, :, :, None] * v_[:, t, :, :, None] * k_[:, t, :, None, :]
+            outputs.append(torch.einsum("bhvk,bhk->bhv", state, q_[:, t]))
+        return torch.stack(outputs, dim=1), state
+
+    expected_out, expected_state = torch_gdn2_scan(q, k, v, decay, erase, write, initial)
+    grad_out = torch.randn_like(expected_out)
+    grad_state = torch.randn_like(expected_state)
+    (expected_out * grad_out).sum().add((expected_state * grad_state).sum()).backward()
+    actual = gdn2_backward(
+        grad_out.detach().numpy(),
+        grad_state.detach().numpy(),
+        gdn2_forward(Gdn2ForwardInputs(q.detach().numpy(), k.detach().numpy(), v.detach().numpy(), decay.detach().numpy(), erase.detach().numpy(), write.detach().numpy(), initial.detach().numpy())).backward_cache,
+    )
+    for name, tensor in (("q", q), ("k", k), ("v", v), ("decay_logits", decay), ("erase_logits", erase), ("write_logits", write), ("initial_state", initial)):
+        np.testing.assert_allclose(actual.gradients[name], tensor.grad.detach().numpy(), rtol=1e-8, atol=1e-8)
 
 
 def test_pmetal_style_recurrent_block_matches_reference_block() -> None:

@@ -37,6 +37,86 @@ class Gdn2ForwardResult:
 
 
 @dataclass
+class Gdn2BackwardResult:
+    gradients: dict[str, np.ndarray]
+
+
+def _sigmoid64(value: np.ndarray) -> np.ndarray:
+    clipped = np.clip(value.astype(np.float64), -30.0, 30.0)
+    return 1.0 / (1.0 + np.exp(-clipped))
+
+
+def gdn2_backward(
+    grad_outputs: np.ndarray,
+    grad_final_state: np.ndarray,
+    backward_cache: Gdn2ForwardCache,
+) -> Gdn2BackwardResult:
+    """Explicit reverse scan matching the A3 recurrence derivation."""
+    q = backward_cache.q
+    k = backward_cache.k
+    v = backward_cache.v
+    decay_logits = backward_cache.decay_logits
+    erase_logits = backward_cache.erase_logits
+    write_logits = backward_cache.write_logits
+    batch, steps, heads, d_k = q.shape
+
+    states = [backward_cache.initial_state.astype(np.float64)]
+    decays: list[np.ndarray] = []
+    erases: list[np.ndarray] = []
+    writes: list[np.ndarray] = []
+    for t in range(steps):
+        decay = _sigmoid64(decay_logits[:, t])
+        erase = _sigmoid64(erase_logits[:, t])
+        write = _sigmoid64(write_logits[:, t])
+        decays.append(decay)
+        erases.append(erase)
+        writes.append(write)
+        previous = states[-1]
+        next_state = (
+            decay[:, :, None, :] * (1.0 - erase[:, :, None, :]) * previous
+            + write[:, :, :, None] * v[:, t].astype(np.float64)[:, :, :, None] * k[:, t].astype(np.float64)[:, :, None, :]
+        )
+        states.append(next_state)
+
+    gradients = {
+        "q": np.zeros_like(q, dtype=np.float64),
+        "k": np.zeros_like(k, dtype=np.float64),
+        "v": np.zeros_like(v, dtype=np.float64),
+        "decay_logits": np.zeros_like(decay_logits, dtype=np.float64),
+        "erase_logits": np.zeros_like(erase_logits, dtype=np.float64),
+        "write_logits": np.zeros_like(write_logits, dtype=np.float64),
+        "initial_state": np.zeros_like(backward_cache.initial_state, dtype=np.float64),
+    }
+    grad_state = grad_final_state.astype(np.float64).copy()
+    for t in reversed(range(steps)):
+        state_t = states[t + 1]
+        state_prev = states[t]
+        q_t = q[:, t].astype(np.float64)
+        k_t = k[:, t].astype(np.float64)
+        v_t = v[:, t].astype(np.float64)
+        decay, erase, write = decays[t], erases[t], writes[t]
+        grad_y = grad_outputs[:, t].astype(np.float64)
+        gradients["q"][:, t] = np.einsum("bhv,bhvk->bhk", grad_y, state_t)
+        grad_state_total = grad_state + grad_y[:, :, :, None] * q_t[:, :, None, :]
+        a = decay[:, :, None, :] * (1.0 - erase[:, :, None, :])
+        grad_prev = grad_state_total * a
+        grad_a = np.sum(grad_state_total * state_prev, axis=2)
+        grad_decay = grad_a * (1.0 - erase)
+        grad_erase = grad_a * (-decay)
+        outer = v_t[:, :, :, None] * k_t[:, :, None, :]
+        grad_write = np.sum(grad_state_total * outer, axis=3)
+        grad_outer = grad_state_total * write[:, :, :, None]
+        gradients["v"][:, t] = np.sum(grad_outer * k_t[:, :, None, :], axis=3)
+        gradients["k"][:, t] = np.sum(grad_outer * v_t[:, :, :, None], axis=2)
+        gradients["decay_logits"][:, t] = grad_decay * decay * (1.0 - decay)
+        gradients["erase_logits"][:, t] = grad_erase * erase * (1.0 - erase)
+        gradients["write_logits"][:, t] = grad_write * write * (1.0 - write)
+        grad_state = grad_prev
+    gradients["initial_state"] = grad_state
+    return Gdn2BackwardResult(gradients=gradients)
+
+
+@dataclass
 class BlockForwardInputs:
     block: HZ0ABlock
     x: np.ndarray

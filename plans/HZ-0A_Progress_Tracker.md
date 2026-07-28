@@ -10,7 +10,7 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
 
 - Overall phase: `A5/A7 in progress`
 - Confidence level: high for archaeology findings, low for any legacy implementation reuse
-- Last verified checkpoint: `July 28, 2026 - A6 optimizer parity, A5 packing, and A7 safety pass`
+- Last verified checkpoint: `July 28, 2026 - A8 explicit backward, A6 optimizer parity, A5 packing, and A7 safety pass`
 - Active artifacts:
   - `/Users/ishaangubbala/Documents/Training/docs/restart/hz0a_history_audit.md`
   - `/Users/ishaangubbala/Documents/Training/docs/restart/hz0a_recovered_spec.md`
@@ -33,7 +33,7 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
 | A5 | data pipeline rebuild | In progress | validated manifest audit, duplicate reporting, seeded ordering, reproducible packing, and public-script tests now exist |
 | A6 | PMetal reference implementation | In progress | Rust contracts, operator/block/loss parity, and deterministic AdamW update parity now pass |
 | A7 | training harness rebuild | In progress | deterministic harness now runs a real tiny reference-model forward/loss path with exact resume coverage and CLI smoke verification |
-| A8 | explicit PMetal GDN-2 backward | Not started | forward-cache/backward path still pending |
+| A8 | explicit PMetal GDN-2 backward | In progress | PMetal-style cached reverse scan now returns all recurrence/input/state gradients and passes an independent torch oracle |
 | A9 | deterministic optimizer replay | Not started | replay and reproducibility gate still pending |
 | A10 | matched transformer | Not started | must be parameter-matched and launcher-compatible |
 
@@ -82,6 +82,7 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
 - A4 exit gate: satisfied
 - A7 partial gate: satisfied for deterministic accounting, checkpoint/restart, and model-aware scalar-loss stepping
 - A7 safety sub-gate: satisfied for finite-value refusal and checkpoint accounting audit
+- A8 ordinary-reference backward sub-gate: satisfied for all Q/K/V/gate/initial-state gradients
 - Program rule: no PMetal kernel work until A2 and A3 exist and pass tests
 
 ## Detailed Progress
@@ -107,6 +108,7 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
   - Rust crate split for kernel and bridge
   - parity coverage for recurrence operator, blocks, and loss path
   - deterministic AdamW optimizer-state and update-norm parity test
+  - explicit cached GDN-2 backward with independent torch-oracle coverage
 - Remaining:
   - fuller execution path beyond parity wrappers
   - backward-path implementation for GDN-2
