@@ -15,3 +15,4 @@ def test_scaled_full_training_smoke_updates_parameters(tmp_path: Path):
     assert report["parameter_count"] > 0
     assert report["parameters_changed"] is True
     assert report["metrics"][0]["loss"] > 0
+    assert report["device"] == "cpu"

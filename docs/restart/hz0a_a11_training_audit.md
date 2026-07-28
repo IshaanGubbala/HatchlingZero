@@ -50,6 +50,8 @@ The real CPU smoke completed with finite logits and the locked parameter count; 
 
 Verified locked run: one AdamW update at batch `1`, sequence length `1` produced finite loss `107.5517`, gradient norm `1771.2943`, changed parameters, and `6,500,532,224` maximum resident bytes. It processed one token, so it is not a capability or convergence result.
 
+The same smoke accepts `--device mps` for the exact locked topology, enabling a real Apple GPU pilot without substituting the archived MLX model’s different architecture contract.
+
 ## What This Does Not Yet Prove
 
 - that the full 1.61B tokens have been trained
