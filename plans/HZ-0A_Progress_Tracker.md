@@ -206,6 +206,7 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
 - native NumPy parameter/linear/embedding/tied-LM-head/cross-entropy primitives now have Torch parity tests; `scripts/hz0a_native_embedding_parity.py` emits machine-readable output/loss/gradient/update/fingerprint/finite/memory/time evidence
 - native manual RMSNorm/SiLU/residual/SwiGLU blocks now pass Torch parity, and trainable NativeGDN2Block propagates cached operator gradients through Q/K/V/gate and output projections with state carry
 - native tiny complete graph now assembles embeddings, periodic GDN-2/attention blocks, RMSNorm, SwiGLU MLPs, final norm, tied LM head, cross-entropy, and manual backward/state carry; finite-guard stress still reports overflow warnings during a carried-state follow-up and is not yet a clean parity gate
+- native tiny full-model parity now matches Torch logits, loss, and every named parameter gradient after semantic parameter copying; the test passes at `5e-4` output/loss and `2e-3` gradient tolerances, while numerical warning cleanup remains open
   - config-driven PyTorch full topology now matches the locked `301,178,112` parameter target on a meta-device audit
   - model-level recurrent-only chunked state carry now matches full-sequence logits/state in regression coverage
 
