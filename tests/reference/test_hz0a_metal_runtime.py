@@ -17,7 +17,9 @@ def test_native_metal_forward_matches_reference(tmp_path: Path):
     executable = tmp_path / "gdn2_runtime_smoke"
     swift = subprocess.run(["swiftc", "-O", "-framework", "Metal", "-framework", "Foundation", "restart/hz0a_pmetal/metal/gdn2_runtime_smoke.swift", "-o", str(executable)], cwd=ROOT, capture_output=True, text=True)
     assert swift.returncode == 0, swift.stderr
-    result = json.loads(subprocess.run([str(executable), str(air)], check=True, capture_output=True, text=True).stdout)
+    result = json.loads(subprocess.run([str(executable), str(air), "3"], check=True, capture_output=True, text=True).stdout)
+    assert result["iterations"] == 3
+    assert result["kernel_elapsed_ms"] >= 0
     q = np.array([1, 2, 2, 1, 1, -1], dtype=np.float32).reshape(1, 3, 1, 2)
     k = np.array([0.5, -1, 1, 0.25, -0.5, 2], dtype=np.float32).reshape(1, 3, 1, 2)
     v = np.array([1, -2, 0.5, 3, -1, 0.25], dtype=np.float32).reshape(1, 3, 1, 2)

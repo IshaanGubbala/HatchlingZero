@@ -43,6 +43,8 @@ The shared tiny reference attention path also has a bounded numerical policy; th
 
 The first native Metal forward kernel is now checked in at `restart/hz0a_pmetal/metal/gdn2_forward.metal`. `scripts/hz0a_compile_metal.py` compiles it with the system Metal toolchain and records source and AIR hashes. A Swift runtime smoke harness dispatches deterministic tensors and compares output/final state against the NumPy recurrence; end-to-end speed and full-model integration remain open gates.
 
+The same harness accepts an iteration count and reports `kernel_elapsed_ms`, measuring device dispatch/wait time separately from process startup. This is a kernel-only measurement, not an end-to-end model benchmark.
+
 ## A12 Assessment
 
 A12 reference-correctness sub-gate is satisfied for recurrent decode and causal-attention KV-cache decode. Fused Metal implementation and performance comparison remain incomplete.
