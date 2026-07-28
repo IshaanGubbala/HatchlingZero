@@ -154,6 +154,7 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
   - PMetal/device checkpoint audit is still pending; the tiny PyTorch multi-parameter checkpoint now has an independent integrity auditor
   - scheduler and separate validation-split execution are now checkpointed and resume-tested
   - stage data-budget gate now reports available versus required tokens and refuses under-budget launches
+  - native fused GDN-2 Metal forward kernel now compiles into AIR; runtime equivalence and speed remain unverified
 
 ## Next Actions
 

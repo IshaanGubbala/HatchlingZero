@@ -41,6 +41,8 @@ The shared tiny reference attention path also has a bounded numerical policy; th
 - end-to-end inference speedup over a transformer
 - chunked fused-kernel equivalence or device-level memory measurements
 
+The first native Metal forward kernel is now checked in at `restart/hz0a_pmetal/metal/gdn2_forward.metal`. `scripts/hz0a_compile_metal.py` compiles it with the system Metal toolchain and records source and AIR hashes; compilation is regression-tested on macOS. Runtime numerical equivalence and end-to-end speed are still open gates.
+
 ## A12 Assessment
 
 A12 reference-correctness sub-gate is satisfied for recurrent decode and causal-attention KV-cache decode. Fused Metal implementation and performance comparison remain incomplete.
