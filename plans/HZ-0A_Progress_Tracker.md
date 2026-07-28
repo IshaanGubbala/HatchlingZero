@@ -36,7 +36,7 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
 | A8 | explicit PMetal GDN-2 backward | In progress | cached reverse scan plus uneven chunk checkpoint/recompute now match full gradients; real PMetal execution remains |
 | A9 | deterministic optimizer replay | In progress | 100-step fixed-seed AdamW replay now produces exact repeated metrics and parameter fingerprint |
 | A10 | matched transformer | In progress | checked-in 301.180M dense baseline config/count and deterministic tiny reference now pass |
-| A11 | training stages | In progress | machine-validated 4-stage, 1.61B-token shared hybrid/transformer protocol now exists; actual pretraining remains |
+| A11 | training stages | In progress | shared 4-stage protocol plus real multi-parameter tiny hybrid/transformer training, validation, and exact resume smoke now pass; full pretraining remains |
 | A12 | fused Metal inference | In progress | recurrent reference prefill/decode equivalence, state serialization/reset, and separate timing now pass; fused backend remains |
 
 ## Confirmed Historical Findings To Carry Forward
@@ -89,6 +89,7 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
 - A9 deterministic optimizer sub-gate: satisfied for fixed tiny-parameter 100-step replay
 - A10 matched-count/reference sub-gate: satisfied within 1,816 parameters and shared tiny LM-loss conventions
 - A11 stage-protocol sub-gate: satisfied for ordered budgets and shared optimizer/data/checkpoint settings
+- A11 tiny-training sub-gate: satisfied for real gradients, parameter updates, deterministic comparison, and exact resume
 - A12 recurrent-reference inference sub-gate: satisfied for tokenwise equivalence, state serialization/reset, and separate prefill/decode timing
 - Program rule: no PMetal kernel work until A2 and A3 exist and pass tests
 
@@ -120,6 +121,7 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
   - 100-step fixed-seed optimizer replay with exact repeated output and parameter hash
   - matched-transformer config/count tool and deterministic tiny reference
   - machine-validated 10M/100M/500M/1B staged-training protocol
+  - real PyTorch tiny hybrid/transformer smoke training with checkpoint/resume parity
   - recurrent reference inference benchmark with zero full-vs-tokenwise logit difference
 - Remaining:
   - fuller execution path beyond parity wrappers
