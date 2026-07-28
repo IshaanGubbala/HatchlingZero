@@ -5,10 +5,11 @@ import sys
 from pathlib import Path
 
 import yaml
+import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from restart.hz0a_harness import DeterministicHarness, HarnessConfig  # noqa: E402
+from restart.hz0a_harness import DeterministicHarness, HarnessConfig, audit_checkpoint_payload  # noqa: E402
 
 
 def make_config(tmp_path: Path) -> HarnessConfig:
@@ -98,6 +99,33 @@ def test_harness_resume_is_exact(tmp_path: Path) -> None:
     full.run()
 
     assert as_jsonable(resumed) == as_jsonable(full)
+
+
+def test_checkpoint_audit_validates_accounting_and_finite_values(tmp_path: Path) -> None:
+    harness = DeterministicHarness(make_config(tmp_path), tmp_path / "run")
+    harness.run(stop_after_microbatches=4)
+    payload = json.loads(harness.save_checkpoint("audit").read_text())
+
+    result = audit_checkpoint_payload(payload)
+
+    assert result["finite"] is True
+    assert result["record_count"] == 4
+    assert result["tokens_seen"] == 4 * 2 * 128
+
+
+def test_non_finite_logits_are_refused(tmp_path: Path) -> None:
+    harness = DeterministicHarness(make_config(tmp_path), tmp_path / "run")
+    batch, _, _ = harness.dataset.get_microbatch(0, harness.config.microbatch_size)
+    token_ids, targets = harness._batch_inputs_and_targets(batch)
+    logits, _ = harness.model(token_ids)
+    logits[0, 0, 0] = np.inf
+
+    try:
+        harness._cross_entropy_with_scale_grad(logits, targets)
+    except FloatingPointError as exc:
+        assert "model logits" in str(exc)
+    else:
+        raise AssertionError("non-finite logits must be refused")
 
 
 def as_jsonable(harness: DeterministicHarness) -> dict:

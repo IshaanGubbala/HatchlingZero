@@ -64,10 +64,12 @@ The required historical accounting shape is also explicitly tested:
 - full trainable parameter updates across the tiny reference model
 - optimizer-state semantics from a real PMetal or multi-parameter model
 - scheduler behavior beyond the current scalar-step stub
-- NaN/Inf refusal gates on true gradients
-- checkpoint audit command for full model checkpoints
+- full-model NaN/Inf refusal gates beyond the current scalar harness path
+- full-model checkpoint audit beyond the current accounting audit
 - elimination of the overflow warnings currently emitted by the tiny reference attention path during smoke/test runs
 
 ## A7 Current Assessment
 
 A7 is meaningfully in progress, but not complete. The deterministic harness contract is now in place, test-backed, CLI-runnable, and attached to a real reference-model loss path, which is the right base for A8/A9 replay and fuller model-training integration.
+
+The harness now refuses non-finite logits, losses, gradients, and optimizer updates. Its `--audit-checkpoint` command verifies finite numeric payloads, record count, token accounting, and final record continuity before a checkpoint is accepted for resume.

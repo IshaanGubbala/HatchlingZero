@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import random
 import sys
-from typing import Any
+from typing import Any, Iterable
 
 import numpy as np
 import yaml
@@ -22,6 +22,12 @@ def sha256_file(path: Path) -> str:
 
 def canonical_json(obj: Any) -> str:
     return json.dumps(obj, sort_keys=True, separators=(",", ":"))
+
+
+def require_finite(name: str, value: Any) -> None:
+    array = np.asarray(value)
+    if not np.isfinite(array).all():
+        raise FloatingPointError(f"HZ-0A harness refusal: {name} contains NaN or Inf")
 
 
 @dataclass
@@ -149,6 +155,7 @@ class DeterministicHarness:
         return token_ids.astype(np.int64), targets.astype(np.int64)
 
     def _cross_entropy_with_scale_grad(self, logits: np.ndarray, targets: np.ndarray) -> tuple[float, float]:
+        require_finite("model logits", logits)
         scaled_logits = logits * self.state.model_logit_scale
         shifted = scaled_logits - np.max(scaled_logits, axis=-1, keepdims=True)
         exp_shifted = np.exp(shifted)
@@ -159,6 +166,8 @@ class DeterministicHarness:
         loss = float(-np.mean(np.take_along_axis(log_probs, targets[..., None], axis=-1)[..., 0]))
         dloss_dscaled_logits = (probs - one_hot) / targets.size
         scale_grad = float(np.sum(dloss_dscaled_logits * logits))
+        require_finite("loss", loss)
+        require_finite("scale gradient", scale_grad)
         return loss, scale_grad
 
     def run_microbatch(self) -> MicrobatchRecord:
@@ -199,7 +208,9 @@ class DeterministicHarness:
             return False
         avg_grad = self.state.accumulated_scale_grad / self.config.grad_accum_steps
         update_norm = float(abs(self.config.learning_rate * avg_grad))
-        self.state.model_logit_scale -= self.config.learning_rate * avg_grad
+        next_scale = self.state.model_logit_scale - self.config.learning_rate * avg_grad
+        require_finite("optimizer update", next_scale)
+        self.state.model_logit_scale = next_scale
         self.state.model_param = self.state.model_logit_scale
         self.state.parameter_update_norm = update_norm
         self.state.optimizer_step += 1
@@ -236,6 +247,7 @@ class DeterministicHarness:
 
     def load_checkpoint(self, checkpoint_path: str | Path) -> None:
         payload = json.loads(Path(checkpoint_path).read_text(encoding="utf-8"))
+        audit_checkpoint_payload(payload)
         self.state = HarnessState(**payload["state"])
         self.records = [MicrobatchRecord(**r) for r in payload["records"]]
         self.validation_history = payload["validation_history"]
@@ -255,6 +267,36 @@ class DeterministicHarness:
                 self.save_checkpoint(f"step_{self.state.optimizer_step:07d}")
 
 
+def audit_checkpoint_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    state = payload["state"]
+    records = payload["records"]
+    require_finite("checkpoint", [value for value in _walk_numbers(payload)])
+    if state["microbatch_count"] != len(records):
+        raise ValueError("checkpoint audit failed: microbatch count does not match records")
+    if records and records[-1]["microbatch_index"] != state["microbatch_count"]:
+        raise ValueError("checkpoint audit failed: record index is not contiguous")
+    if state["tokens_seen"] != sum(record["tokens"] for record in records):
+        raise ValueError("checkpoint audit failed: tokens_seen does not match records")
+    return {
+        "microbatch_count": state["microbatch_count"],
+        "optimizer_step": state["optimizer_step"],
+        "tokens_seen": state["tokens_seen"],
+        "record_count": len(records),
+        "finite": True,
+    }
+
+
+def _walk_numbers(value: Any) -> Iterable[float]:
+    if isinstance(value, dict):
+        for child in value.values():
+            yield from _walk_numbers(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from _walk_numbers(child)
+    elif isinstance(value, (int, float)) and not isinstance(value, bool):
+        yield float(value)
+
+
 def load_harness_config(path: str | Path) -> HarnessConfig:
     payload = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
     return HarnessConfig(**payload)
@@ -268,7 +310,13 @@ def main() -> None:
     parser.add_argument("--run-dir", required=True)
     parser.add_argument("--resume", default=None)
     parser.add_argument("--stop-after-microbatches", type=int, default=None)
+    parser.add_argument("--audit-checkpoint", default=None)
     args = parser.parse_args()
+
+    if args.audit_checkpoint:
+        payload = json.loads(Path(args.audit_checkpoint).read_text(encoding="utf-8"))
+        print(json.dumps(audit_checkpoint_payload(payload), indent=2, sort_keys=True))
+        return
 
     cfg = load_harness_config(args.config)
     harness = DeterministicHarness(cfg, args.run_dir)

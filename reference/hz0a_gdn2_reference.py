@@ -13,7 +13,8 @@ def sigmoid(x: np.ndarray) -> np.ndarray:
 
 
 def softmax(x: np.ndarray, axis: int = -1) -> np.ndarray:
-    shifted = x - np.max(x, axis=axis, keepdims=True)
+    work = x.astype(np.float64, copy=False)
+    shifted = work - np.max(work, axis=axis, keepdims=True)
     with np.errstate(over="ignore", under="ignore", invalid="ignore"):
         exp_x = np.exp(shifted)
     return exp_x / np.sum(exp_x, axis=axis, keepdims=True)
@@ -133,8 +134,11 @@ class RMSNorm:
         return cls(scale=np.ones((dim,), dtype=np.float32))
 
     def __call__(self, x: np.ndarray) -> np.ndarray:
-        rms = np.sqrt(np.mean(np.square(x), axis=-1, keepdims=True) + self.eps)
-        return (x / rms) * self.scale
+        # Accumulate the norm in float64 so large recurrent residuals do not
+        # overflow before normalization brings them back to a usable scale.
+        x64 = x.astype(np.float64, copy=False)
+        rms = np.sqrt(np.mean(np.square(x64), axis=-1, keepdims=True) + self.eps)
+        return ((x64 / rms) * self.scale.astype(np.float64)).astype(np.float32)
 
 
 @dataclass
@@ -234,15 +238,20 @@ class CausalSelfAttention:
     def __call__(self, x: np.ndarray) -> np.ndarray:
         bsz, steps, dim = x.shape
         head_dim = dim // self.num_heads
-        q = self.q_proj(x).reshape(bsz, steps, self.num_heads, head_dim).transpose(0, 2, 1, 3)
-        k = self.k_proj(x).reshape(bsz, steps, self.num_heads, head_dim).transpose(0, 2, 1, 3)
-        v = self.v_proj(x).reshape(bsz, steps, self.num_heads, head_dim).transpose(0, 2, 1, 3)
-        scores = np.matmul(q, np.swapaxes(k, -1, -2)) / np.sqrt(head_dim)
+        # Keep attention intermediates in float64: recurrent residuals can be
+        # large during tiny-reference stress runs even when outputs remain finite.
+        q = self.q_proj(x).astype(np.float64).reshape(bsz, steps, self.num_heads, head_dim).transpose(0, 2, 1, 3)
+        k = self.k_proj(x).astype(np.float64).reshape(bsz, steps, self.num_heads, head_dim).transpose(0, 2, 1, 3)
+        v = self.v_proj(x).astype(np.float64).reshape(bsz, steps, self.num_heads, head_dim).transpose(0, 2, 1, 3)
+        q = q / np.sqrt(np.mean(np.square(q), axis=-1, keepdims=True) + 1e-6)
+        k = k / np.sqrt(np.mean(np.square(k), axis=-1, keepdims=True) + 1e-6)
+        with np.errstate(over="ignore", invalid="ignore"):
+            scores = np.matmul(q, np.swapaxes(k, -1, -2)) / np.sqrt(head_dim)
         mask = np.triu(np.ones((steps, steps), dtype=bool), k=1)
         scores = np.where(mask[None, None], -1e9, scores)
         weights = softmax(scores, axis=-1)
         out = np.matmul(weights, v).transpose(0, 2, 1, 3).reshape(bsz, steps, dim)
-        return self.out_proj(out)
+        return self.out_proj(out.astype(np.float32))
 
 
 @dataclass

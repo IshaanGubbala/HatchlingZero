@@ -10,7 +10,7 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
 
 - Overall phase: `A7 in progress`
 - Confidence level: high for archaeology findings, low for any legacy implementation reuse
-- Last verified checkpoint: `July 28, 2026 - model-aware A7 harness pass`
+- Last verified checkpoint: `July 28, 2026 - A7 finite-gate and checkpoint-audit pass`
 - Active artifacts:
   - `/Users/ishaangubbala/Documents/Training/docs/restart/hz0a_history_audit.md`
   - `/Users/ishaangubbala/Documents/Training/docs/restart/hz0a_recovered_spec.md`
@@ -81,6 +81,7 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
 - A3 exit gate: satisfied for the recurrence core
 - A4 exit gate: satisfied
 - A7 partial gate: satisfied for deterministic accounting, checkpoint/restart, and model-aware scalar-loss stepping
+- A7 safety sub-gate: satisfied for finite-value refusal and checkpoint accounting audit
 - Program rule: no PMetal kernel work until A2 and A3 exist and pass tests
 
 ## Detailed Progress
@@ -116,11 +117,13 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
   - real tiny-model forward pass wired into microbatch execution
   - real next-token cross-entropy and accumulated scalar gradient stepping
   - CLI smoke run verified from `restart/hz0a_harness.py`
+  - non-finite refusal gates for logits, loss, gradients, and optimizer updates
+  - checkpoint audit command validating finite payloads and token/record accounting
 - Current limitations:
   - only a scalar `model_logit_scale` is train-updated today
   - scheduler remains a bookkeeping stub
   - tiny reference attention path still emits overflow warnings under the current smoke/test setup
-  - no full checkpoint audit command or NaN/Inf hard-fail path yet
+  - current audit covers the JSON harness checkpoint, not a full multi-parameter model checkpoint
 
 ## Next Actions
 
