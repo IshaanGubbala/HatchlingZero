@@ -192,10 +192,10 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
 - native MLX optimizer replay now has deterministic 100-step evidence with gradient/update norms and validation checkpoints; seed 11 loss moved `4.8275 -> 0.1913`, validation loss ended at `2.5389`, and all updates remained finite
 - native MLX custom VJP now applies sigmoid to raw gate logits, matching the Metal forward contract and restoring finite optimizer gradients
 - auditable PyTorch stage runner now accepts the locked config-driven HZ-0A model, preserves recurrent states through the shared loss path, and writes checkpoint/report evidence; tiny locked-topology execution is regression-tested
-- stage reports now include per-step update norms and validation perplexity plus MPS peak allocated memory, extending the checkpointed A7/A9 audit metrics
+- stage reports now include validation perplexity and MPS peak allocated memory; exact per-step update norms are available only through the explicit expensive `--record-update-norm` diagnostic
 - parameter-matched transformer reference now implements the A10 config with tied embeddings, bias-free RMSNorm, causal attention, SwiGLU, and exact `301,179,928` parameter count; tiny forward and stage integration are regression-tested
 - exact `301,179,928`-parameter matched transformer completed a real MPS fp16 one-step stage-runner smoke with finite loss `594.9077`, gradient norm `755.6633`, update norm `1.6729`, changed parameters, `141.8` tokens/s, and `6.72 GB` peak allocation; this is topology/training-path evidence, not a completed 10M-token stage
-- stage report final validation now correctly reuses the held-out validation metric instead of recomputing on the final training batch
+- stage report final validation now evaluates a fresh deterministic validation cursor, avoiding mislabeled training-batch summaries and persistent validation-cursor mutation
 - ordered A11 stage-sequence driver now launches locked and matched models through the declared stage configs, writes per-stage plus top-level sequence reports, resumes on request, and stops when any requested model fails its budget gate
   - config-driven PyTorch full topology now matches the locked `301,178,112` parameter target on a meta-device audit
   - model-level recurrent-only chunked state carry now matches full-sequence logits/state in regression coverage

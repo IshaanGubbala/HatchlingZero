@@ -25,6 +25,7 @@ def main() -> None:
     parser.add_argument("--checkpoint-interval", type=int, default=100)
     parser.add_argument("--validation-interval", type=int, default=100)
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--record-update-norm", action="store_true")
     args = parser.parse_args()
     if args.dtype == "fp16" and args.device != "mps":
         raise ValueError("fp16 sequence runs require MPS")
@@ -36,6 +37,8 @@ def main() -> None:
         command = [sys.executable, "scripts/hz0a_stage_runner.py", "--stage-config", str(args.stage_config), "--stage", stage["name"], "--data", str(args.data), "--validation-data", str(args.validation_data), "--run-dir", str(stage_dir), "--batch-size", str(args.batch_size), "--vocab-size", str(args.vocab_size), "--checkpoint-interval", str(args.checkpoint_interval), "--validation-interval", str(args.validation_interval), "--device", args.device, "--dtype", args.dtype, "--models", args.models, "--model-config", str(args.model_config), "--transformer-config", str(args.transformer_config)]
         if args.resume:
             command.append("--resume")
+        if args.record_update_norm:
+            command.append("--record-update-norm")
         completed = subprocess.run(command, check=False)
         report_path = stage_dir / "stage_report.json"
         report = json.loads(report_path.read_text(encoding="utf-8")) if report_path.is_file() else {"stage": stage["name"], "returncode": completed.returncode}

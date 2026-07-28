@@ -43,7 +43,7 @@ def packed_sequence_length(path: Path) -> int:
     return len(first)
 
 
-def run_model(name: str, factory, data_path: Path, validation_data: Path, run_dir: Path, seed: int, steps: int, batch_size: int, vocab_size: int, checkpoint_interval: int, validation_interval: int, resume: bool, device: torch.device, dtype: torch.dtype) -> dict:
+def run_model(name: str, factory, data_path: Path, validation_data: Path, run_dir: Path, seed: int, steps: int, batch_size: int, vocab_size: int, checkpoint_interval: int, validation_interval: int, resume: bool, device: torch.device, dtype: torch.dtype, record_update_norm: bool) -> dict:
     seed_everything(seed)
     dataset = StreamingResumablePackedDataset(data_path, shuffle_seed=seed)
     validation_dataset = StreamingResumablePackedDataset(validation_data, shuffle_seed=0)
@@ -74,9 +74,11 @@ def run_model(name: str, factory, data_path: Path, validation_data: Path, run_di
         loss = loss_for(model, batch, activation_dtype)
         loss.backward()
         gradient_norm = float(torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0))
-        old_parameters = [parameter.detach().clone() for parameter in model.parameters()]
+        old_parameters = [parameter.detach().clone() for parameter in model.parameters()] if record_update_norm else None
         optimizer.step()
-        update_norm = float(torch.sqrt(sum((parameter.detach() - old).square().sum() for parameter, old in zip(model.parameters(), old_parameters))).item())
+        update_norm = None
+        if old_parameters is not None:
+            update_norm = float(torch.sqrt(sum((parameter.detach() - old).square().sum() for parameter, old in zip(model.parameters(), old_parameters))).item())
         if device.type == "mps":
             peak_memory = max(peak_memory, int(torch.mps.current_allocated_memory()))
         validation_loss = None
@@ -92,7 +94,10 @@ def run_model(name: str, factory, data_path: Path, validation_data: Path, run_di
             save_checkpoint(checkpoint, {"model": model.state_dict(), "optimizer": optimizer.state_dict(), "step": step, "metrics": metrics, "dataset_cursor": dataset.snapshot(), "initial_parameter_sha256": initial_hash, "model_parameter_sha256": fingerprint(model), "torch_rng": torch.get_rng_state(), "device": str(device), "dtype": str(dtype)})
     elapsed = time.perf_counter() - start
     tokens_seen = steps * batch_size * (int(batch.shape[1]) - 1)
-    final_validation_loss = last_validation_loss if last_validation_loss is not None else float(loss_for(model, batch).item())
+    final_validation_dataset = StreamingResumablePackedDataset(validation_data, shuffle_seed=0)
+    final_validation_batch = torch.from_numpy(final_validation_dataset.next_batch(batch_size)).remainder(vocab_size).to(device)
+    with torch.no_grad():
+        final_validation_loss = float(loss_for(model, final_validation_batch, activation_dtype).item())
     return {"steps": steps, "tokens_seen": tokens_seen, "budget_complete": False, "metrics": metrics, "initial_parameter_sha256": initial_hash, "final_parameter_sha256": fingerprint(model), "parameters_changed": initial_hash != fingerprint(model), "parameter_count": sum(parameter.numel() for parameter in model.parameters()), "parameter_bytes": parameter_bytes(model), "final_loss": metrics[-1]["loss"], "validation_loss": final_validation_loss, "validation_perplexity": float(np.exp(final_validation_loss)), "training_seconds": elapsed, "tokens_per_second": tokens_seen / elapsed, "peak_memory_bytes": peak_memory, "checkpoint": str(checkpoint), "resumed": resume}
 
 
@@ -110,6 +115,7 @@ def main() -> None:
     parser.add_argument("--checkpoint-interval", type=int, default=100)
     parser.add_argument("--validation-interval", type=int, default=1)
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--record-update-norm", action="store_true", help="Clone all parameters each step to measure exact update norm; expensive for large models")
     parser.add_argument("--device", choices=("auto", "cpu", "mps"), default="cpu")
     parser.add_argument("--dtype", choices=("fp32", "fp16"), default="fp32")
     parser.add_argument("--models", default="hybrid,transformer", help="Comma-separated model names to run")
@@ -154,7 +160,7 @@ def main() -> None:
     results = {}
     for name in requested_models:
         factory = factories[name]
-        result = run_model(name, factory, args.data, validation_data, args.run_dir, args.seed, steps, args.batch_size, args.vocab_size, args.checkpoint_interval, args.validation_interval, args.resume, device, dtype)
+        result = run_model(name, factory, args.data, validation_data, args.run_dir, args.seed, steps, args.batch_size, args.vocab_size, args.checkpoint_interval, args.validation_interval, args.resume, device, dtype, args.record_update_norm)
         result["device"] = str(device)
         result["dtype"] = str(dtype)
         result["budget_complete"] = result["tokens_seen"] >= gate["required_tokens"]
