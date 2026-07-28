@@ -11,16 +11,28 @@ def stage_gate(stage_config: Path, packed_data: Path, stage_name: str) -> dict:
     stages = {stage["name"]: stage for stage in config["stages"]}
     if stage_name not in stages:
         raise ValueError(f"unknown stage: {stage_name}")
-    sequences = json.loads(packed_data.read_text(encoding="utf-8"))
-    if not sequences or any(not isinstance(sequence, list) for sequence in sequences):
-        raise ValueError("packed data must be a non-empty list of token sequences")
-    available_tokens = sum(len(sequence) for sequence in sequences)
+    if packed_data.suffix == ".jsonl":
+        sequence_count = 0
+        available_tokens = 0
+        with packed_data.open(encoding="utf-8") as reader:
+            for line_number, line in enumerate(reader, 1):
+                sequence = json.loads(line)
+                if not isinstance(sequence, list):
+                    raise ValueError(f"packed data line {line_number} is not a token sequence")
+                sequence_count += 1
+                available_tokens += len(sequence)
+    else:
+        sequences = json.loads(packed_data.read_text(encoding="utf-8"))
+        if not sequences or any(not isinstance(sequence, list) for sequence in sequences):
+            raise ValueError("packed data must be a non-empty list of token sequences")
+        sequence_count = len(sequences)
+        available_tokens = sum(len(sequence) for sequence in sequences)
     required_tokens = int(stages[stage_name]["tokens"])
     report = {
         "stage": stage_name,
         "required_tokens": required_tokens,
         "available_tokens": available_tokens,
-        "sequence_count": len(sequences),
+        "sequence_count": sequence_count,
         "packed_data_sha256": hashlib.sha256(packed_data.read_bytes()).hexdigest(),
         "sufficient": available_tokens >= required_tokens,
     }

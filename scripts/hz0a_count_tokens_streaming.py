@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 
 
-def count_tokens(paths: list[Path], tokenizer_path: Path, batch_size: int = 256) -> dict:
+def count_tokens(paths: list[Path], tokenizer_path: Path, batch_size: int = 4096) -> dict:
     from tokenizers import Tokenizer
 
     tokenizer = Tokenizer.from_file(str(tokenizer_path))
@@ -35,7 +35,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Count HZ-0A tokens in bounded batches.")
     parser.add_argument("paths", nargs="+", type=Path)
     parser.add_argument("--tokenizer", default="data/tokenizer/hz0a_24576.json", type=Path)
-    parser.add_argument("--batch-size", default=256, type=int)
+    parser.add_argument("--batch-size", default=4096, type=int)
     parser.add_argument("--report", type=Path)
     args = parser.parse_args()
     report = count_tokens(args.paths, args.tokenizer, args.batch_size)

@@ -1,0 +1,17 @@
+{
+  "tokenizer": "data/tokenizer/hz0a_24576.json",
+  "tokenizer_policy": "bounded encode_batch with prefix-space normalization",
+  "source_files": {
+    "archive/data/raw/wikitext/train.jsonl": "e80fe02afa3c3f720310039394e1f05c73cf27d4a0071d490abfb0b50a8aeb70",
+    "archive/data/raw/wikitext/validation.jsonl": "9304e2a4dfb6a6e484672d98de8beb9ab8b458449dbeb49e71ea021fbf088ccb",
+    "archive/data/raw/wikitext/test.jsonl": "390c92f651b2f6112a43a5e86593df057382238b672a6447c554033ceb35a447"
+  },
+  "splits": {
+    "train": {"characters": 535964206, "tokens": 195148063},
+    "validation": {"characters": 1137225, "tokens": 414417},
+    "test": {"characters": 1279840, "tokens": 466237}
+  },
+  "total_characters": 538381271,
+  "total_tokens": 196028717,
+  "counter": "scripts/hz0a_count_tokens_streaming.py"
+}
