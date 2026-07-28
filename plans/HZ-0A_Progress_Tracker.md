@@ -33,7 +33,7 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
 | A5 | data pipeline rebuild | In progress | 100M-token Wikitext reconstruction, streaming packing, resumable cursor, exact/near-duplicate and cross-split contamination reporting now pass; broader mixture remains |
 | A6 | PMetal reference implementation | In progress | Rust CPU GDN-2 forward/state/chunk execution now passes alongside Python backward, block/loss, and AdamW parity |
 | A7 | training harness rebuild | In progress | deterministic harness now runs a real tiny reference-model forward/loss path with exact resume coverage and CLI smoke verification |
-| A8 | explicit PMetal GDN-2 backward | In progress | Python and Rust CPU cached reverse scans now return required gradients; device-side PMetal execution remains |
+| A8 | explicit PMetal GDN-2 backward | In progress | Python/Rust CPU and native Metal cached reverse scans now return required gradients; PMetal model/training integration remains |
 | A9 | deterministic optimizer replay | In progress | 100-step fixed-seed AdamW replay now produces exact repeated metrics and parameter fingerprint |
 | A10 | matched transformer | In progress | checked-in 301.180M dense baseline config/count and deterministic tiny reference now pass |
 | A11 | training stages | In progress | shared 4-stage protocol plus real multi-parameter tiny hybrid/transformer training, validation, and exact resume smoke now pass; full pretraining remains |
@@ -87,6 +87,7 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
 - A8 ordinary-reference backward sub-gate: satisfied for all Q/K/V/gate/initial-state gradients
 - A8 chunked-recompute sub-gate: satisfied for uneven full-vs-chunked gradient equivalence
 - A8 native-CPU backward sub-gate: satisfied for Rust flat-buffer gradients and finite-difference Q validation
+- A8 native-Metal backward sub-gate: satisfied for Q/K/V/gate/initial gradients against Torch autograd on a multi-value smoke case
 - A9 deterministic optimizer sub-gate: satisfied for fixed tiny-parameter 100-step replay
 - A10 matched-count/reference sub-gate: satisfied within 1,816 parameters and shared tiny LM-loss conventions
 - A11 stage-protocol sub-gate: satisfied for ordered budgets and shared optimizer/data/checkpoint settings

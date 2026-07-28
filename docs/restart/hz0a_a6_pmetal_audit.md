@@ -76,3 +76,5 @@ The config-driven PyTorch reference at `reference/hz0a_torch_model.py` now cover
 The scaled recurrent-only model also has an exact full-sequence versus chunked-state-carry regression, establishing the model-level state boundary that a PMetal/fused implementation must preserve.
 
 The native Metal recurrence now also has a bounded cached reverse-scan kernel. Its Q/K/V/gate/initial gradients match a Torch autograd oracle on a deterministic three-token case; longer production sequences still require chunked checkpointing.
+
+This establishes native Metal operator forward/backward parity, but the workspace still does not contain a PMetal tensor graph, full-model device bridge, or end-to-end device optimizer loop.
