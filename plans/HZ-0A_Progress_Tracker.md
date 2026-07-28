@@ -29,7 +29,7 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
 | A3 | backward derivation + validation | Complete | backward math doc and gradient tests now exist and pass |
 | A4 | tokenizer rebuild | Complete | tokenizer artifact, corpus manifest, runtime wrapper, and audit now exist |
 | A5 | data pipeline rebuild | In progress | source-manifest audit and token-packing scaffolding now exist |
-| A6 | PMetal reference implementation | In progress | fresh PMetal workspace + Rust contract tests + Python parity helper now exist |
+| A6 | PMetal reference implementation | In progress | fresh PMetal workspace now has Rust contract tests plus operator/block/loss Python parity checks |
 | A7 | training harness rebuild | Not started | deterministic counters, resume, audit, config snapshotting still needed |
 | A8 | explicit PMetal GDN-2 backward | Not started | forward-cache/backward path still pending |
 | A9 | deterministic optimizer replay | Not started | replay and reproducibility gate still pending |
@@ -83,5 +83,5 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
 ## Next Actions
 
 1. Expand A5 beyond scaffolding into a more complete deterministic dataset pipeline.
-2. Deepen A6 from operator/cache parity into block/logit/loss parity checks.
-3. Begin A7 training-harness rebuild once the PMetal-side parity surface is broader.
+2. Deepen A6 from parity wrappers into more realistic PMetal-side execution and optimizer-step parity.
+3. Begin A7 training-harness rebuild once the PMetal-side parity surface is broad enough to support end-to-end counters and resume logic.

@@ -33,21 +33,22 @@ python3 -m pytest -q tests/reference/test_pmetal_reference.py tests/reference/te
 Observed results:
 
 - Rust workspace tests: passed
-- Python parity/reference/gradient suite: `11 passed`
+- Python parity/reference/gradient suite: `14 passed`
 
 ## What This Proves
 
 - the PMetal restart surface now has a clean A1-aligned operator/cache contract
 - the future backend can target a stable `forward -> outputs, final_state, backward_cache` API
 - the current Python PMetal-style forward wrapper matches the NumPy oracle
+- the current Python PMetal-style block wrapper matches recurrent and attention reference blocks
+- the current Python PMetal-style tiny-model wrapper matches logits/state flow and a simple loss path
 
 ## What This Does Not Yet Prove
 
 - actual PMetal tensor execution
-- block-level PMetal parity
-- logits/loss/optimizer-update parity
+- optimizer-update parity
 - end-to-end PMetal training
 
 ## A6 Current Assessment
 
-A6 is meaningfully in progress, but not complete. The current milestone is a contract-and-parity bring-up, not a finished PMetal reference implementation.
+A6 is meaningfully in progress, but not complete. The current milestone is a contract-and-parity bring-up across operator, block, and tiny-model-loss surfaces, not a finished PMetal reference implementation.
