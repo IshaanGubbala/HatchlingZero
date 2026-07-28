@@ -1,0 +1,120 @@
+"""Resumable native-Metal MLX Stage 1 runner for the locked HZ-0A topology."""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import pickle
+import resource
+import sys
+import time
+from pathlib import Path
+
+import numpy as np
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+import mlx.core as mx
+import mlx.nn as nn
+import mlx.optimizers as optim
+from mlx.utils import tree_flatten, tree_unflatten
+
+from reference.hz0a_mlx_model import HZ0AMlxModel
+
+
+def read_batch(handle, batch_size: int, sequence_length: int):
+    values = []
+    while len(values) < batch_size:
+        line = handle.readline()
+        if not line:
+            handle.seek(0)
+            line = handle.readline()
+        tokens = json.loads(line)
+        if len(tokens) < sequence_length:
+            continue
+        values.append(tokens[:sequence_length])
+    return mx.array(values, dtype=mx.int32)
+
+
+def model_fingerprint(model) -> str:
+    values = [np.asarray(value).tobytes() for _, value in tree_flatten(model.parameters())]
+    return hashlib.sha256(b"".join(values)).hexdigest()
+
+
+def save_checkpoint(path: Path, model, optimizer, step: int, tokens_seen: int, batch_index: int, metrics: list[dict]) -> None:
+    payload = {"step": step, "tokens_seen": tokens_seen, "batch_index": batch_index, "metrics": metrics, "model": [(key, np.asarray(value)) for key, value in tree_flatten(model.parameters())], "optimizer": [(key, np.asarray(value)) for key, value in tree_flatten(optimizer.state)]}
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    with temporary.open("wb") as handle:
+        pickle.dump(payload, handle, protocol=pickle.HIGHEST_PROTOCOL)
+    temporary.replace(path)
+
+
+def restore_checkpoint(path: Path, model, optimizer) -> dict:
+    with path.open("rb") as handle:
+        payload = pickle.load(handle)
+    model.update(tree_unflatten([(key, mx.array(value)) for key, value in payload["model"]]))
+    optimizer.state = tree_unflatten([(key, mx.array(value)) for key, value in payload["optimizer"]])
+    mx.eval(model.parameters(), optimizer.state)
+    return payload
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--data", type=Path, required=True)
+    parser.add_argument("--validation-data", type=Path, required=True)
+    parser.add_argument("--run-dir", type=Path, required=True)
+    parser.add_argument("--target-tokens", type=int, default=10_000_000)
+    parser.add_argument("--batch-size", type=int, default=2)
+    parser.add_argument("--checkpoint-interval", type=int, default=100)
+    parser.add_argument("--validation-interval", type=int, default=100)
+    parser.add_argument("--resume", action="store_true")
+    args = parser.parse_args()
+    args.run_dir.mkdir(parents=True, exist_ok=True)
+    checkpoint = args.run_dir / "native_metal.pt"
+    sequence_length = len(json.loads(args.data.open().readline()))
+    mx.random.seed(7)
+    attention = (4, 9, 14, 19, 24, 29)
+    model = HZ0AMlxModel(24576, 768, 31, 12, 2304, attention, native_metal=True)
+    optimizer = optim.AdamW(learning_rate=1e-4, weight_decay=0.01)
+    metrics, step, tokens_seen, batch_index = [], 0, 0, 0
+    if args.resume and checkpoint.exists():
+        payload = restore_checkpoint(checkpoint, model, optimizer)
+        metrics, step, tokens_seen, batch_index = payload["metrics"], payload["step"], payload["tokens_seen"], payload["batch_index"]
+    started = time.perf_counter()
+    with args.data.open() as train, args.validation_data.open() as validation:
+        for _ in range(batch_index):
+            read_batch(train, args.batch_size, sequence_length)
+        def loss_fn(current, tokens):
+            logits, _ = current(tokens)
+            return mx.mean(nn.losses.cross_entropy(logits[:, :-1], tokens[:, 1:]))
+        value_and_grad = nn.value_and_grad(model, loss_fn)
+        while tokens_seen < args.target_tokens:
+            tokens = read_batch(train, args.batch_size, sequence_length)
+            loss, grads = value_and_grad(model, tokens)
+            mx.eval(loss, grads)
+            flat_grads = [value for _, value in tree_flatten(grads)]
+            grad_norm = float(mx.sqrt(sum(mx.sum(value * value) for value in flat_grads)))
+            old = [mx.array(value) for _, value in tree_flatten(model.parameters())]
+            optimizer.update(model, grads)
+            mx.eval(loss, model.parameters(), optimizer.state)
+            new = [value for _, value in tree_flatten(model.parameters())]
+            update_norm = float(mx.sqrt(sum(mx.sum((a - b) * (a - b)) for a, b in zip(new, old))))
+            step += 1; batch_index += 1; tokens_seen += args.batch_size * sequence_length
+            item = {"step": step, "tokens_seen": tokens_seen, "loss": float(loss), "gradient_norm": grad_norm, "update_norm": update_norm}
+            if step % args.validation_interval == 0 or tokens_seen >= args.target_tokens:
+                validation_tokens = read_batch(validation, 1, sequence_length)
+                validation_logits, _ = model(validation_tokens)
+                validation_loss = mx.mean(nn.losses.cross_entropy(validation_logits[:, :-1], validation_tokens[:, 1:]))
+                mx.eval(validation_loss)
+                item["validation_loss"] = float(validation_loss)
+            metrics.append(item)
+            if step % args.checkpoint_interval == 0 or tokens_seen >= args.target_tokens:
+                save_checkpoint(checkpoint, model, optimizer, step, tokens_seen, batch_index, metrics)
+    report = {"backend": "native_metal_mlx", "stage": "stage1_validation", "steps": step, "tokens_seen": tokens_seen, "target_tokens": args.target_tokens, "budget_complete": tokens_seen >= args.target_tokens, "parameter_count": sum(value.size for _, value in tree_flatten(model.parameters())), "initialization_seed": 7, "final_parameter_sha256": model_fingerprint(model), "metrics": metrics, "checkpoint": str(checkpoint), "training_seconds": time.perf_counter() - started, "tokens_per_second": tokens_seen / max(time.perf_counter() - started, 1e-9), "peak_memory_bytes": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss}
+    (args.run_dir / "native_metal.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+    print(json.dumps(report, indent=2))
+
+
+if __name__ == "__main__":
+    main()
