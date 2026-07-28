@@ -38,3 +38,5 @@ Observed:
 ## A9 Assessment
 
 A9 is in progress. The deterministic optimizer replay sub-gate is satisfied, but the full scientific-validity comparison remains pending until the model, data, checkpoint, and PMetal execution paths are connected.
+
+The native Metal path now includes a small AdamW kernel. Its first-step parameters and moment buffers match the NumPy AdamW contract in a runtime regression; this closes device-level optimizer-operator parity, not end-to-end PMetal training.
