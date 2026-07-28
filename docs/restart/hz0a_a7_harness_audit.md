@@ -77,3 +77,5 @@ The harness now refuses non-finite logits, losses, gradients, and optimizer upda
 The tiny reference attention path now applies bounded per-head RMS scaling and explicit finite replacement around score/value matmuls. The targeted reference suite and CLI smoke run complete without the overflow warnings that previously remained.
 
 The multi-parameter tiny training checkpoint now has a separate audit command, `scripts/hz0a_audit_tiny_checkpoint.py`. It validates model/optimizer state, finite tensors, metric-step continuity, and the saved model parameter fingerprint; a corruption regression rejects an infinite parameter. This closes the tiny PyTorch checkpoint-audit gap, but not PMetal or device checkpoints.
+
+The harness now also executes and checkpoints a selectable constant or cosine learning-rate schedule, restores scheduler state on resume, and supports a separate packed validation split. Audit coverage verifies scheduler-step continuity and validation-dataset availability; the scheduler/validation regression confirms the resumed path remains deterministic.

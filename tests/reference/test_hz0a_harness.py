@@ -101,6 +101,17 @@ def test_harness_resume_is_exact(tmp_path: Path) -> None:
     assert as_jsonable(resumed) == as_jsonable(full)
 
 
+def test_scheduler_and_separate_validation_split_resume_exactly(tmp_path: Path) -> None:
+    validation_path = tmp_path / "validation.json"
+    validation_path.write_text(json.dumps([[7] * 128, [9] * 128]))
+    cfg = HarnessConfig(**{**make_config(tmp_path).__dict__, "scheduler": "cosine", "warmup_optimizer_steps": 1, "validation_packed_data_path": str(validation_path)})
+    harness = DeterministicHarness(cfg, tmp_path / "run")
+    harness.run()
+    assert harness.state.scheduler_step == harness.state.optimizer_step == 3
+    assert harness.state.current_learning_rate >= 0
+    assert [item["learning_rate"] for item in harness.validation_history] == sorted((item["learning_rate"] for item in harness.validation_history), reverse=True)
+
+
 def test_checkpoint_audit_validates_accounting_and_finite_values(tmp_path: Path) -> None:
     harness = DeterministicHarness(make_config(tmp_path), tmp_path / "run")
     harness.run(stop_after_microbatches=4)

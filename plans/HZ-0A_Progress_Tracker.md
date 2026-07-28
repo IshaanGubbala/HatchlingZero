@@ -152,6 +152,7 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
   - scheduler remains a bookkeeping stub
   - bounded reference attention policy still needs validation against the intended PMetal numerical policy
   - PMetal/device checkpoint audit is still pending; the tiny PyTorch multi-parameter checkpoint now has an independent integrity auditor
+  - scheduler and separate validation-split execution are now checkpointed and resume-tested
 
 ## Next Actions
 

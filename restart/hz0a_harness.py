@@ -42,6 +42,9 @@ class HarnessConfig:
     checkpoint_interval: int
     learning_rate: float
     seed: int
+    scheduler: str = "constant"
+    warmup_optimizer_steps: int = 0
+    validation_packed_data_path: str | None = None
     model_vocab_size: int = 256
     model_d_model: int = 32
     model_num_layers: int = 3
@@ -73,6 +76,7 @@ class HarnessState:
     parameter_update_norm: float = 0.0
     model_logit_scale: float = 1.0
     accumulated_scale_grad: float = 0.0
+    current_learning_rate: float = 0.0
 
 
 @dataclass
@@ -109,6 +113,7 @@ class DeterministicHarness:
         self.checkpoint_dir = self.run_dir / "checkpoints"
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
         self.dataset = PackedSequenceDataset(config.packed_data_path)
+        self.validation_dataset = PackedSequenceDataset(config.validation_packed_data_path) if config.validation_packed_data_path else self.dataset
         self.state = HarnessState(
             effective_batch_tokens=config.effective_batch_tokens,
             rng_seed=config.seed,
@@ -207,19 +212,33 @@ class DeterministicHarness:
         if self.state.microbatch_count % self.config.grad_accum_steps != 0:
             return False
         avg_grad = self.state.accumulated_scale_grad / self.config.grad_accum_steps
-        update_norm = float(abs(self.config.learning_rate * avg_grad))
-        next_scale = self.state.model_logit_scale - self.config.learning_rate * avg_grad
+        next_step = self.state.optimizer_step + 1
+        if self.config.scheduler == "constant":
+            learning_rate = self.config.learning_rate
+        elif self.config.scheduler == "cosine":
+            warmup = self.config.warmup_optimizer_steps
+            if warmup and next_step <= warmup:
+                learning_rate = self.config.learning_rate * next_step / warmup
+            else:
+                remaining = max(self.config.max_optimizer_steps - warmup, 1)
+                progress = min(max(next_step - warmup, 0) / remaining, 1.0)
+                learning_rate = self.config.learning_rate * 0.5 * (1.0 + np.cos(np.pi * progress))
+        else:
+            raise ValueError(f"unsupported scheduler: {self.config.scheduler}")
+        update_norm = float(abs(learning_rate * avg_grad))
+        next_scale = self.state.model_logit_scale - learning_rate * avg_grad
         require_finite("optimizer update", next_scale)
         self.state.model_logit_scale = next_scale
         self.state.model_param = self.state.model_logit_scale
         self.state.parameter_update_norm = update_norm
         self.state.optimizer_step += 1
         self.state.scheduler_step += 1
+        self.state.current_learning_rate = float(learning_rate)
         self.state.accumulated_scale_grad = 0.0
         return True
 
     def validate(self) -> dict[str, Any]:
-        batch, _, _ = self.dataset.get_microbatch(self.state.dataset_index, self.config.microbatch_size)
+        batch, _, _ = self.validation_dataset.get_microbatch(0, self.config.microbatch_size)
         token_ids, targets = self._batch_inputs_and_targets(batch)
         logits, _ = self.model(token_ids)
         validation_loss, _ = self._cross_entropy_with_scale_grad(logits, targets)
@@ -228,6 +247,7 @@ class DeterministicHarness:
             "tokens_seen": self.state.tokens_seen,
             "validation_loss": round(validation_loss, 6),
             "model_logit_scale": round(self.state.model_logit_scale, 8),
+            "learning_rate": self.state.current_learning_rate,
         }
         self.validation_history.append(metric)
         return metric
@@ -277,12 +297,22 @@ def audit_checkpoint_payload(payload: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("checkpoint audit failed: record index is not contiguous")
     if state["tokens_seen"] != sum(record["tokens"] for record in records):
         raise ValueError("checkpoint audit failed: tokens_seen does not match records")
+    config = payload["config"]
+    if state["scheduler_step"] != state["optimizer_step"]:
+        raise ValueError("checkpoint audit failed: scheduler step does not match optimizer step")
+    if state["optimizer_step"] and state["current_learning_rate"] < 0:
+        raise ValueError("checkpoint audit failed: current learning rate is negative")
+    if config.get("validation_packed_data_path"):
+        if not Path(config["validation_packed_data_path"]).exists():
+            raise ValueError("checkpoint audit failed: validation dataset is missing")
     return {
         "microbatch_count": state["microbatch_count"],
         "optimizer_step": state["optimizer_step"],
         "tokens_seen": state["tokens_seen"],
         "record_count": len(records),
         "finite": True,
+        "scheduler_step": state["scheduler_step"],
+        "current_learning_rate": state["current_learning_rate"],
     }
 
 
