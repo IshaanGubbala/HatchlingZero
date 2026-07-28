@@ -83,4 +83,6 @@ This establishes native Metal operator forward/backward parity, but the workspac
 
 `reference/hz0a_mlx_metal.py` now dispatches a native Metal recurrence through MLX's `metal_kernel` API. A deterministic MLX-vs-native test covers output and final-state parity; this is forward integration only, and the cached backward/optimizer bridge remains open.
 
-The clean MLX model accepts `native_metal=True` to route recurrent blocks through that kernel while retaining the pure-MLX autodiff path by default. The opt-in full-model scaled smoke passes; native backward integration is intentionally not claimed yet.
+The clean MLX model accepts `native_metal=True` to route recurrent blocks through that kernel. During bring-up, a custom VJP uses the independent MLX recurrence so native forward participates in a trainable graph; this is gradient integration, not yet the native cached Metal backward/optimizer path.
+
+`scripts/hz0a_mlx_training_smoke.py` exercises that route with MLX AdamW for two real updates and verifies finite loss plus a nonzero parameter delta. It is a scaled integration smoke, not a completion claim for full PMetal training.

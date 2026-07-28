@@ -1,6 +1,6 @@
 import mlx.core as mx
 
-from reference.hz0a_mlx_metal import native_gdn2_forward
+from reference.hz0a_mlx_metal import native_gdn2_forward, native_gdn2_forward_differentiable
 from reference.hz0a_mlx_model import HZ0AMlxModel
 
 
@@ -35,3 +35,17 @@ def test_clean_mlx_model_can_opt_into_native_recurrence():
     assert logits.shape == (1, 6, 32)
     assert states[0].shape == (1, 2, 8, 8)
     assert bool(mx.all(mx.isfinite(logits)))
+
+
+def test_native_forward_vjp_produces_finite_gradients():
+    q = mx.ones((1, 2, 1, 2), dtype=mx.float32)
+    args = [q, q * 0.9, q * 0.8, q * -0.7, q * -1.1, q * -0.3, mx.zeros((1, 1, 2, 2))]
+
+    def loss(*values):
+        output, final_state = native_gdn2_forward_differentiable(*values)
+        return mx.sum(output) + mx.sum(final_state)
+
+    value, gradients = mx.value_and_grad(loss)(*args)
+    mx.eval(value, *gradients)
+    assert bool(mx.isfinite(value))
+    assert all(bool(mx.all(mx.isfinite(gradient))) for gradient in gradients)

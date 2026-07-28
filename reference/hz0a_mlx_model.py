@@ -8,7 +8,7 @@ from pathlib import Path
 import mlx.core as mx
 import mlx.nn as nn
 
-from reference.hz0a_mlx_metal import native_gdn2_forward
+from reference.hz0a_mlx_metal import native_gdn2_forward_differentiable
 
 
 class GDN2(nn.Module):
@@ -30,7 +30,7 @@ class GDN2(nn.Module):
         if state is None:
             state = mx.zeros((bsz, self.heads, self.head_dim, self.head_dim), dtype=x.dtype)
         if self.native_metal:
-            output, state = native_gdn2_forward(q, k, v, d, e, w, state)
+            output, state = native_gdn2_forward_differentiable(q, k, v, d, e, w, state)
             return self.out(output.reshape(bsz, steps, self.dim)), state
         outputs = []
         for t in range(steps):

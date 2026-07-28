@@ -53,6 +53,28 @@ _SOURCE = r"""
 """
 
 
+def _reference_forward(q, k, v, d, e, w, initial):
+    state = initial
+    outputs = []
+    for t in range(q.shape[1]):
+        state = d[:, t, :, :, None] * (1 - e[:, t, :, :, None]) * state
+        state = state + w[:, t, :, :, None] * v[:, t, :, :, None] * k[:, t, :, None, :]
+        outputs.append(mx.sum(state * q[:, t, :, None, :], axis=-1))
+    return mx.stack(outputs, axis=1), state
+
+
+@mx.custom_function
+def native_gdn2_forward_differentiable(q, k, v, d, e, w, initial):
+    """Native Metal forward with an MLX recurrence VJP during bring-up."""
+    return tuple(native_gdn2_forward(q, k, v, d, e, w, initial))
+
+
+@native_gdn2_forward_differentiable.vjp
+def _native_gdn2_vjp(primals, cotangents, outputs):
+    _, gradients = mx.vjp(_reference_forward, list(primals), list(cotangents))
+    return gradients
+
+
 def native_gdn2_forward(q, k, v, d, e, w, initial):
     """Run the recurrence on Metal and return ``(output, final_state)``.
 
