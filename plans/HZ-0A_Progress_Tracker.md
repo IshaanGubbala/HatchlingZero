@@ -24,8 +24,8 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
 | A1 | authoritative `hz0a_300m` spec | Complete | JSON spec, math doc, and parameter-count script created on July 28, 2026 |
 | A2 | tiny mathematical reference | Complete | NumPy reference model and tests now exist and pass |
 | A3 | backward derivation + validation | Complete | backward math doc and gradient tests now exist and pass |
-| A4 | tokenizer rebuild | In progress | recovered tokenizer contract, manifest template, and training scripts created |
-| A5 | data pipeline rebuild | Not started | Must produce hashed manifests |
+| A4 | tokenizer rebuild | Complete | tokenizer artifact, corpus manifest, runtime wrapper, and audit now exist |
+| A5 | data pipeline rebuild | In progress | source-manifest audit and token-packing scaffolding now exist |
 | A6 | baseline transformer rebuild | Not started | Must be parameter-matched and launcher-compatible |
 | A7 | PMetal training implementation | Not started | Correctness before performance |
 | A8 | fused Metal inference path | Not started | Inference-only optimization until validated |

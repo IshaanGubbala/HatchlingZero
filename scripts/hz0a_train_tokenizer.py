@@ -4,8 +4,12 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from tokenizer.hz0a_tokenizer import HZ0ATokenizer
 
 SPECIAL_TOKENS = [
     "<|bos|>",
@@ -40,7 +44,7 @@ def main() -> None:
     args = parser.parse_args()
 
     try:
-        from tokenizers import Tokenizer, models, pre_tokenizers, processors, trainers
+        from tokenizers import Tokenizer, decoders, models, pre_tokenizers, processors, trainers
     except ImportError as exc:
         raise SystemExit(
             "The `tokenizers` package is required for A4 tokenizer training. "
@@ -63,6 +67,7 @@ def main() -> None:
     )
     tokenizer.train([str(corpus_path)], trainer=trainer)
     tokenizer.post_processor = processors.ByteLevel(trim_offsets=True)
+    tokenizer.decoder = decoders.ByteLevel()
     tokenizer.save(str(output_path))
 
     test_strings = [
@@ -71,10 +76,22 @@ def main() -> None:
         "ls -la && echo done",
         "  leading and trailing whitespace  ",
     ]
+    runtime = HZ0ATokenizer(backend=tokenizer, add_prefix_space=True)
     roundtrip = []
     for text in test_strings:
-        decoded = tokenizer.decode(tokenizer.encode(text).ids)
-        roundtrip.append({"input": text, "decoded": decoded, "matches": decoded == text})
+        raw_decoded = tokenizer.decode(tokenizer.encode(text).ids)
+        runtime_decoded = runtime.roundtrip(text)
+        roundtrip.append(
+            {
+                "input": text,
+                "raw_decoded": raw_decoded,
+                "raw_matches": raw_decoded == text,
+                "runtime_decoded": runtime_decoded,
+                "runtime_matches": runtime_decoded == text,
+            }
+        )
+
+    all_roundtrip_match = all(item["runtime_matches"] for item in roundtrip)
 
     audit = {
         "corpus_path": str(corpus_path),
@@ -84,6 +101,7 @@ def main() -> None:
         "vocab_size": args.vocab_size,
         "min_frequency": args.min_frequency,
         "special_tokens": SPECIAL_TOKENS,
+        "all_roundtrip_match": all_roundtrip_match,
         "roundtrip": roundtrip,
     }
     audit_out = Path(args.audit_out)
