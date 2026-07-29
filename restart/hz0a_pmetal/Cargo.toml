@@ -1,7 +1,8 @@
 [workspace]
 members = [
   "crates/hz0a-pmetal-kernel",
-  "crates/hz0a-pmetal-bridge"
+  "crates/hz0a-pmetal-bridge",
+  "crates/hz0a-pmetal-tensor"
 ]
 
 resolver = "2"
