@@ -333,6 +333,22 @@ yet establish an advantage at the planned 500M-3B-token scale.
 - `native_gdn2_backward_fused` is now the **default** backward path (wired into `_native_gdn2_vjp`), used automatically by both the hybrid and any future kernel-backed model at the locked shape. No model architecture or training semantics changed -- same math, same gate parameterization, same chunk/state-carry behavior, only how the value-axis reduction is computed.
 - **Not done in this pass**: forward-path fusion of the surrounding RMSNorm/QKV/gate projections around the recurrence kernel (still separate MLX ops per the earlier profiling breakdown's hypothesis #3), and `mx.compile`-ing the full training step -- both remain real, identified, unexplored follow-up work.
 
+## Thermally-Honest Throughput Comparison (2026-07-28)
+
+- **Why this was needed:** cold-start GPU throughput bursts (~2.6k tok/s observed earlier this session) are not sustainable; steady-state after sustained load is lower. Any single-shot "hybrid does X tok/s, transformer does Y tok/s" number is confounded by which architecture happened to run first (cold GPU) versus second (already-hot GPU). New `scripts/hz0a_thermal_benchmark.py` removes that confound by alternating architectures and pooling both architectures' cold and hot slots symmetrically: `hybrid (cold) -> transformer (hot, inherits hybrid's heat) -> 90s cooldown -> transformer (warm-restart) -> hybrid (hot, inherits transformer's heat)`. Each architecture ends up with one cold-ish and one hot phase; the first 30% of steps in every phase are excluded from steady-state statistics so a phase's own internal ramp-up can't skew its own median.
+- **Config:** locked 301M/302.6M topology, batch 2 x sequence 256 x chunk 128, 150 steps per phase (105 steady-state steps after the 30% ramp exclusion), native Metal GDN-2 kernel with the fused backward from the section below already in place. Full report: `outputs/hz0a_thermal_benchmark.json`.
+- **Result: the transformer baseline is consistently, honestly faster than the hybrid at Stage-1-scale training throughput, in every one of its four measured phases, regardless of thermal ordering:**
+
+| Phase | Architecture | Steady-state median tok/s | p10 | p90 |
+| --- | --- | --- | --- | --- |
+| 1 (cold) | hybrid | 1,055.6 | 1,050.7 | 1,060.5 |
+| 2 (hot, after hybrid) | transformer | 1,911.8 | 1,878.2 | 1,946.7 |
+| 3 (warm restart) | transformer | 1,569.6 | 1,549.4 | 1,589.1 |
+| 4 (hot, after transformer) | hybrid | 940.1 | 908.5 | 964.0 |
+
+  Pooled across both of its phases: hybrid **975.1 tok/s** median (p10 921.9, p90 1058.9), transformer **1,605.6 tok/s** median (p10 1555.8, p90 1939.9) -- transformer is **~1.65x faster** pooled, and the gap holds up in both individual head-to-head phase pairs (transformer beats hybrid whether hybrid goes first or transformer goes first). Peak memory: hybrid 5.80GB, transformer 6.16GB (hybrid is memory-cheaper, not just slower).
+- **What this does and doesn't say:** this is a pure training-throughput comparison at Stage 1 scale on this specific hardware/kernel state, not a quality-per-wall-clock-hour comparison and not evidence about inference throughput (where the architectures' relative systems tradeoffs are expected to differ, per A12's long-context streaming-inference hypothesis, not yet tested). It also doesn't contradict the Stage 1 quality result below -- hybrid reaching a lower validation loss per *token* despite being slower per *second* are two separate, both-true claims that need to be reported together, not conflated into a single "hybrid is better" or "hybrid is worse" statement.
+
 ## Root-Cause Fix: Long-Sequence Metal Instability (2026-07-28)
 
 - **Root cause found and fixed.** The `_SOURCE` forward kernel in `reference/hz0a_mlx_metal.py` was algorithmically broken: it recomputed the entire state history from scratch for every output timestep (O(S²) per thread), with an additional full recompute-and-sum over all K key channels specifically for `key == 0` threads producing the output (effectively O(S²·K) for those threads). The backward kernel (`_BACKWARD_BODY`) was already written correctly as a single O(S) sequential scan; the forward kernel was never brought in line with it.
