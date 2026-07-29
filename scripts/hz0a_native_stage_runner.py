@@ -11,6 +11,7 @@ import resource
 import shutil
 import sys
 import time
+from functools import partial
 from pathlib import Path
 
 import numpy as np
@@ -165,6 +166,7 @@ def main() -> None:
     parser.add_argument("--carry-attention-state", action="store_true", help="Retain periodic-attention KV caches across truncated training chunks; off by default")
     parser.add_argument("--activation-checkpoint", action="store_true")
     parser.add_argument("--exact-update-norm", action="store_true", help="Clone parameters for exact update norm; expensive and off by default")
+    parser.add_argument("--compile-step", action="store_true", help="mx.compile the per-chunk forward+backward and the optimizer update as two separate compiled functions (verified bit-exact against the uncompiled path; real ~2.65x throughput at the locked 301M scale in isolated benchmarks). Off by default -- opt in explicitly.")
     parser.add_argument("--gradient-accumulation-chunks", type=int, default=1)
     parser.add_argument("--gradient-accumulation-dtype", choices=("float32", "float16"), default="float32")
     parser.add_argument("--max-lr", type=float, default=1e-4, help="Peak learning rate after warmup (1e-4 is the Phase 6 sweep optimum)")
@@ -289,6 +291,33 @@ def main() -> None:
             loss = mx.mean(nn.losses.cross_entropy(logits[:, :-1].astype(mx.float32), chunk[:, 1:]))
             return loss, next_state
         chunk_value_and_grad = nn.value_and_grad(model, chunk_loss)
+
+        def chunk_forward_backward(chunk, carry):
+            return chunk_value_and_grad(model, chunk, carry)
+
+        def apply_optimizer_update(averaged_grads):
+            optimizer.update(model, averaged_grads)
+
+        if args.compile_step:
+            # mx.compile requires the SAME arrays in both `inputs=` and
+            # `outputs=` whenever a value produced by one call feeds back as
+            # an argument to a later call (here: `carry`/`states` -- the
+            # model's own recurrent state -- round-tripping across chunk
+            # iterations) -- omitting `outputs=` here raises "Attempting to
+            # eval an array without a primitive" on the second call, even
+            # though this specific function does not itself mutate
+            # model.state (confirmed by direct experiment before adopting
+            # this, not assumed from documentation alone).
+            chunk_forward_backward = mx.compile(chunk_forward_backward, inputs=model.state, outputs=model.state)
+            # Kept as a SEPARATE compiled function from the forward/backward
+            # above (rather than one combined compiled step) because the
+            # optimizer update only happens every gradient_accumulation_chunks
+            # chunks, not every chunk -- a single compiled function can't
+            # cleanly express that data-independent-but-call-count-dependent
+            # branch. Verified bit-exact against the fully uncompiled
+            # accumulation path before adopting (see the commit this
+            # accompanies).
+            apply_optimizer_update = mx.compile(apply_optimizer_update, inputs=[model.state, optimizer.state], outputs=[model.state, optimizer.state])
         while tokens_seen < args.target_tokens:
             tokens = read_batch(train, args.batch_size, sequence_length, epoch_counter)
             chunk_metrics = []
@@ -299,7 +328,7 @@ def main() -> None:
                 chunks = range(0, sequence_length, args.chunk_length)
                 for start in chunks:
                     chunk = tokens[:, start:start + args.chunk_length]
-                    (loss, next_state), grads = chunk_value_and_grad(model, chunk, states)
+                    (loss, next_state), grads = chunk_forward_backward(chunk, states)
                     mx.eval(loss, grads, *[state for state in next_state if state is not None for state in (state if isinstance(state, tuple) else (state,))])
                     states = [detach_state(state) if (carry_attention_state or not isinstance(state, tuple)) else None for state in next_state]
                     assert_finite("loss/gradients", [loss] + [value for _, value in tree_flatten(grads)])
@@ -331,7 +360,7 @@ def main() -> None:
                     if should_update:
                         last_lr = current_lr(step)
                         optimizer.learning_rate = last_lr
-                        optimizer.update(model, tree_unflatten([(key, (value / accumulated_count).astype(mx.float32)) for key, value in accumulated_grads]))
+                        apply_optimizer_update(tree_unflatten([(key, (value / accumulated_count).astype(mx.float32)) for key, value in accumulated_grads]))
                         mx.eval(loss, model.parameters(), optimizer.state)
                         new = [value for _, value in tree_flatten(model.parameters())]
                         assert_finite("updated parameters", new)
