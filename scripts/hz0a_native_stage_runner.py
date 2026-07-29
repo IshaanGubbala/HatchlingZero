@@ -8,6 +8,7 @@ import hashlib
 import json
 import math
 import resource
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -94,6 +95,8 @@ def save_checkpoint(
     metrics: list[dict],
     microbatch_count: int = 0,
     epoch_or_data_pass: int = 0,
+    best_validation_loss: float | None = None,
+    milestones_hit: list[int] | None = None,
 ) -> None:
     path.mkdir(parents=True, exist_ok=True)
     model_values = tree_flatten(model.parameters())
@@ -110,10 +113,22 @@ def save_checkpoint(
         "batch_index": batch_index,
         "microbatch_count": microbatch_count,
         "epoch_or_data_pass": epoch_or_data_pass,
+        "best_validation_loss": best_validation_loss,
+        "milestones_hit": milestones_hit or [],
         "metrics": metrics,
         "arrays": arrays,
     }
     (path / "state.json").write_text(json.dumps(payload), encoding="utf-8")
+
+
+def snapshot_checkpoint(source: Path, destination: Path) -> None:
+    """Copy a just-written checkpoint directory to a separate, never-overwritten
+    path -- for milestone and best-validation snapshots (the earlier Stage 1
+    run only kept one rolling checkpoint slot, so its "best" mid-run weights
+    were unrecoverably overwritten by later saves; this fixes that)."""
+    if destination.exists():
+        shutil.rmtree(destination)
+    shutil.copytree(source, destination)
 
 
 def restore_checkpoint(path: Path, model, optimizer) -> dict:
@@ -159,6 +174,7 @@ def main() -> None:
     parser.add_argument("--architecture", choices=("hybrid", "transformer"), default="hybrid", help="hybrid = periodic GDN-2 recurrence + attention (the A1 spec); transformer = every layer is causal attention (the A10 matched baseline)")
     parser.add_argument("--seed", type=int, default=7, help="Initialization seed (data order is deterministic/sequential regardless of seed)")
     parser.add_argument("--validation-batch-size", type=int, default=32, help="Fixed number of validation sequences read once at startup and reused for every validation check (was a single rotating sequence -- high variance, not comparable across runs)")
+    parser.add_argument("--milestone-tokens", type=str, default="", help="Comma-separated token counts (e.g. 25000000,50000000,75000000,100000000) to preserve as separate, never-overwritten checkpoint snapshots -- in addition to the regular rolling checkpoint. Fixes the earlier mistake of only keeping one overwritten checkpoint slot.")
     args = parser.parse_args()
     if args.gradient_accumulation_chunks <= 0:
         raise ValueError("--gradient-accumulation-chunks must be positive")
@@ -202,11 +218,15 @@ def main() -> None:
     optimizer = optim.AdamW(learning_rate=current_lr(0), weight_decay=0.01)
     metrics, step, tokens_seen, batch_index = [], 0, 0, 0
     microbatch_count, epoch_or_data_pass = 0, 0
+    best_validation_loss, milestones_hit = None, []
+    milestone_tokens = sorted({int(value) for value in args.milestone_tokens.split(",") if value.strip()})
     if args.resume and checkpoint.exists():
         payload = restore_checkpoint(checkpoint, model, optimizer)
         metrics, step, tokens_seen, batch_index = payload["metrics"], payload["step"], payload["tokens_seen"], payload["batch_index"]
         microbatch_count = payload.get("microbatch_count", 0)
         epoch_or_data_pass = payload.get("epoch_or_data_pass", 0)
+        best_validation_loss = payload.get("best_validation_loss")
+        milestones_hit = payload.get("milestones_hit", [])
     last_lr = current_lr(step)
     started = time.perf_counter()
     carry_attention_state = args.carry_attention_state and not args.reset_attention_state
@@ -331,12 +351,22 @@ def main() -> None:
                 with memory_log.open("a", encoding="utf-8") as handle:
                     handle.write(json.dumps(item) + "\n")
                 gc.collect()
+            is_new_best = False
             if step % args.validation_interval == 0 or tokens_seen >= args.target_tokens:
                 item["validation_loss"] = evaluate_fixed_validation(model)
+                if best_validation_loss is None or item["validation_loss"] < best_validation_loss:
+                    best_validation_loss = item["validation_loss"]
+                    is_new_best = True
             metrics.append(item)
             if step % args.checkpoint_interval == 0 or tokens_seen >= args.target_tokens:
-                save_checkpoint(checkpoint, model, optimizer, step, tokens_seen, batch_index, metrics, microbatch_count=microbatch_count, epoch_or_data_pass=epoch_counter[0])
-    report = {"backend": "native_metal_mlx", "architecture": args.architecture, "stage": "stage1_validation", "dtype": args.dtype, "activation_checkpoint": args.activation_checkpoint, "chunk_length": args.chunk_length, "gradient_accumulation_chunks": args.gradient_accumulation_chunks, "gradient_accumulation_dtype": args.gradient_accumulation_dtype, "reset_attention_state": args.reset_attention_state, "carry_attention_state": carry_attention_state, "lr_schedule": args.lr_schedule, "max_lr": args.max_lr, "warmup_steps": args.warmup_steps, "lr_min_ratio": args.lr_min_ratio, "total_optimizer_steps_estimate": total_optimizer_steps, "final_lr": last_lr, "validation_batch_size": args.validation_batch_size, "steps": step, "microbatch_count": microbatch_count, "epoch_or_data_pass": epoch_counter[0], "tokens_seen": tokens_seen, "target_tokens": args.target_tokens, "budget_complete": tokens_seen >= args.target_tokens, "parameter_count": sum(value.size for _, value in tree_flatten(model.parameters())), "initialization_seed": args.seed, "final_parameter_sha256": model_fingerprint(model), "metrics": metrics, "checkpoint": str(checkpoint), "training_seconds": time.perf_counter() - started, "tokens_per_second": tokens_seen / max(time.perf_counter() - started, 1e-9), "peak_memory_bytes": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss}
+                save_checkpoint(checkpoint, model, optimizer, step, tokens_seen, batch_index, metrics, microbatch_count=microbatch_count, epoch_or_data_pass=epoch_counter[0], best_validation_loss=best_validation_loss, milestones_hit=milestones_hit)
+                if is_new_best:
+                    snapshot_checkpoint(checkpoint, checkpoint.parent / f"{checkpoint.name}_best")
+                for target in milestone_tokens:
+                    if tokens_seen >= target and target not in milestones_hit:
+                        snapshot_checkpoint(checkpoint, checkpoint.parent / f"{checkpoint.name}_milestone_{target}")
+                        milestones_hit.append(target)
+    report = {"backend": "native_metal_mlx", "architecture": args.architecture, "stage": "stage1_validation", "dtype": args.dtype, "activation_checkpoint": args.activation_checkpoint, "chunk_length": args.chunk_length, "gradient_accumulation_chunks": args.gradient_accumulation_chunks, "gradient_accumulation_dtype": args.gradient_accumulation_dtype, "reset_attention_state": args.reset_attention_state, "carry_attention_state": carry_attention_state, "lr_schedule": args.lr_schedule, "max_lr": args.max_lr, "warmup_steps": args.warmup_steps, "lr_min_ratio": args.lr_min_ratio, "total_optimizer_steps_estimate": total_optimizer_steps, "final_lr": last_lr, "validation_batch_size": args.validation_batch_size, "steps": step, "microbatch_count": microbatch_count, "epoch_or_data_pass": epoch_counter[0], "best_validation_loss": best_validation_loss, "milestones_hit": milestones_hit, "tokens_seen": tokens_seen, "target_tokens": args.target_tokens, "budget_complete": tokens_seen >= args.target_tokens, "parameter_count": sum(value.size for _, value in tree_flatten(model.parameters())), "initialization_seed": args.seed, "final_parameter_sha256": model_fingerprint(model), "metrics": metrics, "checkpoint": str(checkpoint), "training_seconds": time.perf_counter() - started, "tokens_per_second": tokens_seen / max(time.perf_counter() - started, 1e-9), "peak_memory_bytes": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss}
     (args.run_dir / "native_metal.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(json.dumps(report, indent=2))
 
