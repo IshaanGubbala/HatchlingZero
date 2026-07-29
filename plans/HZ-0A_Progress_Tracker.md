@@ -231,6 +231,44 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
 - extend the machine-readable parity report across the 100-200 step replay and add native-vs-MLX loss/gradient/update/throughput comparisons
 - run native BF16/float32 parity at model level, then the 110M one-step smoke and 100-200 step replay; do not restart the 10M-token Stage 1 through native code until those gates pass
 
+## Replicated Stage 1 Signal: Three Seeds (2026-07-28)
+
+Stage 1 now has three independent matched-seed comparisons. Seeds 7, 13, and
+42 all favor HZ-0A over the parameter-matched transformer on validation
+loss. Seed 13 favored HZ-0A at all 17 matched checkpoints and finished with
+a -0.53 nat gap; seed 42 favored HZ-0A at all 25 checkpoints and finished
+with a -0.50 nat gap. Together with the corrected full-holdout seed-7
+result, this establishes a replicated positive Stage 1 signal. The result
+remains limited to 2.5M-10M-token pipeline-scale experiments and does not
+yet establish an advantage at the planned 500M-3B-token scale.
+
+**What this does and does not support:**
+- Evidence for: better validation loss per token at Stage 1 scale; replication across three seeds; consistent (not checkpoint-specific) gains; a native backward kernel with a material end-to-end speedup; the initial throughput deficit being partly implementation-related (not purely architectural).
+- Not yet evidence for: superiority at 500M-3B tokens; better wall-clock efficiency under thermally stabilized conditions (the one throughput drop observed this session, 2.6k->1.4k tok/s, was traced to GPU thermal settling after a cold start, not a regression -- but no benchmark in this session controlled for that properly); faster inference at long context; an advantage over a compute-matched (as opposed to only parameter-matched) transformer.
+
+**Benchmarking protocol correction for future throughput comparisons** (the cold-start 2.6k tok/s figure should not be reported as sustainable if the GPU settles near 1.4k tok/s): warm up until throughput stabilizes; record device thermal/power state when available; discard the initial transient window; report steady-state median and p10/p90, not just a point figure; alternate which architecture is benchmarked cold; let the machine return to the same thermal state between comparisons. Not yet implemented in `hz0a_profile_training_step.py` -- a known follow-up, not done here.
+
+**Locked artifacts** (exact configs, hashes, commit SHAs for every run referenced above):
+
+| run | params | steps | tokens | final param fingerprint (sha256, truncated) | report |
+|---|---:|---:|---:|---|---|
+| seed7 hybrid (10M) | 301,178,112 | 39,064 | 10,000,384 | `10b2e5a5e6dca5c6...` | `outputs/hz0a_stage1_10m_native/native_metal.json` |
+| seed7 transformer (10M) | 302,634,752 | 39,064 | 10,000,384 | `52432c51d1c34aea...` | `outputs/hz0a_stage1_10m_transformer/native_metal.json` |
+| seed13 hybrid (5M) | 301,178,112 | 2,442 | 5,001,216 | `80a4b8f8acbee6cb...` | `outputs/hz0a_stage1_5m_hybrid_seed13/native_metal.json` |
+| seed13 transformer (5M) | 302,634,752 | 2,442 | 5,001,216 | `ec7a3fbadecdb806...` | `outputs/hz0a_stage1_5m_transformer_seed13/native_metal.json` |
+| seed42 hybrid (2.5M) | 301,178,112 | 1,221 | 2,500,608 | `5560d1d9fd47b8cd...` | `outputs/hz0a_stage1_2p5m_hybrid_seed42/native_metal.json` |
+| seed42 transformer (2.5M) | 302,634,752 | 1,221 | 2,500,608 | `c67a08d5a217fbe3...` | `outputs/hz0a_stage1_2p5m_transformer_seed42/native_metal.json` |
+
+- Tokenizer: `data/tokenizer/hz0a_24576.json`, sha256 `cab29d54ca82f902472996939b9441a7bf3b0bb2e80f89d7f4a8d7445b240eb1`.
+- Dataset (seed7, sequence 1024): `data/packed/stage1_10m_train.jsonl` sha256 `ebe75bee383ea228e2de0e3912458309d4644ec14fcd3faf6116e4dc8ace51fd`; validation `data/packed/repro_1024_val.jsonl` sha256 `8abf02b7a20bc9e42f86367e4ca7e91a65cf55cbdd2b21c00b4c7b4c9ff1dc07`.
+- Dataset (seed13/seed42, sequence 256, faster config): `data/packed/stage1_10m_train_seq256.jsonl` sha256 `ddb4f65b2a4846138e68094ed11f646ec0685d5c85a03206feac26781960b5cb`; validation `data/packed/repro_256_val.jsonl` sha256 `5b1f4d5c31b8b3a4ede8c082e481122e62fd1e75598fa9fe571ca9d31767869a`.
+- Full-holdout seed-7 comparison: `outputs/stage1_full_holdout_comparison.json` (via `scripts/hz0a_full_holdout_eval.py`).
+- Fused-kernel parity: `tests/reference/test_hz0a_mlx_metal_fused_backward.py` (4 tests, passing at commit `cfb542a`).
+- Pre/post-fusion throughput benchmarks: `outputs/stage1_profile_report.json` (baseline), `outputs/stage1_profile_report_fused.json` (fused).
+- Commit SHAs, in order: `9e05b98` (O(S^2) forward fix, BF16, initial A5 mixture, LR schedule, dashboard) -> `75f97ba` (matched Stage 1 seed-7 complete, validation fix) -> `864bdef` (fixed-batch validation, finite-check speedup, --seed) -> `5131ae2` (profiling diagnostic) -> `cfb542a` (backward kernel fusion, currently `HEAD`).
+
+**Recommended next step, not started:** do not run more Stage 1 seeds -- three agreeing seeds is enough for this tier. Move to a staged scale test: 100M tokens, one primary seed, both models, fixed full-holdout evaluation, best+final checkpoints preserved, thermally-stabilized throughput logging per the corrected protocol above; follow with one shorter replication seed only if the advantage persists at that scale.
+
 ## Backward Kernel Fusion: Eliminate (B,S,H,V,K) Partial-Gradient Buffers (2026-07-28)
 
 - **Problem identified by the forward/backward/optimizer profiling diagnostic** (`scripts/hz0a_profile_training_step.py`): hybrid's backward pass was disproportionately slow versus forward relative to the transformer baseline (forward 1.6x slower, backward 2.5x slower), even with the native Metal kernel already in use. Root cause: `native_gdn2_backward`'s Metal kernel materializes four full `(batch, steps, heads, value_dim, key_dim)` intermediate tensors (`grad_q_partial`, `grad_k_partial`, `grad_d_partial`, `grad_e_partial`) — one thread per `(batch, head, value)`, each writing its own value-slice — then reduces them over the value axis with four separate `mx.sum(..., axis=3)` calls. At the locked config (B=8, S=128, H=12, V=K=64) that's `8*128*12*64*64*4 bytes ≈ 1.34GB` per buffer, `≈5.37GB` total per backward call, of which only `≈100MB` (the post-reduction `(B,S,H,K)` shape) is actually needed — a `~53x` padding blowup, explaining the elevated cache-memory numbers seen throughout this session's profiling.
