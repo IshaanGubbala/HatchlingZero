@@ -1,16 +1,23 @@
 {
   "actual_mixture_pct_of_grand_total": {
-    "code": 0.0574,
-    "documentation": 0.0223,
-    "general_text": 99.86,
-    "json_and_configuration": 0.0566,
-    "mathematical_and_structured": 0.001,
-    "terminal_and_debugging": 0.0023
+    "code": 14.2969,
+    "documentation": 3.8028,
+    "general_text": 79.817,
+    "json_and_configuration": 0.0452,
+    "mathematical_and_structured": 2.0363,
+    "terminal_and_debugging": 0.0019
   },
-  "actual_mixture_status": "REAL BUT SUB-SCALE: all sources below are genuine, deduplicated, contamination-checked, hash-verified local material. Total corpus volume is far below the plan A5 100M-token exit gate. general_text (wikitext-103) alone is at real 100M+ token scale; code/documentation/json/terminal/math are only as large as currently exists in this repository (~274K tokens total). No content was repeated, resampled, or padded to hit target percentages.",
-  "gap_vs_plan": "code/documentation/json_and_configuration/terminal_and_debugging/mathematical_and_structured collectively need to reach 60% of a 100M-token corpus (60M tokens) per the plan; only ~274K tokens of real, non-duplicated local material exist today (~0.27% of the 60M target). Closing this gap requires either substantial repository growth over time or ingesting an external, properly licensed and provenance-tracked corpus for these domains -- neither is done here.",
+  "actual_mixture_status": "REAL, hash-verified, multi-source. general_text/code/mathematical_and_structured are at or near the plan target scale (code exact, math exact, general_text far exceeds it). documentation is at 93% of its 10M-token target (the non-gated source dataset genuinely only contains that much distinct material). json_and_configuration and terminal_and_debugging remain local-repo scale only -- no non-gated large-scale HF dataset was found for either after checking several candidates (bigcode/the-stack-smol, bigcode/the-stack-dedup, and nampdn-ai/tiny-codes are all gated and require manual per-dataset HF approval this environment cannot grant). No content was repeated or padded to hit targets.",
+  "category_token_totals": {
+    "code": 35112938,
+    "documentation": 9339703,
+    "json_and_configuration": 111131,
+    "mathematical_and_structured": 5001190,
+    "terminal_and_debugging": 4574
+  },
+  "gap_vs_plan": "code and mathematical_and_structured are now at (code) or essentially at (math) their absolute plan targets (35M and 5M tokens respectively) with real, hash-verified, non-gated external sources. documentation reached 93% of its 10M-token target -- a genuine source-exhaustion ceiling, not a shortcut. json_and_configuration and terminal_and_debugging remain at local-repo scale (~111K and ~4.5K tokens respectively) because no non-gated large-scale HF dataset was found for either category; the promising candidates (the-stack-smol variants, tiny-codes) are all gated and require manual per-dataset HF access approval. general_text (Wikitext) at 196M tokens is 4.9x the 40M-token target, so the current corpus is not ratio-balanced at the top level even though 3 of 5 non-text categories are individually at real target scale -- reaching the plan-declared 40/35/10/5/5/5 RATIO (as opposed to absolute per-category scale) would require either subsampling Wikitext down to ~40M or further growing json/terminal, neither done here.",
   "generated": "2026-07-28",
-  "grand_total_tokens": 196302893,
+  "grand_total_tokens": 245598253,
   "plan_target_mixture_pct": {
     "code": 35,
     "documentation_and_api": 10,
@@ -81,8 +88,70 @@
         }
       },
       "total_tokens": 274176
+    },
+    {
+      "category": "code",
+      "ingest_report": "outputs/a5_external/code_report.json",
+      "license": "per-file, recorded in data/external_corpus/code.jsonl",
+      "name": "codeparrot_codeparrot-clean-valid",
+      "provenance": "codeparrot/codeparrot-clean-valid (Hugging Face Hub, non-gated)",
+      "raw_shard": "data/external_corpus/code.jsonl",
+      "splits": {
+        "test": {
+          "packed_output": "data/packed/external/code_test.jsonl"
+        },
+        "train": {
+          "packed_output": "data/packed/external/code_train.jsonl"
+        },
+        "validation": {
+          "packed_output": "data/packed/external/code_validation.jsonl"
+        }
+      },
+      "total_tokens": 35000320
+    },
+    {
+      "category": "documentation",
+      "ingest_report": "outputs/a5_external/documentation_report.json",
+      "license": "per-file, recorded in data/external_corpus/documentation.jsonl",
+      "name": "codeparrot_github-jupyter-text-code-pairs",
+      "provenance": "codeparrot/github-jupyter-text-code-pairs (Hugging Face Hub, non-gated)",
+      "raw_shard": "data/external_corpus/documentation.jsonl",
+      "shortfall_reason": "source dataset exhausted at 38,602 unique records after removing 3,158 exact duplicates -- this is the real ceiling of that non-gated source, not a stopping choice",
+      "splits": {
+        "test": {
+          "packed_output": "data/packed/external/documentation_test.jsonl"
+        },
+        "train": {
+          "packed_output": "data/packed/external/documentation_train.jsonl"
+        },
+        "validation": {
+          "packed_output": "data/packed/external/documentation_validation.jsonl"
+        }
+      },
+      "target_tokens": 10000000,
+      "total_tokens": 9295872
+    },
+    {
+      "category": "mathematical_and_structured",
+      "ingest_report": "outputs/a5_external/math_report.json",
+      "license": "ODC-By-1.0",
+      "name": "open-web-math",
+      "provenance": "open-web-math/open-web-math (Hugging Face Hub, non-gated)",
+      "raw_shard": "data/external_corpus/mathematical_and_structured.jsonl",
+      "splits": {
+        "test": {
+          "packed_output": "data/packed/external/mathematical_and_structured_test.jsonl"
+        },
+        "train": {
+          "packed_output": "data/packed/external/mathematical_and_structured_train.jsonl"
+        },
+        "validation": {
+          "packed_output": "data/packed/external/mathematical_and_structured_validation.jsonl"
+        }
+      },
+      "total_tokens": 4999168
     }
   ],
   "tokenizer_path": "data/tokenizer/hz0a_24576.json",
-  "version": "a5.mixture.v2"
+  "version": "a5.mixture.v3"
 }

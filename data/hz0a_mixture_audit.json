@@ -1,17 +1,17 @@
 {
   "actual_mixture_pct_of_grand_total": {
-    "code": 0.0574,
-    "documentation": 0.0223,
-    "general_text": 99.86,
-    "json_and_configuration": 0.0566,
-    "mathematical_and_structured": 0.001,
-    "terminal_and_debugging": 0.0023
+    "code": 14.2969,
+    "documentation": 3.8028,
+    "general_text": 79.817,
+    "json_and_configuration": 0.0452,
+    "mathematical_and_structured": 2.0363,
+    "terminal_and_debugging": 0.0019
   },
   "all_sources_hash_consistent": true,
-  "gap_vs_plan": "code/documentation/json_and_configuration/terminal_and_debugging/mathematical_and_structured collectively need to reach 60% of a 100M-token corpus (60M tokens) per the plan; only ~274K tokens of real, non-duplicated local material exist today (~0.27% of the 60M target). Closing this gap requires either substantial repository growth over time or ingesting an external, properly licensed and provenance-tracked corpus for these domains -- neither is done here.",
-  "grand_total_tokens": 196302893,
+  "gap_vs_plan": "code and mathematical_and_structured are now at (code) or essentially at (math) their absolute plan targets (35M and 5M tokens respectively) with real, hash-verified, non-gated external sources. documentation reached 93% of its 10M-token target -- a genuine source-exhaustion ceiling, not a shortcut. json_and_configuration and terminal_and_debugging remain at local-repo scale (~111K and ~4.5K tokens respectively) because no non-gated large-scale HF dataset was found for either category; the promising candidates (the-stack-smol variants, tiny-codes) are all gated and require manual per-dataset HF access approval. general_text (Wikitext) at 196M tokens is 4.9x the 40M-token target, so the current corpus is not ratio-balanced at the top level even though 3 of 5 non-text categories are individually at real target scale -- reaching the plan-declared 40/35/10/5/5/5 RATIO (as opposed to absolute per-category scale) would require either subsampling Wikitext down to ~40M or further growing json/terminal, neither done here.",
+  "grand_total_tokens": 245598253,
   "manifest": "data/hz0a_mixture_manifest.json",
-  "manifest_sha256": "42cec673bb334a729f56f8e7680ffb12d246bdfb65e4e845f3aca3c060e95cb9",
+  "manifest_sha256": "f9c17bc3b9eb534e880c3a472ffc469a5ea532e9059fd72aa6b401795ae8ab6f",
   "plan_target_mixture_pct": {
     "code": 35,
     "documentation_and_api": 10,
@@ -61,6 +61,63 @@
       },
       "name": "hz0a_local_repo_corpus",
       "total_tokens": 274176
+    },
+    {
+      "all_hashes_match": true,
+      "checked_files": {
+        "data/packed/external/code_test.jsonl": {
+          "match": true,
+          "sha256": "dba72ec1906ad9c0c293eeeefb55bdd6d77090a0511f294d0d6e4443f51483e2"
+        },
+        "data/packed/external/code_train.jsonl": {
+          "match": true,
+          "sha256": "f42e84bab23a01b77bd08a465609b1d80c243ca0b3f8a589698238ae6ee4f664"
+        },
+        "data/packed/external/code_validation.jsonl": {
+          "match": true,
+          "sha256": "46f41658dfe09fdbe512ccbc0c994b4173c3b19cf8ec1707119b347cbe8e148d"
+        }
+      },
+      "name": "codeparrot_codeparrot-clean-valid",
+      "total_tokens": 35000320
+    },
+    {
+      "all_hashes_match": true,
+      "checked_files": {
+        "data/packed/external/documentation_test.jsonl": {
+          "match": true,
+          "sha256": "121f614fd0664f400ecc0be408d6dd0bff0ed23bc6ba03a42ad01700d961d738"
+        },
+        "data/packed/external/documentation_train.jsonl": {
+          "match": true,
+          "sha256": "0d70a671585852301a5513f344bddd641ec5b170b4f665ffb3755ae14c76d16e"
+        },
+        "data/packed/external/documentation_validation.jsonl": {
+          "match": true,
+          "sha256": "583148a38b3558dffae93446030dc65a053fccc89139353c91f7368d7c7bb10f"
+        }
+      },
+      "name": "codeparrot_github-jupyter-text-code-pairs",
+      "total_tokens": 9295872
+    },
+    {
+      "all_hashes_match": true,
+      "checked_files": {
+        "data/packed/external/mathematical_and_structured_test.jsonl": {
+          "match": true,
+          "sha256": "7b6a017edca0ea4c7a2c0329db4a64365114a63d8b3f2771ee685a93f55e9180"
+        },
+        "data/packed/external/mathematical_and_structured_train.jsonl": {
+          "match": true,
+          "sha256": "af17d43a359b444f5d4a1e947bb94751daf0c0382bff027fb14ff84fdfff35d4"
+        },
+        "data/packed/external/mathematical_and_structured_validation.jsonl": {
+          "match": true,
+          "sha256": "91c323fbc99c28dac09fba7345374c9309d73befcb79478a63df1154e3e9c020"
+        }
+      },
+      "name": "open-web-math",
+      "total_tokens": 4999168
     }
   ]
 }

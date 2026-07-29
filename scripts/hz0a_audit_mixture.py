@@ -47,6 +47,7 @@ def audit(path: Path) -> dict:
         "manifest": str(path),
         "manifest_sha256": sha256(path),
         "grand_total_tokens": manifest["grand_total_tokens"],
+        "category_token_totals": manifest.get("category_token_totals", {}),
         "plan_target_mixture_pct": manifest["plan_target_mixture_pct"],
         "actual_mixture_pct_of_grand_total": manifest["actual_mixture_pct_of_grand_total"],
         "gap_vs_plan": manifest["gap_vs_plan"],
