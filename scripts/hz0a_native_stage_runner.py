@@ -160,7 +160,7 @@ def main() -> None:
     parser.add_argument("--heads", type=int, default=12)
     parser.add_argument("--d-ff", type=int, default=2304)
     parser.add_argument("--sequence-length", type=int, default=0)
-    parser.add_argument("--dtype", choices=("float32", "float16"), default="float32")
+    parser.add_argument("--dtype", choices=("float32", "float16", "bfloat16"), default="float32", help="float16 was rejected earlier this session for NaN; bfloat16 is a separate, verified-stable lower-precision path with a wider exponent range")
     parser.add_argument("--reset-attention-state", action="store_true")
     parser.add_argument("--carry-attention-state", action="store_true", help="Retain periodic-attention KV caches across truncated training chunks; off by default")
     parser.add_argument("--activation-checkpoint", action="store_true")
@@ -210,6 +210,15 @@ def main() -> None:
     model = HZ0AMlxModel(args.vocab_size, args.dim, args.layers, args.heads, args.d_ff, attention, native_metal=True, checkpoint_blocks=args.activation_checkpoint)
     if args.dtype == "float16":
         model.update(tree_unflatten([(key, value.astype(mx.float16)) for key, value in tree_flatten(model.parameters())]))
+    elif args.dtype == "bfloat16":
+        # The GDN-2 kernel's recurrent-state accumulator is hardcoded fp32
+        # internally (thread float state[64] in reference/hz0a_mlx_metal.py,
+        # regardless of the templated I/O DType) -- casting parameters to
+        # bf16 does not touch that. Loss reduction is separately forced back
+        # to fp32 below regardless of model dtype, matching the same
+        # mixed-precision policy already used for the optimizer's own
+        # gradient input (already always fp32, see the accumulation loop).
+        model.update(tree_unflatten([(key, value.astype(mx.bfloat16)) for key, value in tree_flatten(model.parameters())]))
     def current_lr(at_step: int) -> float:
         if args.lr_schedule == "constant":
             return args.max_lr
@@ -250,7 +259,7 @@ def main() -> None:
             for start in range(0, fixed_validation_tokens.shape[0], sub_batch):
                 chunk = fixed_validation_tokens[start:start + sub_batch]
                 logits, _ = current(chunk)
-                loss = mx.mean(nn.losses.cross_entropy(logits[:, :-1], chunk[:, 1:]))
+                loss = mx.mean(nn.losses.cross_entropy(logits[:, :-1].astype(mx.float32), chunk[:, 1:]))
                 mx.eval(loss)
                 total += float(loss)
                 count += 1
@@ -262,7 +271,7 @@ def main() -> None:
                 logits, states = current(tokens[:, start:start + args.chunk_length], states)
                 logits_parts.append(logits)
             logits = mx.concatenate(logits_parts, axis=1)
-            return mx.mean(nn.losses.cross_entropy(logits[:, :-1], tokens[:, 1:]))
+            return mx.mean(nn.losses.cross_entropy(logits[:, :-1].astype(mx.float32), tokens[:, 1:]))
         value_and_grad = nn.value_and_grad(model, loss_fn)
         def chunk_loss(current, chunk, carry):
             # next_state returned as an aux output (mx.value_and_grad only
@@ -273,7 +282,11 @@ def main() -> None:
             # forward previously used a mismatched carry-in (see the fix
             # commit this accompanies for the full bug writeup).
             logits, next_state = current(chunk, carry)
-            loss = mx.mean(nn.losses.cross_entropy(logits[:, :-1], chunk[:, 1:]))
+            # Loss reduction forced to fp32 regardless of model dtype (the
+            # softmax/log-sum-exp inside cross_entropy is precision-sensitive;
+            # bf16 logits are fine as matmul/activation storage but risk real
+            # numerical error accumulated over a full-vocab reduction).
+            loss = mx.mean(nn.losses.cross_entropy(logits[:, :-1].astype(mx.float32), chunk[:, 1:]))
             return loss, next_state
         chunk_value_and_grad = nn.value_and_grad(model, chunk_loss)
         while tokens_seen < args.target_tokens:
