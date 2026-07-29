@@ -298,11 +298,14 @@ def main() -> None:
                         mx.eval(*[value for _, value in accumulated_grads])
                     else:
                         previous_grads = accumulated_grads
-                        accumulated_grads = []
-                        for (key, previous), (_, current) in zip(previous_grads, tree_flatten(grads)):
-                            value = previous + current.astype(previous.dtype)
-                            mx.eval(value)
-                            accumulated_grads.append((key, mx.array(value)))
+                        # previous/current are both already materialized (evaluated
+                        # on the accumulator-init branch and on line ~290
+                        # respectively), so summing them is a shallow op with no
+                        # lazy-graph buildup risk -- one batched eval after the loop
+                        # is sufficient; evaluating each parameter individually
+                        # inside the loop (as a since-fixed refactor accidentally
+                        # left this) was a redundant sync point per parameter tensor.
+                        accumulated_grads = [(key, previous + current.astype(previous.dtype)) for (key, previous), (_, current) in zip(previous_grads, tree_flatten(grads))]
                         mx.eval(*[value for _, value in accumulated_grads])
                         del previous_grads
                     accumulated_count += 1
@@ -323,8 +326,15 @@ def main() -> None:
                         step += 1
                         accumulated_grads = None
                         accumulated_count = 0
-                    mx.clear_cache()
-                    gc.collect()
+                        # Once per optimizer step (their original intent per the
+                        # commits that added them: "Stabilize native Stage 1 chunk
+                        # allocator" / "reduce native runner peak memory"), not
+                        # every chunk -- a later accumulation-loop refactor left
+                        # these unindented, accidentally doubling their frequency
+                        # (at gradient_accumulation_chunks=2) with no memory-safety
+                        # benefit over the originally-intended cadence.
+                        mx.clear_cache()
+                        gc.collect()
                     active_memory = int(mx.get_active_memory())
                     cache_memory = int(mx.get_cache_memory())
                     peak_memory = int(mx.get_peak_memory())
