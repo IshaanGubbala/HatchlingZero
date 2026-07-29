@@ -1,6 +1,6 @@
 # HZ-0A Progress Tracker
 
-Updated: July 28, 2026
+Updated: July 28, 2026 (latest pass: Stage 1 three-seed replication + backward kernel fusion)
 
 ## Mission
 
@@ -8,9 +8,9 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
 
 ## Current Status
 
-- Overall phase: `A5/A7/A11/A12 in progress`
-- Confidence level: high for archaeology findings, low for any legacy implementation reuse
-- Last verified checkpoint: `July 28, 2026 - Rust PMetal CPU forward, A12 recurrent inference, A11 staged protocol, A10 matched transformer, A9 replay, A8 chunked backward, A6 parity, A5 packing, and A7 safety pass`
+- Overall phase: `A5/A6/A7/A8/A9/A10/A11/A12 all in progress; none complete`
+- Confidence level: high for archaeology findings and for the Stage 1 replication result; low for any legacy implementation reuse; A6 (real PMetal device execution) is the least-started phase
+- Last verified checkpoint: `July 28, 2026 - fixed O(S^2) native Metal forward kernel bug, fused GDN-2 backward (1.93x/92% memory), real BF16 support, Stage 1 (1M-10M token tier) complete for hybrid+transformer across 3 seeds with a replicated hybrid-favors result, real A5 local-corpus mixture rebuilt (still far short of the 100M-token target), live training dashboard`
 - Active artifacts:
   - `/Users/ishaangubbala/Documents/Training/docs/restart/hz0a_history_audit.md`
   - `/Users/ishaangubbala/Documents/Training/docs/restart/hz0a_recovered_spec.md`
@@ -36,7 +36,7 @@ Rebuild HZ-0A from zero as an approximately 300M-parameter recurrent-hybrid LM w
 | A8 | explicit PMetal GDN-2 backward | In progress | Python/Rust CPU and native Metal cached reverse scans now return required gradients; PMetal model/training integration remains |
 | A9 | deterministic optimizer replay | In progress | 100-step fixed-seed AdamW replay now produces exact repeated metrics and parameter fingerprint |
 | A10 | matched transformer | In progress | checked-in 301.180M dense baseline config/count and deterministic tiny reference now pass |
-| A11 | training stages | In progress | shared 4-stage protocol plus real multi-parameter tiny hybrid/transformer training, validation, and exact resume smoke now pass; full pretraining remains |
+| A11 | training stages | In progress | shared 4-stage protocol plus real multi-parameter tiny hybrid/transformer training, validation, and exact resume smoke now pass; Stage 1 (per-plan 1M-10M token pipeline-smoke tier) is now genuinely done at real ~300M scale for both architectures, 3 seeds (7/13/42), replicated positive signal for the hybrid -- see "Replicated Stage 1 Signal" section below. Stage 2 (100M), Stage 3 (500M), Stage 4 (1B-3B) not started |
 | A12 | fused Metal inference | In progress | recurrent and causal-attention KV-cache reference equivalence, state serialization/reset, and separate timing now pass; fused backend remains |
 
 ## Confirmed Historical Findings To Carry Forward
