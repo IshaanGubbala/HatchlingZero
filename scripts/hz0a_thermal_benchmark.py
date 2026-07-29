@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -48,6 +49,21 @@ def build_model(architecture: str, dim: int, layers: int, heads: int, hybrid_d_f
     model = HZ0AMlxModel(24576, dim, layers, heads, d_ff, attention, native_metal=True)
     mx.eval(model.parameters())
     return model
+
+
+def capture_power_state() -> dict:
+    """Best-effort snapshot of macOS power/thermal-relevant state, so a
+    throughput comparison can be checked against "was this run on battery /
+    in low-power mode / about to sleep" rather than assumed clean."""
+    def run(command: list[str]) -> str:
+        try:
+            return subprocess.run(command, capture_output=True, text=True, timeout=5).stdout.strip()
+        except Exception as error:  # best-effort diagnostics only, never fail the benchmark over this
+            return f"<unavailable: {error}>"
+    return {
+        "pmset_active_assertions": run(["pmset", "-g"]),
+        "pmset_battery": run(["pmset", "-g", "batt"]),
+    }
 
 
 def percentile(values: list[float], p: float) -> float:
@@ -76,6 +92,8 @@ def run_phase(architecture: str, args, label: str) -> dict:
     mx.reset_peak_memory()
 
     forward_ms, combined_ms, optimizer_ms, tokens_per_sec = [], [], [], []
+    elapsed_at_step = []
+    phase_started = time.perf_counter()
     print(f"[{label}] {architecture}: running {args.steps} steps...", flush=True)
     for step in range(args.steps):
         t0 = time.perf_counter()
@@ -95,10 +113,16 @@ def run_phase(architecture: str, args, label: str) -> dict:
         combined_ms.append((t2 - t1) * 1000)
         optimizer_ms.append((t3 - t2) * 1000)
         tokens_per_sec.append((args.batch_size * args.sequence_length) / (t3 - t0))
+        elapsed_at_step.append(time.perf_counter() - phase_started)
         if (step + 1) % max(1, args.steps // 5) == 0:
             print(f"[{label}] {architecture}: step {step + 1}/{args.steps}, last tok/s={tokens_per_sec[-1]:.1f}", flush=True)
 
-    ramp = max(1, int(args.steps * args.ramp_fraction))
+    # Ramp exclusion is the LARGER of the step-fraction rule and a minimum
+    # wall-clock warmup duration -- a fixed step fraction alone
+    # under-excludes when a phase happens to run fast (few seconds isn't
+    # long enough for thermal/cache state to actually stabilize).
+    steps_within_min_warmup = sum(1 for elapsed in elapsed_at_step if elapsed < args.min_warmup_seconds)
+    ramp = max(1, int(args.steps * args.ramp_fraction), min(steps_within_min_warmup, args.steps - 1))
     steady_forward = forward_ms[ramp:]
     steady_combined = combined_ms[ramp:]
     steady_optimizer = optimizer_ms[ramp:]
@@ -156,16 +180,19 @@ def main() -> None:
     parser.add_argument("--steps", type=int, default=150, help="Steps per phase")
     parser.add_argument("--ramp-fraction", type=float, default=0.3, help="Fraction of each phase's steps excluded from steady-state stats")
     parser.add_argument("--cooldown-seconds", type=float, default=90.0)
+    parser.add_argument("--min-warmup-seconds", type=float, default=60.0, help="Minimum wall-clock time per phase excluded from steady-state stats, in addition to --ramp-fraction (shorter than the ideal 10-15 minutes for a quick sweep; lengthen for a final, authoritative comparison)")
     parser.add_argument("--output", type=Path, default=Path("outputs/hz0a_thermal_benchmark.json"))
     args = parser.parse_args()
 
     started = time.perf_counter()
+    power_before = capture_power_state()
     phase1 = run_phase("hybrid", args, "phase1_hybrid_cold")
     phase2 = run_phase("transformer", args, "phase2_transformer_hot_after_hybrid")
     print(f"Cooling down {args.cooldown_seconds}s before the warm-restart pair...", flush=True)
     time.sleep(args.cooldown_seconds)
     phase3 = run_phase("transformer", args, "phase3_transformer_warm_restart")
     phase4 = run_phase("hybrid", args, "phase4_hybrid_hot_after_transformer")
+    power_after = capture_power_state()
 
     report = {
         "config": vars(args) | {"output": str(args.output)},
@@ -174,6 +201,8 @@ def main() -> None:
             "hybrid": pool_architecture([phase1, phase4]),
             "transformer": pool_architecture([phase2, phase3]),
         },
+        "power_state_before": power_before,
+        "power_state_after": power_after,
         "total_wall_seconds": time.perf_counter() - started,
     }
     print(json.dumps(report["pooled"], indent=2))
