@@ -17,17 +17,22 @@ class GDN2(nn.Module):
         super().__init__()
         self.dim, self.heads, self.head_dim = dim, heads, dim // heads
         self.native_metal = native_metal
-        self.qkv = nn.Linear(dim, 3 * dim)
-        self.gates = nn.Linear(dim, 3 * dim)
+        # Single combined projection instead of separate qkv/gates Linears:
+        # mathematically identical (a Linear applied to concatenated weight
+        # rows equals two separate Linears on the same input, just computed
+        # as one matmul/dispatch instead of two) -- cuts one full
+        # (dim, 6*dim) matmul's dispatch overhead per GDN2 block per call.
+        # Matches the layout hz0a-pmetal-tensor's Rust Gdn2Block already
+        # used (in_proj: dim -> heads*(4*d_k+2*d_v)); the Python/MLX path
+        # had drifted to the less efficient two-projection form.
+        self.in_proj = nn.Linear(dim, 6 * dim)
         self.out = nn.Linear(dim, dim)
-        self.gates.bias = mx.concatenate([mx.full((dim,), 4.59512), mx.full((2 * dim,), -4.59512)])
+        self.in_proj.bias = mx.concatenate([mx.zeros((3 * dim,)), mx.full((dim,), 4.59512), mx.full((2 * dim,), -4.59512)])
 
     def __call__(self, x, state=None):
         bsz, steps, _ = x.shape
-        q, k, v = mx.split(self.qkv(x).reshape(bsz, steps, 3, self.heads, self.head_dim), 3, axis=2)
-        q, k, v = (mx.squeeze(item, axis=2) for item in (q, k, v))
-        d, e, w = mx.split(self.gates(x).reshape(bsz, steps, 3, self.heads, self.head_dim), 3, axis=2)
-        d, e, w = (mx.squeeze(item, axis=2) for item in (d, e, w))
+        q, k, v, d, e, w = mx.split(self.in_proj(x).reshape(bsz, steps, 6, self.heads, self.head_dim), 6, axis=2)
+        q, k, v, d, e, w = (mx.squeeze(item, axis=2) for item in (q, k, v, d, e, w))
         if state is None:
             state = mx.zeros((bsz, self.heads, self.head_dim, self.head_dim), dtype=x.dtype)
         if self.native_metal:
@@ -73,12 +78,10 @@ class Block(nn.Module):
         self.gate, self.up, self.down = nn.Linear(dim, d_ff), nn.Linear(dim, d_ff), nn.Linear(d_ff, dim)
 
     def __call__(self, x, state=None):
-        if self.attention:
-            mixed, next_state = self.mixer(self.norm1(x), state)
-        else:
-            mixed, next_state = self.mixer(self.norm1(x), state)
+        mixed, next_state = self.mixer(self.norm1(x), state)
         x = x + mixed
-        mlp = self.down(nn.silu(self.gate(self.norm2(x))) * self.up(self.norm2(x)))
+        normed2 = self.norm2(x)
+        mlp = self.down(nn.silu(self.gate(normed2)) * self.up(normed2))
         return x + mlp, next_state
 
 
