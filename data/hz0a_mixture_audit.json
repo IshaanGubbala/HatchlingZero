@@ -1,17 +1,25 @@
 {
   "actual_mixture_pct_of_grand_total": {
-    "code": 14.2969,
-    "documentation": 3.8028,
-    "general_text": 79.817,
-    "json_and_configuration": 0.0452,
-    "mathematical_and_structured": 2.0363,
-    "terminal_and_debugging": 0.0019
+    "code": 36.1546,
+    "documentation": 9.6168,
+    "general_text": 40.544,
+    "json_and_configuration": 3.383,
+    "mathematical_and_structured": 5.1495,
+    "terminal_and_debugging": 5.1522
   },
   "all_sources_hash_consistent": true,
-  "gap_vs_plan": "code and mathematical_and_structured are now at (code) or essentially at (math) their absolute plan targets (35M and 5M tokens respectively) with real, hash-verified, non-gated external sources. documentation reached 93% of its 10M-token target -- a genuine source-exhaustion ceiling, not a shortcut. json_and_configuration and terminal_and_debugging remain at local-repo scale (~111K and ~4.5K tokens respectively) because no non-gated large-scale HF dataset was found for either category; the promising candidates (the-stack-smol variants, tiny-codes) are all gated and require manual per-dataset HF access approval. general_text (Wikitext) at 196M tokens is 4.9x the 40M-token target, so the current corpus is not ratio-balanced at the top level even though 3 of 5 non-text categories are individually at real target scale -- reaching the plan-declared 40/35/10/5/5/5 RATIO (as opposed to absolute per-category scale) would require either subsampling Wikitext down to ~40M or further growing json/terminal, neither done here.",
-  "grand_total_tokens": 245598253,
+  "category_token_totals": {
+    "code": 35112938,
+    "documentation": 9339703,
+    "general_text": 39375886,
+    "json_and_configuration": 3285531,
+    "mathematical_and_structured": 5001190,
+    "terminal_and_debugging": 5003742
+  },
+  "gap_vs_plan": "general_text now deliberately capped to keep the 40/60 ratio (was 79.8% before this pass, now matches plan target within rounding). code and mathematical_and_structured at absolute plan-target scale. documentation at 93% of target, json_and_configuration at 66% of target -- both real source-exhaustion ceilings in their respective non-gated HF datasets, not padding shortcuts. terminal_and_debugging at exact target. Remaining gap: json_and_configuration is short of its per-category target (3.29M of 5M), pulling its ratio below 5%; closing it fully would need a second non-gated JSON-heavy source, not attempted here.",
+  "grand_total_tokens": 97118990,
   "manifest": "data/hz0a_mixture_manifest.json",
-  "manifest_sha256": "f9c17bc3b9eb534e880c3a472ffc469a5ea532e9059fd72aa6b401795ae8ab6f",
+  "manifest_sha256": "1559a6cb6e845c6675d88a3c59831a53446753a879f605032f4134621ca19c24",
   "plan_target_mixture_pct": {
     "code": 35,
     "documentation_and_api": 10,
@@ -38,10 +46,14 @@
           "actual": "9304e2a4dfb6a6e484672d98de8beb9ab8b458449dbeb49e71ea021fbf088ccb",
           "expected": "9304e2a4dfb6a6e484672d98de8beb9ab8b458449dbeb49e71ea021fbf088ccb",
           "match": true
+        },
+        "data/packed/general_text_ratio_train.jsonl": {
+          "match": true,
+          "sha256": "48b981fbcc9dbac3d600c627cd7dc37f2d4d7c8d3c57b567b4a22a7d3dfa9aa1"
         }
       },
-      "name": "wikitext-103",
-      "total_tokens": 196028717
+      "name": "wikitext-103-subsampled",
+      "total_tokens": 39375886
     },
     {
       "all_hashes_match": true,
@@ -117,6 +129,44 @@
         }
       },
       "name": "open-web-math",
+      "total_tokens": 4999168
+    },
+    {
+      "all_hashes_match": true,
+      "checked_files": {
+        "data/packed/external/json_and_configuration_test.jsonl": {
+          "match": true,
+          "sha256": "25b2f729a4dc30fe710f0733052f5c4f17af689e9a89399ff8e74e604293869f"
+        },
+        "data/packed/external/json_and_configuration_train.jsonl": {
+          "match": true,
+          "sha256": "893ec3b6c2c65664d24de86c7cb29a3be30c04a5434afbe5ab62d20ad1e6bcf8"
+        },
+        "data/packed/external/json_and_configuration_validation.jsonl": {
+          "match": true,
+          "sha256": "e81bb28850f86b62b4b1219377e8dcf7d5162559f9a2a752e6282b9ca206cc1b"
+        }
+      },
+      "name": "glaive-function-calling-v2",
+      "total_tokens": 3174400
+    },
+    {
+      "all_hashes_match": true,
+      "checked_files": {
+        "data/packed/external/terminal_and_debugging_test.jsonl": {
+          "match": true,
+          "sha256": "9e3ee47589543ebd3d95e06dd76446549ed1063c5e93d4e841dd0bb5076c3430"
+        },
+        "data/packed/external/terminal_and_debugging_train.jsonl": {
+          "match": true,
+          "sha256": "0396abe0269f6d147ab0d172961d73193221edae6bf66aec2f26aac7e3d57351"
+        },
+        "data/packed/external/terminal_and_debugging_validation.jsonl": {
+          "match": true,
+          "sha256": "c5653881de7c1d6464ad797ef89be19175c1aa7f800468a2864f7f79c896e347"
+        }
+      },
+      "name": "stackoverflow_python_tracebacks",
       "total_tokens": 4999168
     }
   ]

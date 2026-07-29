@@ -98,10 +98,54 @@ def stream_math(target_tokens: int, tokenizer, min_chars: int = 200, max_chars: 
             return
 
 
+def stream_json_and_configuration(target_tokens: int, tokenizer, min_chars: int = 50, max_chars: int = 20000):
+    ds = load_dataset("glaiveai/glaive-function-calling-v2", split="train", streaming=True)
+    total_tokens = 0
+    for index, record in enumerate(ds):
+        content = record.get("system", "")
+        if "{" not in content or not (min_chars <= len(content) <= max_chars):
+            continue
+        token_count = len(tokenizer.encode(content).ids)
+        total_tokens += token_count
+        yield {
+            "text": content,
+            "category": "json_and_configuration",
+            "provenance": "glaiveai/glaive-function-calling-v2 (system field: embedded JSON function-call schemas)",
+            "license": "apache-2.0",
+            "path": f"glaive-function-calling-v2/record-{index}",
+            "token_count": token_count,
+        }
+        if total_tokens >= target_tokens:
+            return
+
+
+def stream_terminal_and_debugging(target_tokens: int, tokenizer, min_chars: int = 200, max_chars: int = 20000):
+    ds = load_dataset("koutch/stackoverflow_python", split="train", streaming=True)
+    total_tokens = 0
+    for record in ds:
+        body = (record.get("question_body") or "") + "\n" + (record.get("answer_body") or "")
+        if "Traceback (most recent call last)" not in body or not (min_chars <= len(body) <= max_chars):
+            continue
+        token_count = len(tokenizer.encode(body).ids)
+        total_tokens += token_count
+        yield {
+            "text": body,
+            "category": "terminal_and_debugging",
+            "provenance": "koutch/stackoverflow_python (question+answer bodies containing a real Python traceback)",
+            "license": "cc-by-sa-4.0",
+            "path": f"stackoverflow/question-{record.get('question_id', 'unknown')}",
+            "token_count": token_count,
+        }
+        if total_tokens >= target_tokens:
+            return
+
+
 CATEGORY_STREAMS = {
     "code": stream_code,
     "documentation": stream_documentation,
     "mathematical_and_structured": stream_math,
+    "json_and_configuration": stream_json_and_configuration,
+    "terminal_and_debugging": stream_terminal_and_debugging,
 }
 
 

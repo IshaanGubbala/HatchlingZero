@@ -1,23 +1,24 @@
 {
   "actual_mixture_pct_of_grand_total": {
-    "code": 14.2969,
-    "documentation": 3.8028,
-    "general_text": 79.817,
-    "json_and_configuration": 0.0452,
-    "mathematical_and_structured": 2.0363,
-    "terminal_and_debugging": 0.0019
+    "code": 36.1546,
+    "documentation": 9.6168,
+    "general_text": 40.544,
+    "json_and_configuration": 3.383,
+    "mathematical_and_structured": 5.1495,
+    "terminal_and_debugging": 5.1522
   },
-  "actual_mixture_status": "REAL, hash-verified, multi-source. general_text/code/mathematical_and_structured are at or near the plan target scale (code exact, math exact, general_text far exceeds it). documentation is at 93% of its 10M-token target (the non-gated source dataset genuinely only contains that much distinct material). json_and_configuration and terminal_and_debugging remain local-repo scale only -- no non-gated large-scale HF dataset was found for either after checking several candidates (bigcode/the-stack-smol, bigcode/the-stack-dedup, and nampdn-ai/tiny-codes are all gated and require manual per-dataset HF approval this environment cannot grant). No content was repeated or padded to hit targets.",
+  "actual_mixture_status": "REAL, hash-verified, multi-source, ratio-corrected. general_text was deliberately subsampled from Wikitext-103 train (196M tokens available) down to the amount that keeps the plan-declared 40/60 general-text-to-non-text ratio, rather than using the full raw budget. code and mathematical_and_structured are at their absolute plan-target token counts. documentation reached 93% of target (source-exhaustion ceiling). json_and_configuration reached 66% of target (source-exhaustion ceiling in glaive-function-calling-v2 after removing 9,857 duplicate system-prompt templates). terminal_and_debugging hit its exact target. No content was repeated or padded.",
   "category_token_totals": {
     "code": 35112938,
     "documentation": 9339703,
-    "json_and_configuration": 111131,
+    "general_text": 39375886,
+    "json_and_configuration": 3285531,
     "mathematical_and_structured": 5001190,
-    "terminal_and_debugging": 4574
+    "terminal_and_debugging": 5003742
   },
-  "gap_vs_plan": "code and mathematical_and_structured are now at (code) or essentially at (math) their absolute plan targets (35M and 5M tokens respectively) with real, hash-verified, non-gated external sources. documentation reached 93% of its 10M-token target -- a genuine source-exhaustion ceiling, not a shortcut. json_and_configuration and terminal_and_debugging remain at local-repo scale (~111K and ~4.5K tokens respectively) because no non-gated large-scale HF dataset was found for either category; the promising candidates (the-stack-smol variants, tiny-codes) are all gated and require manual per-dataset HF access approval. general_text (Wikitext) at 196M tokens is 4.9x the 40M-token target, so the current corpus is not ratio-balanced at the top level even though 3 of 5 non-text categories are individually at real target scale -- reaching the plan-declared 40/35/10/5/5/5 RATIO (as opposed to absolute per-category scale) would require either subsampling Wikitext down to ~40M or further growing json/terminal, neither done here.",
+  "gap_vs_plan": "general_text now deliberately capped to keep the 40/60 ratio (was 79.8% before this pass, now matches plan target within rounding). code and mathematical_and_structured at absolute plan-target scale. documentation at 93% of target, json_and_configuration at 66% of target -- both real source-exhaustion ceilings in their respective non-gated HF datasets, not padding shortcuts. terminal_and_debugging at exact target. Remaining gap: json_and_configuration is short of its per-category target (3.29M of 5M), pulling its ratio below 5%; closing it fully would need a second non-gated JSON-heavy source, not attempted here.",
   "generated": "2026-07-28",
-  "grand_total_tokens": 245598253,
+  "grand_total_tokens": 97118990,
   "plan_target_mixture_pct": {
     "code": 35,
     "documentation_and_api": 10,
@@ -29,8 +30,8 @@
   "sources": [
     {
       "category": "general_text",
-      "manifest": "docs/restart/hz0a_wikitext_token_budget.json",
-      "name": "wikitext-103",
+      "name": "wikitext-103-subsampled",
+      "note": "train split deliberately capped at 38,495,232 tokens (from 195,148,063 available) to hit the plan ratio; validation/test use the full official splits since they were already small",
       "source_hashes": {
         "archive/data/raw/wikitext/test.jsonl": "390c92f651b2f6112a43a5e86593df057382238b672a6447c554033ceb35a447",
         "archive/data/raw/wikitext/train.jsonl": "e80fe02afa3c3f720310039394e1f05c73cf27d4a0071d490abfb0b50a8aeb70",
@@ -38,19 +39,20 @@
       },
       "splits": {
         "test": {
-          "characters": 1279840,
+          "source_file": "archive/data/raw/wikitext/test.jsonl",
           "tokens": 466237
         },
         "train": {
-          "characters": 535964206,
-          "tokens": 195148063
+          "packed_output": "data/packed/general_text_ratio_train.jsonl",
+          "sha256": "48b981fbcc9dbac3d600c627cd7dc37f2d4d7c8d3c57b567b4a22a7d3dfa9aa1",
+          "tokens": 38495232
         },
         "validation": {
-          "characters": 1137225,
+          "source_file": "archive/data/raw/wikitext/validation.jsonl",
           "tokens": 414417
         }
       },
-      "total_tokens": 196028717
+      "total_tokens": 39375886
     },
     {
       "categories": [
@@ -116,7 +118,7 @@
       "name": "codeparrot_github-jupyter-text-code-pairs",
       "provenance": "codeparrot/github-jupyter-text-code-pairs (Hugging Face Hub, non-gated)",
       "raw_shard": "data/external_corpus/documentation.jsonl",
-      "shortfall_reason": "source dataset exhausted at 38,602 unique records after removing 3,158 exact duplicates -- this is the real ceiling of that non-gated source, not a stopping choice",
+      "shortfall_reason": "source dataset exhausted at 38,602 unique records after removing 3,158 exact duplicates",
       "splits": {
         "test": {
           "packed_output": "data/packed/external/documentation_test.jsonl"
@@ -150,8 +152,50 @@
         }
       },
       "total_tokens": 4999168
+    },
+    {
+      "category": "json_and_configuration",
+      "ingest_report": "outputs/a5_external/json_report.json",
+      "license": "apache-2.0",
+      "name": "glaive-function-calling-v2",
+      "provenance": "glaiveai/glaive-function-calling-v2 (Hugging Face Hub, non-gated; system-field embedded JSON function-call schemas)",
+      "raw_shard": "data/external_corpus/json_and_configuration.jsonl",
+      "shortfall_reason": "source dataset exhausted unique system-prompt templates after removing 9,857 exact duplicates (synthetic dataset reuses a small pool of function schemas)",
+      "splits": {
+        "test": {
+          "packed_output": "data/packed/external/json_and_configuration_test.jsonl"
+        },
+        "train": {
+          "packed_output": "data/packed/external/json_and_configuration_train.jsonl"
+        },
+        "validation": {
+          "packed_output": "data/packed/external/json_and_configuration_validation.jsonl"
+        }
+      },
+      "target_tokens": 5000000,
+      "total_tokens": 3174400
+    },
+    {
+      "category": "terminal_and_debugging",
+      "ingest_report": "outputs/a5_external/terminal_report.json",
+      "license": "cc-by-sa-4.0",
+      "name": "stackoverflow_python_tracebacks",
+      "provenance": "koutch/stackoverflow_python (Hugging Face Hub, non-gated; question+answer bodies containing a real Python traceback)",
+      "raw_shard": "data/external_corpus/terminal_and_debugging.jsonl",
+      "splits": {
+        "test": {
+          "packed_output": "data/packed/external/terminal_and_debugging_test.jsonl"
+        },
+        "train": {
+          "packed_output": "data/packed/external/terminal_and_debugging_train.jsonl"
+        },
+        "validation": {
+          "packed_output": "data/packed/external/terminal_and_debugging_validation.jsonl"
+        }
+      },
+      "total_tokens": 4999168
     }
   ],
   "tokenizer_path": "data/tokenizer/hz0a_24576.json",
-  "version": "a5.mixture.v3"
+  "version": "a5.mixture.v4"
 }
