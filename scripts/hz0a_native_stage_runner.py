@@ -265,8 +265,16 @@ def main() -> None:
             return mx.mean(nn.losses.cross_entropy(logits[:, :-1], tokens[:, 1:]))
         value_and_grad = nn.value_and_grad(model, loss_fn)
         def chunk_loss(current, chunk, carry):
-            logits, _ = current(chunk, carry)
-            return mx.mean(nn.losses.cross_entropy(logits[:, :-1], chunk[:, 1:]))
+            # next_state returned as an aux output (mx.value_and_grad only
+            # differentiates the first/scalar element of a returned tuple)
+            # so the caller gets the CORRECT post-chunk state from the same
+            # forward pass used for loss/grad, instead of running a second,
+            # separate throwaway forward just to compute it -- that second
+            # forward previously used a mismatched carry-in (see the fix
+            # commit this accompanies for the full bug writeup).
+            logits, next_state = current(chunk, carry)
+            loss = mx.mean(nn.losses.cross_entropy(logits[:, :-1], chunk[:, 1:]))
+            return loss, next_state
         chunk_value_and_grad = nn.value_and_grad(model, chunk_loss)
         while tokens_seen < args.target_tokens:
             tokens = read_batch(train, args.batch_size, sequence_length, epoch_counter)
@@ -278,12 +286,9 @@ def main() -> None:
                 chunks = range(0, sequence_length, args.chunk_length)
                 for start in chunks:
                     chunk = tokens[:, start:start + args.chunk_length]
-                    logits, states = model(chunk, states)
-                    states = [detach_state(state) if (carry_attention_state or not isinstance(state, tuple)) else None for state in states]
-                    mx.eval(*[state for state in states if state is not None for state in (state if isinstance(state, tuple) else (state,))])
-                    del logits
-                    loss, grads = chunk_value_and_grad(model, chunk, states)
-                    mx.eval(loss, grads)
+                    (loss, next_state), grads = chunk_value_and_grad(model, chunk, states)
+                    mx.eval(loss, grads, *[state for state in next_state if state is not None for state in (state if isinstance(state, tuple) else (state,))])
+                    states = [detach_state(state) if (carry_attention_state or not isinstance(state, tuple)) else None for state in next_state]
                     assert_finite("loss/gradients", [loss] + [value for _, value in tree_flatten(grads)])
                     flat_grads = [value for _, value in tree_flatten(grads)]
                     grad_norm = float(mx.sqrt(sum(mx.sum(value * value) for value in flat_grads)))
