@@ -15,6 +15,9 @@
 use hz0a_pmetal_kernel::{gdn2_backward_f32, gdn2_forward_f32, Gdn2ForwardShape};
 use metal::{Device, MTLResourceOptions, MTLSize};
 
+mod full_block;
+pub use full_block::{AdamWMoments, BlockParameters, BlockShape, ForwardCache, ForwardOutput, Gdn2FullBlockGpu};
+
 const FORWARD_SOURCE: &str = r#"
 #include <metal_stdlib>
 using namespace metal;

@@ -589,6 +589,11 @@ impl Gdn2Block {
         out
     }
 
+    /// The recurrent final state from the most recent `forward` call.
+    pub fn final_state(&self) -> Option<&[f32]> {
+        self.cache_forward.as_ref().map(|result| result.final_state.as_slice())
+    }
+
     /// `x` is (steps, dim). `initial_state` is (heads, d_v, d_k) flat, batch=1.
     pub fn forward(&mut self, x: &[f32], steps: usize, initial_state: &[f32]) -> Vec<f32> {
         let width = self.heads * (4 * self.d_k + 2 * self.d_v);

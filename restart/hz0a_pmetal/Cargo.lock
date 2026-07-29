@@ -80,6 +80,7 @@ name = "hz0a-pmetal-gpu"
 version = "0.1.0"
 dependencies = [
  "hz0a-pmetal-kernel",
+ "hz0a-pmetal-tensor",
  "metal",
 ]
 
