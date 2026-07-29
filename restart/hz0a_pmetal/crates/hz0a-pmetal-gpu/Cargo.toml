@@ -1,0 +1,10 @@
+[package]
+name = "hz0a-pmetal-gpu"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+authors.workspace = true
+
+[dependencies]
+hz0a-pmetal-kernel = { path = "../hz0a-pmetal-kernel" }
+metal = "0.33"
