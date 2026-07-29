@@ -1,25 +1,25 @@
 {
   "actual_mixture_pct_of_grand_total": {
-    "code": 36.1546,
-    "documentation": 9.6168,
-    "general_text": 40.544,
-    "json_and_configuration": 3.383,
-    "mathematical_and_structured": 5.1495,
-    "terminal_and_debugging": 5.1522
+    "code": 35.4705,
+    "documentation": 9.4348,
+    "general_text": 39.7769,
+    "json_and_configuration": 5.211,
+    "mathematical_and_structured": 5.0521,
+    "terminal_and_debugging": 5.0547
   },
   "all_sources_hash_consistent": true,
   "category_token_totals": {
     "code": 35112938,
     "documentation": 9339703,
     "general_text": 39375886,
-    "json_and_configuration": 3285531,
+    "json_and_configuration": 5158427,
     "mathematical_and_structured": 5001190,
     "terminal_and_debugging": 5003742
   },
-  "gap_vs_plan": "general_text now deliberately capped to keep the 40/60 ratio (was 79.8% before this pass, now matches plan target within rounding). code and mathematical_and_structured at absolute plan-target scale. documentation at 93% of target, json_and_configuration at 66% of target -- both real source-exhaustion ceilings in their respective non-gated HF datasets, not padding shortcuts. terminal_and_debugging at exact target. Remaining gap: json_and_configuration is short of its per-category target (3.29M of 5M), pulling its ratio below 5%; closing it fully would need a second non-gated JSON-heavy source, not attempted here.",
-  "grand_total_tokens": 97118990,
+  "gap_vs_plan": "json_and_configuration closed to real target scale by combining three non-gated function-calling datasets (glaive-function-calling-v2, hermes-function-calling-v1, function-calling-chatml). All 6 categories now within striking distance of the plan 40/35/10/5/5/5 ratio.",
+  "grand_total_tokens": 98991886,
   "manifest": "data/hz0a_mixture_manifest.json",
-  "manifest_sha256": "1559a6cb6e845c6675d88a3c59831a53446753a879f605032f4134621ca19c24",
+  "manifest_sha256": "52e7bb0ff1aae79a5579ef814a3424cfd99af8e73b19cf5b8539f3030c61f3ed",
   "plan_target_mixture_pct": {
     "code": 35,
     "documentation_and_api": 10,
@@ -136,19 +136,19 @@
       "checked_files": {
         "data/packed/external/json_and_configuration_test.jsonl": {
           "match": true,
-          "sha256": "25b2f729a4dc30fe710f0733052f5c4f17af689e9a89399ff8e74e604293869f"
+          "sha256": "ba6858c6aa2446cc45161cb953bbdc141d69597433d45ac313976c7acf2b22cb"
         },
         "data/packed/external/json_and_configuration_train.jsonl": {
           "match": true,
-          "sha256": "893ec3b6c2c65664d24de86c7cb29a3be30c04a5434afbe5ab62d20ad1e6bcf8"
+          "sha256": "b0457be3facfc153b5e69010e6abcff972d330be51b36ea3df8c10e87141253f"
         },
         "data/packed/external/json_and_configuration_validation.jsonl": {
           "match": true,
-          "sha256": "e81bb28850f86b62b4b1219377e8dcf7d5162559f9a2a752e6282b9ca206cc1b"
+          "sha256": "63c66ba0f08ea4398b163f400e5405fa0926684a50fcd6e7763fc404b9e71863"
         }
       },
-      "name": "glaive-function-calling-v2",
-      "total_tokens": 3174400
+      "name": "json_and_configuration_combined",
+      "total_tokens": 5047296
     },
     {
       "all_hashes_match": true,

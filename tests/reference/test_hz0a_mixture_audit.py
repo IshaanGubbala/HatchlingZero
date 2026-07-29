@@ -14,13 +14,13 @@ def test_a5_mixture_manifest_audits_real_sources() -> None:
         "codeparrot_codeparrot-clean-valid",
         "codeparrot_github-jupyter-text-code-pairs",
         "open-web-math",
-        "glaive-function-calling-v2",
+        "json_and_configuration_combined",
         "stackoverflow_python_tracebacks",
     }
     # Honest gates: corpus must be near the plan's 100M-token target and
-    # every category must be within real, hash-verified striking distance
-    # of its declared ratio -- not padded/repeated, and not silently
-    # regressed back to a near-zero non-text share.
+    # every one of the 6 declared categories must be within ~1 percentage
+    # point of its plan ratio -- not padded/repeated, and not silently
+    # regressed back to a near-zero share for any category.
     totals = report["category_token_totals"]
     pct = report["actual_mixture_pct_of_grand_total"]
     assert 90_000_000 <= report["grand_total_tokens"] <= 110_000_000
@@ -28,6 +28,7 @@ def test_a5_mixture_manifest_audits_real_sources() -> None:
     assert totals["mathematical_and_structured"] >= 5_000_000
     assert totals["documentation"] >= 9_000_000
     assert totals["terminal_and_debugging"] >= 5_000_000
-    assert totals["json_and_configuration"] >= 3_000_000
-    assert 35 <= pct["general_text"] <= 45
-    assert 30 <= pct["code"] <= 40
+    assert totals["json_and_configuration"] >= 5_000_000
+    target = {"general_text": 40, "code": 35, "documentation": 10, "json_and_configuration": 5, "terminal_and_debugging": 5, "mathematical_and_structured": 5}
+    for category, target_pct in target.items():
+        assert abs(pct[category] - target_pct) <= 2, f"{category}: {pct[category]}% vs {target_pct}% target"

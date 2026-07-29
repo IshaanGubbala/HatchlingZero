@@ -1,24 +1,24 @@
 {
   "actual_mixture_pct_of_grand_total": {
-    "code": 36.1546,
-    "documentation": 9.6168,
-    "general_text": 40.544,
-    "json_and_configuration": 3.383,
-    "mathematical_and_structured": 5.1495,
-    "terminal_and_debugging": 5.1522
+    "code": 35.4705,
+    "documentation": 9.4348,
+    "general_text": 39.7769,
+    "json_and_configuration": 5.211,
+    "mathematical_and_structured": 5.0521,
+    "terminal_and_debugging": 5.0547
   },
   "actual_mixture_status": "REAL, hash-verified, multi-source, ratio-corrected. general_text was deliberately subsampled from Wikitext-103 train (196M tokens available) down to the amount that keeps the plan-declared 40/60 general-text-to-non-text ratio, rather than using the full raw budget. code and mathematical_and_structured are at their absolute plan-target token counts. documentation reached 93% of target (source-exhaustion ceiling). json_and_configuration reached 66% of target (source-exhaustion ceiling in glaive-function-calling-v2 after removing 9,857 duplicate system-prompt templates). terminal_and_debugging hit its exact target. No content was repeated or padded.",
   "category_token_totals": {
     "code": 35112938,
     "documentation": 9339703,
     "general_text": 39375886,
-    "json_and_configuration": 3285531,
+    "json_and_configuration": 5158427,
     "mathematical_and_structured": 5001190,
     "terminal_and_debugging": 5003742
   },
-  "gap_vs_plan": "general_text now deliberately capped to keep the 40/60 ratio (was 79.8% before this pass, now matches plan target within rounding). code and mathematical_and_structured at absolute plan-target scale. documentation at 93% of target, json_and_configuration at 66% of target -- both real source-exhaustion ceilings in their respective non-gated HF datasets, not padding shortcuts. terminal_and_debugging at exact target. Remaining gap: json_and_configuration is short of its per-category target (3.29M of 5M), pulling its ratio below 5%; closing it fully would need a second non-gated JSON-heavy source, not attempted here.",
+  "gap_vs_plan": "json_and_configuration closed to real target scale by combining three non-gated function-calling datasets (glaive-function-calling-v2, hermes-function-calling-v1, function-calling-chatml). All 6 categories now within striking distance of the plan 40/35/10/5/5/5 ratio.",
   "generated": "2026-07-28",
-  "grand_total_tokens": 97118990,
+  "grand_total_tokens": 98991886,
   "plan_target_mixture_pct": {
     "code": 35,
     "documentation_and_api": 10,
@@ -156,11 +156,10 @@
     {
       "category": "json_and_configuration",
       "ingest_report": "outputs/a5_external/json_report.json",
-      "license": "apache-2.0",
-      "name": "glaive-function-calling-v2",
-      "provenance": "glaiveai/glaive-function-calling-v2 (Hugging Face Hub, non-gated; system-field embedded JSON function-call schemas)",
+      "license": "apache-2.0 (glaive, hermes) / unspecified-per-record (locutusque, recorded in shard)",
+      "name": "json_and_configuration_combined",
+      "provenance": "glaiveai/glaive-function-calling-v2 (system field) + NousResearch/hermes-function-calling-v1 (tools field) + Locutusque/function-calling-chatml (function_description field), all non-gated",
       "raw_shard": "data/external_corpus/json_and_configuration.jsonl",
-      "shortfall_reason": "source dataset exhausted unique system-prompt templates after removing 9,857 exact duplicates (synthetic dataset reuses a small pool of function schemas)",
       "splits": {
         "test": {
           "packed_output": "data/packed/external/json_and_configuration_test.jsonl"
@@ -172,8 +171,7 @@
           "packed_output": "data/packed/external/json_and_configuration_validation.jsonl"
         }
       },
-      "target_tokens": 5000000,
-      "total_tokens": 3174400
+      "total_tokens": 5047296
     },
     {
       "category": "terminal_and_debugging",
@@ -197,5 +195,5 @@
     }
   ],
   "tokenizer_path": "data/tokenizer/hz0a_24576.json",
-  "version": "a5.mixture.v4"
+  "version": "a5.mixture.v5"
 }
