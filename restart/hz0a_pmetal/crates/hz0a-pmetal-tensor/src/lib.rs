@@ -18,6 +18,31 @@ fn sigmoid(x: f32) -> f32 {
     1.0 / (1.0 + (-x.clamp(-30.0, 30.0)).exp())
 }
 
+/// Round an f32 to the precision bf16 actually has: bf16 is exactly the
+/// upper 16 bits of an IEEE754 f32 (8 exponent bits, 7 mantissa bits,
+/// same exponent range as f32, unlike float16). This truncates-with-
+/// round-to-nearest-even to that 7-bit mantissa and widens back to f32,
+/// which is bit-for-bit what a real f32->bf16->f32 round trip produces --
+/// no external bf16 crate needed to test precision loss faithfully.
+pub fn round_to_bf16(x: f32) -> f32 {
+    if x.is_nan() {
+        return x;
+    }
+    let bits = x.to_bits();
+    let rounding_bias = 0x0000_7FFFu32 + ((bits >> 16) & 1);
+    let rounded = bits.wrapping_add(rounding_bias) & 0xFFFF_0000;
+    f32::from_bits(rounded)
+}
+
+/// Round every parameter's data (not gradients) to bf16 precision in place.
+pub fn round_parameters_to_bf16(parameters: &mut [&mut Parameter]) {
+    for parameter in parameters.iter_mut() {
+        for value in parameter.data.iter_mut() {
+            *value = round_to_bf16(*value);
+        }
+    }
+}
+
 /// Row-major (rows, cols) matmul: (m x k) @ (k x n) -> (m x n).
 fn matmul(a: &[f32], m: usize, k: usize, b: &[f32], n: usize) -> Vec<f32> {
     assert_eq!(a.len(), m * k);
@@ -792,14 +817,24 @@ impl TinyModel {
     }
 
     pub fn forward(&mut self, token_ids: &[usize]) -> Vec<f32> {
+        self.forward_with_states(token_ids).0
+    }
+
+    /// Same as `forward`, but also returns each block's final recurrent
+    /// state (`None` for attention blocks) -- exposed for cross-language
+    /// state-parity checks (A6's validation checklist explicitly lists
+    /// "recurrent states" alongside block outputs/logits/loss/gradients).
+    pub fn forward_with_states(&mut self, token_ids: &[usize]) -> (Vec<f32>, Vec<Option<Vec<f32>>>) {
         let steps = token_ids.len();
         let mut x = self.embedding.forward(token_ids);
+        let mut states = Vec::with_capacity(self.blocks.len());
         for block in &mut self.blocks {
-            let (out, _next_state) = block.forward(&x, steps, self.dim, None);
+            let (out, next_state) = block.forward(&x, steps, self.dim, None);
             x = out;
+            states.push(next_state);
         }
         let hidden = self.final_norm.forward(&x, steps);
-        self.embedding.lm_head_forward(&hidden, steps)
+        (self.embedding.lm_head_forward(&hidden, steps), states)
     }
 
     /// One forward + full backward pass; returns the scalar loss. Zeroes no
@@ -1033,5 +1068,69 @@ mod tests {
             last_loss = loss;
         }
         assert!(last_loss.is_finite());
+    }
+
+    #[test]
+    fn round_to_bf16_matches_known_values() {
+        // 1/3 in f32 is 0x3EAAAAAB; bf16 truncates/rounds to 0x3EAB (~0.333984375).
+        let value = 1.0f32 / 3.0f32;
+        let rounded = round_to_bf16(value);
+        assert!((rounded - 0.333984375).abs() < 1e-9, "rounded={rounded}");
+        assert_eq!(round_to_bf16(1.0), 1.0);
+        assert_eq!(round_to_bf16(0.0), 0.0);
+        assert_eq!(round_to_bf16(-2.5), -2.5); // exactly representable, no rounding needed
+    }
+
+    /// A6's plan text: "Use float32 for reference checks, then BF16." The
+    /// float32 cross-language parity check lives in
+    /// tests/parity_with_python_reference.rs; this validates the same
+    /// full model (embedding + GDN-2 + attention + MLP + tied head +
+    /// cross-entropy + AdamW) stays finite and trains under BF16-rounded
+    /// weight precision, mirroring the same stability question already
+    /// answered for the MLX/Metal path this session (float16 rejected for
+    /// NaN, BF16 verified stable there too).
+    #[test]
+    fn bf16_precision_model_trains_and_stays_finite() {
+        let mut model = TinyModel::new(9, 8, 2, 4, 4, 12, &[1], 3, 23);
+        round_parameters_to_bf16(&mut model.parameters_mut());
+        let mut optimizer = AdamW::new(1e-3);
+        let mut last_loss = f32::INFINITY;
+        for _ in 0..8 {
+            model.zero_grad();
+            let loss = model.loss_and_backward(&[0, 1, 2, 3, 4], &[1, 2, 3, 4, 0]);
+            assert!(loss.is_finite(), "loss went non-finite at BF16 weight precision");
+            for parameter in model.parameters_mut() {
+                assert!(parameter.grad.iter().all(|g| g.is_finite()), "{}: non-finite gradient at BF16 precision", parameter.name);
+            }
+            optimizer.update(&mut model.parameters_mut());
+            for parameter in model.parameters_mut() {
+                assert!(parameter.data.iter().all(|v| v.is_finite()), "{}: non-finite parameter after AdamW at BF16 precision", parameter.name);
+            }
+            last_loss = loss;
+        }
+        assert!(last_loss.is_finite());
+    }
+
+    #[test]
+    fn bf16_precision_forward_close_to_float32_forward() {
+        // Not bit-identical (that's the point of testing precision loss),
+        // but a BF16-rounded model should still be numerically close to its
+        // float32 twin on the same input -- catches a BF16 path that's
+        // finite but silently wrong (e.g. a rounding bug that discards a
+        // whole tensor) without demanding exact agreement.
+        let mut model_f32 = TinyModel::new(9, 8, 2, 4, 4, 12, &[1], 3, 23);
+        let logits_f32 = model_f32.forward(&[0, 1, 2, 3, 4]);
+
+        let mut model_bf16 = TinyModel::new(9, 8, 2, 4, 4, 12, &[1], 3, 23);
+        round_parameters_to_bf16(&mut model_bf16.parameters_mut());
+        let logits_bf16 = model_bf16.forward(&[0, 1, 2, 3, 4]);
+
+        assert_eq!(logits_f32.len(), logits_bf16.len());
+        let max_abs_logit = logits_f32.iter().fold(0.0f32, |acc, v| acc.max(v.abs()));
+        let max_diff = logits_f32.iter().zip(logits_bf16.iter()).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max);
+        assert!(
+            max_diff < 0.15 * max_abs_logit.max(1.0),
+            "BF16 forward diverged too far from float32: max_diff={max_diff}, max_abs_logit={max_abs_logit}"
+        );
     }
 }

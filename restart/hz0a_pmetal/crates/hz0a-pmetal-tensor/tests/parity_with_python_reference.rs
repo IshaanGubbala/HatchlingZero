@@ -43,7 +43,7 @@ fn tiny_model_matches_python_reference_forward_and_backward() {
     let token_ids = usize_vec(&data["token_ids"]);
     let targets = usize_vec(&data["targets"]);
 
-    let logits = model.forward(&token_ids);
+    let (logits, states) = model.forward_with_states(&token_ids);
     let expected_logits = f64_vec(&data["logits"]);
     assert_eq!(logits.len(), expected_logits.len());
     let mut max_logit_error = 0.0f64;
@@ -51,6 +51,26 @@ fn tiny_model_matches_python_reference_forward_and_backward() {
         max_logit_error = max_logit_error.max((*rust_val as f64 - python_val).abs());
     }
     assert!(max_logit_error < 1e-3, "max logit error {max_logit_error} too large");
+
+    // Recurrent states: explicitly in A6's validation checklist alongside
+    // block outputs/logits/loss/gradients. `None` for attention blocks.
+    let expected_states = data["block_final_states"].as_array().unwrap();
+    assert_eq!(states.len(), expected_states.len());
+    for (index, (rust_state, python_state)) in states.iter().zip(expected_states.iter()).enumerate() {
+        match (rust_state, python_state) {
+            (Some(rust_values), Value::Array(_)) => {
+                let expected_values = f64_vec(python_state);
+                assert_eq!(rust_values.len(), expected_values.len(), "block {index} state length mismatch");
+                let mut max_state_error = 0.0f64;
+                for (r, p) in rust_values.iter().zip(expected_values.iter()) {
+                    max_state_error = max_state_error.max((*r as f64 - p).abs());
+                }
+                assert!(max_state_error < 1e-3, "block {index} recurrent-state error {max_state_error} too large");
+            }
+            (None, Value::Null) => {}
+            _ => panic!("block {index}: Rust/Python disagree on whether this block has recurrent state"),
+        }
+    }
 
     model.zero_grad();
     let loss = model.loss_and_backward(&token_ids, &targets);

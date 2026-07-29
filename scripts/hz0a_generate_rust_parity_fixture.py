@@ -36,7 +36,8 @@ def main() -> None:
     flat_grads = np.concatenate([p.grad.reshape(-1) for p in model.parameters()]).astype(np.float64).tolist()
     param_shapes = [{"name": p.name, "shape": list(p.data.shape)} for p in model.parameters()]
 
-    logits, _ = model.forward(token_ids)
+    logits, next_states = model.forward(token_ids)
+    block_states = [None if state is None else state.reshape(-1).astype(np.float64).tolist() for state in next_states]
 
     flat_grads_f64 = np.array(flat_grads, dtype=np.float64)
     flat_params_f64 = np.array(flat_params, dtype=np.float64)
@@ -52,6 +53,7 @@ def main() -> None:
         "loss": loss,
         "logits": logits[0].reshape(-1).tolist(),
         "flat_gradients": flat_grads,
+        "block_final_states": block_states,
         "updated_parameters_after_one_adamw_step": updated_parameters,
         "adamw_config": {"learning_rate": 1e-4, "beta1": 0.9, "beta2": 0.999, "epsilon": 1e-8, "weight_decay": 0.0},
     }
