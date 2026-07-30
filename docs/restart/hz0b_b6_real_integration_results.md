@@ -58,7 +58,46 @@ but nothing relevant to this text"):
 | Trained read-only memory (oracle-populated, irrelevant) | 2.537670 |
 | Relative change | **+2.544%** |
 
-## 3. Honest read on B6's exit gate
+## 3. Tuning: a background-preservation regularizer (2026-07-30)
+
+Added `--lambda-preserve` to `scripts/hz0b_b6_real_integration_probe.py`:
+an auxiliary loss term computed on a SEPARATE slice of real held-out text
+(`repro_256_val.jsonl` lines 64-80, 16 sequences x 32 tokens -- disjoint
+from the lines-0-63 slice the degradation number is reported on, so
+tuning never trains on the eval) -- directly the same next-token
+cross-entropy metric the degradation check reports, with the oracle
+memory populated but no trigger present, so the trained read path is
+explicitly penalized for firing on content it has no business firing on.
+`total_loss = task_loss + lambda_preserve * preservation_loss`.
+
+First attempt used the full 256-token background slice and combined it
+with the task loss in one un-chunked backward pass through all 31 layers
+-- this made each step dramatically more expensive (a 1000-step run that
+previously finished in under 2 minutes didn't finish in 10, no output,
+looked hung) since the earlier tests in this project never needed a full,
+un-chunked 256-length backward pass at this parameter count in one shot.
+Cut the background slice to 32 tokens x 16 sequences -- a 1000-step run
+returned to ~2 minutes.
+
+| `lambda_preserve` | Task rank (held-out, unseen prefixes) | General held-out degradation |
+| --- | --- | --- |
+| 0 (untuned, section 2 above) | 0 (solved) | +2.544% |
+| 1 | 0 (solved) | +1.765% |
+| **5** | **0 (solved)** | **+1.404%** |
+| 20 | 0 (solved) | +7.382% (worse than lambda=1 or 5) |
+
+Not a monotonic relationship -- lambda=20 is worse than lambda=5, not just
+diminishing-returns-better. Plausibly an interaction between the fixed
+learning rate (0.15, untuned per-lambda) and the combined loss's changing
+scale/gradient direction as `lambda_preserve` grows, not investigated
+further given this was a 4-point sweep, not an exhaustive one. **lambda=5
+is the best of the 4 points tried**: same fully-solved task result (rank
+0) as every other setting, and the lowest general-held-out degradation --
+a real ~45% relative reduction from the untuned (lambda=0) result. This is
+the recommended setting if reusing this mechanism, not a claim that it's
+provably optimal.
+
+## 4. Honest read on B6's exit gate
 
 B6's exit gate: *"Read-only memory improves memory-specific tasks without
 materially degrading general held-out loss."*
@@ -66,27 +105,27 @@ materially degrading general held-out loss."*
 - **Memory-specific-task improvement**: real and strong -- target rank
   5378th -> 0th on unseen prefixes, a clean generalization result, not a
   synthetic-only claim.
-- **General held-out degradation**: real and non-zero -- +2.54%. Not huge,
-  but not "no degradation" either; calling this a clean pass would be
-  overclaiming. The mechanism is a continuous (sigmoid) gate computed from
-  every hidden state regardless of relevance -- some leakage onto
-  irrelevant content is a structural property of this specific gating
-  design (`output = hidden + sigmoid(gate_proj(hidden)) * readout`), not a
-  bug, but it is a real, measurable tension between "solve the recall task
-  well" and "leave everything else alone" that this specific v1 read
-  mechanism does not resolve for free.
-- Two real data points suggest a tradeoff curve exists, not measured in
-  full: an earlier, shorter run (200 steps, lr 0.03) reached only rank
-  4067/24576 on the task (far from solved) — degradation on the general
-  check wasn't separately measured at that checkpoint. Whether a
-  stopping point exists that keeps most of the task improvement at a
-  meaningfully smaller general-degradation cost is an open, unmeasured
-  question, not something this session assumed an answer to.
+- **General held-out degradation**: real and non-zero at every setting
+  tried, including the tuned one -- best found is +1.40% (lambda=5), down
+  from +2.54% untuned. Better, not eliminated; calling the tuned result a
+  clean pass would still be overclaiming. The mechanism is a continuous
+  (sigmoid) gate computed from every hidden state regardless of relevance
+  -- some leakage onto irrelevant content is a structural property of this
+  specific gating design (`output = hidden + sigmoid(gate_proj(hidden)) *
+  readout`), not a bug, and the background-preservation regularizer
+  reduces but does not remove it.
+- The lambda sweep (section 3) is real evidence a tradeoff exists and can
+  be improved with a targeted regularizer, but it's 4 points, not an
+  exhaustive search -- the true best setting, or whether a fundamentally
+  different gating mechanism (e.g. a harder, more discriminative gate)
+  would do better, is not established here.
 
-**Conclusion: B6's mechanism works as designed and its real-checkpoint,
+**Conclusion: B6's mechanism works as designed, its real-checkpoint,
 real-data behavior matches every isolated-test prediction exactly where
-those predictions were unconditional (empty memory).** The conditional
-claim ("without materially degrading") is only partially satisfied at the
-specific hyperparameters tried here -- a real, disclosed gap, not silently
-rounded up to "done." Whether 2.54% counts as "material" is a judgment
-call this doc is not making unilaterally.
+those predictions were unconditional (empty memory), and a straightforward
+regularizer measurably improves the tradeoff (+2.54% -> +1.40% degradation,
+same fully-solved task result).** The conditional exit-gate claim ("without
+materially degrading") is closer to satisfied after tuning but still not a
+clean zero -- a real, disclosed gap, not silently rounded up to "done."
+Whether 1.40% counts as "material" is a judgment call this doc is not
+making unilaterally.

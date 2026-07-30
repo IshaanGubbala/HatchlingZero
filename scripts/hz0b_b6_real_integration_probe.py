@@ -22,6 +22,7 @@ What this answers, with real numbers rather than synthetic ones:
 """
 from __future__ import annotations
 
+import argparse
 import json
 import random
 from pathlib import Path
@@ -94,12 +95,26 @@ def target_logit_stats(model, prompts: mx.array, memory_params, memory_state) ->
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--lambda-preserve", type=float, default=0.0, help="weight on the background-text preservation loss; 0 reproduces the original (untuned) B6 probe result")
+    parser.add_argument("--steps", type=int, default=1000)
+    parser.add_argument("--lr", type=float, default=1.5e-1)
+    args = parser.parse_args()
+
     rng = random.Random(SEED)
     model, payload = load_frozen_model()
     print(f"loaded frozen checkpoint: step={payload['step']} tokens_seen={payload['tokens_seen']}")
+    print(f"lambda_preserve={args.lambda_preserve} steps={args.steps} lr={args.lr}")
 
     train_prompts = make_probe_prompts(NUM_TRAIN_PROMPTS, rng)
     held_out_prompts = make_probe_prompts(NUM_HELD_OUT_PROMPTS, rng)
+
+    # Background preservation set: a DIFFERENT slice of the same file than
+    # the final degradation-eval slice below ([:64]), so training never
+    # sees the sequences the reported held-out number is measured on --
+    # otherwise "tuning against degradation" would be training on the eval.
+    background_lines = Path("data/packed/repro_256_val.jsonl").open().readlines()[64:80]
+    background_tokens = mx.array([json.loads(l)[:32] for l in background_lines], dtype=mx.int32)
 
     memory_key = mx.random.normal((1, KEY_DIM), key=mx.random.key(SEED))
     memory_value = mx.random.normal((1, VALUE_DIM), key=mx.random.key(SEED + 1))
@@ -121,23 +136,32 @@ def main():
 
     params_dict = params_to_dict(init_params)
     frozen_memory_train = oracle_memory(NUM_TRAIN_PROMPTS)
+    frozen_memory_background = oracle_memory(background_tokens.shape[0])
 
     def loss_fn(pd: dict) -> mx.array:
         p = dict_to_params(pd)
         logits, _ = forward(model, train_prompts, memory_params=p, memory_state=frozen_memory_train)
         final_logits = logits[:, -1, :]
         targets = mx.full((final_logits.shape[0],), TARGET, dtype=mx.int32)
-        return mx.mean(nn.losses.cross_entropy(final_logits, targets))
+        task_loss = mx.mean(nn.losses.cross_entropy(final_logits, targets))
+        if args.lambda_preserve == 0.0:
+            return task_loss
+        # Directly regularizes the exact metric B6's exit gate cares about
+        # (next-token cross-entropy on real, trigger-free text with memory
+        # populated) rather than a proxy -- penalizes the trained read
+        # path for firing on content it has no business firing on.
+        bg_logits, _ = forward(model, background_tokens, memory_params=p, memory_state=frozen_memory_background)
+        preserve_loss = mx.mean(nn.losses.cross_entropy(bg_logits[:, :-1].astype(mx.float32), background_tokens[:, 1:]))
+        return task_loss + args.lambda_preserve * preserve_loss
 
     grad_fn = mx.value_and_grad(loss_fn)
-    lr = 1.5e-1
     print("\n--- training query/gate/value_to_hidden projections only (backbone frozen) ---")
-    for step in range(1000):
+    for step in range(args.steps):
         loss, grads = grad_fn(params_dict)
         mx.eval(loss)
-        params_dict = {k: params_dict[k] - lr * grads[k] for k in params_dict}
+        params_dict = {k: params_dict[k] - args.lr * grads[k] for k in params_dict}
         mx.eval(*params_dict.values())
-        if step % 100 == 0 or step == 999:
+        if step % 100 == 0 or step == args.steps - 1:
             print(f"step {step:4d}  train loss {float(loss):.5f}")
 
     trained_params = dict_to_params(params_dict)
