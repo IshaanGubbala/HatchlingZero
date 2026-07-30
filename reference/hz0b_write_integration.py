@@ -115,13 +115,17 @@ def _blend_state_by_row(old: MemoryState, candidate: MemoryState, keep_candidate
     return MemoryState(**updated)
 
 
-def read_only_step(params: WriteControllerParams, hidden_state: mx.array, memory_state: MemoryState) -> tuple[mx.array, MemoryState]:
-    """Compare-mode 1: "read only" -- B6's path, memory never changes."""
-    output, _ = gated_memory_read(params.read_params, hidden_state, memory_state)
+def read_only_step(params: WriteControllerParams, hidden_state: mx.array, memory_state: MemoryState, *, confidence_scaled: bool = False) -> tuple[mx.array, MemoryState]:
+    """Compare-mode 1: "read only" -- B6's path, memory never changes.
+    `confidence_scaled`: see `gated_memory_read`'s own docstring -- a real
+    fix for the bias-leakage bug traced in B7's real-integration write-up;
+    default False preserves every existing caller's exact prior
+    behavior."""
+    output, _ = gated_memory_read(params.read_params, hidden_state, memory_state, confidence_scaled=confidence_scaled)
     return output, memory_state
 
 
-def read_plus_supervised_write_step(params: WriteControllerParams, hidden_state: mx.array, memory_state: MemoryState, label: SupervisedWriteLabel, *, step: int) -> tuple[mx.array, MemoryState, mx.array]:
+def read_plus_supervised_write_step(params: WriteControllerParams, hidden_state: mx.array, memory_state: MemoryState, label: SupervisedWriteLabel, *, step: int, confidence_scaled: bool = False) -> tuple[mx.array, MemoryState, mx.array]:
     """Compare-mode 2: "read plus supervised write" -- read happens
     against the PRE-write state (this step's own write isn't visible to
     its own read; only later steps see it, matching B1 decision 7's
@@ -130,25 +134,25 @@ def read_plus_supervised_write_step(params: WriteControllerParams, hidden_state:
     `label.should_write` via a loss) but `label.should_write` itself
     controls whether the row's state actually changes, per this module's
     design note above."""
-    output, _ = gated_memory_read(params.read_params, hidden_state, memory_state)
+    output, _ = gated_memory_read(params.read_params, hidden_state, memory_state, confidence_scaled=confidence_scaled)
     write_gate = _gate(hidden_state, params.write_gate_w, params.write_gate_b)
     candidate_state, _, _ = memory_write(memory_state, label.key, label.value, write_gate, step=step, slot_idx=label.target_slot)
     new_state = _blend_state_by_row(memory_state, candidate_state, label.should_write)
     return output, new_state, write_gate
 
 
-def read_plus_write_plus_update_step(params: WriteControllerParams, hidden_state: mx.array, memory_state: MemoryState, label: SupervisedWriteLabel, *, step: int) -> tuple[mx.array, MemoryState, dict]:
+def read_plus_write_plus_update_step(params: WriteControllerParams, hidden_state: mx.array, memory_state: MemoryState, label: SupervisedWriteLabel, *, step: int, confidence_scaled: bool = False) -> tuple[mx.array, MemoryState, dict]:
     """Compare-mode 3: "read plus write plus update" -- adds the
     update/protect/delete controllers on top of mode 2, each gated
     independently by its own supervised label (per the B1 contract's
     insistence that reinforce/update/protect stay separate, observably
     different operations rather than one collapsed knob)."""
-    output, written_state, write_gate = read_plus_supervised_write_step(params, hidden_state, memory_state, label, step=step)
+    output, written_state, write_gate = read_plus_supervised_write_step(params, hidden_state, memory_state, label, step=step, confidence_scaled=confidence_scaled)
 
     if label.target_slot is not None:
         slot_idx = label.target_slot
     else:
-        _, read_weights = gated_memory_read(params.read_params, hidden_state, written_state)
+        _, read_weights = gated_memory_read(params.read_params, hidden_state, written_state, confidence_scaled=confidence_scaled)
         slot_idx = mx.argmax(read_weights, axis=-1)
 
     update_gate = _gate(hidden_state, params.update_gate_w, params.update_gate_b)

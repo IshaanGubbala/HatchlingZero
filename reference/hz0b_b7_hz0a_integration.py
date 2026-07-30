@@ -36,7 +36,7 @@ from reference.hz0b_write_integration import (
 )
 
 
-def sequential_write_and_read(params: WriteControllerParams, hidden: mx.array, write_labels: list[SupervisedWriteLabel | None]) -> tuple[mx.array, MemoryState]:
+def sequential_write_and_read(params: WriteControllerParams, hidden: mx.array, write_labels: list[SupervisedWriteLabel | None], *, confidence_scaled: bool = False) -> tuple[mx.array, MemoryState]:
     """hidden: [batch, seq, d_model]. write_labels: one entry per sequence
     position, len == seq -- None means "no write opportunity at this
     position, read-only" (`read_only_step`), a `SupervisedWriteLabel`
@@ -46,7 +46,10 @@ def sequential_write_and_read(params: WriteControllerParams, hidden: mx.array, w
     Threads memory_state across positions in order (write-visibility is
     token-ordered per B1 decision 7 -- a write at position t is visible
     to reads at position t+1 onward, not to the read at t itself, which
-    is already how `read_plus_supervised_write_step` behaves). Returns
+    is already how `read_plus_supervised_write_step` behaves).
+    `confidence_scaled`: see `gated_memory_read`'s own docstring -- the
+    fix for the bias-leakage bug this module's own write-up traced;
+    default False preserves the original B7 result exactly. Returns
     (output_hidden [batch, seq, d_model], final_memory_state)."""
     batch, seq, d_model = hidden.shape
     num_slots = 8  # matches every memory_reset() call in this integration -- keep in sync if that changes
@@ -61,18 +64,18 @@ def sequential_write_and_read(params: WriteControllerParams, hidden: mx.array, w
         position_hidden = hidden[:, t, :]
         label = write_labels[t] if t < len(write_labels) else None
         if label is None:
-            output, memory_state = read_only_step(params, position_hidden, memory_state)
+            output, memory_state = read_only_step(params, position_hidden, memory_state, confidence_scaled=confidence_scaled)
         else:
-            output, memory_state, _ = read_plus_supervised_write_step(params, position_hidden, memory_state, label, step=t)
+            output, memory_state, _ = read_plus_supervised_write_step(params, position_hidden, memory_state, label, step=t, confidence_scaled=confidence_scaled)
         outputs.append(output)
     return mx.stack(outputs, axis=1), memory_state
 
 
-def forward(model, token_ids: mx.array, *, controller_params: WriteControllerParams | None = None, write_labels: list | None = None, states=None):
+def forward(model, token_ids: mx.array, *, controller_params: WriteControllerParams | None = None, write_labels: list | None = None, states=None, confidence_scaled: bool = False):
     """Full forward pass. `controller_params`/`write_labels` both None ->
     exact no-memory behavior. Both provided -> the real store-then-
     retrieve path."""
     hidden, next_states = frozen_hidden_states(model, token_ids, states)
     if controller_params is not None and write_labels is not None:
-        hidden, _ = sequential_write_and_read(controller_params, hidden, write_labels)
+        hidden, _ = sequential_write_and_read(controller_params, hidden, write_labels, confidence_scaled=confidence_scaled)
     return logits_from_hidden(model, hidden), next_states

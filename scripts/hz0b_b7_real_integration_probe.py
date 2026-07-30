@@ -102,9 +102,9 @@ def dict_to_params(d: dict) -> WriteControllerParams:
     return WriteControllerParams(read_params=read_params, **other)
 
 
-def target_rank_stats(model, prompts: mx.array, controller_params, write_labels_write: list, write_labels_readonly: list) -> tuple[float, float, float]:
-    logits_readonly, _ = forward(model, prompts, controller_params=controller_params, write_labels=write_labels_readonly)
-    logits_write, _ = forward(model, prompts, controller_params=controller_params, write_labels=write_labels_write)
+def target_rank_stats(model, prompts: mx.array, controller_params, write_labels_write: list, write_labels_readonly: list, *, confidence_scaled: bool = False) -> tuple[float, float, float]:
+    logits_readonly, _ = forward(model, prompts, controller_params=controller_params, write_labels=write_labels_readonly, confidence_scaled=confidence_scaled)
+    logits_write, _ = forward(model, prompts, controller_params=controller_params, write_labels=write_labels_write, confidence_scaled=confidence_scaled)
     mx.eval(logits_readonly, logits_write)
     final_readonly, final_write = logits_readonly[:, -1, :], logits_write[:, -1, :]
 
@@ -122,12 +122,13 @@ def main():
     parser.add_argument("--lambda-preserve", type=float, default=5.0, help="carried over from the B6 tuning result (lambda=5 was the best of a 4-point sweep there), not independently re-swept for B7")
     parser.add_argument("--steps", type=int, default=1000)
     parser.add_argument("--lr", type=float, default=1.5e-1)
+    parser.add_argument("--confidence-scaled", action="store_true", help="structural fix: gate the read by retrieval confidence too, so a trained bias can't leak through on empty/irrelevant memory")
     args = parser.parse_args()
 
     rng = random.Random(SEED)
     model, payload = load_frozen_model()
     print(f"loaded frozen checkpoint: step={payload['step']} tokens_seen={payload['tokens_seen']}")
-    print(f"lambda_preserve={args.lambda_preserve} steps={args.steps} lr={args.lr}")
+    print(f"lambda_preserve={args.lambda_preserve} steps={args.steps} lr={args.lr} confidence_scaled={args.confidence_scaled}")
 
     train_prompts = make_prompts(24, rng)
     held_out_prompts = make_prompts(8, rng)
@@ -142,7 +143,7 @@ def main():
     print("\n--- before training (random controller params) ---")
     labels_write_untrained = make_write_labels(8, memory_key, memory_value, write=True)
     labels_readonly_untrained = [None] * PROMPT_LEN
-    rank_readonly0, rank_write0, _ = target_rank_stats(model, held_out_prompts, init_params, labels_write_untrained, labels_readonly_untrained)
+    rank_readonly0, rank_write0, _ = target_rank_stats(model, held_out_prompts, init_params, labels_write_untrained, labels_readonly_untrained, confidence_scaled=args.confidence_scaled)
     print(f"mean target rank, read-only (never written):    {rank_readonly0:.1f} / {VOCAB_SIZE}")
     print(f"mean target rank, untrained write-then-read:     {rank_write0:.1f} / {VOCAB_SIZE}  (expect: no better -- random controller can't reliably write+address)")
 
@@ -152,14 +153,14 @@ def main():
 
     def loss_fn(pd: dict) -> mx.array:
         p = dict_to_params(pd)
-        logits, _ = forward(model, train_prompts, controller_params=p, write_labels=labels_write_train)
+        logits, _ = forward(model, train_prompts, controller_params=p, write_labels=labels_write_train, confidence_scaled=args.confidence_scaled)
         final_logits = logits[:, -1, :]
         targets = mx.full((final_logits.shape[0],), TARGET, dtype=mx.int32)
         task_loss = mx.mean(nn.losses.cross_entropy(final_logits, targets))
         if args.lambda_preserve == 0.0:
             return task_loss
         bg_write_labels = labels_noop_bg[:min(len(labels_noop_bg), background_tokens.shape[1])] + [None] * max(0, background_tokens.shape[1] - len(labels_noop_bg))
-        bg_logits, _ = forward(model, background_tokens, controller_params=p, write_labels=bg_write_labels)
+        bg_logits, _ = forward(model, background_tokens, controller_params=p, write_labels=bg_write_labels, confidence_scaled=args.confidence_scaled)
         preserve_loss = mx.mean(nn.losses.cross_entropy(bg_logits[:, :-1].astype(mx.float32), background_tokens[:, 1:]))
         return task_loss + args.lambda_preserve * preserve_loss
 
@@ -177,7 +178,7 @@ def main():
 
     print("\n--- after training, held-out prompts (unseen prefixes) ---")
     labels_write_eval = make_write_labels(8, memory_key, memory_value, write=True)
-    rank_readonly, rank_write, ce_write = target_rank_stats(model, held_out_prompts, trained_params, labels_write_eval, labels_readonly_untrained)
+    rank_readonly, rank_write, ce_write = target_rank_stats(model, held_out_prompts, trained_params, labels_write_eval, labels_readonly_untrained, confidence_scaled=args.confidence_scaled)
     print(f"mean target rank, read-only (never written):    {rank_readonly:.1f} / {VOCAB_SIZE}  (should stay high -- confirms the fact truly requires the write)")
     print(f"mean target rank, TRAINED write-then-read:       {rank_write:.1f} / {VOCAB_SIZE}")
     print(f"mean cross-entropy on target, write-then-read:   {ce_write:.5f}")
@@ -188,7 +189,7 @@ def main():
     val_labels_noop = make_write_labels(val_tokens.shape[0], memory_key, memory_value, write=False)
     val_write_labels = val_labels_noop[:min(len(val_labels_noop), val_tokens.shape[1])] + [None] * max(0, val_tokens.shape[1] - len(val_labels_noop))
     logits_no_mem, _ = forward(model, val_tokens)
-    logits_trained_nowrite, _ = forward(model, val_tokens, controller_params=trained_params, write_labels=val_write_labels)
+    logits_trained_nowrite, _ = forward(model, val_tokens, controller_params=trained_params, write_labels=val_write_labels, confidence_scaled=args.confidence_scaled)
     mx.eval(logits_no_mem, logits_trained_nowrite)
     ce_val_no_mem = float(mx.mean(nn.losses.cross_entropy(logits_no_mem[:, :-1].astype(mx.float32), val_tokens[:, 1:])))
     ce_val_trained = float(mx.mean(nn.losses.cross_entropy(logits_trained_nowrite[:, :-1].astype(mx.float32), val_tokens[:, 1:])))

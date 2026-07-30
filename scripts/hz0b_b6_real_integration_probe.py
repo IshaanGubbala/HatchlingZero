@@ -76,11 +76,11 @@ def dict_to_params(d: dict) -> ReadOnlyIntegrationParams:
     return ReadOnlyIntegrationParams(**d)
 
 
-def target_logit_stats(model, prompts: mx.array, memory_params, memory_state) -> tuple[float, float, float]:
+def target_logit_stats(model, prompts: mx.array, memory_params, memory_state, *, confidence_scaled: bool = False) -> tuple[float, float, float]:
     """Returns (mean_target_logrank_no_memory, mean_target_logrank_with_memory, mean_ce_with_memory)
     at the FINAL position (predicting the token after the trigger bigram)."""
     logits_no_mem, _ = forward(model, prompts)
-    logits_mem, _ = forward(model, prompts, memory_params=memory_params, memory_state=memory_state)
+    logits_mem, _ = forward(model, prompts, memory_params=memory_params, memory_state=memory_state, confidence_scaled=confidence_scaled)
     mx.eval(logits_no_mem, logits_mem)
     final_no_mem = logits_no_mem[:, -1, :]
     final_mem = logits_mem[:, -1, :]
@@ -99,12 +99,13 @@ def main():
     parser.add_argument("--lambda-preserve", type=float, default=0.0, help="weight on the background-text preservation loss; 0 reproduces the original (untuned) B6 probe result")
     parser.add_argument("--steps", type=int, default=1000)
     parser.add_argument("--lr", type=float, default=1.5e-1)
+    parser.add_argument("--confidence-scaled", action="store_true", help="structural fix: gate the read by retrieval confidence too, so a trained bias can't leak through on empty/irrelevant memory (see gated_memory_read's docstring)")
     args = parser.parse_args()
 
     rng = random.Random(SEED)
     model, payload = load_frozen_model()
     print(f"loaded frozen checkpoint: step={payload['step']} tokens_seen={payload['tokens_seen']}")
-    print(f"lambda_preserve={args.lambda_preserve} steps={args.steps} lr={args.lr}")
+    print(f"lambda_preserve={args.lambda_preserve} steps={args.steps} lr={args.lr} confidence_scaled={args.confidence_scaled}")
 
     train_prompts = make_probe_prompts(NUM_TRAIN_PROMPTS, rng)
     held_out_prompts = make_probe_prompts(NUM_HELD_OUT_PROMPTS, rng)
@@ -130,7 +131,7 @@ def main():
     init_params = init_readonly_integration(D_MODEL, KEY_DIM, VALUE_DIM, seed=SEED)
 
     print("\n--- before training (random read-path params) ---")
-    rank_no_mem, rank_mem_untrained, ce_untrained = target_logit_stats(model, held_out_prompts, init_params, oracle_memory(NUM_HELD_OUT_PROMPTS))
+    rank_no_mem, rank_mem_untrained, ce_untrained = target_logit_stats(model, held_out_prompts, init_params, oracle_memory(NUM_HELD_OUT_PROMPTS), confidence_scaled=args.confidence_scaled)
     print(f"mean target token rank, no memory:        {rank_no_mem:.1f} / {VOCAB_SIZE}")
     print(f"mean target token rank, untrained memory: {rank_mem_untrained:.1f} / {VOCAB_SIZE}  (expect: no better than no-memory, random query can't address the oracle key)")
 
@@ -140,7 +141,7 @@ def main():
 
     def loss_fn(pd: dict) -> mx.array:
         p = dict_to_params(pd)
-        logits, _ = forward(model, train_prompts, memory_params=p, memory_state=frozen_memory_train)
+        logits, _ = forward(model, train_prompts, memory_params=p, memory_state=frozen_memory_train, confidence_scaled=args.confidence_scaled)
         final_logits = logits[:, -1, :]
         targets = mx.full((final_logits.shape[0],), TARGET, dtype=mx.int32)
         task_loss = mx.mean(nn.losses.cross_entropy(final_logits, targets))
@@ -150,7 +151,7 @@ def main():
         # (next-token cross-entropy on real, trigger-free text with memory
         # populated) rather than a proxy -- penalizes the trained read
         # path for firing on content it has no business firing on.
-        bg_logits, _ = forward(model, background_tokens, memory_params=p, memory_state=frozen_memory_background)
+        bg_logits, _ = forward(model, background_tokens, memory_params=p, memory_state=frozen_memory_background, confidence_scaled=args.confidence_scaled)
         preserve_loss = mx.mean(nn.losses.cross_entropy(bg_logits[:, :-1].astype(mx.float32), background_tokens[:, 1:]))
         return task_loss + args.lambda_preserve * preserve_loss
 
@@ -167,7 +168,7 @@ def main():
     trained_params = dict_to_params(params_dict)
 
     print("\n--- after training, held-out prompts (unseen prefixes, same trigger) ---")
-    rank_no_mem2, rank_mem_trained, ce_trained = target_logit_stats(model, held_out_prompts, trained_params, oracle_memory(NUM_HELD_OUT_PROMPTS))
+    rank_no_mem2, rank_mem_trained, ce_trained = target_logit_stats(model, held_out_prompts, trained_params, oracle_memory(NUM_HELD_OUT_PROMPTS), confidence_scaled=args.confidence_scaled)
     print(f"mean target token rank, no memory:        {rank_no_mem2:.1f} / {VOCAB_SIZE}")
     print(f"mean target token rank, TRAINED memory:   {rank_mem_trained:.1f} / {VOCAB_SIZE}")
     print(f"mean cross-entropy on target, trained memory: {ce_trained:.5f}")
@@ -176,7 +177,7 @@ def main():
     val_lines = Path("data/packed/repro_256_val.jsonl").open().readlines()[:64]
     val_tokens = mx.array([json.loads(l)[:256] for l in val_lines], dtype=mx.int32)
     logits_no_mem, _ = forward(model, val_tokens)
-    logits_trained_mem, _ = forward(model, val_tokens, memory_params=trained_params, memory_state=oracle_memory(val_tokens.shape[0]))
+    logits_trained_mem, _ = forward(model, val_tokens, memory_params=trained_params, memory_state=oracle_memory(val_tokens.shape[0]), confidence_scaled=args.confidence_scaled)
     mx.eval(logits_no_mem, logits_trained_mem)
     ce_val_no_mem = float(mx.mean(nn.losses.cross_entropy(logits_no_mem[:, :-1].astype(mx.float32), val_tokens[:, 1:])))
     ce_val_trained_mem = float(mx.mean(nn.losses.cross_entropy(logits_trained_mem[:, :-1].astype(mx.float32), val_tokens[:, 1:])))

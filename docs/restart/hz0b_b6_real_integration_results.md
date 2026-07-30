@@ -97,6 +97,40 @@ a real ~45% relative reduction from the untuned (lambda=0) result. This is
 the recommended setting if reusing this mechanism, not a claim that it's
 provably optimal.
 
+## 3c. Real structural fix (2026-07-30): confidence-scaled gate
+
+Rather than continuing to tune around the bias-leakage bug traced in
+section 3b, `gated_memory_read` gained a `confidence_scaled` flag
+(default `False`, every existing result above is unaffected): the gate is
+additionally multiplied by the read's own retrieval confidence (`sum(
+read_weights * memory_state.confidence)`). Since an empty or irrelevant
+memory has confidence exactly 0 in the relevant slots, this makes the
+gate structurally 0 there regardless of what the bias terms have learned
+-- not just at init (the old guarantee), at any point in training.
+
+Real result, same oracle-fact task as sections 1-3, `lambda_preserve=5`,
+`lr=0.4` (needed higher than the untuned 0.15 -- retrieval confidence
+starts low with a randomly-initialized query, before it learns to
+concentrate weight on the right slot, so the useful gradient signal is
+initially weaker under this scaling and needs more/faster steps to
+compensate), 2500 steps:
+
+| | Held-out target rank | General degradation |
+| --- | --- | --- |
+| Untuned (section 1) | 0 (solved) | +2.544% |
+| Tuned, `lambda_preserve=5` (section 3) | 0 (solved) | +1.404% |
+| **Confidence-scaled + `lambda_preserve=5`** | **0 (solved)** | **+0.381%** |
+
+A real, substantial improvement on top of the already-tuned result -- not
+a full zero (the confidence term is itself a differentiable, imperfect
+proxy, and 2500 steps may not be fully converged), but roughly a 73%
+relative reduction from the best previously-tuned number, and 85% from
+the untuned baseline, while still fully solving the memory-specific task.
+See `docs/restart/hz0b_b7_real_integration_results.md` section 4 for the
+even cleaner result this gives B7 (exact 0.000000 drift, provably
+guaranteed there since that check uses a truly empty memory, not just an
+irrelevant one).
+
 ## 3b. Addendum (2026-07-30, from B7's work): the exact mechanism behind the residual degradation
 
 `docs/restart/hz0b_b7_real_integration_results.md` section 2 traced the
@@ -118,26 +152,31 @@ materially degrading general held-out loss."*
   5378th -> 0th on unseen prefixes, a clean generalization result, not a
   synthetic-only claim.
 - **General held-out degradation**: real and non-zero at every setting
-  tried, including the tuned one -- best found is +1.40% (lambda=5), down
-  from +2.54% untuned. Better, not eliminated; calling the tuned result a
-  clean pass would still be overclaiming. The mechanism is a continuous
-  (sigmoid) gate computed from every hidden state regardless of relevance
-  -- some leakage onto irrelevant content is a structural property of this
-  specific gating design (`output = hidden + sigmoid(gate_proj(hidden)) *
-  readout`), not a bug, and the background-preservation regularizer
-  reduces but does not remove it.
-- The lambda sweep (section 3) is real evidence a tradeoff exists and can
-  be improved with a targeted regularizer, but it's 4 points, not an
-  exhaustive search -- the true best setting, or whether a fundamentally
-  different gating mechanism (e.g. a harder, more discriminative gate)
-  would do better, is not established here.
+  tried -- best found is now +0.38% (confidence-scaled + lambda=5, section
+  3c), down from +1.40% (lambda=5 alone) and +2.54% untuned. Substantially
+  better, still not eliminated; calling the current-best result a clean
+  pass would still be overclaiming, though it is much closer to one. The
+  confidence-scaling fix (section 3c) closes the specific, traced bias-
+  leakage mechanism (section 3b) structurally -- the remaining ~0.38% is
+  plausibly genuine content-correlated leakage (the gate still fires
+  somewhat on hidden states that resemble relevant content even when
+  nothing relevant is actually stored), a different, harder-to-eliminate
+  effect than the bias-term bug that's now fixed.
+- The lambda sweep (section 3) and the confidence-scaling fix (section
+  3c) are each real, disclosed, partial improvements -- neither is an
+  exhaustive search of its own hyperparameter space, and combining them
+  was not itself re-swept (lambda=5 was carried over, not re-optimized
+  jointly with confidence-scaling).
 
 **Conclusion: B6's mechanism works as designed, its real-checkpoint,
 real-data behavior matches every isolated-test prediction exactly where
-those predictions were unconditional (empty memory), and a straightforward
-regularizer measurably improves the tradeoff (+2.54% -> +1.40% degradation,
-same fully-solved task result).** The conditional exit-gate claim ("without
-materially degrading") is closer to satisfied after tuning but still not a
-clean zero -- a real, disclosed gap, not silently rounded up to "done."
+those predictions were unconditional (empty memory), and two real,
+disclosed improvements -- a background-preservation regularizer and a
+structural confidence-scaling fix for a precisely traced bug -- together
+cut general-held-out degradation from +2.54% to +0.38%, an ~85% relative
+reduction, while the memory-specific task stays fully solved throughout.**
+The conditional exit-gate claim ("without materially degrading") is much
+closer to satisfied now but still not a clean zero -- a real, disclosed
+gap, not silently rounded up to "done."
 Whether 1.40% counts as "material" is a judgment call this doc is not
 making unilaterally.

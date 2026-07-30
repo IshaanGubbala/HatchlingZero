@@ -48,7 +48,7 @@ def logits_from_hidden(model: HZ0AMlxModel, hidden: mx.array) -> mx.array:
     return mx.matmul(model.final_norm(hidden), model.embedding.weight.T)
 
 
-def apply_readonly_memory(params: ReadOnlyIntegrationParams, hidden: mx.array, memory_state: MemoryState) -> mx.array:
+def apply_readonly_memory(params: ReadOnlyIntegrationParams, hidden: mx.array, memory_state: MemoryState, *, confidence_scaled: bool = False) -> mx.array:
     """Broadcasts the SAME (sequence-local, per B1 decision 11) memory
     bank across every position of a [batch, seq, d_model] hidden-state
     tensor, then applies B6's per-position gated read
@@ -70,16 +70,17 @@ def apply_readonly_memory(params: ReadOnlyIntegrationParams, hidden: mx.array, m
         last_write_step=mx.broadcast_to(memory_state.last_write_step[:, None], (batch, seq, num_slots)).reshape(batch * seq, num_slots),
         write_source=mx.broadcast_to(memory_state.write_source[:, None], (batch, seq, num_slots)).reshape(batch * seq, num_slots),
     )
-    flat_output, _ = _gated_memory_read_single_position(params, flat_hidden, tiled_memory)
+    flat_output, _ = _gated_memory_read_single_position(params, flat_hidden, tiled_memory, confidence_scaled=confidence_scaled)
     return flat_output.reshape(batch, seq, d_model)
 
 
-def forward(model: HZ0AMlxModel, token_ids: mx.array, *, memory_params: ReadOnlyIntegrationParams | None = None, memory_state: MemoryState | None = None, states=None) -> tuple[mx.array, list]:
+def forward(model: HZ0AMlxModel, token_ids: mx.array, *, memory_params: ReadOnlyIntegrationParams | None = None, memory_state: MemoryState | None = None, states=None, confidence_scaled: bool = False) -> tuple[mx.array, list]:
     """Full forward pass. `memory_params`/`memory_state` both None -> exact
     `model(token_ids, states)` behavior (the "HZ-0A frozen, no memory" arm
     of B6's own comparison). Both provided -> the "HZ-0A frozen, read-only
-    memory" arm."""
+    memory" arm. `confidence_scaled`: see `gated_memory_read`'s own
+    docstring -- default False preserves the original B6 result exactly."""
     hidden, next_states = frozen_hidden_states(model, token_ids, states)
     if memory_params is not None and memory_state is not None:
-        hidden = apply_readonly_memory(memory_params, hidden, memory_state)
+        hidden = apply_readonly_memory(memory_params, hidden, memory_state, confidence_scaled=confidence_scaled)
     return logits_from_hidden(model, hidden), next_states
