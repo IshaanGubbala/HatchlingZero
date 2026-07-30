@@ -1,0 +1,398 @@
+"""CUDA/MPS/CPU Stage-2 runner for the locked HZ-0A topology (PyTorch path).
+
+This is a torch port of `scripts/hz0a_native_stage_runner.py` (the MLX/Metal
+production runner used for all Mac training this project has done so far),
+built so the SAME architecture, data, and training-loop semantics (cosine LR,
+truncated-backward gradient accumulation, milestone/best-checkpoint
+snapshots, resumable via a fixed sequential data cursor) can run on an
+NVIDIA GPU (e.g. an RTX 3060) where MLX does not run at all -- MLX targets
+Apple's Metal API exclusively, so the entire native-Metal path
+(`reference/hz0a_mlx_model.py`, `reference/hz0a_mlx_metal.py`,
+`restart/hz0a_pmetal/`) is unusable on Windows/CUDA by construction, not by
+an oversight. This script instead builds on `reference/hz0a_torch_model.py`
+-- a pure-PyTorch reference implementation that already exists in this repo
+and is independently verified against the native Metal kernels for
+numerical parity (`scripts/hz0a_native_model_parity.py`,
+`hz0a_native_embedding_parity.py`), so its forward/backward math is a known
+match for the locked A1 spec even though it has never been used for
+production-scale training before.
+
+Known, honest gaps versus the native Metal runner (not silently ported):
+
+- GDN-2Mixer's recurrence (`reference/hz0a_torch_model.py`) is a Python
+  `for t in range(steps)` loop, not a fused kernel scan -- unlike MLX's
+  native Metal GDN-2 kernel. This may be a real throughput bottleneck on
+  any device; it has NOT been benchmarked on an actual CUDA GPU (no CUDA
+  hardware was available to test this script on). Measure it for real on
+  the target 3060 before trusting any throughput number.
+- No activation-checkpoint support in v1 -- the native runner's own
+  `--activation-checkpoint` was measured to REGRESS throughput 16% at this
+  model scale (see plans/HZ-0A_Progress_Tracker.md), so this isn't a loss
+  of a proven-good feature.
+- No attention-state carry across truncated-backward chunks -- the torch
+  reference model's CausalAttention has no KV-cache/carry mechanism at
+  all. This matches what the actual completed Mac Stage 2 runs used in
+  practice (both `reset_attention_state` and `carry_attention_state` were
+  False in both finished runs' own config_snapshot.json), so it is not a
+  behavioral regression versus the real production runs, just versus the
+  native runner's unused *capability*.
+- `--compile-step` here wraps the training step in `torch.compile` (not
+  MLX's `mx.compile` -- a different compiler, no equivalence claimed). It
+  is OFF by default and UNVALIDATED (no CUDA hardware to benchmark or
+  correctness-check it against the eager path). Do not trust it without
+  first reproducing the eager-vs-compiled bit-exactness check the native
+  runner's own `--compile-step` went through before this project adopted
+  it.
+- Precision handling casts the whole model to the target dtype directly
+  (matching the native runner's own approach), not `torch.autocast`. bf16
+  is the recommended low-precision choice (Ampere/RTX 3060 supports it
+  natively) -- fp16 is included but this project independently found
+  fp16 parameter casting produces NaN on the MLX path at this model
+  scale; that is a different implementation, but the same class of
+  numerical risk has not been re-verified here and should not be assumed
+  safe.
+
+Data-loading semantics (sequential, deterministic, epoch-wrapping
+`read_batch`) are copied verbatim from the native runner rather than reused
+from `restart/hz0a_dataset.py`'s shuffled-cursor dataset classes, so a
+Windows run reads the packed corpus in the exact same order the Mac runs
+did -- this matters if the two are ever meant to be compared or continued
+from each other's data position.
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import math
+import sys
+import time
+from pathlib import Path
+
+import numpy as np
+import torch
+import torch.nn.functional as F
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from reference.hz0a_torch_model import HZ0AConfig, HZ0AModel
+from reference.hz0a_matched_transformer import MatchedTransformerConfig, MatchedTransformerLM
+
+
+def read_batch(handle, batch_size: int, sequence_length: int, device, epoch_counter: list[int] | None = None) -> torch.Tensor:
+    values = []
+    while len(values) < batch_size:
+        line = handle.readline()
+        if not line:
+            handle.seek(0)
+            if epoch_counter is not None:
+                epoch_counter[0] += 1
+            line = handle.readline()
+        tokens = json.loads(line)
+        if len(tokens) < sequence_length:
+            continue
+        values.append(tokens[:sequence_length])
+    return torch.tensor(np.asarray(values, dtype=np.int64), device=device)
+
+
+def model_fingerprint(model: torch.nn.Module) -> str:
+    values = [parameter.detach().to("cpu", torch.float32).numpy().tobytes() for parameter in model.parameters()]
+    return hashlib.sha256(b"".join(values)).hexdigest()
+
+
+def lr_at_step(step: int, total_steps: int, warmup_steps: int, max_lr: float, min_lr_ratio: float = 0.1) -> float:
+    """Identical to the native runner's own `lr_at_step` -- a pure function
+    of step, so resuming only needs the checkpointed `step`, no separate
+    scheduler state."""
+    if warmup_steps > 0 and step < warmup_steps:
+        return max_lr * (step + 1) / warmup_steps
+    if total_steps <= warmup_steps:
+        return max_lr
+    progress = (step - warmup_steps) / (total_steps - warmup_steps)
+    progress = min(max(progress, 0.0), 1.0)
+    cosine = 0.5 * (1.0 + math.cos(math.pi * progress))
+    min_lr = max_lr * min_lr_ratio
+    return min_lr + (max_lr - min_lr) * cosine
+
+
+def assert_finite(label: str, tensors) -> None:
+    if not all(torch.isfinite(t).all() for t in tensors):
+        raise FloatingPointError(f"torch Stage 2 produced non-finite {label}")
+
+
+def detach_state(state):
+    if state is None:
+        return None
+    return state.detach()
+
+
+def save_checkpoint(path: Path, model, optimizer, step, tokens_seen, batch_index, metrics, microbatch_count, epoch_or_data_pass, best_validation_loss, milestones_hit) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    torch.save({"model": model.state_dict(), "optimizer": optimizer.state_dict()}, str(path) + ".pt")
+    payload = {
+        "step": step, "tokens_seen": tokens_seen, "batch_index": batch_index,
+        "microbatch_count": microbatch_count, "epoch_or_data_pass": epoch_or_data_pass,
+        "best_validation_loss": best_validation_loss, "milestones_hit": milestones_hit or [],
+        "metrics": metrics,
+    }
+    Path(str(path) + ".json").write_text(json.dumps(payload), encoding="utf-8")
+
+
+def restore_checkpoint(path: Path, model, optimizer, device) -> dict:
+    blob = torch.load(str(path) + ".pt", map_location=device, weights_only=False)
+    model.load_state_dict(blob["model"])
+    optimizer.load_state_dict(blob["optimizer"])
+    return json.loads(Path(str(path) + ".json").read_text(encoding="utf-8"))
+
+
+def snapshot_checkpoint(path: Path, destination: Path) -> None:
+    import shutil
+    shutil.copy(str(path) + ".pt", str(destination) + ".pt")
+    shutil.copy(str(path) + ".json", str(destination) + ".json")
+
+
+def resolve_device(name: str) -> torch.device:
+    if name == "auto":
+        if torch.cuda.is_available():
+            return torch.device("cuda")
+        if torch.backends.mps.is_available():
+            return torch.device("mps")
+        return torch.device("cpu")
+    return torch.device(name)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--data", type=Path, required=True)
+    parser.add_argument("--validation-data", type=Path, required=True)
+    parser.add_argument("--run-dir", type=Path, required=True)
+    parser.add_argument("--target-tokens", type=int, default=10_000_000)
+    parser.add_argument("--batch-size", type=int, default=2)
+    parser.add_argument("--checkpoint-interval", type=int, default=100)
+    parser.add_argument("--validation-interval", type=int, default=100)
+    parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--chunk-length", type=int, default=128)
+    parser.add_argument("--truncate-backward", action="store_true")
+    parser.add_argument("--vocab-size", type=int, default=24576)
+    parser.add_argument("--dim", type=int, default=768)
+    parser.add_argument("--layers", type=int, default=31)
+    parser.add_argument("--heads", type=int, default=12)
+    parser.add_argument("--d-ff", type=int, default=2304)
+    parser.add_argument("--sequence-length", type=int, default=0)
+    parser.add_argument("--dtype", choices=("float32", "float16", "bfloat16"), default="bfloat16", help="bfloat16 recommended on Ampere+ (RTX 3060 supports it natively); float16 caused NaN on this project's MLX path at this scale under plain param-cast precision (a different implementation, not re-verified here -- treat as a real, open risk, not a validated-safe option).")
+    parser.add_argument("--exact-update-norm", action="store_true")
+    parser.add_argument("--compile-step", action="store_true", help="torch.compile the training step. UNVALIDATED: no CUDA hardware was available to benchmark or bit-exactness-check this against the eager path before this flag was added. Off by default.")
+    parser.add_argument("--gradient-accumulation-chunks", type=int, default=1)
+    parser.add_argument("--max-lr", type=float, default=1e-4)
+    parser.add_argument("--warmup-steps", type=int, default=100)
+    parser.add_argument("--lr-min-ratio", type=float, default=0.1)
+    parser.add_argument("--lr-schedule", choices=("cosine", "constant"), default="cosine")
+    parser.add_argument("--architecture", choices=("hybrid", "transformer"), default="hybrid")
+    parser.add_argument("--seed", type=int, default=7)
+    parser.add_argument("--validation-batch-size", type=int, default=32)
+    parser.add_argument("--milestone-tokens", type=str, default="")
+    parser.add_argument("--device", choices=("auto", "cpu", "cuda", "mps"), default="auto")
+    args = parser.parse_args()
+
+    if args.gradient_accumulation_chunks <= 0:
+        raise ValueError("--gradient-accumulation-chunks must be positive")
+    if args.warmup_steps < 0:
+        raise ValueError("--warmup-steps must be non-negative")
+
+    device = resolve_device(args.device)
+    if device.type == "cuda" and not torch.cuda.is_available():
+        raise RuntimeError("--device cuda requested but CUDA is unavailable")
+    if device.type == "mps" and not torch.backends.mps.is_available():
+        raise RuntimeError("--device mps requested but MPS is unavailable")
+
+    args.run_dir.mkdir(parents=True, exist_ok=True)
+    memory_log = args.run_dir / "torch_stage2_memory.jsonl"
+    checkpoint = args.run_dir / "torch_stage2_checkpoint"
+    if not (args.resume and Path(str(checkpoint) + ".pt").exists()):
+        memory_log.write_text("", encoding="utf-8")
+
+    sequence_length = args.sequence_length or len(json.loads(args.data.open().readline()))
+    if args.truncate_backward:
+        total_chunks = math.ceil(args.target_tokens / (args.batch_size * args.chunk_length))
+        total_optimizer_steps = max(1, math.ceil(total_chunks / args.gradient_accumulation_chunks))
+        effective_batch_tokens = args.batch_size * args.chunk_length * args.gradient_accumulation_chunks
+    else:
+        total_optimizer_steps = max(1, math.ceil(args.target_tokens / (args.batch_size * sequence_length)))
+        effective_batch_tokens = args.batch_size * sequence_length
+
+    config_snapshot = {key: (str(value) if isinstance(value, Path) else value) for key, value in vars(args).items()}
+    config_snapshot.update(sequence_length_resolved=sequence_length, effective_batch_tokens=effective_batch_tokens, total_optimizer_steps_estimate=total_optimizer_steps, resolved_device=str(device), backend="torch")
+    (args.run_dir / "config_snapshot.json").write_text(json.dumps(config_snapshot, indent=2, sort_keys=True), encoding="utf-8")
+
+    torch.manual_seed(args.seed)
+    torch_dtype = {"float32": torch.float32, "float16": torch.float16, "bfloat16": torch.bfloat16}[args.dtype]
+
+    if args.architecture == "transformer":
+        transformer_config = MatchedTransformerConfig({
+            "vocab_size": args.vocab_size, "d_model": args.dim, "num_layers": args.layers,
+            "num_heads": args.heads, "head_dim": args.dim // args.heads, "d_ff": args.d_ff,
+        })
+        model = MatchedTransformerLM(transformer_config)
+    else:
+        attention_indices = tuple(index for index in (4, 9, 14, 19, 24, 29) if index < args.layers)
+        hz0a_config = HZ0AConfig(
+            vocab_size=args.vocab_size, d_model=args.dim, num_layers=args.layers, num_heads=args.heads,
+            d_k=args.dim // args.heads, d_v=args.dim // args.heads, d_ff=args.d_ff,
+            attention_layer_indices=attention_indices,
+        )
+        model = HZ0AModel(hz0a_config)
+    model = model.to(device=device, dtype=torch_dtype)
+
+    def current_lr(at_step: int) -> float:
+        if args.lr_schedule == "constant":
+            return args.max_lr
+        return lr_at_step(at_step, total_optimizer_steps, args.warmup_steps, args.max_lr, args.lr_min_ratio)
+
+    optimizer = torch.optim.AdamW(model.parameters(), lr=current_lr(0), weight_decay=0.01)
+    metrics, step, tokens_seen, batch_index = [], 0, 0, 0
+    microbatch_count, epoch_or_data_pass = 0, 0
+    best_validation_loss, milestones_hit = None, []
+    milestone_tokens = sorted({int(value) for value in args.milestone_tokens.split(",") if value.strip()})
+
+    if args.resume and Path(str(checkpoint) + ".pt").exists():
+        payload = restore_checkpoint(checkpoint, model, optimizer, device)
+        metrics, step, tokens_seen, batch_index = payload["metrics"], payload["step"], payload["tokens_seen"], payload["batch_index"]
+        microbatch_count = payload.get("microbatch_count", 0)
+        epoch_or_data_pass = payload.get("epoch_or_data_pass", 0)
+        best_validation_loss = payload.get("best_validation_loss")
+        milestones_hit = payload.get("milestones_hit", [])
+
+    last_lr = current_lr(step)
+    started = time.perf_counter()
+    epoch_counter = [epoch_or_data_pass]
+
+    train_step_fn = model
+    if args.compile_step:
+        train_step_fn = torch.compile(model)
+
+    with args.data.open() as train, args.validation_data.open() as validation:
+        for _ in range(batch_index):
+            read_batch(train, args.batch_size, sequence_length, device, [0])
+        fixed_validation_tokens = read_batch(validation, args.validation_batch_size, sequence_length, device)
+
+        @torch.no_grad()
+        def evaluate_fixed_validation(sub_batch: int = 8) -> float:
+            model.eval()
+            total, count = 0.0, 0
+            for start in range(0, fixed_validation_tokens.shape[0], sub_batch):
+                chunk = fixed_validation_tokens[start:start + sub_batch]
+                if args.architecture == "transformer":
+                    logits = model(chunk)
+                else:
+                    logits, _ = model(chunk)
+                loss = F.cross_entropy(logits[:, :-1].reshape(-1, args.vocab_size).float(), chunk[:, 1:].reshape(-1))
+                total += float(loss)
+                count += 1
+            model.train()
+            return total / count
+
+        model.train()
+        while tokens_seen < args.target_tokens:
+            tokens = read_batch(train, args.batch_size, sequence_length, device, epoch_counter)
+            chunk_metrics = []
+            if args.truncate_backward:
+                states = None
+                accumulated_count = 0
+                chunk_starts = list(range(0, sequence_length, args.chunk_length))
+                for chunk_index, start in enumerate(chunk_starts):
+                    chunk = tokens[:, start:start + args.chunk_length]
+                    if args.architecture == "transformer":
+                        logits = train_step_fn(chunk)
+                        next_state = None
+                    else:
+                        logits, next_state = train_step_fn(chunk, states)
+                    loss = F.cross_entropy(logits[:, :-1].reshape(-1, args.vocab_size).float(), chunk[:, 1:].reshape(-1))
+                    (loss / args.gradient_accumulation_chunks).backward()
+                    states = [detach_state(s) for s in next_state] if next_state is not None else None
+                    assert_finite("loss", [loss])
+                    grad_norm = float(torch.sqrt(sum((p.grad.float() ** 2).sum() for p in model.parameters() if p.grad is not None)))
+                    accumulated_count += 1
+                    microbatch_count += 1
+                    final_chunk = start + args.chunk_length >= sequence_length
+                    should_update = accumulated_count >= args.gradient_accumulation_chunks or final_chunk
+                    old = [p.detach().clone() for p in model.parameters()] if should_update and args.exact_update_norm else None
+                    update_norm = None
+                    if should_update:
+                        last_lr = current_lr(step)
+                        for group in optimizer.param_groups:
+                            group["lr"] = last_lr
+                        optimizer.step()
+                        assert_finite("updated parameters", [p.detach() for p in model.parameters()])
+                        if old is not None:
+                            update_norm = float(torch.sqrt(sum(((a - b.detach()) ** 2).sum() for a, b in zip(old, model.parameters()))))
+                        optimizer.zero_grad(set_to_none=True)
+                        step += 1
+                        accumulated_count = 0
+                    tokens_seen += args.batch_size * chunk.shape[1]
+                    entry = {"step": step, "tokens_seen": tokens_seen, "loss": float(loss), "gradient_norm": grad_norm, "update_norm": update_norm, "lr": last_lr, "wall_time": time.perf_counter() - started, "microbatch_count": microbatch_count, "epoch_or_data_pass": epoch_counter[0]}
+                    if device.type == "cuda":
+                        entry["peak_memory_bytes"] = int(torch.cuda.max_memory_allocated())
+                    chunk_metrics.append(entry)
+                    with memory_log.open("a", encoding="utf-8") as handle:
+                        handle.write(json.dumps(entry) + "\n")
+                batch_index += 1
+                item = chunk_metrics[-1]
+            else:
+                if args.architecture == "transformer":
+                    logits = train_step_fn(tokens)
+                else:
+                    logits, _ = train_step_fn(tokens, None)
+                loss = F.cross_entropy(logits[:, :-1].reshape(-1, args.vocab_size).float(), tokens[:, 1:].reshape(-1))
+                loss.backward()
+                assert_finite("loss", [loss])
+                grad_norm = float(torch.sqrt(sum((p.grad.float() ** 2).sum() for p in model.parameters() if p.grad is not None)))
+                old = [p.detach().clone() for p in model.parameters()] if args.exact_update_norm else None
+                last_lr = current_lr(step)
+                for group in optimizer.param_groups:
+                    group["lr"] = last_lr
+                optimizer.step()
+                assert_finite("updated parameters", [p.detach() for p in model.parameters()])
+                update_norm = float(torch.sqrt(sum(((a - b.detach()) ** 2).sum() for a, b in zip(old, model.parameters())))) if old is not None else None
+                optimizer.zero_grad(set_to_none=True)
+                step += 1
+                batch_index += 1
+                tokens_seen += args.batch_size * sequence_length
+                microbatch_count += 1
+                item = {"step": step, "tokens_seen": tokens_seen, "loss": float(loss), "gradient_norm": grad_norm, "update_norm": update_norm, "lr": last_lr, "wall_time": time.perf_counter() - started, "microbatch_count": microbatch_count, "epoch_or_data_pass": epoch_counter[0]}
+                with memory_log.open("a", encoding="utf-8") as handle:
+                    handle.write(json.dumps(item) + "\n")
+
+            is_new_best = False
+            if step % args.validation_interval == 0 or tokens_seen >= args.target_tokens:
+                item["validation_loss"] = evaluate_fixed_validation()
+                if best_validation_loss is None or item["validation_loss"] < best_validation_loss:
+                    best_validation_loss = item["validation_loss"]
+                    is_new_best = True
+            metrics.append(item)
+            if step % args.checkpoint_interval == 0 or tokens_seen >= args.target_tokens:
+                save_checkpoint(checkpoint, model, optimizer, step, tokens_seen, batch_index, metrics, microbatch_count, epoch_counter[0], best_validation_loss, milestones_hit)
+                if is_new_best:
+                    snapshot_checkpoint(checkpoint, checkpoint.parent / f"{checkpoint.name}_best")
+                for target in milestone_tokens:
+                    if tokens_seen >= target and target not in milestones_hit:
+                        snapshot_checkpoint(checkpoint, checkpoint.parent / f"{checkpoint.name}_milestone_{target}")
+                        milestones_hit.append(target)
+
+    report = {
+        "backend": "torch", "device": str(device), "architecture": args.architecture, "dtype": args.dtype,
+        "chunk_length": args.chunk_length, "gradient_accumulation_chunks": args.gradient_accumulation_chunks,
+        "lr_schedule": args.lr_schedule, "max_lr": args.max_lr, "warmup_steps": args.warmup_steps, "lr_min_ratio": args.lr_min_ratio,
+        "total_optimizer_steps_estimate": total_optimizer_steps, "final_lr": last_lr, "validation_batch_size": args.validation_batch_size,
+        "steps": step, "microbatch_count": microbatch_count, "epoch_or_data_pass": epoch_counter[0],
+        "best_validation_loss": best_validation_loss, "milestones_hit": milestones_hit, "tokens_seen": tokens_seen,
+        "target_tokens": args.target_tokens, "budget_complete": tokens_seen >= args.target_tokens,
+        "parameter_count": sum(p.numel() for p in model.parameters()), "initialization_seed": args.seed,
+        "final_parameter_sha256": model_fingerprint(model), "metrics": metrics, "checkpoint": str(checkpoint),
+        "training_seconds": time.perf_counter() - started, "tokens_per_second": tokens_seen / max(time.perf_counter() - started, 1e-9),
+    }
+    (args.run_dir / "torch_stage2.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+    print(json.dumps(report, indent=2))
+
+
+if __name__ == "__main__":
+    main()
