@@ -170,9 +170,29 @@ scale, was verified end-to-end on this Mac with `--device cpu` and
 machine before moving on, since CUDA is untested here).
 
 **Real run**, at the locked architecture spec (hybrid) -- see section 5b
-below for how these particular flag values (`--chunk-length 8
---batch-size 256 --compile-step`) were arrived at; this is the
-throughput-tuned command, not the naive one:
+below for how these particular flag values were arrived at; this is the
+throughput-tuned command (`--fla-recurrence`, ~5800 tok/s validated
+steady-state), not the naive one. Requires `pip install
+flash-linear-attention` (see 5b for why this is a validated, not
+experimental, dependency):
+
+```bash
+python3 scripts/hz0a_torch_stage2_runner.py \
+  --data data/packed/stage2_100m_train_seq256.jsonl \
+  --validation-data data/packed/repro_256_val.jsonl \
+  --run-dir outputs/rtx3060_stage2_hybrid --target-tokens 100000000 \
+  --batch-size 64 --sequence-length 256 --chunk-length 64 --truncate-backward \
+  --gradient-accumulation-chunks 4 --checkpoint-interval 150 --validation-interval 150 \
+  --lr-schedule cosine --max-lr 1e-4 --warmup-steps 50 --lr-min-ratio 0.1 \
+  --validation-batch-size 64 --seed 7 --fla-recurrence --compile-step \
+  --milestone-tokens 10000000,25000000,50000000,75000000,100000000 \
+  --vocab-size 24576 --dim 768 --layers 31 --heads 12 --d-ff 2304 \
+  --architecture hybrid --device cuda --dtype bfloat16
+```
+
+If you'd rather not add the `flash-linear-attention` dependency, the
+previous-best command (no external dependency, `--compile-step` only,
+~4260-4280 tok/s) is still fully valid:
 
 ```bash
 python3 scripts/hz0a_torch_stage2_runner.py \
@@ -336,6 +356,80 @@ process (not the "measured unsafe" label) -- it looked fine on synthetic
 inputs and only broke under the model's real initialization, which is why
 both checks matter and why it's disabled by default rather than assumed
 fine because the math is "the same in exact arithmetic."
+
+## 5c. `--fla-recurrence`: a real chunked kernel, borrowed rather than built
+
+After the above, someone pointed out the (July 2026) Kimi K3 technical
+report [arXiv:2607.24653] as worth reading -- Kimi K3's KDA (Kimi Delta
+Attention) layer is a close relative of this project's GDN-2 mixer (both
+gated-delta-net family), and their infrastructure section describes
+FlashKDA, a dedicated chunkwise kernel solving exactly the problem this
+runner had been fighting by hand (`--chunked-scan`'s NaN/bias failure
+under real weights). FlashKDA itself is a CUTLASS kernel Kimi built
+specifically for KDA's extra delta-rule correction term, which GDN-2
+doesn't have -- not directly usable here. But the report also states
+FlashKDA "is auto-dispatched as a backend of flash-linear-attention",
+i.e. Kimi's own training pipeline runs on top of the `flash-linear-attention`
+(FLA) open-source library, whose default kernels are Triton, not CUTLASS.
+
+That was the actionable lead: GDN-2's update
+`state_t = decay_t*(1-erase_t)*state_{t-1} + write_t*v_t (x) k_t` is,
+term for term, Gated Linear Attention's `state_t = exp(g_t)*state_{t-1} +
+k_t (x) v_t`, once `g_t := log(decay_t*(1-erase_t))` (folding the erase
+gate into the decay) and `v_t` is pre-scaled by `write_t` before the call.
+This is an EXACT reduction, not an approximation -- confirmed by installing
+`flash-linear-attention` (`pip install flash-linear-attention`) and testing
+its `fla.ops.gla.chunk_gla` against this file's own sequential `_gdn2_step`
+loop:
+
+- Synthetic random decay values, float32: output/state mean diff ~1e-3-1e-4
+  relative to scale.
+- **This layer's own bias-initialized regime** (decay~0.99, erase~0.01,
+  matching `GDN2Mixer.__init__`'s bias fill, i.e. the actual condition
+  training runs under) -- the same test `--chunked-scan` was checked
+  against and failed: mean relative gradient error ~0.2-0.3% in float32,
+  ~0.7-1.1% in bfloat16. No NaN, no Inf, no systematic bias. This is the
+  same magnitude class as `--compile-step`'s own bf16 rounding noise
+  (already accepted elsewhere in this doc), not `--chunked-scan`'s
+  ~20%-and-structurally-biased failure.
+- Full-model integration (forward+backward parity, both dtypes) and a full
+  ~32-step training-trajectory comparison against eager, following the same
+  two-stage process section 5b describes: max loss diff 0.137, max
+  gradient_norm diff 20, both trajectories decreasing in lockstep
+  (108 -> 69 over 32 steps) -- the same magnitude as every other validated
+  math-changing path in this file.
+
+**Why it's fast**: `chunk_gla` is a real chunked/parallel Triton kernel
+(unlike this project's own attempts, which were either a Python loop with
+per-step or per-chunk `torch.compile` fusion, still O(steps) sequential
+calls underneath). It processes an entire sequence length in one call with
+no chunk-boundary bookkeeping needed for the recurrence itself. Measured in
+isolation at `--batch-size 256`, a single layer's full 256-length-sequence
+forward+backward dropped to 55ms (vs. the whole 25-layer recurrence stack
+previously costing well over a second) -- the recurrence stopped being the
+bottleneck almost entirely; the non-recurrent parts of the model (SwiGLU,
+attention, embeddings) then became the limiting factor, which is why
+`--chunk-length`/`--batch-size` still need tuning around a VRAM budget
+(section 5b's ceiling-finding logic still applies to those parts) even
+though the recurrence no longer needs it. Best validated combination found:
+`--chunk-length 64 --batch-size 64 --compile-step --fla-recurrence`, at
+**~5786-5905 tok/s steady-state** (measured across multiple runs, 11.0GB
+peak VRAM) -- up from ~4260-4280 tok/s without it, and about **2.9x** the
+Mac Stage 2 hybrid run's own throughput.
+
+**Caveats, honestly:** `flash-linear-attention` is a real external
+dependency (pulls in `transformers`, `tensorflow` via its own deps --
+noticeably heavier `pip install` than anything else this runner needs).
+`--fla-recurrence` is incompatible with `--chunked-scan` (both replace the
+same code path) and with `--compile-step`'s own GDN-2-specific compilation
+(also the same code path -- `--compile-step` compiles the *other* modules,
+SwiGLU/CausalAttention/RMSNorm, when combined with `--fla-recurrence`,
+which is the combination actually benchmarked above). The library is
+new to this project as of today and, per its own numbers above, differs
+from the sequential reference by the same order of magnitude already
+accepted elsewhere -- treat it with the same "verify, don't just trust the
+math" posture as everything else in this section, not as beyond question
+just because it's externally maintained.
 
 ## 6. Resuming
 
