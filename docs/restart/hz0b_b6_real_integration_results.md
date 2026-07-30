@@ -97,6 +97,18 @@ a real ~45% relative reduction from the untuned (lambda=0) result. This is
 the recommended setting if reusing this mechanism, not a claim that it's
 provably optimal.
 
+## 3b. Addendum (2026-07-30, from B7's work): the exact mechanism behind the residual degradation
+
+`docs/restart/hz0b_b7_real_integration_results.md` section 2 traced the
+precise cause this doc only described empirically above: `gated_memory_read`'s
+`readout_in_hidden_space = readout @ value_to_hidden_w + value_to_hidden_b`
+adds the learned bias `value_to_hidden_b` even when `readout` is exactly
+zero (a truly empty memory) -- so a trained read path reintroduces a
+small, memory-content-independent perturbation purely through its own
+bias terms, not only through "content-correlated leakage" as speculated
+in section 3 above. Both explanations likely contribute; the bias-term
+effect is the one with a precise, traced mechanism.
+
 ## 4. Honest read on B6's exit gate
 
 B6's exit gate: *"Read-only memory improves memory-specific tasks without
