@@ -169,17 +169,20 @@ scale, was verified end-to-end on this Mac with `--device cpu` and
 `--device mps` -- confirm it also works with `--device cuda` on your
 machine before moving on, since CUDA is untested here).
 
-**Real run**, at the locked architecture spec (hybrid):
+**Real run**, at the locked architecture spec (hybrid) -- see section 5b
+below for how these particular flag values (`--chunk-length 8
+--batch-size 256 --compile-step`) were arrived at; this is the
+throughput-tuned command, not the naive one:
 
 ```bash
 python3 scripts/hz0a_torch_stage2_runner.py \
   --data data/packed/stage2_100m_train_seq256.jsonl \
   --validation-data data/packed/repro_256_val.jsonl \
   --run-dir outputs/rtx3060_stage2_hybrid --target-tokens 100000000 \
-  --batch-size 8 --sequence-length 256 --chunk-length 128 --truncate-backward \
-  --gradient-accumulation-chunks 2 --checkpoint-interval 150 --validation-interval 150 \
+  --batch-size 256 --sequence-length 256 --chunk-length 8 --truncate-backward \
+  --gradient-accumulation-chunks 4 --checkpoint-interval 150 --validation-interval 150 \
   --lr-schedule cosine --max-lr 1e-4 --warmup-steps 50 --lr-min-ratio 0.1 \
-  --validation-batch-size 64 --seed 7 \
+  --validation-batch-size 64 --seed 7 --compile-step \
   --milestone-tokens 10000000,25000000,50000000,75000000,100000000 \
   --vocab-size 24576 --dim 768 --layers 31 --heads 12 --d-ff 2304 \
   --architecture hybrid --device cuda --dtype bfloat16
@@ -212,6 +215,127 @@ path at this model scale (`plans/HZ-0A_Progress_Tracker.md`'s fp16-accum
 entry) -- a different implementation, not re-verified for this torch path,
 but the same class of risk. Don't reach for `float16` here without a real
 reason and close NaN-watching if you do.
+
+## 5b. Throughput tuning (on the actual RTX 3060, 2026-07-30)
+
+This section is the result of actually running on the real hardware --
+everything in sections 1-5 above was written before this machine was
+available. Starting point (naive `--batch-size 8 --chunk-length 128`, eager,
+no `--compile-step`): ~100-200 tok/s. Final validated result: **~4260-4280
+tok/s steady-state** (`--batch-size 256 --chunk-length 8 --compile-step`,
+either optimizer), about 2.1x the Mac Stage 2 hybrid run's own throughput.
+Every number below is from this actual 3060 (desktop, 12GB), not projected.
+
+**What actually moved the needle, in order of impact:**
+
+1. **`--compile-step` compiles the whole per-chunk GDN-2 recurrence loop as
+   one graph, not the whole model and not one timestep at a time.** The
+   naive things to try -- `torch.compile(model)`, or compiling one
+   `GDN2Mixer` instance's full per-chunk-length loop -- both unroll
+   `chunk_length` (or `chunk_length x num_layers`) Python-loop iterations
+   into a single graph, which was measured to make compilation itself take
+   from several minutes to (`torch.compile(model)` at `chunk-length 128`)
+   *over 500 seconds for a single layer alone*. The fix: extract the
+   recurrence's step math into a free function
+   (`reference/hz0a_torch_model.py`'s `_gdn2_sequential`) and compile THAT
+   once as a class attribute (`GDN2Mixer._seq_fn`), so every layer instance
+   shares one compiled artifact instead of triggering separate compiles.
+   Compiling the whole per-chunk loop (not just one timestep) beat
+   compiling one timestep at a time, but the sweet spot is bounded: K=8-16
+   timesteps per compiled call was fastest in isolation (~1.83-1.87x over
+   per-step compile); K=64 measured WORSE than K=1 (compile time and
+   per-call latency both regress once the graph gets big) -- this is why
+   `--chunk-length` above ~32 is not recommended with `--compile-step`
+   without re-benchmarking.
+2. **Also compiling `SwiGLU`, `CausalAttention`, and `RMSNorm`** (previously
+   left eager) -- once the recurrence stopped dominating (it went from 94%
+   of forward time to ~55%), these became worth fusing too. Same
+   class-attribute-sharing trick, applied to the class's `forward` method
+   directly.
+3. **`--batch-size` tuned against the actual 12GB ceiling, not assumed.**
+   Total GDN-2 kernel launches are fixed by `sequence_length` (256 here),
+   NOT by `--chunk-length` -- smaller `--chunk-length` only reduces how much
+   autograd-graph memory one microbatch call holds, which is what lets
+   `--batch-size` scale up within a fixed VRAM budget. This is why
+   `--chunk-length 8 --batch-size 256` beats both `--chunk-length 128
+   --batch-size 8` (the naive starting point) AND larger `--chunk-length`
+   values at the batch sizes that fit alongside them -- the total sequential
+   step count doesn't change, only how much of it happens per Python-level
+   call. **Windows/WDDM does not fail cleanly at the VRAM limit** -- it
+   silently pages into shared system memory, which produces a 3-10x
+   throughput collapse (not a clean CUDA OOM) well before `nvidia-smi`
+   would call it "full." Every batch size that pushed peak
+   `torch.cuda.max_memory_allocated()` (logged as `peak_memory_bytes` in
+   `torch_stage2_memory.jsonl`) above roughly 11.5-12GB on this 12GB card
+   hit this and got SLOWER, not just OOM'd -- e.g. `--chunk-length 8
+   --batch-size 288` (12.3GB peak) was measured slower than `--batch-size
+   256` (11.0GB peak) despite doing more work per call. If you retune this
+   for different hardware, watch `peak_memory_bytes` in the live log, not
+   just whether the run completes.
+
+**What was tried and did NOT help (don't waste time re-trying these as-is):**
+
+- **A closed-form "chunked parallel scan" reformulation of the GDN-2
+  recurrence** (the standard trick used in fast gated-linear-attention
+  kernels, e.g. GLA/DeltaNet) -- implemented as `_gdn2_chunk` /
+  `--chunked-scan` in this repo. Matches the sequential loop to ~1e-6 under
+  a narrow synthetic decay distribution, but under the model's actual
+  random-initialized weights (exactly the condition any real training run
+  starts from), the reformulation's split-exponent terms individually
+  overflow even though their product is mathematically bounded; the clamp
+  needed to avoid NaN then makes gradients differ from the sequential loop
+  by ~20% mean relative error, in both float32 and bfloat16. Left in the
+  code, off by default, documented as measured-unsafe -- do not enable for
+  a trusted training run.
+- **`--activation-checkpoint`** (official `torch.utils.checkpoint`,
+  recomputing each block's MLP during backward instead of keeping its
+  activations resident) -- bit-exact with the non-checkpointed path
+  (verified 0.0 diff, unlike the two items above this carries no numerical
+  caveat), and it does free real VRAM, but the extra recompute cost was
+  measured to outweigh the larger-batch headroom it bought: 3807 tok/s at
+  `--batch-size 288` with checkpointing vs 4260 tok/s at `--batch-size 256`
+  without it. Net negative at the batch sizes tried on this card. This is
+  the OPPOSITE of a numerical-risk finding -- it's a plain measured
+  throughput regression, and might net positive at different chunk/batch
+  combinations someone re-benchmarks later.
+- **8-bit optimizer states** (`--optimizer adamw8bit`, via the
+  `bitsandbytes` package -- `pip install bitsandbytes` on Windows) --
+  unlike the chunked-scan experiment, this is a mature, independently
+  maintained implementation, not an in-house numerical bet, and it does
+  converge correctly (validated: loss trajectory closely tracks plain
+  AdamW's, 69.12 vs 69.22 final loss over the same 32-step comparison) and
+  does free real memory (~1.4GB freed on this model: `torch.optim.AdamW`'s
+  own float32 `exp_avg`/`exp_avg_sq` buffers are ~2.4GB for this ~300M-param
+  model). But batch-size scaling had already plateaued by the time this was
+  tried -- 4280.8 tok/s at `--batch-size 256` (statistically the same as
+  plain AdamW's 4260) and 4194.2 tok/s at `--batch-size 272` (worse). Kept
+  as a validated, available option (useful if VRAM headroom matters more
+  than raw throughput, e.g. to leave room for a bigger model), just not a
+  throughput win on its own at this point.
+- **`PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`** -- did not move
+  the effective VRAM ceiling; the slowdown past ~11.5-12GB peak usage is a
+  real memory limit on this 12GB card, not allocator fragmentation.
+- Batch sizes between the tested points (`--batch-size 272`, `304`) did not
+  reveal a better optimum than 256 -- the scaling curve is not perfectly
+  smooth near the VRAM ceiling (compilation/allocator effects add noise),
+  so don't assume linear interpolation between two measured points holds;
+  re-measure if retuning.
+
+**How this was verified, not just measured:** every change above that
+touches the model's actual math (the two `torch.compile` changes,
+`--chunked-scan`, `--activation-checkpoint`) was checked two ways before
+being trusted: (1) a single forward+backward parity check against the eager
+path (float32 and bfloat16, comparing logits and a representative
+parameter's gradient), and (2) a full ~32-step training trajectory
+comparison (same seed, same data) checking that `loss` and `gradient_norm`
+track together step-by-step, not just that the final loss looks similar --
+this catches a compiled/approximated path that's locally close but
+compounds a systematic bias over many optimizer steps, which a single-step
+check would miss. The chunked-scan experiment specifically failed this
+process (not the "measured unsafe" label) -- it looked fine on synthetic
+inputs and only broke under the model's real initialization, which is why
+both checks matter and why it's disabled by default rather than assumed
+fine because the math is "the same in exact arithmetic."
 
 ## 6. Resuming
 

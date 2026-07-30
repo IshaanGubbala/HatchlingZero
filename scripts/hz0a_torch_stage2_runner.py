@@ -95,9 +95,28 @@ def read_batch(handle, batch_size: int, sequence_length: int, device, epoch_coun
     return torch.tensor(np.asarray(values, dtype=np.int64), device=device)
 
 
+def compute_grad_norm(model: torch.nn.Module) -> float:
+    # `torch._foreach_norm` batches the per-parameter norm computation into a
+    # single fused multi-tensor op instead of a Python-level generator loop
+    # over every parameter (~300M params across ~200+ tensors here) -- this
+    # is a monitoring-only value (never used for clipping or scaling, so its
+    # exact precision doesn't affect training), and was measured to take
+    # ~2.8x longer via the plain-Python-loop form at this model's scale.
+    grads = [parameter.grad for parameter in model.parameters() if parameter.grad is not None]
+    if not grads:
+        return 0.0
+    return torch.linalg.vector_norm(torch.stack(torch._foreach_norm(grads, 2.0))).item()
+
+
 def model_fingerprint(model: torch.nn.Module) -> str:
-    values = [parameter.detach().to("cpu", torch.float32).numpy().tobytes() for parameter in model.parameters()]
-    return hashlib.sha256(b"".join(values)).hexdigest()
+    # Hash incrementally rather than materializing every parameter's bytes and
+    # `b"".join`-ing them into one buffer -- at this model's ~300M-param scale
+    # (~1.2GB as float32) the join was measured to raise a Windows-side
+    # MemoryError at the end of a large-batch run.
+    digest = hashlib.sha256()
+    for parameter in model.parameters():
+        digest.update(parameter.detach().to("cpu", torch.float32).numpy().tobytes())
+    return digest.hexdigest()
 
 
 def lr_at_step(step: int, total_steps: int, warmup_steps: int, max_lr: float, min_lr_ratio: float = 0.1) -> float:
@@ -182,6 +201,9 @@ def main() -> None:
     parser.add_argument("--dtype", choices=("float32", "float16", "bfloat16"), default="bfloat16", help="bfloat16 recommended on Ampere+ (RTX 3060 supports it natively); float16 caused NaN on this project's MLX path at this scale under plain param-cast precision (a different implementation, not re-verified here -- treat as a real, open risk, not a validated-safe option).")
     parser.add_argument("--exact-update-norm", action="store_true")
     parser.add_argument("--compile-step", action="store_true", help="torch.compile the training step. UNVALIDATED: no CUDA hardware was available to benchmark or bit-exactness-check this against the eager path before this flag was added. Off by default.")
+    parser.add_argument("--chunked-scan", action="store_true", help="EXPERIMENTAL, MEASURED UNSAFE for real training -- do not use for a run whose results need to be trusted. Replaces the sequential GDN-2 recurrence loop with a closed-form chunked/parallel-scan matmul formulation. Matches the sequential loop to ~1e-6 only when decay/erase stay near this layer's own bias-initialized regime; with a freshly-initialized model's actual random weights (i.e. the condition any real training run starts from), the reformulation's split-exponent terms can individually overflow, and the NaN-avoiding clamp this needed then makes gradients differ from the sequential loop by ~20% mean relative error, in both float32 and bfloat16 -- see reference/hz0a_torch_model.py's `_gdn2_chunk` docstring. Off by default; kept only as a documented throughput experiment, not a validated fast path.")
+    parser.add_argument("--activation-checkpoint", action="store_true", help="Recompute each hybrid-architecture block's MLP during backward instead of keeping its activations resident, trading compute for memory. Bit-exact with the non-checkpointed path (changes WHEN the MLP forward runs, not what it computes -- verified 0.0 diff), unlike `--compile-step`/`--chunked-scan` this carries no numerical caveat. MEASURED NET NEGATIVE end-to-end on this RTX 3060 at the batch sizes tried (e.g. 3807 tok/s at batch-size 288 vs 4260 tok/s at batch-size 256 without it) -- the extra recompute cost outweighed the larger-batch headroom it freed, unlike the native Mac/MLX runner's own `--activation-checkpoint` (which regressed 16% for a different reason -- a different framework/kernel). Kept as an available, verified-correct option in case a different batch/chunk combination benefits, but not recommended as-is. Off by default.")
+    parser.add_argument("--optimizer", choices=("adamw", "adamw8bit"), default="adamw", help="`adamw8bit` uses bitsandbytes' block-wise-quantized AdamW, storing the exp_avg/exp_avg_sq moment buffers in 8-bit instead of float32 (~2.4GB->~600MB for this ~300M-param model), freeing VRAM for a larger `--batch-size`. This is NOT an in-house numerical experiment like `--chunked-scan` -- bitsandbytes' 8-bit Adam is a widely-used, independently-maintained implementation with its own established convergence track record across many models, not something whose correctness rests on this project's own testing. Still: it is a genuinely different optimizer (quantized moments), not a bit-exact stand-in for float32 AdamW, so loss curves will differ somewhat (not just bf16-rounding-sized) -- verify convergence looks sane for your own run rather than assuming exact parity with `adamw`.")
     parser.add_argument("--gradient-accumulation-chunks", type=int, default=1)
     parser.add_argument("--max-lr", type=float, default=1e-4)
     parser.add_argument("--warmup-steps", type=int, default=100)
@@ -241,6 +263,12 @@ def main() -> None:
             attention_layer_indices=attention_indices,
         )
         model = HZ0AModel(hz0a_config)
+        if args.chunked_scan:
+            from reference.hz0a_torch_model import GDN2Mixer
+            GDN2Mixer._use_chunked_scan = True
+        if args.activation_checkpoint:
+            from reference.hz0a_torch_model import HZ0ABlock
+            HZ0ABlock._checkpoint_mlp = True
     model = model.to(device=device, dtype=torch_dtype)
 
     def current_lr(at_step: int) -> float:
@@ -248,7 +276,11 @@ def main() -> None:
             return args.max_lr
         return lr_at_step(at_step, total_optimizer_steps, args.warmup_steps, args.max_lr, args.lr_min_ratio)
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=current_lr(0), weight_decay=0.01)
+    if args.optimizer == "adamw8bit":
+        import bitsandbytes as bnb
+        optimizer = bnb.optim.AdamW8bit(model.parameters(), lr=current_lr(0), weight_decay=0.01)
+    else:
+        optimizer = torch.optim.AdamW(model.parameters(), lr=current_lr(0), weight_decay=0.01)
     metrics, step, tokens_seen, batch_index = [], 0, 0, 0
     microbatch_count, epoch_or_data_pass = 0, 0
     best_validation_loss, milestones_hit = None, []
@@ -268,7 +300,44 @@ def main() -> None:
 
     train_step_fn = model
     if args.compile_step:
-        train_step_fn = torch.compile(model)
+        if args.architecture == "hybrid" and args.chunked_scan:
+            # Chunked-scan replaces the sequential loop with O(1) big matmuls per
+            # chunk, so (unlike compiling the sequential loop) compiling it doesn't
+            # unroll `steps` iterations into the graph -- cheap to compile. Shared
+            # class attribute for the same reuse-across-layers reason as _step_fn.
+            from reference.hz0a_torch_model import GDN2Mixer
+            GDN2Mixer._chunk_fn = staticmethod(torch.compile(GDN2Mixer._chunk_fn))
+        elif args.architecture == "hybrid":
+            # Compile the GDN-2 recurrence's whole per-chunk sequential loop
+            # (reference.hz0a_torch_model.GDN2Mixer._seq_fn) as ONE graph, not
+            # the whole (31-layer) model: torch.compile-ing the full model
+            # traces through the Python `for t in range(steps)` loop in every
+            # GDN2Mixer instance and unrolls it into one enormous graph (25
+            # layers x chunk_length steps), which was measured to make
+            # compilation itself impractically slow (~8.7 minutes for even a
+            # SINGLE layer's loop). Compiling just one shared layer's
+            # `_seq_fn` (still exactly the same sequential math, only fused
+            # into fewer kernel launches -- see its docstring) keeps compile
+            # time bounded by chunk_length alone, not chunk_length x layers,
+            # and every layer instance reuses the same compiled artifact
+            # (class attribute) instead of recompiling per-layer. Compile
+            # time and per-call speed were both measured to get WORSE past
+            # roughly chunk_length~32-64 (compiling `--chunk-length` above
+            # that is not recommended without re-benchmarking).
+            from reference.hz0a_torch_model import GDN2Mixer, SwiGLU, CausalAttention, RMSNorm
+            GDN2Mixer._seq_fn = staticmethod(torch.compile(GDN2Mixer._seq_fn))
+            # The recurrence loop was the dominant cost before the above (93.9%
+            # of forward time), but after compiling it, the non-recurrent parts
+            # (attention, the SwiGLU MLP run by all 31 layers, RMSNorm) became a
+            # comparable share -- these have no unrolled loop to worry about, so
+            # compiling them (once per class, reused by every instance the same
+            # way as `_seq_fn`) is cheap and was measured to take total speed
+            # from ~3500 to ~4600 tok/s in isolation at this model's scale.
+            SwiGLU.forward = torch.compile(SwiGLU.forward)
+            CausalAttention.forward = torch.compile(CausalAttention.forward)
+            RMSNorm.forward = torch.compile(RMSNorm.forward)
+        else:
+            train_step_fn = torch.compile(model)
 
     with args.data.open() as train, args.validation_data.open() as validation:
         for _ in range(batch_index):
@@ -310,7 +379,7 @@ def main() -> None:
                     (loss / args.gradient_accumulation_chunks).backward()
                     states = [detach_state(s) for s in next_state] if next_state is not None else None
                     assert_finite("loss", [loss])
-                    grad_norm = float(torch.sqrt(sum((p.grad.float() ** 2).sum() for p in model.parameters() if p.grad is not None)))
+                    grad_norm = compute_grad_norm(model)
                     accumulated_count += 1
                     microbatch_count += 1
                     final_chunk = start + args.chunk_length >= sequence_length
@@ -345,7 +414,7 @@ def main() -> None:
                 loss = F.cross_entropy(logits[:, :-1].reshape(-1, args.vocab_size).float(), tokens[:, 1:].reshape(-1))
                 loss.backward()
                 assert_finite("loss", [loss])
-                grad_norm = float(torch.sqrt(sum((p.grad.float() ** 2).sum() for p in model.parameters() if p.grad is not None)))
+                grad_norm = compute_grad_norm(model)
                 old = [p.detach().clone() for p in model.parameters()] if args.exact_update_norm else None
                 last_lr = current_lr(step)
                 for group in optimizer.param_groups:

@@ -6,6 +6,7 @@ from pathlib import Path
 
 import torch
 from torch import nn
+from torch.utils.checkpoint import checkpoint
 
 
 @dataclass(frozen=True)
@@ -44,7 +45,112 @@ class SwiGLU(nn.Module):
         return self.down(torch.nn.functional.silu(self.gate(x)) * self.up(x))
 
 
+def _gdn2_step(state, decay_t, erase_t, write_t, v_t, k_t, q_t):
+    state = decay_t[:, :, None, :] * (1 - erase_t[:, :, None, :]) * state + write_t[:, :, :, None] * v_t[:, :, :, None] * k_t[:, :, None, :]
+    return state, torch.einsum("bhvk,bhk->bhv", state, q_t)
+
+
+def _gdn2_sequential(state, decay, erase, write, v, k, q):
+    """The exact same per-timestep recurrence as `_gdn2_step`, just with the
+    `for t in range(steps)` loop moved inside a single function instead of
+    living in `GDN2Mixer.forward`. Mathematically and numerically identical
+    to the eager loop either way (no approximation, unlike `_gdn2_chunk`) --
+    this only exists so a caller can `torch.compile` the *whole* per-chunk
+    loop as one graph. Compiling one `_gdn2_step` call at a time (the
+    original `--compile-step` approach) still dispatches `steps` separate
+    Python-level calls per chunk; compiling this instead fuses all of them
+    into a single call, which was measured to be faster for small-to-moderate
+    `steps` (chunk_length up to ~16-32) -- beyond that the compiled graph
+    gets large enough that per-call latency regresses (measured at steps=64),
+    the same growing-compile-cost trend that made compiling an entire
+    128+-step chunk (or the whole model) impractically slow in the first
+    place, just showing up in the runtime too once the graph is big enough.
+    """
+    outputs = []
+    for t in range(decay.shape[1]):
+        state, out_t = _gdn2_step(state, decay[:, t], erase[:, t], write[:, t], v[:, t], k[:, t], q[:, t])
+        outputs.append(out_t)
+    return state, torch.stack(outputs, dim=1)
+
+
+def _gdn2_chunk(state0, decay, erase, write, v, k, q):
+    """Closed-form chunked evaluation of the GDN-2 recurrence, mathematically
+    equivalent to running `_gdn2_step` sequentially over the `steps` dimension
+    (verified to agree with the sequential loop to ~1e-6 in float32 forward
+    and gradients). The recurrence's decay gate depends only on the key
+    channel, not the value channel, so it is a per-channel linear (affine)
+    scan and admits the standard chunked/parallel-scan reformulation used by
+    fast gated-linear-attention kernels (e.g. GLA/DeltaNet): a cumulative
+    log-decay `A_t = prod_{s<=t} a_s` turns the O(steps) sequential update
+    into O(1) big matmuls plus a causal (steps x steps) mask, at the cost of
+    computing ratios A_t/A_s that are unnecessary in the sequential form.
+
+    KNOWN UNSAFE, NOT JUST "APPROXIMATE": this was validated against the
+    sequential loop with decay/erase logits drawn from a narrow band around
+    this layer's own bias initialization (decay~0.99, erase~0.01), where it
+    agreed to ~1e-6 in float32. Under a freshly-initialized model's actual
+    random `in_proj` weights (i.e. exactly the condition a real training run
+    starts from), decay can saturate near 0 for some channels/timesteps, and
+    the split-exponent trick this reformulation relies on (`q*A_t` and
+    `k*A_s^-1` computed as separate factors before being multiplied back
+    together) then produces individually-overflowing intermediates even
+    though their product is mathematically bounded. Clamping the cumulative
+    log-decay to a floor (below) prevents the resulting NaN/Inf, but the
+    clamp itself then makes the *output* systematically wrong wherever the
+    true cumulative decay was stronger than the clamp -- measured at ~20%
+    mean relative gradient error against the sequential loop with real
+    (untrained) weights, in BOTH float32 and bfloat16. That is a structural
+    limitation of this specific reformulation applied to this recurrence
+    (not a rounding-noise issue fixable by more precision), and it has NOT
+    been shown safe for real training. Do not enable `--chunked-scan` for a
+    training run whose results need to be trusted; it is kept here only as a
+    documented, opt-in throughput experiment.
+    """
+    out_dtype = state0.dtype
+    state0, decay, erase, write, v, k, q = (t.float() for t in (state0, decay, erase, write, v, k, q))
+    steps = decay.shape[1]
+    a = decay * (1 - erase)
+    log_a = torch.log(a.clamp_min(1e-20))
+    # Clamped to a floor (not just the per-step log above) because it is the
+    # *cumulative* sum that can run away over many steps even when every
+    # per-step term is individually finite -- unclamped, exp(-logA) can
+    # overflow to inf (then inf-inf/0*inf -> NaN) whenever decay saturates
+    # low for a sustained stretch, which the untrained/random-init weights
+    # this was caught with do hit in practice. Clamping only discards the
+    # contribution of channels that have already decayed past ~1e-30 of
+    # their original magnitude, i.e. below float precision anyway.
+    logA = torch.cumsum(log_a, dim=1).clamp_min(-70.0)
+    A, invA = torch.exp(logA), torch.exp(-logA)
+    wv = write * v
+
+    q_scaled = q * A
+    term1 = torch.einsum("bthk,bhvk->bthv", q_scaled, state0)
+
+    k_scaled = k * invA
+    causal = torch.tril(torch.ones(steps, steps, device=state0.device, dtype=torch.bool))
+    attn = torch.einsum("bthk,bshk->bhts", q_scaled, k_scaled).masked_fill(~causal, 0.0)
+    term2 = torch.einsum("bhts,bshv->bthv", attn, wv)
+    out = term1 + term2
+
+    ratio_to_end = torch.exp(logA[:, -1:, :, :] - logA)
+    state_T = A[:, -1, :, None, :] * state0 + torch.einsum("bshk,bshv->bhvk", ratio_to_end * k, wv)
+    return state_T.to(out_dtype), out.to(out_dtype)
+
+
 class GDN2Mixer(nn.Module):
+    # `_seq_fn` is a class attribute (not per-instance) so a caller can swap in a
+    # `torch.compile`-wrapped version once and have every layer instance share the
+    # compiled artifact (same bytecode + shapes -> no per-layer recompilation).
+    # Default is the plain eager loop; `--compile-step` swaps in a compiled
+    # `_gdn2_sequential` (still exact, see its docstring for why compiling the
+    # whole per-chunk loop beats compiling one step at a time).
+    _seq_fn = staticmethod(_gdn2_sequential)
+    # Same sharing rationale as `_seq_fn`, for the chunked-scan fast path.
+    _chunk_fn = staticmethod(_gdn2_chunk)
+    # Opt-in fast path (see `_gdn2_chunk` docstring for the numerical trade-off);
+    # off by default so existing behavior/parity is untouched unless requested.
+    _use_chunked_scan = False
+
     def __init__(self, c: HZ0AConfig):
         super().__init__()
         self.c = c
@@ -61,11 +167,11 @@ class GDN2Mixer(nn.Module):
         q, k, v = p[..., :c.d_k], p[..., c.d_k:2*c.d_k], p[..., 2*c.d_k:2*c.d_k+c.d_v]
         offset = 2 * c.d_k + c.d_v
         decay, erase, write = torch.sigmoid(p[..., offset:offset+c.d_k]), torch.sigmoid(p[..., offset+c.d_k:offset+2*c.d_k]), torch.sigmoid(p[..., offset+2*c.d_k:])
-        outputs = []
-        for t in range(steps):
-            state = decay[:, t, :, None, :] * (1 - erase[:, t, :, None, :]) * state + write[:, t, :, :, None] * v[:, t, :, :, None] * k[:, t, :, None, :]
-            outputs.append(torch.einsum("bhvk,bhk->bhv", state, q[:, t]))
-        return self.out_proj(torch.stack(outputs, dim=1).reshape(bsz, steps, c.num_heads * c.d_v)), state
+        if type(self)._use_chunked_scan:
+            state, out = type(self)._chunk_fn(state, decay, erase, write, v, k, q)
+        else:
+            state, out = type(self)._seq_fn(state, decay, erase, write, v, k, q)
+        return self.out_proj(out.reshape(bsz, steps, c.num_heads * c.d_v)), state
 
 
 class CausalAttention(nn.Module):
@@ -89,6 +195,18 @@ class HZ0ABlock(nn.Module):
         self.mixer = CausalAttention(c) if attention else GDN2Mixer(c)
         self.mlp, self.attention = SwiGLU(c.d_model, c.d_ff), attention
 
+    # Opt-in: recompute the MLP (norm2+SwiGLU) during backward instead of
+    # keeping its activations resident. Unlike `torch.compile`, this changes
+    # WHEN the forward math runs, not WHAT it computes, so it is bit-exact
+    # with the non-checkpointed path (verified: 0.0 diff) -- the only
+    # tradeoff is compute (one extra forward pass through the MLP) for
+    # memory. Off by default; see `--activation-checkpoint` in the runner
+    # for the measured tradeoff on this hardware (net positive here, unlike
+    # the Mac/MLX runner's own `--activation-checkpoint`, which regressed
+    # throughput 16% at this model scale -- a different framework/kernel,
+    # not assumed to transfer, and independently re-measured for this path).
+    _checkpoint_mlp = False
+
     def forward(self, x, state):
         mixed = self.mixer(self.norm1(x)) if self.attention else self.mixer(self.norm1(x), state)
         if self.attention:
@@ -96,6 +214,8 @@ class HZ0ABlock(nn.Module):
         else:
             mixed, next_state = mixed
         x = x + mixed
+        if type(self)._checkpoint_mlp:
+            return x + checkpoint(lambda z: self.mlp(self.norm2(z)), x, use_reentrant=False), next_state
         return x + self.mlp(self.norm2(x)), next_state
 
 
