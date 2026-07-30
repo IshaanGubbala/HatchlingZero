@@ -1,8 +1,10 @@
 # Candidate "GDN-3" Recurrence: What Kimi K3/Linear Suggest HZ-0A Is Missing
 
-Date: 2026-07-30. **Status: investigated and NOT recommended, on current
-evidence** -- see section 8 for the final verdict. Nothing here is
-implemented in or scheduled for the real HZ-0A. HZ-0A's architecture is
+Date: 2026-07-30. **Status: investigated, real positive evidence found,
+not yet sufficient to retrain** -- see section 8 for the final verdict
+(corrected same day after an initial confounded test gave the wrong
+answer). Nothing here is implemented in or scheduled for the real HZ-0A.
+HZ-0A's architecture is
 deliberately frozen (`plans/HZ-0A_Progress_Tracker.md`, "Both Stage 2
 architectures are now complete") -- Stage 2 finished, was full-holdout
 evaluated, and B6/B7/B8 all have real integration work built against that
@@ -137,38 +139,45 @@ meaningfully weakens the case for "obviously retrain HZ-0A with this."
 `docs/restart/hz0a_gdn3_associative_recall_results.md`: the direct,
 on-point test -- a multi-query associative-recall-with-reassignment task
 (the standard benchmark family delta-net papers themselves use), trained
-from scratch, same fair-comparison discipline. **Result: the candidate
-does NOT outperform current GDN2 on the exact task type its mechanism
-should help with -- current GDN2 32.4% vs. candidate 30.5% (candidate
-slightly behind), both well above the 12.5% chance floor so both
-genuinely learned the task.** Combined with section 6b's tied
-generic-perplexity result, two independent real trained-model tests now
-both show no benefit, despite section 6's real, clearly-demonstrated
-mechanism-level advantage in isolation. See section 8 for the overall
-verdict.
+from scratch, same fair-comparison discipline. **First attempt found the
+candidate slightly behind (32.4% vs 30.5%) -- but that mixer had fewer
+parameters than GDN2 and only 800 training steps, both real, disclosed
+confounds. Corrected (parameter-matched, 3000 steps): candidate 32.4% vs.
+current 29.7%, a +2.73 point win for the candidate**, both far above the
+12.5% chance floor. The correction reversed the finding -- a real example
+of a confounded test giving the wrong answer, caught by naming and then
+actually fixing the confounds rather than trusting the first result. See
+section 8 for the overall, updated verdict.
 
-## 8. Final verdict (2026-07-30)
+## 8. Final verdict (2026-07-30, corrected same day)
 
 Three real tests were run, escalating in how directly each targets the
-actual hypothesis:
+actual hypothesis -- the associative-recall test was run twice, once
+confounded and once corrected, after the confounded result didn't survive
+scrutiny:
 
 1. **Isolated mechanism** (no training, synthetic keys/values): real,
    substantial, clearly demonstrated advantage for the delta projection.
-2. **Real generic language-modeling loss** (trained, real corpus): tied.
+2. **Real generic language-modeling loss** (trained, real corpus, both
+   mixer versions): tied both times -- no downside on general text.
 3. **Real associative-recall-with-overwrite task** (trained, the most
-   directly favorable case the mechanism could ask for): candidate
-   slightly *behind* current GDN2.
+   directly favorable case the mechanism could ask for): first attempt
+   (confounded -- fewer candidate params, short training) showed the
+   candidate slightly behind; **corrected (parameter-matched, longer
+   training) showed the candidate ahead by +2.73 points.**
 
-**Recommendation: do not pursue an HZ-0A retrain based on this evidence.**
-The mechanism-level advantage is real and stays documented here for the
-record, but it did not survive contact with two independent real
-trained-model tests, including the one built specifically to give it the
-best chance. This is the honest, current state -- not "the delta rule is
-useless," but "no version of this investigation, run fairly and reported
-completely, found a case for acting on it yet." Section 6c names the two
-real confounds (compute budget, parameter-count parity) worth addressing
-first if this is ever revisited, rather than re-running the same tests
-larger and hoping for a different answer.
+**Revised recommendation: this is a real, positive, still-preliminary
+case -- worth a rigorous follow-up, not a no-go, and not yet a green
+light to retrain HZ-0A either.** The mechanism-level advantage is real.
+Generic text is unaffected. The task built to specifically need targeted
+overwrite now shows a genuine, correctly-directioned edge for the
+candidate, once the test was actually run fairly -- confirming the
+original architectural finding (section 2-3) was worth taking seriously,
+and that the first "no benefit found" verdict was itself a testing
+artifact, not a property of the mechanism. Still single-seed and small
+scale; multi-seed replication and a scale sweep are the honest next step
+before any retrain decision, not simply trusting this one corrected run
+either.
 
 ## 9. Honest scope of this document
 

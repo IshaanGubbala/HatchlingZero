@@ -9,9 +9,16 @@ in for GDN2 and be compared head-to-head on real language-modeling loss --
 
 Needs only 2 learned gates (decay `alpha`, write-strength `beta`) instead
 of GDN2's 3 (decay, erase, write) -- the delta rule's `(I - beta*k*k^T)`
-projection does the work GDN2's separate erase gate approximates, so
-`in_proj` is `dim -> 5*dim` here rather than GDN2's `dim -> 6*dim`, a
-real (small) parameter-count difference worth disclosing, not hidden.
+projection does the work GDN2's separate erase gate approximates.
+
+`in_proj` is `dim -> 6*dim` here, matching GDN2's own parameter count
+exactly -- one slot (`_unused_padding`) is computed but never used in the
+recurrence, kept ONLY for parameter-count parity so a comparison against
+GDN2 isn't confounded by one model simply having more learnable capacity
+than the other (an earlier version used `dim -> 5*dim`, a real, disclosed
+handicap flagged in `docs/restart/hz0a_gdn3_associative_recall_results.md`
+as a possible confound in that result -- this fixes it explicitly rather
+than leaving it as a footnote).
 """
 from __future__ import annotations
 
@@ -23,18 +30,19 @@ class GDN3CandidateMixer(nn.Module):
     def __init__(self, dim: int, heads: int):
         super().__init__()
         self.dim, self.heads, self.head_dim = dim, heads, dim // heads
-        self.in_proj = nn.Linear(dim, 5 * dim)
+        self.in_proj = nn.Linear(dim, 6 * dim)
         self.out = nn.Linear(dim, dim)
         # decay(alpha) biased toward ~1 (retain by default) and beta biased
         # toward a small write strength (~0.01) -- both match GDN2's own
         # init convention of starting conservative (mostly retain, barely
         # write) rather than aggressive, which is what GDN2's own decay/
-        # erase/write bias init already does.
-        self.in_proj.bias = mx.concatenate([mx.zeros((3 * dim,)), mx.full((dim,), 4.59512), mx.full((dim,), -4.59512)])
+        # erase/write bias init already does. The padding slot's bias
+        # doesn't matter since its output is never used.
+        self.in_proj.bias = mx.concatenate([mx.zeros((3 * dim,)), mx.full((dim,), 4.59512), mx.full((dim,), -4.59512), mx.zeros((dim,))])
 
     def __call__(self, x, state=None):
         bsz, steps, _ = x.shape
-        q, k, v, decay_logit, beta_logit = mx.split(self.in_proj(x).reshape(bsz, steps, 5, self.heads, self.head_dim), 5, axis=2)
+        q, k, v, decay_logit, beta_logit, _unused_padding = mx.split(self.in_proj(x).reshape(bsz, steps, 6, self.heads, self.head_dim), 6, axis=2)
         q, k, v, decay_logit, beta_logit = (mx.squeeze(item, axis=2) for item in (q, k, v, decay_logit, beta_logit))
         if state is None:
             state = mx.zeros((bsz, self.heads, self.head_dim, self.head_dim), dtype=x.dtype)

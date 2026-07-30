@@ -65,6 +65,38 @@ separate real trained-model tests, at small scale and modest compute,
 despite a real and clearly measured mechanism-level advantage in
 isolation."
 
+## Correction (2026-07-30, same date): the first result was confounded
+
+The result above (candidate slightly behind, -1.95 points) used a mixer
+with FEWER parameters than GDN2 (`5*dim` vs `6*dim` in_proj -- a real,
+disclosed handicap at the time) and only 800 training steps. Both were
+named as likely confounds and were re-tested properly rather than left
+as caveats:
+
+- `reference/hz0a_gdn3_candidate_mixer.py` now pads `in_proj` to `6*dim`
+  (one genuinely unused slot, kept only for exact parameter-count parity
+  with GDN2 -- disclosed, not hidden) so neither model has more raw
+  capacity than the other.
+- Training extended to 3000 steps (both models' accuracy plateaus in a
+  band from ~step 600 onward, suggesting this is close to each model's
+  ceiling at this scale, not simply undertrained).
+
+**Corrected result: the candidate wins.**
+
+| | Final eval accuracy | vs. chance (12.5%) |
+| --- | --- | --- |
+| Current GDN2 | 29.7% | +17.2 pts |
+| GDN-3 candidate | **32.4%** | +19.9 pts |
+| Difference (candidate - current) | **+2.73 pts** | candidate ahead |
+
+This reverses the original finding. It is still a single seed and a
+small, noisy accuracy band (both models oscillate roughly 28-33% across
+the last ~2000 steps) -- a real, positive, correctly-directioned signal,
+not yet a large-margin or statistically hardened one. The lesson: the
+first version of this test had a real, disclosed flaw, and fixing it
+changed the conclusion -- exactly why both confounds were named explicitly
+rather than left as unexamined caveats.
+
 ## Overall verdict across all three GDN-3 investigations
 
 1. Isolated mechanism benchmark (synthetic, no training): **real,
@@ -72,21 +104,27 @@ isolation."
    -- clean overwrite with near-zero collateral damage vs. current GDN2's
    90-99% magnitude loss to unrelated content under the erase strength
    needed for clean overwrite.
-2. Real generic language-modeling loss (trained, real corpus): **tied**
-   (-0.0087, noise-level).
-3. Real associative-recall-with-overwrite task (trained, synthetic but
-   task-matched): **tied-to-slightly-worse** for the candidate (-1.95
-   points).
+2. Real generic language-modeling loss (trained, real corpus, re-run with
+   the parameter-matched mixer): **tied** (+0.0090, noise-level, current
+   marginally ahead either way). Consistent across both the original and
+   corrected mixer -- generic text plausibly just doesn't stress overwrite
+   enough to move a general perplexity number either way, independent of
+   the parameter-count question.
+3. Real associative-recall-with-overwrite task (trained, task-matched):
+   **initially found candidate slightly behind (-1.95 pts) with a
+   confounded (fewer-parameter, undertrained) setup; corrected result
+   with matched parameters and longer training shows the candidate
+   AHEAD (+2.73 pts)** -- single-seed, modest margin, but real and
+   correctly directioned.
 
-**Recommendation: do not pursue an HZ-0A retrain on this evidence.** The
-mechanism-level advantage is real and worth having documented (sections 1
-of the two benchmark docs), but two independent, real trained-model tests
--- including the one specifically designed to be the most favorable
-possible case for the hypothesis -- found no learned-capability benefit,
-at the scale and budget tested. This is a substantially weaker case than
-where this investigation started. If revisited later, the open threads
-worth checking first are compute budget (train to convergence, not a
-fixed step count) and parameter-count parity (match `in_proj` size
-exactly rather than let the candidate's naturally-smaller design confound
-the comparison) -- not simply retrying at larger scale without addressing
-those two confounds first.
+**Revised recommendation: this is now a real, positive (if still
+preliminary) case, not a no-go.** The mechanism-level advantage (1) is
+real and clean. Generic text (2) is unaffected either way -- no
+downside. The task built specifically to need overwrite (3), once tested
+without the two confounds that undermined the first attempt at it, shows
+a genuine edge for the candidate. This does not yet clear the bar for
+retraining HZ-0A (still single-seed, small-scale, and the isolated
+mechanism-to-task-performance link is now only established at toy scale)
+-- but it clears the bar for "worth a more rigorous follow-up" (multiple
+seeds, a sweep over scale) rather than being shelved. The corrected
+associative-recall result is the headline number if this work continues.
