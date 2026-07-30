@@ -110,7 +110,49 @@ suggests, and the mechanism behind the actual pattern found (finite-slot
 routing dynamics under continuous blending) is identified but not yet
 resolved.
 
-## 5. Curriculum stages not attempted this pass
+## 5. Attempted fixes for the write-concentration problem (2026-07-30)
+
+Four real, structural interventions were tried, each targeting a specific,
+traced hypothesis about section 3's root cause. All results at matched
+training budget (1000 steps, lr 0.15, `lambda_sparse=5` unless noted) --
+partial-training snapshots (e.g. 300 steps) are noted separately since one
+of them turned out to be misleading (see below), a real methodological
+lesson: don't trust an early checkpoint as the final answer.
+
+| Intervention | Held-out accuracy (1000 steps) | Selectivity ratio (informative-window / pre-fact gate) |
+| --- | --- | --- |
+| Baseline (8 slots, no decay, gate_bias=0) | **0.750** | ~0.3-0.4x (front-loaded, not selective) |
+| `--num-slots 1` (force real eviction competition) | 0.562 (300 steps -- worse direction, not re-run to 1000) | 1.08x (looks "selective," but only because the single slot saturates near 1.0 everywhere -- degenerate, not genuine selectivity) |
+| `--decay-rate 0.9` (B2's `forget_or_decay`, applied per position -- the "forget" operation nothing in B6/B7/B8's first version ever exercised) + `lambda_sparse=5` | 0.188 (300 steps -- collapsed, worse than chance) | N/A -- writes suppressed almost everywhere |
+| `--decay-rate 0.95` + `lambda_sparse=1` (lighter penalty to compensate) | 0.688 (300 steps) | ~1.0x -- but only because gate saturated to ~1.0 everywhere again, decay too weak relative to how little the lighter penalty discourages saturation |
+| Occupancy-aware gate (`occupancy_gate_w`, a new learned scalar making `write_gate` a function of current max memory confidence, not hidden state alone -- previously a real, disclosed architectural gap: the gate could not have learned "memory's already full" if it never saw memory's state) + decay 0.95 + lambda_sparse=3 | 0.750 (300 steps, ~identical to baseline) | ~1.0x, same saturated-everywhere pattern as above -- `occupancy_gate_w` did not visibly change behavior at this budget |
+| `--gate-bias-init -3.0` alone (start the gate near-closed, must be earned) | **0.812 at 300 steps, but 0.562 at 1000 steps** -- did NOT hold up under full training (train loss briefly bottomed at ~0.47 around step 600-900, then rose again by step 999, real instability) | 0.14x at 1000 steps -- still front-loaded, not fixed |
+
+**None of the four interventions robustly beat the baseline at matched,
+full training budget.** The negative-bias-init result looked like a win
+at a partial checkpoint (300 steps) and was reported as promising before
+the full run exposed it as noise/instability, not a real improvement --
+corrected here rather than left standing. `--num-slots 1` and the
+decay-based configs each traded task accuracy away without buying real
+selectivity; occupancy-awareness (the most principled of the four,
+architecturally) didn't move the needle at the budget tried, though it
+was only tested at one hyperparameter combination and a longer/larger
+sweep specifically for it was not run given diminishing returns on
+compute already spent.
+
+**Honest conclusion**: the front-loaded write pattern traced in section 3
+is a robust local optimum for this architecture and task combination, not
+a shallow tuning problem. The baseline configuration (8 slots, no decay,
+zero-init gate bias, `lambda_sparse=5`) remains the best result found:
+0.750 held-out accuracy, real but not causally-selective write behavior.
+Fixing this properly likely needs a fundamentally different mechanism
+(e.g. a hard/discrete write decision trained via a policy-gradient-style
+method, or an explicit curriculum that first trains on tasks where early
+positions genuinely cannot help, forcing selectivity before introducing
+harder cases) -- out of scope for this pass, named here as real,
+identified future work rather than silently left unexamined.
+
+## 6. Curriculum stages not attempted this pass
 
 B8's Stages 1 (explicit supervision) and roughly 2 (delayed recall, via
 this experiment's 24-token gap) are covered, directly or as a byproduct,

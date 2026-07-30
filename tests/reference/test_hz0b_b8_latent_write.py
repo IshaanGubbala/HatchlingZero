@@ -41,7 +41,7 @@ def test_write_gate_and_key_value_projections_are_differentiable_via_sparsity_pe
     def sparsity_loss(key_proj_w):
         p = init_latent_write_controller(D_MODEL, KEY_DIM, VALUE_DIM, seed=1)
         p = type(p)(write_controller=p.write_controller, key_proj_w=key_proj_w, key_proj_b=p.key_proj_b,
-                     value_proj_w=p.value_proj_w, value_proj_b=p.value_proj_b)
+                     value_proj_w=p.value_proj_w, value_proj_b=p.value_proj_b, occupancy_gate_w=p.occupancy_gate_w)
         _, _, gates = sequential_latent_write_and_read(p, hidden)
         return mx.mean(gates)
 
