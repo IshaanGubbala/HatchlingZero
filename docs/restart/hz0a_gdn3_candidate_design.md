@@ -1,12 +1,15 @@
 # Candidate "GDN-3" Recurrence: What Kimi K3/Linear Suggest HZ-0A Is Missing
 
-Date: 2026-07-30. **This is a proposal, not a plan.** Nothing here is
-implemented, tested, or scheduled. HZ-0A's architecture is deliberately
-frozen (`plans/HZ-0A_Progress_Tracker.md`, "Both Stage 2 architectures are
-now complete") -- Stage 2 finished, was full-holdout evaluated, and B6/B7/B8
-all have real integration work built against that exact checkpoint. Nothing
-below touches any of that. This document exists so the idea isn't lost, in
-case a future retrain is ever undertaken.
+Date: 2026-07-30. **Status: investigated and NOT recommended, on current
+evidence** -- see section 8 for the final verdict. Nothing here is
+implemented in or scheduled for the real HZ-0A. HZ-0A's architecture is
+deliberately frozen (`plans/HZ-0A_Progress_Tracker.md`, "Both Stage 2
+architectures are now complete") -- Stage 2 finished, was full-holdout
+evaluated, and B6/B7/B8 all have real integration work built against that
+exact checkpoint. Nothing below touches any of that. This document exists
+so the idea and the real, honest evidence gathered about it aren't lost,
+in case it's worth revisiting later with the confounds section 8 names
+addressed.
 
 ## 1. What prompted this
 
@@ -129,19 +132,58 @@ Does not rule out the hypothesis (could be scale- or task-dependent, see
 that doc's recommendation for the more targeted next experiment), but
 meaningfully weakens the case for "obviously retrain HZ-0A with this."
 
-## 7. Honest scope of this document
+## 6c. The decisive test (2026-07-30, same date): associative recall with overwrite
 
-- Nothing here has been implemented, benchmarked, or gradient-checked.
-- Adopting section 4 would be a genuine architecture change requiring: a
-  new native Metal kernel (the existing one implements the current,
-  simpler recurrence), a new PyTorch reference implementation, re-deriving
-  and re-verifying backward passes (the same rigor HZ-0A's own A3/A8
-  phases went through for the current recurrence), and a full retrain --
-  not a patch to the frozen Stage 2 checkpoint.
-- This is real, credible evidence (from a shipped, evaluated frontier
-  model's own technical report) that a specific, identifiable piece of
-  HZ-0A's recurrence differs from what its own naming implies, and that
-  the missing piece is plausibly load-bearing for expressiveness. It is
-  not evidence that fixing it would clearly improve HZ-0A's own results at
-  HZ-0A's much smaller scale (~301M vs. K3's 2.8T params) -- that would
-  need to be measured, not assumed.
+`docs/restart/hz0a_gdn3_associative_recall_results.md`: the direct,
+on-point test -- a multi-query associative-recall-with-reassignment task
+(the standard benchmark family delta-net papers themselves use), trained
+from scratch, same fair-comparison discipline. **Result: the candidate
+does NOT outperform current GDN2 on the exact task type its mechanism
+should help with -- current GDN2 32.4% vs. candidate 30.5% (candidate
+slightly behind), both well above the 12.5% chance floor so both
+genuinely learned the task.** Combined with section 6b's tied
+generic-perplexity result, two independent real trained-model tests now
+both show no benefit, despite section 6's real, clearly-demonstrated
+mechanism-level advantage in isolation. See section 8 for the overall
+verdict.
+
+## 8. Final verdict (2026-07-30)
+
+Three real tests were run, escalating in how directly each targets the
+actual hypothesis:
+
+1. **Isolated mechanism** (no training, synthetic keys/values): real,
+   substantial, clearly demonstrated advantage for the delta projection.
+2. **Real generic language-modeling loss** (trained, real corpus): tied.
+3. **Real associative-recall-with-overwrite task** (trained, the most
+   directly favorable case the mechanism could ask for): candidate
+   slightly *behind* current GDN2.
+
+**Recommendation: do not pursue an HZ-0A retrain based on this evidence.**
+The mechanism-level advantage is real and stays documented here for the
+record, but it did not survive contact with two independent real
+trained-model tests, including the one built specifically to give it the
+best chance. This is the honest, current state -- not "the delta rule is
+useless," but "no version of this investigation, run fairly and reported
+completely, found a case for acting on it yet." Section 6c names the two
+real confounds (compute budget, parameter-count parity) worth addressing
+first if this is ever revisited, rather than re-running the same tests
+larger and hoping for a different answer.
+
+## 9. Honest scope of this document
+
+- Nothing here has been implemented in the real HZ-0A, benchmarked at
+  HZ-0A's real scale, or run through a real kernel.
+- Adopting section 4 for real would require: a new native Metal kernel
+  (the existing one implements the current, simpler recurrence), a new
+  PyTorch reference implementation, re-deriving and re-verifying backward
+  passes (the same rigor HZ-0A's own A3/A8 phases went through for the
+  current recurrence), and a full retrain -- not a patch to the frozen
+  Stage 2 checkpoint. Given section 8's verdict, none of this is currently
+  recommended.
+- This document's value, as it stands, is the trail of real evidence: a
+  credible architectural gap was found (section 2-3), tested rigorously
+  at small scale in three escalating ways (sections 6, 6b, 6c), and the
+  honest conclusion is that it doesn't currently justify the cost of
+  pursuing further -- a complete, disclosed negative result, not an
+  abandoned thread.
