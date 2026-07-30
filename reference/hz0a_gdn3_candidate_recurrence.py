@@ -69,10 +69,25 @@ def step_current_strong_erase(state: mx.array, q: mx.array, k: mx.array, v: mx.a
     return output, new_state
 
 
+def _normalize_key(k: mx.array) -> mx.array:
+    """The (I - beta*k*k^T) projection is only non-expansive when k is
+    unit-norm (k*k^T then has eigenvalue exactly 1 along k's own
+    direction) -- an unnormalized k can make (1 - beta*||k||^2) go
+    negative and the recurrence unstable. This benchmark's own hand-set
+    keys (Part A) are already unit/one-hot, so this is a no-op there, but
+    a real learned k (as in `reference/hz0a_gdn3_candidate_mixer.py`) is
+    not naturally unit-norm -- verified directly: omitting this caused
+    immediate NaN in the tiny-LM comparison. Normalizing inside these
+    functions makes them safe by default rather than relying on every
+    caller to remember."""
+    return k / (mx.sqrt(mx.sum(k * k, axis=-1, keepdims=True)) + 1e-6)
+
+
 def step_delta_projection(state: mx.array, q: mx.array, k: mx.array, v: mx.array, beta: mx.array) -> tuple[mx.array, mx.array]:
     """True delta rule, no separate decay (alpha == 1). `beta` is a
     scalar (per-head) write-strength gate, distinct from HZ-0A's
     per-channel `write` gate."""
+    k = _normalize_key(k)
     old_retrieved = state @ k
     new_state = state + beta * mx.outer(v - old_retrieved, k)
     output = new_state @ q
@@ -82,6 +97,7 @@ def step_delta_projection(state: mx.array, q: mx.array, k: mx.array, v: mx.array
 def step_delta_projection_plus_decay(state: mx.array, q: mx.array, k: mx.array, v: mx.array, decay: mx.array, beta: mx.array) -> tuple[mx.array, mx.array]:
     """The full GDN-3 candidate: HZ-0A-style per-channel decay, THEN the
     delta-rule projection/correction."""
+    k = _normalize_key(k)
     decayed = decay[None, :] * state
     old_retrieved = decayed @ k
     new_state = decayed + beta * mx.outer(v - old_retrieved, k)

@@ -116,6 +116,19 @@ yet evidence at language-modeling scale -- see that doc's section 5 for
 what is and isn't justified by it. The systems gate (real kernel cost at
 301M scale) remains unanswered.
 
+## 6b. Real language-modeling comparison (2026-07-30, same date)
+
+`docs/restart/hz0a_gdn3_tiny_lm_comparison_results.md`: a tiny (dim=64,
+4-layer), same-data, same-seed, real-LM-loss comparison. Found and fixed
+a real bug first (unnormalized learned keys blow up the delta-rule
+projection -- the synthetic benchmark's hand-set unit-norm keys had
+hidden this). After the fix: **statistically tied final validation loss**
+(candidate -0.0087, within noise) -- the synthetic overwrite/interference
+advantage does not show up as a general perplexity win at this scale.
+Does not rule out the hypothesis (could be scale- or task-dependent, see
+that doc's recommendation for the more targeted next experiment), but
+meaningfully weakens the case for "obviously retrain HZ-0A with this."
+
 ## 7. Honest scope of this document
 
 - Nothing here has been implemented, benchmarked, or gradient-checked.
