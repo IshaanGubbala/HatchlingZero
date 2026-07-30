@@ -97,6 +97,35 @@ first version of this test had a real, disclosed flaw, and fixing it
 changed the conclusion -- exactly why both confounds were named explicitly
 rather than left as unexamined caveats.
 
+## Multi-seed replication (2026-07-30, same date): the single-seed win does not hold up
+
+The correction above was itself single-seed -- flagged explicitly as
+"not yet statistically hardened." Ran 3 seeds via the torch port
+(`scripts/hz0a_gdn3_associative_recall_benchmark_torch.py`, `--device
+mps`, same parameter-matched mixers, same 3000-step budget):
+
+| Seed | Current GDN2 | GDN-3 candidate | Difference |
+| --- | --- | --- | --- |
+| 999 | 30.5% | 26.6% | -3.91 pts |
+| 1000 | 26.2% | 25.8% | -0.39 pts |
+| 1001 | 24.2% | 24.6% | +0.39 pts |
+| **Mean** | **27.0%** | **25.7%** | **-1.30 pts** |
+
+Candidate wins in 1 of 3 seeds. Current GDN2 has notably higher variance
+across seeds (stdev 2.6 pts) than the candidate (stdev 0.8 pts) -- an
+observation worth noting on its own (the candidate's accuracy is more
+seed-stable, even though its mean is not higher here), not investigated
+further.
+
+**This does not confirm the single-seed MLX correction's +2.73 point
+win.** Combined across all 4 seeds run so far (1 MLX + 3 torch/MPS): 2
+losses, 1 near-tie, 1 win for the candidate -- genuinely mixed, most
+consistent with "no reliable advantage at this scale and budget," not
+with a real, replicable effect in either direction. This is exactly the
+outcome multi-seed replication exists to catch: the first corrected
+result was real (not a bug), but it was also noise that happened to land
+favorably on that one seed.
+
 ## Overall verdict across all three GDN-3 investigations
 
 1. Isolated mechanism benchmark (synthetic, no training): **real,
@@ -117,14 +146,18 @@ rather than left as unexamined caveats.
    AHEAD (+2.73 pts)** -- single-seed, modest margin, but real and
    correctly directioned.
 
-**Revised recommendation: this is now a real, positive (if still
-preliminary) case, not a no-go.** The mechanism-level advantage (1) is
-real and clean. Generic text (2) is unaffected either way -- no
-downside. The task built specifically to need overwrite (3), once tested
-without the two confounds that undermined the first attempt at it, shows
-a genuine edge for the candidate. This does not yet clear the bar for
-retraining HZ-0A (still single-seed, small-scale, and the isolated
-mechanism-to-task-performance link is now only established at toy scale)
--- but it clears the bar for "worth a more rigorous follow-up" (multiple
-seeds, a sweep over scale) rather than being shelved. The corrected
-associative-recall result is the headline number if this work continues.
+**Final recommendation, after multi-seed replication: do not pursue an
+HZ-0A retrain, and treat the single-seed "win" as noise, not a finding.**
+The mechanism-level advantage (1) is real and clean, and stays true --
+that part of this investigation was never in question. Generic text (2)
+is unaffected either way -- no downside, confirmed on two mixer versions.
+The task built specifically to need overwrite (3) looked like a genuine
+win on one seed, and that result does not replicate: across 4 seeds total
+(1 MLX + 3 torch), the outcome is 2 losses, 1 near-tie, 1 win for the
+candidate -- indistinguishable from no effect at this scale and training
+budget. This is the correct, complete way this investigation should end:
+a real architectural observation (sections 2-3), a real isolated-mechanism
+result (section 1 of the overwrite doc), and an honest failure to show
+that it matters for trained model capability after genuinely trying,
+catching our own mistakes, and checking with enough seeds not to be
+fooled by one favorable run.

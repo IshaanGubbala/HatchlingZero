@@ -1,10 +1,9 @@
 # Candidate "GDN-3" Recurrence: What Kimi K3/Linear Suggest HZ-0A Is Missing
 
-Date: 2026-07-30. **Status: investigated, real positive evidence found,
-not yet sufficient to retrain** -- see section 8 for the final verdict
-(corrected same day after an initial confounded test gave the wrong
-answer). Nothing here is implemented in or scheduled for the real HZ-0A.
-HZ-0A's architecture is
+Date: 2026-07-30. **Status: fully investigated, NOT recommended -- a
+single-seed positive result did not replicate across 4 seeds.** See
+section 8 for the final verdict. Nothing here is implemented in or
+scheduled for the real HZ-0A. HZ-0A's architecture is
 deliberately frozen (`plans/HZ-0A_Progress_Tracker.md`, "Both Stage 2
 architectures are now complete") -- Stage 2 finished, was full-holdout
 evaluated, and B6/B7/B8 all have real integration work built against that
@@ -149,35 +148,36 @@ of a confounded test giving the wrong answer, caught by naming and then
 actually fixing the confounds rather than trusting the first result. See
 section 8 for the overall, updated verdict.
 
-## 8. Final verdict (2026-07-30, corrected same day)
+## 8. Final verdict (2026-07-30, updated after multi-seed replication, same day)
 
-Three real tests were run, escalating in how directly each targets the
-actual hypothesis -- the associative-recall test was run twice, once
-confounded and once corrected, after the confounded result didn't survive
-scrutiny:
+Four real tests were run, escalating in rigor -- the associative-recall
+test specifically went through 3 rounds (confounded, corrected
+single-seed, then multi-seed) because each earlier round's result did not
+survive the next level of scrutiny:
 
 1. **Isolated mechanism** (no training, synthetic keys/values): real,
    substantial, clearly demonstrated advantage for the delta projection.
+   This part holds -- never contradicted by anything that followed.
 2. **Real generic language-modeling loss** (trained, real corpus, both
-   mixer versions): tied both times -- no downside on general text.
-3. **Real associative-recall-with-overwrite task** (trained, the most
-   directly favorable case the mechanism could ask for): first attempt
-   (confounded -- fewer candidate params, short training) showed the
-   candidate slightly behind; **corrected (parameter-matched, longer
-   training) showed the candidate ahead by +2.73 points.**
+   mixer versions, MLX and torch): tied every time -- no downside on
+   general text, consistently.
+3. **Real associative-recall-with-overwrite task, single seed**
+   (confounded attempt: candidate behind; corrected attempt, parameter-
+   matched: candidate ahead by +2.73 points).
+4. **Same task, 3 additional seeds via the torch port**
+   (`docs/restart/hz0a_gdn3_associative_recall_results.md`'s multi-seed
+   section): candidate behind on average (-1.30 points), winning only 1
+   of 3 seeds. Combined across all 4 seeds run: 2 losses, 1 near-tie, 1
+   win -- statistically indistinguishable from no effect.
 
-**Revised recommendation: this is a real, positive, still-preliminary
-case -- worth a rigorous follow-up, not a no-go, and not yet a green
-light to retrain HZ-0A either.** The mechanism-level advantage is real.
-Generic text is unaffected. The task built to specifically need targeted
-overwrite now shows a genuine, correctly-directioned edge for the
-candidate, once the test was actually run fairly -- confirming the
-original architectural finding (section 2-3) was worth taking seriously,
-and that the first "no benefit found" verdict was itself a testing
-artifact, not a property of the mechanism. Still single-seed and small
-scale; multi-seed replication and a scale sweep are the honest next step
-before any retrain decision, not simply trusting this one corrected run
-either.
+**Final recommendation: do not pursue an HZ-0A retrain.** The mechanism-
+level advantage (1) is real and stands on its own -- a genuine, correctly
+identified architectural gap relative to true delta-net. It simply was
+not shown, after real and repeated attempts including catching two of
+this investigation's own testing mistakes, to matter for trained model
+capability at the scale tested. That is the honest, complete answer, not
+an abandoned or rushed one -- the single favorable seed was investigated
+rather than trusted, and turned out to be noise.
 
 ## 9. Honest scope of this document
 
