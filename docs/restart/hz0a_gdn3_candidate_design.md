@@ -101,7 +101,22 @@ directly adopting KDA's formulation, with:
   report is more thoroughly indexed/explained, rather than acting on the
   vague description available now.
 
-## 6. Honest scope of this document
+## 6. Controlled benchmark result (2026-07-30)
+
+The scientific gate proposed in earlier review of this document has been
+run at small, controlled scale -- see
+`docs/restart/hz0a_gdn3_overwrite_benchmark_results.md` for full numbers.
+Summary: current HZ-0A's recurrence has a real, measured tradeoff where
+clean key overwrite requires an erase strength that also destroys 90-99%
+of unrelated stored content's magnitude (a blanket, key-blind mechanism);
+the delta-rule projection achieves clean overwrite with zero (or, with
+mild added decay, near-zero) collateral damage to unrelated keys, exactly
+as its equations predict. This is real evidence at controlled scale, not
+yet evidence at language-modeling scale -- see that doc's section 5 for
+what is and isn't justified by it. The systems gate (real kernel cost at
+301M scale) remains unanswered.
+
+## 7. Honest scope of this document
 
 - Nothing here has been implemented, benchmarked, or gradient-checked.
 - Adopting section 4 would be a genuine architecture change requiring: a
