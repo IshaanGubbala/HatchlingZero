@@ -72,7 +72,7 @@ def resolve_device(name: str) -> torch.device:
     return torch.device(name)
 
 
-def run(use_candidate: bool, seed: int, device: torch.device, steps: int) -> float:
+def run(use_candidate: bool, seed: int, device: torch.device, steps: int, *, log_every: int = 0, label: str = "") -> float:
     rng = random.Random(seed)
     torch.manual_seed(seed)
     model = TinyGDNLMTorch(VOCAB_SIZE, DIM, LAYERS, HEADS, D_FF, use_candidate).to(device)
@@ -89,6 +89,11 @@ def run(use_candidate: bool, seed: int, device: torch.device, steps: int) -> flo
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
         optimizer.step()
+        if log_every and (step % log_every == 0 or step == steps - 1):
+            with torch.no_grad():
+                eval_logits, _ = model(eval_tokens)
+                eval_acc = (eval_logits[:, -2, :].argmax(dim=-1) == eval_targets).float().mean().item()
+            print(f"[{label}] step {step:5d}  train_loss {loss.item():.4f}  eval_acc {eval_acc:.4f}")
 
     with torch.no_grad():
         logits, _ = model(eval_tokens)

@@ -126,6 +126,26 @@ outcome multi-seed replication exists to catch: the first corrected
 result was real (not a bug), but it was also noise that happened to land
 favorably on that one seed.
 
+## Was 3000 steps just not enough? Checked directly (2026-07-30, same date)
+
+Reasonable question after a noisy multi-seed result. Re-ran seed 999
+(the seed with the largest gap) to **8000 steps** (2.7x longer) with
+logging every 500 steps, both arms:
+
+```
+current:    step 500: 27.7%  step 1500: 31.6%  step 3000: 29.7%  step 5000: 32.4%  step 7999: 30.5%
+candidate:  step 500: 19.1%  step 1500: 27.3%  step 3000: 26.2%  step 5000: 28.9%  step 7999: 30.1%
+```
+
+Both models reach their noisy plateau band by roughly step 1000-1500 and
+then just oscillate within it (current: 28-33%, candidate: 23-32%) all
+the way to step 8000 -- no late-emerging improvement, no late-emerging
+separation, train loss also plateaus/oscillates (~1.6-2.0) without
+further descent. **This was checked directly, not assumed: extending
+training 2.7x changed nothing meaningful.** Both models hit a real
+capacity or task-difficulty ceiling early, at this tiny scale (dim=64, 4
+layers) -- more steps at this size does not resolve the tie.
+
 ## Overall verdict across all three GDN-3 investigations
 
 1. Isolated mechanism benchmark (synthetic, no training): **real,
