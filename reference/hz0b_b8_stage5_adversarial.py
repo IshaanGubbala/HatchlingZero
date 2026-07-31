@@ -121,6 +121,29 @@ def scenario_stale_memories(*, decay_steps: int = 20, decay_rate: float = 0.9) -
     }
 
 
+def scenario_stale_vs_fresh_competition(*, decay_steps: int = 50, decay_rate: float = 0.9) -> dict:
+    """The real test of confidence-weighted reads: TWO slots holding the
+    exact same key (so raw cosine similarity to any query is identical
+    for both -- oracle slot_idx bypasses the match-threshold routing so
+    they land in separate slots despite the identical key), one heavily
+    decayed, one fresh. Without confidence weighting this is a coin-flip/
+    first-index tie for a hard read; with it, the fresh one should win."""
+    state = reset(1, NUM_SLOTS, KEY_DIM, VALUE_DIM)
+    key = _onehot(KEY_DIM, 0)
+    stale_value, fresh_value = _onehot(VALUE_DIM, 0) * 5.0, _onehot(VALUE_DIM, 1) * 5.0
+    state, _, _ = write(state, key, stale_value, mx.array([1.0]), step=0, slot_idx=mx.array([0]))
+    for _ in range(decay_steps):
+        state = forget_or_decay(state, decay_rate=decay_rate)
+    state, _, _ = write(state, key, fresh_value, mx.array([1.0]), step=decay_steps, slot_idx=mx.array([1]))
+    readout_weighted, _ = read(state, key, hard=True, confidence_weighted=True)
+    readout_unweighted, _ = read(state, key, hard=True, confidence_weighted=False)
+    return {
+        "readout_weighted": readout_weighted, "readout_unweighted": readout_unweighted,
+        "stale_value": stale_value, "fresh_value": fresh_value,
+        "stale_confidence": float(state.confidence[0, 0]), "fresh_confidence": float(state.confidence[0, 1]),
+    }
+
+
 def scenario_capacity_pressure(*, num_facts: int = 12) -> dict:
     """Write more distinct facts than there are slots (num_facts >
     NUM_SLOTS) -- must evict sensibly (protected memories survive,

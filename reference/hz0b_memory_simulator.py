@@ -77,19 +77,36 @@ def _cosine_similarity(query: mx.array, keys: mx.array) -> mx.array:
     return mx.sum(keys_norm * query_norm[:, None, :], axis=-1)
 
 
-def read(state: MemoryState, query: mx.array, *, slot_idx: mx.array | None = None, hard: bool = False) -> tuple[mx.array, mx.array]:
+def read(state: MemoryState, query: mx.array, *, slot_idx: mx.array | None = None, hard: bool = False, confidence_weighted: bool = True) -> tuple[mx.array, mx.array]:
     """Contract op: read(query) -> (readout, read_weights).
 
     Content-addressable: similarity is against `state.keys` (what was
     actually written), not a fixed separate routing parameter -- the
     core B1 deviation from legacy (see hz0b_b1_memory_contract.md).
-    """
+
+    `confidence_weighted` (default True -- a real fix, not the original
+    behavior): adds `log(confidence + eps)` to each slot's similarity
+    score before ranking, so a low-confidence (stale, heavily decayed)
+    slot competes on worse footing than a fresh one even at equal key
+    similarity, and a zero-confidence (empty) slot is pushed to
+    effectively negative-infinity, excluding it outright. Fixes a real
+    gap found in B8 Stage 5 (`docs/restart/hz0b_b8_stage5_results.md`
+    finding 2): the original, unweighted read let a memory decayed to
+    under 1% confidence still retrieve at full strength on a hard read
+    -- confidence had NO effect on retrieval, only on write-eviction
+    scoring. This does not change the "empty memory behaves like no
+    memory" guarantee B6 depends on: an empty slot's VALUE is still
+    exactly zero regardless of the weight it receives, so `readout` is
+    unaffected either way when every slot is empty (the only case that
+    guarantee needs)."""
     batch, num_slots, _ = state.keys.shape
     if slot_idx is not None:
         weights = mx.zeros((batch, num_slots))
         weights = mx.where(mx.arange(num_slots)[None, :] == slot_idx[:, None], mx.array(1.0), weights)
     else:
         scores = _cosine_similarity(query, state.keys)
+        if confidence_weighted:
+            scores = scores + mx.log(state.confidence + 1e-6)
         if hard:
             hard_idx = mx.argmax(scores, axis=-1)
             weights = (mx.arange(num_slots)[None, :] == hard_idx[:, None]).astype(mx.float32)
@@ -119,7 +136,21 @@ def _choose_write_slot(state: MemoryState, key: mx.array) -> tuple[mx.array, mx.
     """
     batch, num_slots, _ = state.keys.shape
     similarity = _cosine_similarity(key, state.keys)
-    is_match = similarity > 0.95
+    # Raised from 0.95 (a real fix, not the original value): B8 Stage 5
+    # found that two GENUINELY DIFFERENT facts with cosine-similar keys
+    # (0.995 -- not floating-point-identical, just correlated) were being
+    # silently treated as "the same fact, update it," conflating them
+    # into one slot with no protection check ever triggered
+    # (docs/restart/hz0b_b8_stage5_results.md finding 1). 0.999 requires
+    # near-EXACT key identity (the legitimate "same key re-presented"
+    # case B1 decision 8 was actually meant for -- see
+    # test_overwrite_existing_fact, which reuses the literal same key
+    # object and is unaffected by this change) before treating a write as
+    # an in-place update; anything less goes through the normal
+    # eviction-scored "new fact competing for capacity" path instead,
+    # which at least weighs confidence/protection/age rather than
+    # silently overwriting.
+    is_match = similarity > 0.999
     is_empty = state.confidence < 1e-6
     is_protected = state.protection >= PROTECTION_BLOCK_THRESHOLD
 

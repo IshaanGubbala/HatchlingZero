@@ -15,6 +15,7 @@ from reference.hz0b_b8_stage5_adversarial import (
     scenario_near_identical_keys,
     scenario_reset_boundaries,
     scenario_stale_memories,
+    scenario_stale_vs_fresh_competition,
 )
 
 
@@ -40,33 +41,21 @@ def test_malicious_overwrite_attempt_is_rejected():
     assert cosine(result["readout"][0], result["attacker_value"][0]) < 0.5
 
 
-def test_near_identical_keys_are_silently_conflated_a_real_adversarial_vulnerability():
-    """Real, disclosed finding, not the hoped-for "keeps them distinct"
-    result: two GENUINELY DIFFERENT facts, keyed with cosine 0.995
-    (above B1/B2's 0.95 match threshold), get silently merged into ONE
-    slot -- key_b's write is treated as an UPDATE to key_a's existing
-    entry, not a new, distinct memory. Confirmed directly (both writes
-    land in slot 0, not two different slots). This is different from the
-    `malicious_overwrite_attempt` scenario (which tests an explicit,
-    same-slot overwrite of a PROTECTED memory, and correctly fails) --
-    this is an UNPROTECTED, accidental-or-adversarial conflation that
-    happens purely because of key geometry, with no protection mechanism
-    guarding against it. A real, working-as-designed consequence of B1
-    decision 8's fixed 0.95 similarity threshold, not a bug in this test
-    or the simulator -- but a genuine adversarial surface: an attacker
-    (or just unlucky embedding collisions) who can craft a key close
-    enough to an existing one can silently overwrite it without
-    triggering any protection check at all, since the write path treats
-    it as a legitimate update to the SAME fact, not a competing write
-    that protection logic would evaluate."""
+def test_near_identical_keys_are_kept_as_distinct_memories_fixed_2026_07_30():
+    """Was a real, disclosed vulnerability (see git history /
+    docs/restart/hz0b_b8_stage5_results.md): two GENUINELY DIFFERENT
+    facts at cosine 0.995 used to be silently conflated into one slot,
+    because B1/B2's match threshold (0.95) treated "highly correlated"
+    as "the same fact, update it." Fixed by raising the threshold to
+    0.999 (near-EXACT key identity required for the in-place-update
+    path; `test_overwrite_existing_fact` -- literal same key -- is
+    unaffected) -- now confirmed to route to two distinct, independently
+    correct slots."""
     result = scenario_near_identical_keys()
     assert result["similarity"] > 0.9, "test setup sanity: keys must actually be near-identical, not just similar"
-    assert bool(mx.array_equal(result["slot_a"], result["slot_b"])), "both writes land in the same slot -- this IS the vulnerability, not an artifact"
-    # value_b's write overwrote value_a's -- reading either key now
-    # returns value_b, not value_a. This is the concerning behavior,
-    # documented directly rather than asserted away.
-    assert cosine(result["readout_a"][0], result["value_b"][0]) > 0.9, "confirms the conflation: querying key_a now retrieves fact B's value, not fact A's"
-    assert cosine(result["readout_a"][0], result["value_a"][0]) < 0.5, "fact A's own value is gone -- silently, with no protection check ever triggered"
+    assert not bool(mx.array_equal(result["slot_a"], result["slot_b"])), "near-identical-but-different keys must now route to distinct slots"
+    assert cosine(result["readout_a"][0], result["value_a"][0]) > 0.99, "fact A survives, undisturbed"
+    assert cosine(result["readout_b"][0], result["value_b"][0]) > 0.99, "fact B survives, undisturbed"
 
 
 def test_stale_memory_confidence_genuinely_decays():
@@ -74,17 +63,33 @@ def test_stale_memory_confidence_genuinely_decays():
     assert result["decayed_confidence"] < result["initial_confidence"] * 0.2, "20 steps at decay_rate=0.9 should reduce confidence by more than 5x"
 
 
-def test_stale_memory_hard_read_is_unaffected_by_confidence_a_real_disclosed_gap():
-    """Honest finding, not assumed: B2's read() does not weight by
-    confidence at all -- a stale-but-key-matching memory still retrieves
-    at FULL strength under a hard (top-1) read. This is disclosed as a
-    real property of the current design, not silently treated as "staleness
-    naturally protects against retrieving outdated content" (it does not,
-    on its own -- only decay of the underlying VALUE toward zero, or
-    eviction, would)."""
-    result = scenario_stale_memories(decay_steps=50, decay_rate=0.9)  # confidence now extremely low
+def test_stale_memory_alone_still_retrieves_fine_no_competition_to_lose_to():
+    """When a stale memory is the ONLY match for a query, it still
+    retrieves fully -- correct: confidence-weighting should only matter
+    RELATIVE to a competing alternative, not zero out a memory that
+    happens to be the sole candidate. See the competition test below for
+    where confidence-weighting actually changes the outcome."""
+    result = scenario_stale_memories(decay_steps=50, decay_rate=0.9)
     assert result["decayed_confidence"] < 0.01
-    assert cosine(result["readout_hard"][0], result["value"][0]) > 0.99, "a hard read still fully retrieves a near-zero-confidence memory -- confidence does not gate retrieval strength in this design"
+    assert cosine(result["readout_hard"][0], result["value"][0]) > 0.99
+
+
+def test_confidence_weighted_read_prefers_fresh_over_stale_when_competing_fixed_2026_07_30():
+    """Was a real, disclosed gap (docs/restart/hz0b_b8_stage5_results.md
+    finding 2): confidence had zero effect on read strength, only on
+    write-eviction scoring. Fixed by adding `confidence_weighted=True`
+    (now the default) to `read()` -- log(confidence) biases the
+    similarity score, so a fresh, high-confidence memory now correctly
+    wins a tie-similarity competition against a heavily-decayed one."""
+    result = scenario_stale_vs_fresh_competition(decay_steps=50, decay_rate=0.9)
+    assert result["stale_confidence"] < 0.01
+    assert result["fresh_confidence"] > 0.9
+    assert cosine(result["readout_weighted"][0], result["fresh_value"][0]) > 0.99, "confidence-weighted read must prefer the fresh memory"
+    assert cosine(result["readout_weighted"][0], result["stale_value"][0]) < 0.5
+    # Also confirms this genuinely IS what confidence_weighted=True changes
+    # -- the unweighted path is a same-similarity tie, won by whichever
+    # slot argmax picks first (lower index), not by freshness.
+    assert cosine(result["readout_unweighted"][0], result["stale_value"][0]) > 0.99, "unweighted read has no basis to prefer either slot -- ties go to the lower index (the stale one, written first), demonstrating what confidence_weighted actually fixes"
 
 
 def test_capacity_pressure_protected_memory_survives_and_no_crash():

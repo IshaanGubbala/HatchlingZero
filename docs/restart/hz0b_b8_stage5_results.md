@@ -1,5 +1,12 @@
 # HZ-0B B8, Stage 5 (Adversarial Memory): Results
 
+**Update (2026-07-30, same date): both findings below are now fixed** in
+`reference/hz0b_memory_simulator.py` -- see "Both findings fixed" at the
+end of this document. The findings themselves are kept below exactly as
+originally written, since they're still an accurate description of what
+was wrong and why -- fixing something doesn't retroactively make finding
+it not have been real.
+
 Date: 2026-07-30. All 7 scenarios the plan names verbatim, tested
 directly against B2's memory simulator (`reference/hz0b_b8_stage5_adversarial.py`,
 `tests/reference/test_hz0b_b8_stage5_adversarial.py`) -- no LM, no
@@ -61,13 +68,40 @@ eventually be evicted by a competing write. A real, disclosed gap between
 what "stale" intuitively implies (should be less trusted) and what the
 mechanism actually does (no effect until eviction).
 
-## Honest scope
+## Honest scope (at the time this was first written)
 
 Both findings are properties of B2's simulator as it exists today, not
 new bugs introduced by this Stage 5 work -- Stage 5's job was to look for
 exactly this kind of gap under adversarial framing, and it found two real
-ones rather than confirming everything works. Neither is fixed in this
-pass; both are candidates for a future B1/B2 revision (e.g. a
-confidence-weighted or two-tier similarity threshold for the conflation
-issue, a confidence-gated read for the staleness issue) if this project
-continues past B9.
+ones rather than confirming everything works.
+
+## Both findings fixed (2026-07-30, same date)
+
+**Finding 1 (key conflation)**: `_choose_write_slot`'s match threshold
+raised from 0.95 to 0.999 -- only near-EXACT key identity now takes the
+in-place-update path; anything less goes through the normal eviction-
+scored "new fact" path instead. Re-ran the exact same adversarial
+scenario (cosine 0.995, two different facts): now routes to two distinct
+slots, both facts independently retrievable (cosine >0.99 to their own
+value each). `test_overwrite_existing_fact` (the legitimate same-key
+update case) is unaffected -- it reuses the literal same key, similarity
+exactly 1.0, still above the new threshold.
+
+**Finding 2 (confidence-blind reads)**: `read()` gained
+`confidence_weighted: bool = True` (new default) -- adds `log(confidence
++ eps)` to each slot's similarity score before ranking. A new scenario
+(`scenario_stale_vs_fresh_competition`: two slots holding the identical
+key, one heavily decayed, one fresh -- a genuine tie in raw similarity)
+confirms the fix directly: confidence-weighted read now correctly prefers
+the fresh memory, while the unweighted path (kept available via
+`confidence_weighted=False`) still resolves the tie arbitrarily
+(lower-index slot wins), demonstrating exactly what the fix changes.
+Does not break the "empty memory behaves like no memory" guarantee B6-B9
+depend on: a uniform additive shift (all-empty-slots case) is invariant
+under softmax/argmax, and an empty slot's value is exactly zero
+regardless of its read weight.
+
+Both fixes verified against the full test suite: 186/186 pass, zero
+regressions across B2-B9's own tests (which use either exact-duplicate
+keys or clearly-orthogonal ones, never near-threshold values the
+tightened match threshold would affect).
