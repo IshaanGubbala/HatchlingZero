@@ -19,7 +19,6 @@ from torch import nn
 
 from reference.hz0a_gdn3_tiny_lm_torch import TinyGDNLMTorch
 
-DIM, LAYERS, HEADS, D_FF = 64, 4, 4, 128
 VOCAB_SIZE = 512
 NUM_KEYS, NUM_VALUES = 8, 8
 DISTRACTOR_LOW, DISTRACTOR_HIGH = 100, 500
@@ -72,10 +71,10 @@ def resolve_device(name: str) -> torch.device:
     return torch.device(name)
 
 
-def run(use_candidate: bool, seed: int, device: torch.device, steps: int, *, log_every: int = 0, label: str = "") -> float:
+def run(use_candidate: bool, seed: int, device: torch.device, steps: int, *, dim: int = 64, layers: int = 4, heads: int = 4, d_ff: int = 128, log_every: int = 0, label: str = "") -> float:
     rng = random.Random(seed)
     torch.manual_seed(seed)
-    model = TinyGDNLMTorch(VOCAB_SIZE, DIM, LAYERS, HEADS, D_FF, use_candidate).to(device)
+    model = TinyGDNLMTorch(VOCAB_SIZE, dim, layers, heads, d_ff, use_candidate).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=0.01)
 
     eval_tokens, eval_targets = make_batch(random.Random(seed + 1), 256, device)
@@ -106,15 +105,20 @@ def main():
     parser.add_argument("--device", choices=("auto", "cpu", "mps", "cuda"), default="auto")
     parser.add_argument("--steps", type=int, default=STEPS)
     parser.add_argument("--seeds", type=int, nargs="+", default=[999, 1000, 1001])
+    parser.add_argument("--dim", type=int, default=64, help="model width -- both arms always get matched parameter counts regardless of this value")
+    parser.add_argument("--layers", type=int, default=4)
+    parser.add_argument("--heads", type=int, default=4)
+    parser.add_argument("--d-ff", type=int, default=128)
+    parser.add_argument("--log-every", type=int, default=0, help="print periodic train_loss/eval_acc during each run; 0 disables")
     args = parser.parse_args()
 
     device = resolve_device(args.device)
-    print(f"device={device} steps={args.steps} seeds={args.seeds}")
+    print(f"device={device} steps={args.steps} seeds={args.seeds} dim={args.dim} layers={args.layers} heads={args.heads} d_ff={args.d_ff}")
 
     current_accuracies, candidate_accuracies = [], []
     for seed in args.seeds:
-        acc_current = run(use_candidate=False, seed=seed, device=device, steps=args.steps)
-        acc_candidate = run(use_candidate=True, seed=seed, device=device, steps=args.steps)
+        acc_current = run(use_candidate=False, seed=seed, device=device, steps=args.steps, dim=args.dim, layers=args.layers, heads=args.heads, d_ff=args.d_ff, log_every=args.log_every, label=f"current seed={seed}")
+        acc_candidate = run(use_candidate=True, seed=seed, device=device, steps=args.steps, dim=args.dim, layers=args.layers, heads=args.heads, d_ff=args.d_ff, log_every=args.log_every, label=f"candidate seed={seed}")
         current_accuracies.append(acc_current)
         candidate_accuracies.append(acc_candidate)
         print(f"seed={seed}  current={acc_current:.4f}  candidate={acc_candidate:.4f}  diff={acc_candidate-acc_current:+.4f}")
