@@ -222,6 +222,52 @@ reversing the tiny-scale no-go's practical implication. Whether the
 effect's size is scale-dependent in an interesting way, or just noisy at
 the scales tested, is open.
 
+### Checked directly: is dim=512 just undertrained relative to dim=256? No.
+
+Same question as the earlier tiny-scale check, asked again because a
+bigger model has more to learn in the same fixed step budget. Re-ran seed
+999 (the one that went slightly negative at 3000 steps) to 8000 steps
+with logging on CUDA:
+
+```
+current (GDN2):   oscillates 0.094-0.156 from step 500 onward, no trend
+candidate (GDN3):  oscillates 0.184-0.281 from step 500 onward, no trend
+final (step 7999): current=0.1250  candidate=0.2734  diff=+0.1484
+```
+
+Both curves plateau by roughly step 500-1500 and never move meaningfully
+after that -- same pattern the tiny-scale 8000-step check found. **Not a
+training-length artifact.** (Interestingly, this longer run's own final
+number for seed 999, +14.84 points, is itself a clean win -- more on why
+that doesn't simply confirm the 3-seed dim=512 result below.)
+
+### A real, separate finding: CUDA runs are not exactly reproducible at "the same seed"
+
+While checking the above, the CUDA side noticed this 8000-step run's own
+step-3000 checkpoint for seed 999 (candidate=0.215, current=0.156) does
+not match the original 3-seed sweep's step-3000 result for the *same*
+seed 999 (candidate=0.141, current=0.152) -- despite identical
+`torch.manual_seed`/`random.Random` seeding. Suspected cause: CUDA's
+cuDNN/cuBLAS reduction kernels are non-deterministic by default (`torch.
+use_deterministic_algorithms` was not set), possibly compounded by
+`--compile-step`'s kernel autotuning picking different implementations
+across separate process launches.
+
+This is a real, disclosed methodological caveat affecting every CUDA
+number in this document: "same seed" on this hardware/software
+combination does not currently guarantee an exactly reproducible run, the
+way it does on MLX/Metal or plain-CPU torch. It does not overturn the
+dim=256 result (a clean 3/3 sweep with a large margin is not the kind of
+thing this extra noise source alone would produce), but it is a
+plausible *additional* contributor to dim=512's noisier, less consistent
+result -- on top of the "under-sampled at 3 seeds" and "genuine
+capacity-dependent narrowing" explanations already named above, now a
+third real candidate, not investigated further here. If this
+investigation continues, `torch.use_deterministic_algorithms(True)`
+(with `CUBLAS_WORKSPACE_CONFIG` set) and a compile-vs-no-compile
+cross-check would be the right next methodological fix, named for the
+record rather than silently worked around.
+
 ## Overall verdict across all three GDN-3 investigations
 
 1. Isolated mechanism benchmark (synthetic, no training): **real,
