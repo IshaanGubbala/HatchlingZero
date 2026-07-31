@@ -200,6 +200,7 @@ def main() -> None:
     parser.add_argument("--sequence-length", type=int, default=0)
     parser.add_argument("--dtype", choices=("float32", "float16", "bfloat16"), default="bfloat16", help="bfloat16 recommended on Ampere+ (RTX 3060 supports it natively); float16 caused NaN on this project's MLX path at this scale under plain param-cast precision (a different implementation, not re-verified here -- treat as a real, open risk, not a validated-safe option).")
     parser.add_argument("--exact-update-norm", action="store_true")
+    parser.add_argument("--mixer", choices=("gdn2", "gdn3"), default="gdn2", help="Recurrent mixer for hybrid-architecture non-attention layers. 'gdn2' is HZ-0A's current locked-spec mixer. 'gdn3' is the candidate delta-rule mixer from docs/restart/hz0a_gdn3_candidate_design.md (reference/hz0a_gdn3_candidate_mixer_torch.py) -- real, positive evidence at small scale (a genuine associative-recall-with-overwrite win, tied generic-text perplexity) per that doc's own verdict, but still single-seed/small-scale, not yet validated as a wholesale replacement for the frozen HZ-0A Stage 2 spec. Parameter-count-matched with 'gdn2' by design. Only affects attention_layer_indices-excluded layers; attention layers are unchanged either way. Only applies to --architecture hybrid.")
     parser.add_argument("--compile-step", action="store_true", help="torch.compile the training step. UNVALIDATED: no CUDA hardware was available to benchmark or bit-exactness-check this against the eager path before this flag was added. Off by default.")
     parser.add_argument("--chunked-scan", action="store_true", help="EXPERIMENTAL, MEASURED UNSAFE for real training -- do not use for a run whose results need to be trusted. Replaces the sequential GDN-2 recurrence loop with a closed-form chunked/parallel-scan matmul formulation. Matches the sequential loop to ~1e-6 only when decay/erase stay near this layer's own bias-initialized regime; with a freshly-initialized model's actual random weights (i.e. the condition any real training run starts from), the reformulation's split-exponent terms can individually overflow, and the NaN-avoiding clamp this needed then makes gradients differ from the sequential loop by ~20 percent mean relative error, in both float32 and bfloat16 -- see reference/hz0a_torch_model.py's `_gdn2_chunk` docstring. Off by default; kept only as a documented throughput experiment, not a validated fast path.")
     parser.add_argument("--fla-recurrence", action="store_true", help="Replace the GDN-2 recurrence with `flash_linear_attention`'s `chunk_gla` Triton kernel (requires `pip install flash-linear-attention`), via an EXACT (not approximate) reduction: GDN-2's `state=decay*(1-erase)*state+write*v(x)k` has the same form as GLA's `state=exp(g)*state+k(x)v` with `g=log(decay*(1-erase))` and `v` pre-scaled by `write`. Unlike `--chunked-scan` (this project's own closed-form derivation, measured unsafe under real weights), this uses a widely-used external library's kernel -- verified against the sequential loop under this layer's actual bias-initialized regime (not just synthetic decay values) to ~0.2-0.3 percent mean relative gradient error in float32 and ~0.7-1.1 percent in bfloat16, with no NaN/Inf and no systematic bias, the same magnitude class already accepted for `--compile-step`'s own bf16 noise. Also drops the need for `--chunk-length`/`--truncate-backward` bookkeeping for the recurrence itself (processes the full sequence in one call), though `--truncate-backward` still applies to the rest of the model if set. Off by default pending a full training-trajectory validation run, same as every other math-changing flag here; incompatible with `--chunked-scan` and with `--compile-step`'s own GDN-2 compilation (this replaces that code path, not stacks with it).")
@@ -261,8 +262,10 @@ def main() -> None:
         hz0a_config = HZ0AConfig(
             vocab_size=args.vocab_size, d_model=args.dim, num_layers=args.layers, num_heads=args.heads,
             d_k=args.dim // args.heads, d_v=args.dim // args.heads, d_ff=args.d_ff,
-            attention_layer_indices=attention_indices,
+            attention_layer_indices=attention_indices, mixer=args.mixer,
         )
+        if args.mixer == "gdn3" and (args.chunked_scan or args.fla_recurrence):
+            raise ValueError("--chunked-scan and --fla-recurrence are GDN-2-specific fast paths (they don't match GDN-3's delta-rule math); not applicable with --mixer gdn3")
         model = HZ0AModel(hz0a_config)
         if args.chunked_scan and args.fla_recurrence:
             raise ValueError("--chunked-scan and --fla-recurrence both replace the GDN-2 recurrence; pick one")
@@ -306,7 +309,7 @@ def main() -> None:
 
     train_step_fn = model
     if args.compile_step:
-        if args.architecture == "hybrid" and args.chunked_scan:
+        if args.architecture == "hybrid" and args.mixer == "gdn2" and args.chunked_scan:
             # Chunked-scan replaces the sequential loop with O(1) big matmuls per
             # chunk, so (unlike compiling the sequential loop) compiling it doesn't
             # unroll `steps` iterations into the graph -- cheap to compile. Shared
@@ -314,31 +317,46 @@ def main() -> None:
             from reference.hz0a_torch_model import GDN2Mixer
             GDN2Mixer._chunk_fn = staticmethod(torch.compile(GDN2Mixer._chunk_fn))
         elif args.architecture == "hybrid":
-            # Compile the GDN-2 recurrence's whole per-chunk sequential loop
-            # (reference.hz0a_torch_model.GDN2Mixer._seq_fn) as ONE graph, not
-            # the whole (31-layer) model: torch.compile-ing the full model
-            # traces through the Python `for t in range(steps)` loop in every
-            # GDN2Mixer instance and unrolls it into one enormous graph (25
+            # Compile the recurrence's whole per-chunk sequential loop as ONE
+            # graph, not the whole (31-layer) model: torch.compile-ing the full
+            # model traces through the Python `for t in range(steps)` loop in
+            # every mixer instance and unrolls it into one enormous graph (25
             # layers x chunk_length steps), which was measured to make
             # compilation itself impractically slow (~8.7 minutes for even a
-            # SINGLE layer's loop). Compiling just one shared layer's
-            # `_seq_fn` (still exactly the same sequential math, only fused
-            # into fewer kernel launches -- see its docstring) keeps compile
-            # time bounded by chunk_length alone, not chunk_length x layers,
-            # and every layer instance reuses the same compiled artifact
-            # (class attribute) instead of recompiling per-layer. Compile
+            # SINGLE layer's loop, with GDN-2). Compiling just one shared
+            # layer's `_seq_fn` (still exactly the same sequential math, only
+            # fused into fewer kernel launches -- see its docstring in either
+            # reference/hz0a_torch_model.py or
+            # reference/hz0a_gdn3_candidate_mixer_torch.py) keeps compile time
+            # bounded by chunk_length alone, not chunk_length x layers, and
+            # every layer instance reuses the same compiled artifact (class
+            # attribute) instead of recompiling per-layer. For GDN-2, compile
             # time and per-call speed were both measured to get WORSE past
-            # roughly chunk_length~32-64 (compiling `--chunk-length` above
-            # that is not recommended without re-benchmarking).
-            from reference.hz0a_torch_model import GDN2Mixer, SwiGLU, CausalAttention, RMSNorm
-            GDN2Mixer._seq_fn = staticmethod(torch.compile(GDN2Mixer._seq_fn))
+            # roughly chunk_length~32-64 -- not yet re-measured for GDN-3,
+            # whose per-step math is more expensive (a real k(x)k^T-shaped
+            # read against the full state, not an elementwise gate), so its
+            # own sweet spot may differ; re-benchmark rather than assuming
+            # GDN-2's chunk_length findings transfer.
+            #
+            # `--fla-recurrence` (GDN-2 only) replaces this compiled-loop path
+            # entirely with an external kernel, so GDN2Mixer._seq_fn is left
+            # uncompiled (and unused) in that case; only the non-recurrent
+            # submodules below still apply.
+            if args.mixer == "gdn3":
+                from reference.hz0a_gdn3_candidate_mixer_torch import GDN3CandidateMixerTorch
+                GDN3CandidateMixerTorch._seq_fn = staticmethod(torch.compile(GDN3CandidateMixerTorch._seq_fn))
+            elif not args.fla_recurrence:
+                from reference.hz0a_torch_model import GDN2Mixer
+                GDN2Mixer._seq_fn = staticmethod(torch.compile(GDN2Mixer._seq_fn))
+            from reference.hz0a_torch_model import SwiGLU, CausalAttention, RMSNorm
             # The recurrence loop was the dominant cost before the above (93.9%
-            # of forward time), but after compiling it, the non-recurrent parts
-            # (attention, the SwiGLU MLP run by all 31 layers, RMSNorm) became a
-            # comparable share -- these have no unrolled loop to worry about, so
-            # compiling them (once per class, reused by every instance the same
-            # way as `_seq_fn`) is cheap and was measured to take total speed
-            # from ~3500 to ~4600 tok/s in isolation at this model's scale.
+            # of forward time for GDN-2), but after compiling it, the non-recurrent
+            # parts (attention, the SwiGLU MLP run by all 31 layers, RMSNorm)
+            # became a comparable share -- these have no unrolled loop to worry
+            # about, so compiling them (once per class, reused by every instance
+            # the same way as `_seq_fn`) is cheap and was measured to take total
+            # speed from ~3500 to ~4600 tok/s in isolation at this model's scale
+            # (GDN-2; not yet independently re-measured for GDN-3).
             SwiGLU.forward = torch.compile(SwiGLU.forward)
             CausalAttention.forward = torch.compile(CausalAttention.forward)
             RMSNorm.forward = torch.compile(RMSNorm.forward)

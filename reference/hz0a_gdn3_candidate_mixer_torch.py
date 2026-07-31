@@ -15,7 +15,34 @@ import torch
 from torch import nn
 
 
+def _gdn3_step(state, decay_t, beta_t, k_t, v_t, q_t):
+    decayed = decay_t[:, :, None, :] * state
+    old_retrieved = (decayed * k_t[:, :, None, :]).sum(dim=-1)
+    correction = beta_t[:, :, :, None] * (v_t - old_retrieved)[:, :, :, None] * k_t[:, :, None, :]
+    state = decayed + correction
+    return state, (state * q_t[:, :, None, :]).sum(dim=-1)
+
+
+def _gdn3_sequential(state, decay, beta, k, v, q):
+    """Same per-timestep math as `_gdn3_step`, loop moved inside a single
+    function so it can be `torch.compile`d as one graph (see
+    `reference/hz0a_torch_model.py`'s `_gdn2_sequential` docstring for why
+    compiling the whole per-chunk loop, not one step at a time, is the
+    faster and still-exact choice for this family of recurrence)."""
+    outputs = []
+    for t in range(decay.shape[1]):
+        state, out_t = _gdn3_step(state, decay[:, t], beta[:, t], k[:, t], v[:, t], q[:, t])
+        outputs.append(out_t)
+    return state, torch.stack(outputs, dim=1)
+
+
 class GDN3CandidateMixerTorch(nn.Module):
+    # Same class-attribute-sharing pattern as `GDN2Mixer._seq_fn` in
+    # reference/hz0a_torch_model.py: a caller can swap in a
+    # `torch.compile`-wrapped `_gdn3_sequential` once, shared by every layer
+    # instance, instead of the plain eager loop. Off (eager) by default.
+    _seq_fn = staticmethod(_gdn3_sequential)
+
     def __init__(self, dim: int, heads: int, head_dim: int | None = None):
         super().__init__()
         self.dim, self.heads = dim, heads
@@ -49,11 +76,5 @@ class GDN3CandidateMixerTorch(nn.Module):
         # learned k can blow the recurrence up (verified in the MLX port;
         # not re-derived here, this is a direct, deliberate match).
         k = k / (k.norm(dim=-1, keepdim=True) + 1e-6)
-        outputs = []
-        for t in range(steps):
-            decayed = decay[:, t, :, None, :] * state
-            old_retrieved = (decayed * k[:, t, :, None, :]).sum(dim=-1)
-            correction = beta[:, t, :, :, None] * (v[:, t] - old_retrieved)[:, :, :, None] * k[:, t, :, None, :]
-            state = decayed + correction
-            outputs.append((state * q[:, t, :, None, :]).sum(dim=-1))
-        return self.out_proj(torch.stack(outputs, dim=1).reshape(bsz, steps, c.heads * c.head_dim)), state
+        state, out = type(self)._seq_fn(state, decay, beta, k, v, q)
+        return self.out_proj(out.reshape(bsz, steps, c.heads * c.head_dim)), state

@@ -110,10 +110,16 @@ def main():
     parser.add_argument("--heads", type=int, default=4)
     parser.add_argument("--d-ff", type=int, default=128)
     parser.add_argument("--log-every", type=int, default=0, help="print periodic train_loss/eval_acc during each run; 0 disables")
+    parser.add_argument("--compile-step", action="store_true", help="torch.compile each mixer's whole-chunk recurrence loop (the same validated, exact -- 0.0 diff -- technique from scripts/hz0a_torch_stage2_runner.py's own --compile-step: reference/hz0a_torch_model.py's GDN2Mixer._seq_fn and reference/hz0a_gdn3_candidate_mixer_torch.py's GDN3CandidateMixerTorch._seq_fn). Applied identically to BOTH arms of the comparison -- this speeds up wall-clock time, it does not change the experiment's controlled variables (LR, batch size, optimizer, dtype all stay exactly as originally specified), so it does not confound comparability with prior seeds/results.")
     args = parser.parse_args()
 
     device = resolve_device(args.device)
-    print(f"device={device} steps={args.steps} seeds={args.seeds} dim={args.dim} layers={args.layers} heads={args.heads} d_ff={args.d_ff}")
+    if args.compile_step:
+        from reference.hz0a_torch_model import GDN2Mixer, _gdn2_sequential
+        from reference.hz0a_gdn3_candidate_mixer_torch import GDN3CandidateMixerTorch, _gdn3_sequential
+        GDN2Mixer._seq_fn = staticmethod(torch.compile(_gdn2_sequential))
+        GDN3CandidateMixerTorch._seq_fn = staticmethod(torch.compile(_gdn3_sequential))
+    print(f"device={device} steps={args.steps} seeds={args.seeds} dim={args.dim} layers={args.layers} heads={args.heads} d_ff={args.d_ff} compile_step={args.compile_step}")
 
     current_accuracies, candidate_accuracies = [], []
     for seed in args.seeds:

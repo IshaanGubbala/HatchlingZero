@@ -19,11 +19,18 @@ class HZ0AConfig:
     d_v: int
     d_ff: int
     attention_layer_indices: tuple[int, ...]
+    # "gdn2" (default, the current locked-spec mixer) or "gdn3" (the
+    # candidate delta-rule mixer investigated in
+    # docs/restart/hz0a_gdn3_candidate_design.md -- real, positive, but
+    # still single-seed/small-scale evidence per that doc's own verdict,
+    # not yet a validated replacement for HZ-0A's frozen Stage 2 spec).
+    # Does not affect attention layers either way.
+    mixer: str = "gdn2"
 
     @classmethod
     def from_json(cls, path: str | Path) -> "HZ0AConfig":
         spec = json.loads(Path(path).read_text(encoding="utf-8"))
-        return cls(spec["vocab_size"], spec["d_model"], spec["num_layers"], spec["num_heads"], spec["head_dim_qk"], spec["head_dim_v"], spec["d_ff"], tuple(spec["attention_layer_indices"]))
+        return cls(spec["vocab_size"], spec["d_model"], spec["num_layers"], spec["num_heads"], spec["head_dim_qk"], spec["head_dim_v"], spec["d_ff"], tuple(spec["attention_layer_indices"]), spec.get("mixer", "gdn2"))
 
 
 class RMSNorm(nn.Module):
@@ -235,11 +242,21 @@ class CausalAttention(nn.Module):
         return self.out(out.transpose(1, 2).reshape(bsz, steps, c.num_heads * c.d_k))
 
 
+def _build_recurrent_mixer(c):
+    if c.mixer == "gdn3":
+        from reference.hz0a_gdn3_candidate_mixer_torch import GDN3CandidateMixerTorch
+        assert c.d_k == c.d_v, "GDN3CandidateMixerTorch assumes a single head_dim (d_k == d_v)"
+        return GDN3CandidateMixerTorch(c.d_model, c.num_heads, head_dim=c.d_k)
+    if c.mixer != "gdn2":
+        raise ValueError(f"unknown mixer {c.mixer!r}, expected 'gdn2' or 'gdn3'")
+    return GDN2Mixer(c)
+
+
 class HZ0ABlock(nn.Module):
     def __init__(self, c, attention):
         super().__init__()
         self.norm1, self.norm2 = RMSNorm(c.d_model), RMSNorm(c.d_model)
-        self.mixer = CausalAttention(c) if attention else GDN2Mixer(c)
+        self.mixer = CausalAttention(c) if attention else _build_recurrent_mixer(c)
         self.mlp, self.attention = SwiGLU(c.d_model, c.d_ff), attention
 
     # Opt-in: recompute the MLP (norm2+SwiGLU) during backward instead of

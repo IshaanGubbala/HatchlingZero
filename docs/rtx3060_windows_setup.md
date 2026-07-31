@@ -431,6 +431,81 @@ accepted elsewhere -- treat it with the same "verify, don't just trust the
 math" posture as everything else in this section, not as beyond question
 just because it's externally maintained.
 
+## 5d. `--mixer gdn3`: running the candidate delta-rule mixer on this hardware
+
+`docs/restart/hz0a_gdn3_candidate_design.md` (Mac side, same date) found,
+independently of the throughput work above but from the same Kimi K3
+report, that HZ-0A's GDN-2 mixer lacks the real delta-rule's `(I - beta*k*k^T)`
+projection term despite the "DeltaNet" naming -- and built and benchmarked
+a candidate "GDN-3" mixer with that term restored
+(`reference/hz0a_gdn3_candidate_mixer_torch.py`, ported from the MLX
+version so it runs on this machine at all). That doc's own verdict: real,
+positive evidence (a genuine associative-recall-with-overwrite win, +2.73
+points over GDN-2, after correcting a confounded first attempt; tied
+generic-text perplexity) but still single-seed and small-scale --
+explicitly **not yet a green light to retrain the real, frozen HZ-0A Stage
+2 spec**. Using it for a real run here is a deliberate choice to move
+ahead of that recommendation, not a claim that the caveat has been
+resolved.
+
+**Integration**: `HZ0AConfig` gained a `mixer: "gdn2" | "gdn3"` field
+(default `"gdn2"`, preserving all prior behavior exactly). `--mixer gdn3`
+swaps the recurrent mixer used by hybrid-architecture non-attention layers;
+attention layers are unchanged either way. Parameter count is identical
+between the two (GDN-3's `in_proj` has a deliberate unused padding slot for
+this reason, per its own docstring) -- confirmed in this integration too
+(328,832 params either way at a 6-layer/dim-64 test config).
+
+**Speed**: the whole-chunk `torch.compile` technique from section 5b
+transfers cleanly -- `reference/hz0a_gdn3_candidate_mixer_torch.py` got the
+same `_gdn3_step`/`_gdn3_sequential`/`_seq_fn`-class-attribute treatment as
+`GDN2Mixer`, and `--compile-step --mixer gdn3` compiles it the same way
+(plus the same SwiGLU/CausalAttention/RMSNorm compilation). `--fla-recurrence`
+and `--chunked-scan` do NOT apply to GDN-3 (the runner raises an error if
+combined) -- GDN-3's `beta` is a per-*value*-channel write-strength gate
+(shape matching `head_dim`), not the per-*head* scalar that
+`flash-linear-attention`'s `kda`/`gated_delta_rule` kernels expect; forcing
+that substitution would silently change the exact mechanism the Mac side's
+benchmark results are actually about, so it wasn't done. GDN-3's per-step
+math is also inherently heavier than GDN-2's (an extra state-read dot
+product plus correction term, vs. GDN-2's plain elementwise gate), so it
+was never expected to match GDN-2+FLA's ~5800 tok/s.
+
+Validated the same two ways as every other math-changing path here: full
+forward+backward parity for the whole-chunk compile (0.0 diff, both
+dtypes -- an exact refactor of the Mac side's own validated math, not a new
+derivation) and a ~32-step training-trajectory comparison via the actual
+runner (max loss diff 0.54 out of losses moving 619->318, max
+gradient_norm diff 1.0 out of a 88-308 range -- both decreasing in
+lockstep). VRAM footprint is noticeably lower than GDN-2's at the same
+`--batch-size`/`--chunk-length` (7.2GB vs 11.0GB at `--batch-size 256
+--chunk-length 8`), so `--batch-size` needed re-tuning independently rather
+than reusing GDN-2's numbers -- **`--batch-size 416 --chunk-length 8`**
+was the best found, at **~4446 tok/s steady-state** (10.3GB peak,
+confirmed over a long/stable window; nearby points like 384 and 448 were
+both measured slower, so this isn't a monotonic "bigger is better" curve
+near the ceiling, same caveat as section 5b's own batch-size notes).
+
+```bash
+python3 scripts/hz0a_torch_stage2_runner.py \
+  --data data/packed/stage2_100m_train_seq256.jsonl \
+  --validation-data data/packed/repro_256_val.jsonl \
+  --run-dir outputs/rtx3060_stage2_hybrid_gdn3 --target-tokens 100000000 \
+  --batch-size 416 --sequence-length 256 --chunk-length 8 --truncate-backward \
+  --gradient-accumulation-chunks 4 --checkpoint-interval 150 --validation-interval 150 \
+  --lr-schedule cosine --max-lr 1e-4 --warmup-steps 50 --lr-min-ratio 0.1 \
+  --validation-batch-size 64 --seed 7 --mixer gdn3 --compile-step \
+  --milestone-tokens 10000000,25000000,50000000,75000000,100000000 \
+  --vocab-size 24576 --dim 768 --layers 31 --heads 12 --d-ff 2304 \
+  --architecture hybrid --device cuda --dtype bfloat16
+```
+
+**Important:** a run started this way is not comparable to, not a
+continuation of, and not a replacement for the real HZ-0A Stage 2 hybrid
+run -- it is a different, not-yet-broadly-validated recurrence, run here
+because it was explicitly requested, not because the architecture question
+from `hz0a_gdn3_candidate_design.md` has been settled.
+
 ## 6. Resuming
 
 Add `--resume` with the same `--run-dir` and the same architecture/size
