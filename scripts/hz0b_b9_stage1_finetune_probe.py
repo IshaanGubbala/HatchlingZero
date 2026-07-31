@@ -69,7 +69,8 @@ def main():
     parser.add_argument("--lambda-preserve", type=float, default=5.0)
     parser.add_argument("--block-lr", type=float, default=1e-5, help="separate, much smaller LR for the unfrozen HZ-0A block -- it's a pretrained ~301M-scale weight, not a fresh random init like the controller")
     parser.add_argument("--controller-lr", type=float, default=1.5e-1)
-    parser.add_argument("--steps", type=int, default=1000)
+    parser.add_argument("--steps", type=int, default=1000, help="joint (block+controller) fine-tuning steps, AFTER --warmup-steps")
+    parser.add_argument("--warmup-steps", type=int, default=0, help="controller-ONLY steps first (block stays frozen), matching B7's exact recipe -- addresses the 'moving target' hypothesis from docs/restart/hz0b_b9_stage1_results.md: give the controller a converged starting point before the block starts moving too. 0 reproduces the original (regressed) joint-from-step-0 result.")
     args = parser.parse_args()
 
     import random
@@ -116,7 +117,23 @@ def main():
         return task_loss + args.lambda_preserve * preserve_loss
 
     grad_fn = mx.value_and_grad(loss_fn)
-    print("\n--- fine-tuning controller (fast LR) + last HZ-0A block (slow LR) jointly ---")
+
+    if args.warmup_steps > 0:
+        print(f"\n--- warmup: controller ONLY, block stays frozen (block_lr=0), matching B7's exact recipe, {args.warmup_steps} steps ---")
+        for step in range(args.warmup_steps):
+            loss, grads = grad_fn(combined)
+            mx.eval(loss)
+            # block_lr=0 here specifically (not args.block_lr) -- the whole
+            # point of warmup is the block does NOT move yet, giving the
+            # controller a fixed, converged target to fit before the
+            # backbone itself starts moving too (the "moving target"
+            # hypothesis from docs/restart/hz0b_b9_stage1_results.md).
+            combined = {k: (v - args.controller_lr * grads[k] if k in controller_keys else v) for k, v in combined.items()}
+            mx.eval(*combined.values())
+            if step % 100 == 0 or step == args.warmup_steps - 1:
+                print(f"[warmup] step {step:4d}  train loss {float(loss):.5f}")
+
+    print(f"\n--- joint fine-tuning: controller (lr={args.controller_lr}) + last HZ-0A block (lr={args.block_lr}), {args.steps} steps ---")
     for step in range(args.steps):
         loss, grads = grad_fn(combined)
         mx.eval(loss)

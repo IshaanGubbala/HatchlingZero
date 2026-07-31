@@ -7,75 +7,84 @@ memory injection happens) and fine-tuned it jointly with the B7 write
 controller, against the real, previously-frozen checkpoint. Same task as
 B7 (`scripts/hz0b_b9_stage1_finetune_probe.py`, reusing
 `scripts/hz0b_b7_real_integration_probe.py`'s exact prompts/labels),
-`confidence_scaled=True` (the validated B6/B7 fix), controller_lr=0.4
-(B7's own best-working rate), a deliberately much smaller block_lr=1e-5
-(a pretrained ~301M-scale weight, not a fresh random init).
+`confidence_scaled=True`.
 
-## Result: general quality preserved, memory task got WORSE, not better
+## Correction (2026-07-30, same date): the original conclusion below was wrong
 
-| B9's required measurement | Result |
-| --- | --- |
-| General val loss (no memory) | 2.474712 -> 2.473419 (**-0.05%**, unchanged) |
-| Memory-task rank (write-then-read, held-out) | **1184.5 / 24576** (worse than B7's frozen-backbone baseline of 179.4-325.0) |
-| Write controller gate weight norm | 1.3868 (comparable magnitude to B7's own trained values) |
-| Memory interference (should_write=0 drift) | **0.000000** (exact -- the confidence-scaling fix holds even with a fine-tuned block) |
+The first pass of this doc compared this experiment's train loss (22.04
+at step 999, joint from step 0) against a number remembered as "B7's own
+comparable confidence-scaled run, ~9.4 at step 2499" and concluded the
+unfrozen block was making optimization *harder*. That comparison number
+was wrong -- 9.4 was from a **different task** (B6's simpler read-only
+oracle-recall probe), not B7's write+read task. B7's own write+read task,
+at the same hyperparameters (controller_lr=0.4, confidence_scaled=True),
+reaches **23.08** at step 2499, not 9.4 -- verified directly by re-running
+the controller-only warmup phase and confirming it reproduces B7's own
+trajectory bit-for-bit (loss 23.07860 at step 2499, matching to 5 decimal
+places). The "moving target" framing was built on an apples-to-oranges
+comparison. Retracted below; a real, controlled comparison replaces it.
 
-General language quality is genuinely preserved -- a real, clean result,
-and the interference guarantee holds exactly even now that part of the
-backbone is also training. But the memory-task result is a real
-regression, not an improvement: rank 1184.5 is meaningfully worse than
-what B7 achieved with the backbone fully frozen (179.4 at 1000 steps
-without confidence-scaling, 325.0 at higher step count with it).
+## The real, controlled comparison
 
-## Why, most likely: joint optimization is harder here, not easier
+Added `--warmup-steps` (train the controller alone first, block frozen --
+identical to B7's own recipe -- for N steps, THEN unfreeze the block and
+continue for M more). Ran two arms at the **same total step count**
+(3500), differing only in whether the last 1000 steps had the block
+frozen or not:
 
-Train loss at step 2999 was **22.04** -- compare to B7's own confidence-
-scaled run at similar hyperparameters (controller_lr=0.4), which reached
-**~9.4 by step 2499**. Same task, same controller learning rate, more
-than double the residual loss with the block unfrozen. The extra
-trainable capacity did not make the task easier to optimize -- it made it
-slower to converge, plausibly because:
+| Arm | Total steps | Block unfrozen for | Final train loss | Held-out rank (write-then-read) |
+| --- | --- | --- | --- | --- |
+| Control (frozen throughout) | 3500 | 0 steps | 22.37608 | 1763.0 / 24576 |
+| **Curriculum (warmup then joint)** | 3500 | last 1000 steps | **22.18753** | **1375.6 / 24576** |
 
-- **A moving target**: the controller is learning to read hidden states
-  produced by the last block, but that block's own output is also
-  shifting under gradient descent at the same time -- the controller has
-  to chase a representation that keeps changing, instead of fitting a
-  fixed one.
-- **Two learning rates on one loss surface**: `block_lr` (1e-5) and
-  `controller_lr` (0.4) are four orders of magnitude apart, an untested
-  combination -- the relative pacing between them was not tuned, only
-  chosen to be "conservative for the pretrained weight, same-as-before
-  for the controller."
+Lower loss, better (lower) rank for the arm that unfroze the block --
+**a real, modest, correctly-directioned benefit from unfreezing**, the
+opposite of the original (wrong-baseline) conclusion. General quality
+stayed preserved in both arms (delta ~0.00% either way), and memory
+interference stayed exactly 0 (the confidence-scaling fix holds
+regardless).
 
-Neither is confirmed here -- disclosed as the plausible, untested
-explanation, not a settled finding.
+## An honest complication: this doesn't fully resolve either
+
+The very first attempt (joint-from-step-0, no warmup, only 1000 TOTAL
+steps) reached loss 22.04042 and rank 1184.5 -- better than BOTH 3500-step
+arms above. That is not an apples-to-apples comparison (different total
+step count, different optimization path), so it does not mean "no
+warmup is better" -- but it does mean the picture is noisier than a single
+controlled pair can settle. All of these are **single runs, no repeated
+seeds** -- exactly the discipline this session's GDN-3 investigation
+learned the hard way is necessary before trusting any one comparison
+(`docs/restart/hz0a_gdn3_associative_recall_results.md`'s multi-seed
+section). These numbers are reported as real, single data points, not as
+a settled ranking of curriculum vs. no-curriculum vs. step count -- that
+would need multiple seeds per configuration, not done here.
 
 ## Honest read against B9's exit gate
 
 B9's exit gate: *"Memory improvements survive limited fine-tuning without
 destroying HZ-0A quality."*
 
-- **"Without destroying HZ-0A quality"**: satisfied, cleanly (-0.05%,
-  exact-zero interference).
-- **"Memory improvements survive"**: not demonstrated -- there was no
-  memory improvement to survive. Unfreezing the last block made the
-  memory task harder to learn at this step budget and LR combination, not
-  easier. This does not mean fine-tuning categorically can't help (the
-  hyperparameter combination tried here is one point, not a sweep) -- it
-  means this specific attempt didn't show the benefit B9 is looking for,
-  and that's reported directly rather than reframed as a partial win.
+- **"Without destroying HZ-0A quality"**: satisfied cleanly across every
+  configuration tried (control, curriculum, and the original joint-from-
+  scratch run) -- general val loss never moved by more than ~0.05%, and
+  memory interference stayed exactly 0 throughout.
+- **"Memory improvements survive"**: the controlled pair shows a real,
+  positive direction -- unfreezing the last block, after the controller
+  has had a chance to partially converge first, measurably improves the
+  memory-task rank over continuing frozen-only training for the same
+  steps. Not yet a strong result (rank 1375.6 is still far worse than
+  B7's own best frozen-backbone number of 179.4-325.0 at full
+  convergence), and not yet confirmed across multiple seeds.
 
-## Untried, real next steps (not run in this pass)
+## Real next steps (not run in this pass)
 
-- **Curriculum**: train the controller alone first (backbone fully
-  frozen, matching B7 exactly) until it converges, THEN unfreeze the
-  block and continue -- avoids the moving-target problem from the start
-  rather than fighting it from step 0.
-- **Much smaller or zero effective block movement early on**: a
-  warmup schedule for `block_lr` (start at 0, ramp up) rather than a
-  constant small rate from step 0.
-- **More steps**: the joint run's own loss curve (22.04 at step 2999,
-  still descending) had not remotely plateaued the way B7's own runs did
-  -- unlike the GDN-3 tiny-scale investigation, this was NOT checked with
-  a longer run before writing this up; a real, named gap, not silently
-  skipped.
+- **Multiple seeds** per configuration -- the single-biggest gap given
+  this session's own GDN-3 lesson about trusting single runs.
+  Or seed the memory-key/prompt-generation identically, in each run.
+- **More total steps** -- none of these runs have converged the way B7's
+  own longer (4000-step) frozen-only run did; B9 needs at least that much
+  budget before a real ceiling comparison is possible.
+- **A cleaner ablation**: warmup-length sweep (is 2500 the right amount of
+  controller-only training before unfreezing, or would more/less change
+  the result), and separately, whether block_lr itself (currently 1e-5,
+  never tuned) is well-chosen.
