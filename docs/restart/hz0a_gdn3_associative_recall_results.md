@@ -173,11 +173,54 @@ blanket-forgetting weakness to cost it real accuracy while the
 candidate's targeted overwrite does not pay that cost.
 
 **Run on the CUDA machine, not independently re-verified against a raw
-log file on the Mac side as of this writing** -- recorded as reported.
-A larger scale run (e.g. dim=512+) is in progress as of this update to
-check whether the effect continues to grow, holds steady, or saturates.
-This section will be updated once that lands, and the overall verdict
-below should be read as provisional pending it.
+log file on the Mac side** -- recorded as reported, via the transfer
+inbox. Also used a new `--compile-step` flag (the CUDA side's own
+addition, applying the same validated, exact -- 0.0 diff -- whole-chunk
+`torch.compile` technique already used in the main runner to both
+mixers' recurrence loops equally; a wall-clock speedup only, not a new
+confound between the two arms).
+
+## Even larger scale (2026-07-30, same date): the trend is real but not monotonic
+
+A second CUDA run at `dim=512 --layers 12 --heads 8 --d-ff 1024` (same 3
+seeds, same everything else):
+
+| | Mean accuracy | Per-seed difference |
+| --- | --- | --- |
+| Current GDN2 | 13.54% | -- |
+| GDN-3 candidate | 19.79% | -1.17, +12.11, +7.81 pts |
+| **Mean difference** | **+6.25 pts** | **candidate wins 2/3 seeds** |
+
+Full comparison across all three scales tested:
+
+| Scale | Mean difference | Wins | Candidate stdev | Current stdev |
+| --- | --- | --- | --- | --- |
+| dim=64 (4 seeds, tiny) | -1.30 pts | 1/4 | -- | -- |
+| dim=256 (3 seeds) | **+12.11 pts** | 3/3 | 2.09 | 1.15 |
+| dim=512 (3 seeds) | +6.25 pts | 2/3 | 4.35 | 1.21 |
+
+**Not a clean "bigger is better" trend.** dim=256 shows a larger, more
+consistent win than dim=512, which is also noisier (one seed, 999, went
+slightly negative at dim=512: -1.17 pts). Two honest readings, not
+resolved by this data:
+
+1. The advantage is real but has a "sweet spot" relative to this specific
+   task's difficulty -- dim=512 may be starting to have enough capacity
+   that current GDN2 can also partially compensate through other means
+   (e.g. more channels to spread redundant storage across), narrowing the
+   gap even though the candidate still wins on average.
+2. dim=512 with only 3 seeds is itself under-sampled -- the higher
+   candidate stdev (4.35 vs 1.15 at dim=256) suggests more seed-to-seed
+   variance at this size, and more seeds could either confirm a real
+   narrowing or reveal dim=512's mean is closer to dim=256's than 3 seeds
+   currently show.
+
+Not determined by the data collected so far. The core question this
+larger-scale investigation was run to answer -- "does a real gap show up
+with more capacity" -- has a clear yes at both dim=256 and dim=512,
+reversing the tiny-scale no-go's practical implication. Whether the
+effect's size is scale-dependent in an interesting way, or just noisy at
+the scales tested, is open.
 
 ## Overall verdict across all three GDN-3 investigations
 
@@ -201,21 +244,23 @@ below should be read as provisional pending it.
 
 **Status: REOPENED (2026-07-30, later same day) -- the tiny-scale "no
 effect" conclusion below was the honest read of the evidence available at
-the time, but does not survive the larger-scale result above.** At
+the time, but does not survive the larger-scale results above.** At
 dim=64/4-layers, 4 seeds gave a noise-level, direction-inconsistent
 result -- a fair basis for "no reliable benefit found at this scale,"
-which is what was concluded. At dim=256/8-layers, the same task, same
-fairness discipline, shows a large, consistent, correctly-directioned
-win for the candidate (+12.11 points, 3/3 seeds). The most likely honest
-reading: the tiny scale was under-*capacity*, not just under-trained (the
-step-count question was checked and ruled out separately, see above) --
-both models were too small relative to the task for GDN2's blanket-
-forgetting weakness to actually cost it anything, and the candidate's
-targeted-overwrite advantage only becomes visible once there's enough
-model capacity for the difference to matter. A larger-still run is in
-progress to check whether this holds, grows, or saturates -- the original
-"do not retrain" recommendation immediately below is superseded pending
-that, not deleted, so the reasoning trail stays visible.
+which is what was concluded. At both dim=256/8-layers (+12.11 pts, 3/3
+seeds) and dim=512/12-layers (+6.25 pts, 2/3 seeds, noisier), the same
+task and fairness discipline shows a real, positive, correctly-directioned
+advantage for the candidate -- though not a clean monotonic trend (512
+was noisier and smaller-margin than 256, see the section above). The most
+likely honest reading: the tiny scale was under-*capacity*, not just
+under-trained (the step-count question was checked and ruled out
+separately, see above) -- both models were too small relative to the
+task for GDN2's blanket-forgetting weakness to actually cost it anything,
+and the candidate's targeted-overwrite advantage becomes visible once
+there's enough model capacity, though its exact size may itself depend on
+scale in a way 3 seeds per point isn't enough to pin down. The original
+"do not retrain" recommendation immediately below is superseded, not
+deleted, so the reasoning trail stays visible.
 
 <details>
 <summary>Original tiny-scale-only recommendation (2026-07-30, superseded by the section above)</summary>

@@ -1,10 +1,11 @@
 # Candidate "GDN-3" Recurrence: What Kimi K3/Linear Suggest HZ-0A Is Missing
 
 Date: 2026-07-30. **Status: REOPENED -- tiny-scale testing found no
-reliable effect (4 seeds, noise-level), but a larger-scale run
-(dim=256/8-layers, CUDA) found a large, consistent win for the candidate
-(+12.11 points, 3/3 seeds).** An even-larger-scale confirmation run is in
-progress. See section 8 for the current state. Nothing here is
+reliable effect (4 seeds, noise-level), but larger-scale runs on CUDA
+found a real, positive effect at both dim=256/8-layers (+12.11 points,
+3/3 seeds) and dim=512/12-layers (+6.25 points, 2/3 seeds, noisier) --
+not a clean monotonic trend, but a real advantage at both larger scales
+tested.** See section 8 for the current state. Nothing here is
 implemented in or scheduled for the real HZ-0A yet. HZ-0A's architecture
 is
 deliberately frozen (`plans/HZ-0A_Progress_Tracker.md`, "Both Stage 2
@@ -174,20 +175,29 @@ each earlier round's result did not survive the next level of scrutiny:
    candidate wins 3/3 seeds by a large, consistent margin (+12.11 points
    mean, per-seed +16.02/+10.16/+10.16). A materially different result
    from (3), in the theoretically predicted direction.
-5. **Even-larger-scale confirmation: in progress** as of this update.
+5. **Even larger (dim=512/12 layers), 3 seeds, on CUDA**: candidate wins
+   2/3 seeds (+6.25 points mean, per-seed -1.17/+12.11/+7.81) -- still a
+   real positive effect, but smaller-margin and noisier than dim=256, not
+   a clean "bigger is better" trend. See
+   `docs/restart/hz0a_gdn3_associative_recall_results.md`'s "not
+   monotonic" section for the two open readings of why.
 
 **Current reading: real evidence the delta-rule projection's advantage is
-capacity-gated -- invisible at tiny scale, large and consistent once the
-model has enough capacity for the task's difficulty to matter.** This is
-a meaningfully more promising state than the mid-day "no-go" conclusion,
-which was an honest read of the evidence available at the time but has
-since been superseded by a real result, not vibes. Still not yet a
-decision to retrain HZ-0A at its real ~301M scale -- the largest test so
-far (dim=256) is still two orders of magnitude smaller, and whether the
-effect continues to grow, plateaus, or (like the tiny-scale noise) turns
-out to be its own kind of artifact needs the in-progress larger run
-before concluding further. Recorded here as the live, honest state of the
-investigation, not a final answer either direction.
+capacity-gated -- invisible at tiny scale, real at both larger scales
+tested, though not scaling cleanly between them.** This is a meaningfully
+more promising state than the mid-day "no-go" conclusion, which was an
+honest read of the evidence available at the time but has since been
+superseded by real results, not vibes. Still not yet a decision to
+retrain HZ-0A at its real ~301M scale -- the largest test so far (dim=512)
+is still nearly three orders of magnitude smaller, and the non-monotonic
+256-vs-512 comparison (open question: is dim=512 just under-sampled at 3
+seeds, or genuinely narrower-margin for a real reason, or -- per the
+user's own live hypothesis -- under-*trained* relative to dim=256 at the
+same fixed 3000-step budget, since a bigger model has more to learn in
+the same number of steps) means more investigation is warranted before
+drawing a scale-trend conclusion, let alone a retrain one. Recorded here
+as the live, honest state of the investigation, not a final answer either
+direction.
 
 ## 9. Honest scope of this document
 
