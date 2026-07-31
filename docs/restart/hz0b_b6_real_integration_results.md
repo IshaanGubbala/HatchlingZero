@@ -27,8 +27,16 @@ worth confirming rather than assuming it transfers.
 Real HZ-0A hidden states, frozen; memory content is one fixed (key, value)
 pair written via the oracle/non-learned bypass (B1 decision 13) -- never
 touched by gradient descent. Only the read-only integration's own
-projections (query, gate, value-to-hidden -- ~150K parameters) were
-trained, via plain gradient descent, against a synthetic recall task:
+projections (query, gate, value-to-hidden) were trained, via plain
+gradient descent, against a synthetic recall task. **Correction
+(2026-07-31, checked directly against `init_readonly_integration`,
+d_model=768/key_dim=value_dim=32): this originally said "~150K
+parameters" -- that was wrong. The real count is 640,544 (query 24,608 +
+gate 590,592 + value-to-hidden 25,344), dominated by the `[d_model,
+d_model]` gate matrix, ~0.213% of the 301M backbone -- still small, but
+4.3x the number originally stated here. See
+`docs/restart/hz0b_costs_and_limitations.md` for the full, verified cost
+table.**
 predict a fixed target token after a fixed trigger bigram, across 24
 training prompts with random real-vocab prefixes (so solving it requires
 generalizing across contexts, not memorizing one exact sequence), evaluated

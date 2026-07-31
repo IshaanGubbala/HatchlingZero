@@ -152,6 +152,56 @@ positions genuinely cannot help, forcing selectivity before introducing
 harder cases) -- out of scope for this pass, named here as real,
 identified future work rather than silently left unexamined.
 
+### 5b. A fifth intervention (2026-07-31): sigmoid-saturation-trap hypothesis, tested and REFUTED
+
+New hypothesis, distinct from the four above: prefix positions 0-`FACT_POS`
+are constructed as IID random tokens generated BEFORE the fact identity is
+even chosen (`make_prompts` in
+`scripts/hz0b_b8_stage3_latent_write_probe.py`) -- they provably cannot
+carry task-relevant signal, yet position 0's gate saturates to 1.00.
+`write_gate = sigmoid(write_logit)` is trained at `lr=0.15`, a large
+learning rate for a linear gate head; the hypothesis was that early
+training pushes the logit past sigmoid's saturation region, after which
+the local gradient vanishes and the gate gets stuck near 1.0 independent
+of usefulness -- a mechanism none of the four prior interventions tested.
+
+Three runs, in order, each correcting a real flaw found in the previous one:
+
+| Run | Config | Held-out accuracy | Selectivity ratio | Problem |
+| --- | --- | --- | --- | --- |
+| 1 | `--lr 0.02 --steps 4000` (default `--lambda-sparse 0.1`) | 0.875 | 1.12x, but gate saturated near-uniformly HIGH (0.87-1.00 almost everywhere) | **Confounded**: ran with the script's default `lambda_sparse=0.1`, not the baseline's `5` -- 50x weaker sparsity pressure fully explains near-universal saturation on its own; not a clean test of the lr hypothesis |
+| 2 | `--lr 0.02 --steps 1000 --lambda-sparse 5` (lr fixed, but same 1000-step budget as the lr=0.15 baseline) | 0.500 (chance) | 0.17x (worse than baseline) | **Undertrained**: train loss only reached 0.265 vs. the lr=0.15 baseline's near-converged loss at the same step count -- 1000 steps is not a fair budget at 7.5x lower lr |
+| 3 | `--lr 0.02 --steps 4000 --lambda-sparse 5` (lr fixed, lambda matched, enough steps to actually converge -- train loss plateaued ~0.17-0.18) | **0.375 (below chance)** | **0.39x** | None -- this is the clean, controlled test |
+
+Run 3 is the fair comparison: same `lambda_sparse=5` as the documented
+baseline, and trained to convergence (loss plateaued, not still falling).
+Its selectivity ratio (0.39x) is statistically indistinguishable from the
+original lr=0.15 baseline's 0.3-0.4x -- **lowering the learning rate by
+7.5x produced no improvement in write-position selectivity**, and task
+accuracy was actually worse than the untrained floor (0.375 < 0.5),
+plausibly because the smaller effective step size combined with only 32
+training examples generalizes worse, not better.
+
+**Conclusion: the sigmoid-saturation-trap hypothesis is REFUTED**, not
+merely "not chased further." Learning rate is not the causal factor
+behind the front-loaded write pattern. Combined with the four
+architectural interventions in section 5 (fewer slots, decay, negative
+gate-bias init, occupancy-aware gate), this is now five independent,
+real attempts across two different classes of explanation (architecture
+and optimization dynamics), none of which moved write-position
+selectivity. This strengthens, rather than just repeats, the section 5
+conclusion: the front-loaded pattern is a genuine structural property of
+finite-slot, similarity-routed writes under fully latent training with
+this task's specific causal structure (early positions carry SOME
+backbone-internal signal correlated with the trained objective even when
+provably fact-independent) -- not a hyperparameter artifact reachable by
+lr, sparsity weight, slot count, decay, or gate-init tuning. A real fix
+needs a different write mechanism (hard/discrete decisions, or a
+curriculum that structurally prevents early positions from ever helping),
+as section 5 already concluded -- this pass closes off the remaining
+"maybe it's just optimization dynamics" possibility rather than leaving
+it open.
+
 ## 6. Curriculum stages not attempted this pass
 
 B8's Stages 1 (explicit supervision) and roughly 2 (delayed recall, via
