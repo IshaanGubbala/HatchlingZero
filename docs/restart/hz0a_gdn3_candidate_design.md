@@ -1,9 +1,12 @@
 # Candidate "GDN-3" Recurrence: What Kimi K3/Linear Suggest HZ-0A Is Missing
 
-Date: 2026-07-30. **Status: fully investigated, NOT recommended -- a
-single-seed positive result did not replicate across 4 seeds.** See
-section 8 for the final verdict. Nothing here is implemented in or
-scheduled for the real HZ-0A. HZ-0A's architecture is
+Date: 2026-07-30. **Status: REOPENED -- tiny-scale testing found no
+reliable effect (4 seeds, noise-level), but a larger-scale run
+(dim=256/8-layers, CUDA) found a large, consistent win for the candidate
+(+12.11 points, 3/3 seeds).** An even-larger-scale confirmation run is in
+progress. See section 8 for the current state. Nothing here is
+implemented in or scheduled for the real HZ-0A yet. HZ-0A's architecture
+is
 deliberately frozen (`plans/HZ-0A_Progress_Tracker.md`, "Both Stage 2
 architectures are now complete") -- Stage 2 finished, was full-holdout
 evaluated, and B6/B7/B8 all have real integration work built against that
@@ -148,36 +151,43 @@ of a confounded test giving the wrong answer, caught by naming and then
 actually fixing the confounds rather than trusting the first result. See
 section 8 for the overall, updated verdict.
 
-## 8. Final verdict (2026-07-30, updated after multi-seed replication, same day)
+## 8. Current state (2026-07-30, reopened after a larger-scale result)
 
-Four real tests were run, escalating in rigor -- the associative-recall
-test specifically went through 3 rounds (confounded, corrected
-single-seed, then multi-seed) because each earlier round's result did not
-survive the next level of scrutiny:
+Five real tests were run, escalating in rigor -- the associative-recall
+test specifically went through 4 rounds (confounded, corrected
+single-seed, multi-seed at tiny scale, then a larger-scale run) because
+each earlier round's result did not survive the next level of scrutiny:
 
 1. **Isolated mechanism** (no training, synthetic keys/values): real,
    substantial, clearly demonstrated advantage for the delta projection.
-   This part holds -- never contradicted by anything that followed.
+   Holds throughout -- never contradicted by anything that followed.
 2. **Real generic language-modeling loss** (trained, real corpus, both
    mixer versions, MLX and torch): tied every time -- no downside on
-   general text, consistently.
-3. **Real associative-recall-with-overwrite task, single seed**
-   (confounded attempt: candidate behind; corrected attempt, parameter-
-   matched: candidate ahead by +2.73 points).
-4. **Same task, 3 additional seeds via the torch port**
-   (`docs/restart/hz0a_gdn3_associative_recall_results.md`'s multi-seed
-   section): candidate behind on average (-1.30 points), winning only 1
-   of 3 seeds. Combined across all 4 seeds run: 2 losses, 1 near-tie, 1
-   win -- statistically indistinguishable from no effect.
+   general text, consistently, at every scale tried.
+3. **Associative-recall task, tiny scale (dim=64/4 layers), 4 seeds
+   total** (1 MLX + 3 torch/MPS): noise-level, direction-inconsistent --
+   2 losses, 1 near-tie, 1 win for the candidate. Checked directly (not
+   assumed) that this wasn't a training-length artifact: one seed run to
+   8000 steps (2.7x longer) showed both models plateaued by ~step
+   1000-1500 with no late separation.
+4. **Same task, larger scale (dim=256/8 layers), 3 seeds, on CUDA**:
+   candidate wins 3/3 seeds by a large, consistent margin (+12.11 points
+   mean, per-seed +16.02/+10.16/+10.16). A materially different result
+   from (3), in the theoretically predicted direction.
+5. **Even-larger-scale confirmation: in progress** as of this update.
 
-**Final recommendation: do not pursue an HZ-0A retrain.** The mechanism-
-level advantage (1) is real and stands on its own -- a genuine, correctly
-identified architectural gap relative to true delta-net. It simply was
-not shown, after real and repeated attempts including catching two of
-this investigation's own testing mistakes, to matter for trained model
-capability at the scale tested. That is the honest, complete answer, not
-an abandoned or rushed one -- the single favorable seed was investigated
-rather than trusted, and turned out to be noise.
+**Current reading: real evidence the delta-rule projection's advantage is
+capacity-gated -- invisible at tiny scale, large and consistent once the
+model has enough capacity for the task's difficulty to matter.** This is
+a meaningfully more promising state than the mid-day "no-go" conclusion,
+which was an honest read of the evidence available at the time but has
+since been superseded by a real result, not vibes. Still not yet a
+decision to retrain HZ-0A at its real ~301M scale -- the largest test so
+far (dim=256) is still two orders of magnitude smaller, and whether the
+effect continues to grow, plateaus, or (like the tiny-scale noise) turns
+out to be its own kind of artifact needs the in-progress larger run
+before concluding further. Recorded here as the live, honest state of the
+investigation, not a final answer either direction.
 
 ## 9. Honest scope of this document
 

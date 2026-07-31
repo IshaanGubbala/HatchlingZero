@@ -146,6 +146,39 @@ training 2.7x changed nothing meaningful.** Both models hit a real
 capacity or task-difficulty ceiling early, at this tiny scale (dim=64, 4
 layers) -- more steps at this size does not resolve the tie.
 
+## Larger scale (2026-07-30, same date): the effect reappears, strongly
+
+Run on the RTX 3060 (CUDA) via the torch port, same task, same
+parameter-matched-mixer discipline, at `--dim 256 --layers 8 --heads 8
+--d-ff 512` (4x wider, 2x deeper than the tiny dim=64/4-layer scale where
+the result was noise), 3000 steps, 3 seeds (999/1000/1001, matching the
+Mac-side seeds for direct comparability):
+
+| | Mean accuracy | Per-seed difference |
+| --- | --- | --- |
+| Current GDN2 | 10.55% | -- |
+| GDN-3 candidate | **22.66%** | +16.02, +10.16, +10.16 pts |
+| **Mean difference** | **+12.11 pts** | **candidate wins 3/3 seeds** |
+
+This is a materially different result from the tiny-scale finding: large
+margin (candidate accuracy more than double), consistent across every
+seed (not 1-of-3 or 2-of-4 like the noisy tiny-scale runs), and in the
+theoretically-predicted direction. This directly supports the hypothesis
+that the delta-rule projection's isolated-mechanism advantage (section 1
+of `docs/restart/hz0a_gdn3_overwrite_benchmark_results.md`) needs enough
+model capacity to actually express itself -- at dim=64 both models may
+have been too capacity-constrained by the task itself to show a
+difference; at dim=256 there's apparently enough room for current GDN2's
+blanket-forgetting weakness to cost it real accuracy while the
+candidate's targeted overwrite does not pay that cost.
+
+**Run on the CUDA machine, not independently re-verified against a raw
+log file on the Mac side as of this writing** -- recorded as reported.
+A larger scale run (e.g. dim=512+) is in progress as of this update to
+check whether the effect continues to grow, holds steady, or saturates.
+This section will be updated once that lands, and the overall verdict
+below should be read as provisional pending it.
+
 ## Overall verdict across all three GDN-3 investigations
 
 1. Isolated mechanism benchmark (synthetic, no training): **real,
@@ -166,8 +199,29 @@ layers) -- more steps at this size does not resolve the tie.
    AHEAD (+2.73 pts)** -- single-seed, modest margin, but real and
    correctly directioned.
 
-**Final recommendation, after multi-seed replication: do not pursue an
-HZ-0A retrain, and treat the single-seed "win" as noise, not a finding.**
+**Status: REOPENED (2026-07-30, later same day) -- the tiny-scale "no
+effect" conclusion below was the honest read of the evidence available at
+the time, but does not survive the larger-scale result above.** At
+dim=64/4-layers, 4 seeds gave a noise-level, direction-inconsistent
+result -- a fair basis for "no reliable benefit found at this scale,"
+which is what was concluded. At dim=256/8-layers, the same task, same
+fairness discipline, shows a large, consistent, correctly-directioned
+win for the candidate (+12.11 points, 3/3 seeds). The most likely honest
+reading: the tiny scale was under-*capacity*, not just under-trained (the
+step-count question was checked and ruled out separately, see above) --
+both models were too small relative to the task for GDN2's blanket-
+forgetting weakness to actually cost it anything, and the candidate's
+targeted-overwrite advantage only becomes visible once there's enough
+model capacity for the difference to matter. A larger-still run is in
+progress to check whether this holds, grows, or saturates -- the original
+"do not retrain" recommendation immediately below is superseded pending
+that, not deleted, so the reasoning trail stays visible.
+
+<details>
+<summary>Original tiny-scale-only recommendation (2026-07-30, superseded by the section above)</summary>
+
+Final recommendation, after multi-seed replication: do not pursue an
+HZ-0A retrain, and treat the single-seed "win" as noise, not a finding.
 The mechanism-level advantage (1) is real and clean, and stays true --
 that part of this investigation was never in question. Generic text (2)
 is unaffected either way -- no downside, confirmed on two mixer versions.
@@ -175,9 +229,6 @@ The task built specifically to need overwrite (3) looked like a genuine
 win on one seed, and that result does not replicate: across 4 seeds total
 (1 MLX + 3 torch), the outcome is 2 losses, 1 near-tie, 1 win for the
 candidate -- indistinguishable from no effect at this scale and training
-budget. This is the correct, complete way this investigation should end:
-a real architectural observation (sections 2-3), a real isolated-mechanism
-result (section 1 of the overwrite doc), and an honest failure to show
-that it matters for trained model capability after genuinely trying,
-catching our own mistakes, and checking with enough seeds not to be
-fooled by one favorable run.
+budget.
+
+</details>
