@@ -97,6 +97,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "hz0b-pmetal-memory"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "itoa"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
