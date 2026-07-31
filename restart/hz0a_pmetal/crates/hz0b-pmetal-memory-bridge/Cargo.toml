@@ -1,0 +1,14 @@
+[package]
+name = "hz0b-pmetal-memory-bridge"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lib]
+name = "hz0b_pmetal_memory_bridge"
+path = "src/lib.rs"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+hz0b-pmetal-memory = { path = "../hz0b-pmetal-memory" }

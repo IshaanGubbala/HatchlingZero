@@ -21,14 +21,27 @@ follows the same staging, not a shortcut:
    `reference/hz0b_memory_simulator.py` exactly as it stands today
    (including today's 2 fixes: 0.999 match threshold,
    confidence-weighted reads).
-2. **Metal GPU kernels** (not built this pass): a `hz0b-pmetal-memory-gpu`
+2. **Python bridge** (this pass, added after the CPU tier landed): a
+   `hz0b-pmetal-memory-bridge` cdylib + ctypes wrapper -- see "Python
+   bridge" below.
+3. **Metal GPU kernels** (not built this pass): a `hz0b-pmetal-memory-gpu`
    crate mirroring `hz0a-pmetal-gpu`'s structure, once there's a real
-   reason to need it -- see "Why GPU kernels aren't built yet" below.
-3. **Python bridge** (not built this pass): mirrors `hz0a-pmetal-bridge`,
-   needed once B6-B9's integration work wants to call the Rust/Metal path
-   instead of the pure-MLX reference it currently uses.
+   reason to need it -- see "Why GPU kernels aren't built" below, now
+   backed by a real benchmark rather than just an a priori argument.
 
-## What's built and verified (stage 1)
+**Correction to this doc's own first draft**: it originally said stage 3
+(Python bridge) would "mirror `hz0a-pmetal-bridge`." Checked directly
+before building it -- `hz0a-pmetal-bridge` (`crates/hz0a-pmetal-bridge/
+src/lib.rs`) is not actually a real FFI binding; it is a config-summary
+scaffold (`restart_bridge_summary()`, returns a formatted string) with no
+Python-callable surface at all. `python/model_bridge.py` is pure
+Torch/numpy and never calls into any Rust crate. So there was no real
+precedent in this workspace for an actual Rust<->Python binding -- B10's
+bridge (below) is the first one, built as a plain `cdylib` + `ctypes`
+rather than introducing a new PyO3/maturin toolchain dependency this
+workspace has never used.
+
+## What's built and verified (stage 1: CPU tensor reference)
 
 `restart/hz0a_pmetal/crates/hz0b-pmetal-memory/` (added to the existing
 workspace, `#![forbid(unsafe_code)]`, zero production dependencies,
@@ -60,40 +73,69 @@ buffer functions, batch-dimension-aware.
 `cargo test -p hz0b-pmetal-memory`: 9/9 pass. `cargo build` (whole
 workspace): still clean, no regressions to HZ-0A's own PMetal crates.
 
-## Why GPU (Metal) kernels aren't built yet -- an honest scope call
+## What's built and verified (stage 2: Python bridge)
 
-B2's memory operations, at the scale every B6-B9 experiment has actually
-used (`num_slots` 8-16, `key_dim`/`value_dim` 16-32), are cheap --
-milliseconds of CPU or MLX time per call, never the measured bottleneck
-in any of this session's real training runs (the frozen HZ-0A backbone's
-own forward/backward pass dominates every wall-clock number recorded so
-far). A fused Metal kernel would be a real, worthwhile speed win **once**
-this project moves to training memory-augmented HZ-0A at real batch
-sizes/sequence lengths over many steps -- exactly the same reasoning
-HZ-0A's own PMetal work used to prioritize the GDN-2 recurrence (the
-actual per-token bottleneck) first and build outward from there, not the
-reverse.
+`restart/hz0a_pmetal/crates/hz0b-pmetal-memory-bridge/` -- a `cdylib`
+exposing all 8 mutating/reading B2 ops (`reset`/`read`/`write`/
+`reinforce`/`update`/`protect`/`forget_or_decay`/`delete`) as
+`extern "C"` functions over flat pointers. `serialize`/`restore` are
+deliberately NOT exposed: in the Rust reference they're pure clones, and
+a Python caller already holding every field it passed in gains nothing
+from round-tripping them across the FFI boundary. All `unsafe` is
+confined to this one crate's pointer marshalling
+(`from_c`/`write_out`); the actual op logic still runs inside
+`hz0b-pmetal-memory`, which stays `#![forbid(unsafe_code)]`.
 
-Building GPU kernels now, before there's a real workload that needs
-them, would be effort spent without a way to verify it matters -- the
-same "don't retrain HZ-0A on a mechanism advantage that hasn't been shown
-to matter yet" discipline this session applied to the GDN-3 investigation
-(`docs/restart/hz0a_gdn3_candidate_design.md`). The CPU reference tier
-built here is both a real deliverable on its own (a working, tested,
-parity-verified alternative to the MLX path) and the correct-by-
-construction foundation any future Metal kernel would need to be checked
-against, exactly as HZ-0A's `-tensor` crate was built before `-gpu`.
+`restart/hz0a_pmetal/python/hz0b_memory_bridge.py` wraps it via `ctypes`
+(no PyO3/maturin -- see correction above) in a numpy-backed functional
+API with the exact same function names/signatures/immutable-state style
+as `reference/hz0b_memory_simulator.py`, so callers can swap the import
+with no other code changes. Every buffer is numpy-owned and pre-sized by
+the caller (shapes are fully determined by `batch`/`num_slots`/
+`key_dim`/`value_dim`), so nothing allocates across the FFI boundary in
+either direction and there's no `free`-style function to pair.
 
-## Real next steps, in order, if this continues
+**Verified two ways, both passing** (`tests/reference/
+test_hz0b_memory_rust_bridge.py`, 2/2):
+1. Replays the SAME 12-step fixture `tests/parity.rs` already replays
+   Rust-side, but now through the full Python -> ctypes -> Rust ->
+   ctypes -> Python round trip -- proves the bridge itself is correct,
+   not just the underlying crate.
+2. A second, independent test runs a fresh random sequence through the
+   LIVE Python/MLX reference and the bridge in the same process
+   side-by-side, catching any drift a frozen fixture could hide.
 
-1. A Python binding for this CPU crate (PyO3, mirroring
-   `hz0a-pmetal-bridge`) -- lets B6-B9's probe scripts optionally call the
-   Rust path instead of MLX, a real cross-check independent of MLX's own
-   numerics.
-2. Benchmark the Rust CPU path against the MLX path at realistic B6-B9
-   scale -- if Rust CPU is already fast enough, Metal kernels may not be
-   needed at all; measure before building.
-3. Only if step 2 shows a real bottleneck: build `hz0b-pmetal-memory-gpu`
-   with actual Metal Shading Language kernels, GPU-vs-CPU parity tests
-   (mirroring `hz0a-pmetal-gpu/tests/decode_equivalence.rs`'s own
-   structure), before trusting any GPU-path result.
+## Why GPU (Metal) kernels aren't built -- backed by a real measurement
+
+The design's original reasoning (B2 ops are cheap, never the measured
+bottleneck in any real run) is now backed by an actual number instead of
+just an a priori argument. `scripts/hz0b_bridge_benchmark.py` runs
+write+read+forget_or_decay (the same three ops any real training step
+touches per position) 2000 times at B6-B9's actual scale (`num_slots=16,
+key_dim=value_dim=32, batch=1`):
+
+```
+Python/MLX reference: 0.7540s total, 0.3770ms/iteration
+Rust bridge (ctypes): 0.1360s total, 0.0680ms/iteration
+speedup: 5.54x
+```
+
+The Rust CPU path is already 5.5x faster than the MLX path it would
+replace -- and both are already sub-millisecond per iteration, negligible
+next to a single forward/backward pass through HZ-0A's real 301M-param
+backbone (tens of milliseconds at minimum, per this session's own
+training-throughput numbers). A fused Metal kernel could only shave
+microseconds off an already-microsecond-scale operation; it would not be
+measurable against the backbone's own cost at any scale B6-B9 has
+actually run. This confirms, rather than assumes, that GPU kernels are
+not warranted yet -- the same "measure before building" discipline the
+design's step 2 called for.
+
+## Real next steps, if this continues
+
+Only reopen the Metal GPU tier if a future integration point (e.g. B11's
+full eval suite, or training memory-augmented HZ-0A end-to-end rather
+than isolated probes) profiles the memory ops as a measurable fraction
+of a real step's wall-clock time -- re-run
+`scripts/hz0b_bridge_benchmark.py`'s pattern at THAT scale first; if the
+ops still don't show up, still don't build it.
