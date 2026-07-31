@@ -45,3 +45,23 @@ def apply_block_params(model, block_index: int, combined_dict: dict, *, prefix: 
 
 def block_param_count(model, block_index: int) -> int:
     return sum(value.size for _, value in tree_flatten(model.blocks[block_index].parameters()))
+
+
+def multi_block_params_dict(model, block_indices: list[int]) -> dict:
+    """B9 Stage 2 ("unfreeze selected upper HZ-0A layers", plural):
+    same idea as `block_params_dict`, generalized to several blocks at
+    once, each under its own `block{index}.` prefix so they stay
+    disjoint from each other and from the controller's own keys."""
+    combined = {}
+    for index in block_indices:
+        combined.update(block_params_dict(model, index, prefix=f"block{index}"))
+    return combined
+
+
+def apply_multi_block_params(model, block_indices: list[int], combined_dict: dict) -> None:
+    for index in block_indices:
+        apply_block_params(model, index, combined_dict, prefix=f"block{index}")
+
+
+def multi_block_param_count(model, block_indices: list[int]) -> int:
+    return sum(block_param_count(model, index) for index in block_indices)

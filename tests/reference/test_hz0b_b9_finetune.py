@@ -8,7 +8,14 @@ import mlx.core as mx
 from mlx.utils import tree_flatten
 
 from reference.hz0a_mlx_model import HZ0AMlxModel
-from reference.hz0b_b9_finetune import apply_block_params, block_param_count, block_params_dict
+from reference.hz0b_b9_finetune import (
+    apply_block_params,
+    apply_multi_block_params,
+    block_param_count,
+    block_params_dict,
+    multi_block_param_count,
+    multi_block_params_dict,
+)
 
 
 def make_tiny_model():
@@ -55,3 +62,27 @@ def test_block_param_count_matches_manual_flatten():
     model = make_tiny_model()
     expected = sum(v.size for _, v in tree_flatten(model.blocks[1].parameters()))
     assert block_param_count(model, 1) == expected
+
+
+def test_multi_block_params_dict_covers_all_requested_blocks_disjointly():
+    model = make_tiny_model()
+    combined = multi_block_params_dict(model, [0, 2])
+    assert any(k.startswith("block0.") for k in combined)
+    assert any(k.startswith("block2.") for k in combined)
+    assert not any(k.startswith("block1.") for k in combined)
+    assert multi_block_param_count(model, [0, 2]) == sum(v.size for v in combined.values())
+
+
+def test_apply_multi_block_params_updates_only_the_targeted_blocks():
+    model = make_tiny_model()
+    before = {i: {k: mx.array(v) for k, v in block_params_dict(model, i).items()} for i in range(3)}
+    combined = multi_block_params_dict(model, [0, 2])
+    modified = {k: v + 1.0 for k, v in combined.items()}
+    apply_multi_block_params(model, [0, 2], modified)
+    for i in (0, 2):
+        after = block_params_dict(model, i)
+        for key in before[i]:
+            assert not bool(mx.array_equal(before[i][key], after[key]))
+    after_untouched = block_params_dict(model, 1)
+    for key in before[1]:
+        assert bool(mx.array_equal(before[1][key], after_untouched[key]))
