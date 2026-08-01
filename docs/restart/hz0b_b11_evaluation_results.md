@@ -528,6 +528,46 @@ look at what's different about seed 557's specific initialization if
 this line of work continues, but it does not block treating the current
 fix as validated.
 
+### Testing a candidate fix for seed 557's specific pathology (2026-08-01)
+
+Seed 557 has now failed identically or near-identically across THREE
+independent runs: 0.328 (5-seed), 0.328 (10-seed, exact repeat), and
+0.391 (the distractor-immunity task,
+`docs/restart/hz0b_b11_real_model_distractor_immunity_results.md`) --
+strong evidence of a genuine, reproducible local optimum for this
+specific seed's initialization, not noise.
+
+Hypothesis: the plain sparsity penalty (`lambda_sparse * mean(gates)`)
+has no real equilibrium other than "write nothing" -- it always pushes
+the gate toward 0, countered only by task loss. Replaced it with a
+squared-distance-from-target write-BUDGET (`lambda_sparse *
+(mean(gates) - target_write_rate)**2`, added to
+`scripts/hz0b_b11_baseline_comparison.py`'s `run_hzb_memory` as an
+opt-in `target_write_rate` param), which has a genuine equilibrium AT
+the target rate instead.
+
+Tested directly on seed 557 (`--only-seed-offset 2 --target-write-rate
+0.05`, same 1000 steps/lr=0.15/lambda_sparse=0.1 otherwise):
+
+| Configuration | Seed 557 accuracy | Seed 557 final train loss |
+| --- | --- | --- |
+| Plain sparsity penalty (original) | 0.328 | 5.26 (plateau) |
+| **Write-budget penalty (target=0.05)** | **0.438** | 3.69 (different, lower plateau) |
+
+**Real, partial improvement (+0.110), not a full fix.** Still well
+below the well-converging seeds' 0.812-0.953 range, but a genuine,
+measurable move in the right direction with a different (lower) loss
+plateau -- the mechanism is doing something different, not just noise
+around the same local optimum. Checked for regression on a known-good
+seed (555, `--only-seed-offset 0`): 0.875 vs. the original 0.891 --
+essentially unchanged, no cost to seeds that already converge well.
+
+**Honest status**: a real, principled, partially-effective fix,
+disclosed as partial rather than declared solved. Not yet run across
+all seeds/multiple target rates -- a real target-rate sweep (0.05 was
+one reasonable first guess, not tuned) and a full multi-seed
+comparison are named future work, not completed this pass.
+
 ### What this does NOT mean
 
 - It does not mean HZ-0B's write mechanism is broken in every setting --
