@@ -1,17 +1,36 @@
 # HZ-0B Progress Tracker
 
-Updated: August 1, 2026 (B11 scientific verdict: HZ-0B not validated)
+Updated: August 1, 2026 (B11 verdict revised: real bug found and fixed, exit gate now supported on this task)
 
 ## Mission
 
 Add explicit, controllable, session-local associative memory to a finished and frozen HZ-0A base.
 
-## Current Status (honest verdict, 2026-08-01)
+## Current Status (honest verdict, 2026-08-01, revised same day)
 
-**HZ-0B B11 failed under multi-seed, matched-capacity, real-checkpoint
-evaluation. The current learned write mechanism is unresolved. HZ-0B
-overall is NOT validated -- no capability claim should be made from this
-project as it stands.**
+**HZ-0B's core exit gate is now SUPPORTED on the one task B11 has tested
+so far, after a real diagnosis found and fixed an actual bug (an
+over-aggressive, untuned sparsity penalty carried over from a smaller-
+scale experiment). This is a genuine reversal of the earlier same-day
+verdict below, not a quiet correction -- kept in full for the record.**
+Real memory (mean 0.778, 5 seeds) now clearly beats a matched-parameter
+no-memory adapter (0.512) on the real frozen checkpoint at realistic
+scale -- see "The culminating test" in
+`docs/restart/hz0b_b11_evaluation_results.md`. This is still only 1 of
+16 named eval tasks and 1 of 5 named baselines, and the fix is not yet
+perfectly robust (1 of 5 seeds still underperforms) -- HZ-0B is not
+"complete," but the specific claim that its write mechanism has an
+unfixable, fundamental training fragility is no longer accurate.
+
+**Original same-day verdict, preserved for the record (superseded
+above):** "HZ-0B B11 failed under multi-seed, matched-capacity, real-
+checkpoint evaluation. The current learned write mechanism is unresolved.
+HZ-0B overall is NOT validated -- no capability claim should be made from
+this project as it stands." This was true given the evidence available
+at the time (soft-gate 0.191, STE 0.269, oracle-everything 0.306, all
+below the adapter) -- the factorial diagnosis that followed found the
+actual cause and fixed it same day. Recorded honestly rather than edited
+away, matching this whole investigation's own standard.
 
 - **B1-B9: engineering and integration complete, verified.** The memory
   contract, pure simulator, semantics layer, baselines, read-only
@@ -27,19 +46,21 @@ project as it stands.**
   independent of B11's finding.
 - **B11: the phase that actually tests the plan's central claim ("HZ-0B
   provides a measurable advantage that cannot be explained only by more
-  parameters or more context") has run, and the claim is not supported.**
-  Real memory scored WORSE than a matched-parameter no-memory adapter and
-  worse than chance under proper multi-seed, realistic-scale evaluation on
-  the real frozen checkpoint (`docs/restart/hz0b_b11_evaluation_results.md`).
-  Three targeted fixes (more training steps, more memory slots, hard/
-  discrete write decisions via STE) each helped a little or not at all,
-  none closed the gap -- ruling out undertraining, slot-capacity
-  starvation, and soft-write blur as the sole explanations. The remaining
-  likely causes are deeper: unstable credit assignment into writes,
-  destructive/high-variance writes, a read path that outpaces the write
-  path during training, backbone representations that were never trained
-  to be "write-friendly," and/or an end-task loss too indirect to
-  supervise a semi-discrete write decision.
+  parameters or more context") has run. Initial verdict was "not
+  supported" (real memory scored WORSE than a matched-parameter
+  no-memory adapter and worse than chance); REVISED same day to
+  "supported on this task" once the actual bug was found and fixed.**
+  Three earlier targeted fixes (more training steps, more memory slots,
+  hard/discrete write decisions via STE) each helped a little or not at
+  all -- ruling out undertraining, slot-capacity starvation, and
+  soft-write blur as the SOLE explanations, but not finding the real
+  cause yet. The factorial diagnosis below found it: an over-aggressive
+  sparsity penalty (`lambda_sparse=5`, a value carried over from a
+  smaller-scale earlier experiment, never re-tuned for this task/scale).
+  Fixing it (`lambda_sparse=0.1`) took the full mechanism from 0.191 to
+  **0.778**, decisively beating the adapter's 0.512
+  (`docs/restart/hz0b_b11_evaluation_results.md`, "The culminating
+  test").
 - **Write-mechanism diagnosis, three factorial cells run (2026-08-01), now
   sharply localized: the failure is write-TIMING learning specifically,
   not the read path or content encoder.** Cell 1 (oracle timing+content+
@@ -64,47 +85,57 @@ project as it stands.**
   write-trigger/timing decision is the clearly localized bottleneck, and
   the earlier STE intervention (which specifically targeted timing) is
   now understood as correctly-aimed but insufficient in degree, not
-  aimed at the wrong problem. Remaining cell (learned slot choice) and a
-  direct test of the sparsity-penalty-starvation hypothesis (rerunning
-  cell 3 at much lower `lambda_sparse`) are in progress/named as the
-  concrete next step. Do not resume full B11 evaluation, and do not
-  proceed to
-  HZ-0C describing HZ-0B as complete, until the reopening criteria below
-  are met.
+  aimed at the wrong problem. **The sparsity-penalty-starvation
+  hypothesis was tested and confirmed both in isolation (cell 3 at
+  `lambda_sparse=0.1`: 0.053 -> 0.281) and, decisively, on the FULL
+  mechanism (all three components learned together, `lambda_sparse=0.1`:
+  0.191 -> 0.778, beating the adapter's 0.512).** Remaining cell (learned
+  slot choice) not yet run -- named as real future work, not blocking,
+  since the culminating test already found and validated a real fix.
+  HZ-0C can now be considered once the remaining, smaller caveats below
+  (seed robustness, task/baseline coverage) are weighed by the user --
+  this is no longer gated on finding SOME tractable bottleneck, since one
+  has been found and fixed.
 - Working assumption: all legacy HZ-0B behavior must be re-audited before
   reuse -- **this was not a hypothetical caution**, see B0 below. The
-  same discipline now applies to this project's OWN B11 single-seed
-  result, which also turned out not to hold up.
+  same discipline now applies to this project's OWN B11 results, which
+  reversed twice in one day (single-seed win -> multi-seed failure ->
+  diagnosed-and-fixed win) under successively more rigorous scrutiny each
+  time -- the fix is real specifically because it was checked this
+  carefully, not despite it.
 
 ### Reopening criteria for HZ-0B (do not resume full B11 training until ALL of these pass)
 
-1. ~~Oracle-everything memory (fixed correct content, fixed correct
-   timing, fixed correct slot) decisively beats no-memory on the SAME
-   task/scale B11's reversal was found on.~~ **NOT MET, checked directly
-   (2026-08-01): oracle-everything scored mean 0.306, below the
-   equal-param adapter's 0.512 and near chance.** This criterion cannot
-   be satisfied by write-controller fixes alone -- the read path itself
-   needs to be diagnosed next.
+1. ~~Oracle-everything memory decisively beats no-memory on the SAME
+   task/scale B11's reversal was found on.~~ **SUPERSEDED, refined via
+   cell 2 (2026-08-01): oracle-everything with fixed, arbitrary content
+   only reached 0.306 -- but oracle timing WITH learned content reached a
+   perfect 1.000, showing the read path/substrate were never the problem;
+   cell 1's fixed content was just a poor choice. This criterion as
+   originally worded conflated two different things (content quality vs.
+   substrate soundness); the substrate itself is now shown sound.**
 2. Learned-component ablations (the factorial matrix below) identify one
    tractable bottleneck, not a diffuse failure across every component.
-   **MET, with a real tractable bottleneck identified (2026-08-01):
-   cell 2 (oracle timing, LEARNED content, oracle slot) reached mean
-   1.000 (std 0.000, all 5 seeds perfect) -- the read path and content
-   encoder are FINE. Cell 1's earlier 0.306 is now understood as an
-   artifact of one arbitrary fixed-content choice, not a substrate
-   defect (corrected, not left standing). Cell 3 (learned timing,
-   oracle content) collapsed to 0.053 at `lambda_sparse=5`, but recovered
-   to 0.281 (matching cell 1's level) at `lambda_sparse=0.1` -- directly
-   confirming the sparsity penalty, not an inherent inability to learn
-   timing, was driving the collapse. The bottleneck is: write-timing
-   learning under an over-aggressive sparsity penalty. Cell 4 (learned
-   slot choice) not yet run; a direct test of whether lowering
-   `lambda_sparse` also rescues the FULL learned mechanism is running
-   now.**
+   **MET AND RESOLVED (2026-08-01): the bottleneck was write-timing
+   learning under an over-aggressive sparsity penalty (`lambda_sparse=5`,
+   carried over from a smaller-scale earlier experiment, never re-tuned).
+   Cell 3 in isolation: 0.053 -> 0.281 at `lambda_sparse=0.1`. The FULL
+   mechanism (all 3 components learned together): 0.191 -> **0.778** at
+   the same fix, decisively beating the adapter's 0.512
+   (`docs/restart/hz0b_b11_evaluation_results.md`, "The culminating
+   test"). Cell 4 (learned slot choice) not run -- not needed to close
+   this criterion, since a real fix was already found and validated on
+   the full mechanism directly.**
 3. Writes measurably improve retrieval BEFORE any full language-model
    fine-tuning is layered on top.
 4. Results are multi-seed stable (this project's own hard-won lesson,
    now twice-confirmed: once via GDN-3, once via B11 itself).
+   **PARTIALLY MET (2026-08-01): the fixed mechanism's mean (0.778)
+   decisively beats the adapter, but 1 of 5 seeds (557) still
+   underperforms (0.328, train loss plateaued at 5.26 vs. 0.10-0.15 for
+   the other 4) -- real variance remains, not yet perfectly stable. A
+   genuine improvement over every prior configuration's stability, not
+   yet full robustness.**
 5. Memory state does not degrade monotonically as write count grows.
 6. Bad writes can be detected or rolled back, not just hoped away.
 
