@@ -165,7 +165,7 @@ def run_equal_param_adapter(model, train_hidden, train_is_a, held_out_hidden, he
     return float(mx.mean((predicted == targets_for(held_out_is_a)).astype(mx.float32)))
 
 
-def run_hzb_memory(model, train_hidden, train_is_a, held_out_hidden, held_out_is_a, *, seed: int, steps: int, lr: float, num_slots: int = NUM_SLOTS, ste: bool = False, lambda_sparse: float = LAMBDA_SPARSE) -> float:
+def run_hzb_memory(model, train_hidden, train_is_a, held_out_hidden, held_out_is_a, *, seed: int, steps: int, lr: float, num_slots: int = NUM_SLOTS, ste: bool = False, lambda_sparse: float = LAMBDA_SPARSE, target_write_rate: float | None = None) -> float:
     """Real HZ-0B latent write+read, trained fresh at this seed --
     reuses reference/hz0b_b8_latent_write.py unmodified, same mechanics
     as scripts/hz0b_b8_stage3_latent_write_probe.py. `num_slots`
@@ -187,7 +187,18 @@ def run_hzb_memory(model, train_hidden, train_is_a, held_out_hidden, held_out_is
     hidden states (2026-08-01 caching optimization -- the memory
     mechanism itself still runs fresh every step via `sequential_
     latent_write_and_read`, only the 301M-param BACKBONE forward is
-    cached and reused across every step and every seed)."""
+    cached and reused across every step and every seed).
+
+    `target_write_rate` (2026-08-01, same day): the standard sparsity
+    penalty (`lambda_sparse * mean(gates)`) has no real equilibrium
+    other than "write nothing" -- it always pushes the gate toward 0,
+    countered only by task loss, which is exactly the mechanism traced
+    behind the timing gate's collapse (docs/restart/hz0b_b11_evaluation_results.md).
+    When set, replaces it with a squared-distance-from-target budget
+    (`lambda_sparse * (mean(gates) - target_write_rate)**2`), which has
+    a genuine equilibrium AT the target rate instead of monotonically
+    toward zero -- a real, principled alternative, not just a smaller
+    penalty. `None` (default) preserves the exact original behavior."""
     init_params = init_latent_write_controller(D_MODEL, KEY_DIM, VALUE_DIM, seed=seed)
     params_dict = latent_params_to_dict(init_params)
     targets = targets_for(train_is_a)
@@ -196,7 +207,11 @@ def run_hzb_memory(model, train_hidden, train_is_a, held_out_hidden, held_out_is
         p = dict_to_latent_params(pd)
         logits, _, gates = latent_forward_pass(model, precomputed_hidden=train_hidden, latent_params=p, num_slots=num_slots, ste=ste)
         task_loss = mx.mean(nn.losses.cross_entropy(logits[:, -1, :], targets))
-        sparsity_loss = mx.mean(gates)
+        if target_write_rate is not None:
+            write_rate = mx.mean(gates)
+            sparsity_loss = (write_rate - target_write_rate) ** 2
+        else:
+            sparsity_loss = mx.mean(gates)
         return task_loss + lambda_sparse * sparsity_loss
 
     grad_fn = mx.value_and_grad(loss_fn)
@@ -225,6 +240,8 @@ def main():
     parser.add_argument("--skip-adapter", action="store_true", help="skip the adapter condition (no slots, unaffected by --num-slots/--ste) to save time when only re-checking the memory condition")
     parser.add_argument("--ste", action="store_true", help="hard/discrete write decisions via straight-through estimator (reference/hz0b_b8_latent_write.py) instead of the continuous blend -- the real candidate fix for the reversal, per B1 decision 5's deferred hard-routing experiment")
     parser.add_argument("--lambda-sparse", type=float, default=LAMBDA_SPARSE, help="the factorial diagnosis found this penalty starves the timing gate's gradient when content offers no position-differentiating reward -- lowering it rescued the isolated cell-3 collapse (0.053->0.281); tests whether it also helps the full mechanism")
+    parser.add_argument("--target-write-rate", type=float, default=None, help="replaces the plain sparsity penalty with a squared-distance-from-target write-rate budget, which has a real equilibrium instead of monotonically pushing toward 0 -- tests whether this fixes seed-557-style reproducible collapse")
+    parser.add_argument("--only-seed-offset", type=int, default=None, help="run only ONE specific seed offset (e.g. 2 for seed 557) instead of the full --num-seeds sweep, for a fast targeted diagnostic")
     args = parser.parse_args()
 
     print(f"equal-param adapter budget: {param_count(D_MODEL, ADAPTER_HIDDEN)} params, "
@@ -264,10 +281,11 @@ def main():
         print("\n2. Equal-parameter no-memory adapter: SKIPPED (--skip-adapter)")
         adapter_mean = adapter_std = float("nan")
 
-    print(f"\n3. HZ-0B real latent write+read ({args.num_seeds} seeds, steps={args.steps}, lr={args.lr}, lambda_sparse={args.lambda_sparse}, num_slots={args.num_slots}, ste={args.ste}):")
+    seed_offsets = [args.only_seed_offset] if args.only_seed_offset is not None else list(range(args.num_seeds))
+    print(f"\n3. HZ-0B real latent write+read ({len(seed_offsets)} seeds, steps={args.steps}, lr={args.lr}, lambda_sparse={args.lambda_sparse}, num_slots={args.num_slots}, ste={args.ste}, target_write_rate={args.target_write_rate}):")
     memory_accs = []
-    for seed_offset in range(args.num_seeds):
-        acc = run_hzb_memory(model, train_hidden, train_is_a, held_out_hidden, held_out_is_a, seed=SEED + seed_offset, steps=args.steps, lr=args.lr, num_slots=args.num_slots, ste=args.ste, lambda_sparse=args.lambda_sparse)
+    for seed_offset in seed_offsets:
+        acc = run_hzb_memory(model, train_hidden, train_is_a, held_out_hidden, held_out_is_a, seed=SEED + seed_offset, steps=args.steps, lr=args.lr, num_slots=args.num_slots, ste=args.ste, lambda_sparse=args.lambda_sparse, target_write_rate=args.target_write_rate)
         print(f"  seed {SEED + seed_offset}: {acc:.3f}")
         memory_accs.append(acc)
     memory_mean = sum(memory_accs) / len(memory_accs)
