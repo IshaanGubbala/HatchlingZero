@@ -155,6 +155,26 @@ away, matching this whole investigation's own standard.
    (not pure-simulator) version not yet run -- same honest gap named for
    B8 Stage 5's own scenarios.
 6. Bad writes can be detected or rolled back, not just hoped away.
+   **MET at the mechanism level (2026-08-01):**
+   `scripts/hz0b_reopening_criterion6_bad_write_rollback.py`, 3 real
+   mechanisms tested directly (all already in the B1 contract, nothing
+   new built): (1) DETECTION -- `write_source` correctly distinguishes
+   trusted/supervised writes from learned/latent ones per-slot, a real
+   queryable audit trail. (2) ROLLBACK via `serialize()`/`restore()` --
+   a full-state snapshot/restore exactly undoes a bad write without
+   touching unrelated already-good state. (3) ROLLBACK via `delete()` --
+   a narrower single-slot undo, no snapshot needed. Found and fixed a
+   real bug in the TEST's own first attempt along the way: verifying
+   rollback via a similarity-based `read()` call gave a false failure,
+   because confidence-weighted hard reads do a "best guess" argmax
+   against unrelated queries (picks the only nonzero-confidence slot
+   regardless of true similarity) rather than returning nothing -- a
+   real, correct property of `read()`, not a bug, but the wrong tool to
+   verify "is this slot empty." Fixed by checking raw slot state
+   directly. 3 new regression tests lock in the corrected result. A
+   real end-to-end "when should a caller actually trigger rollback"
+   policy is separate, real future work -- the mechanisms exist and
+   work, a decision layer on top of them does not yet.
 
 ## Phase Tracker
 
