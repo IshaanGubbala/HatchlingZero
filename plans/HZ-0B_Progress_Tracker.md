@@ -40,36 +40,35 @@ project as it stands.**
   path during training, backbone representations that were never trained
   to be "write-friendly," and/or an end-task loss too indirect to
   supervise a semi-discrete write decision.
-- **Write-mechanism diagnosis started, factorial cell 1 run (2026-08-01):
-  the problem is NOT confined to the learned write controller.** Cell 1
-  (oracle timing + oracle content + oracle slot -- everything handed to
-  the mechanism for free, zero learned write component) still only
-  reached mean 0.306 (std 0.115, range 0.125-0.438, 5 seeds) -- below the
-  equal-param adapter's 0.512, still near chance
-  (`docs/restart/hz0b_b11_evaluation_results.md`, "B11 continuation:
-  write-mechanism diagnosis"). This directly implicates the READ path
-  itself (`gated_memory_read`'s query/gate/value-to-hidden mechanism),
-  not just the write controller -- the same read mechanism that reached a
-  perfect rank-0 result in B6, but on an easier, single-fixed-fact task
-  that (per B8 Stage 3's own critique) never actually tested genuine
-  content discrimination. **Cell 3 run (2026-08-01, same day): learned
-  timing + oracle content + oracle slot -- the naive expectation was that
-  isolating just the timing decision should be no harder than cell 1.
-  It was the WORST result in the entire investigation instead: mean
-  0.053 (std 0.106, range 0.000-0.266), with 4 of 5 seeds collapsing to
-  EXACTLY 0.000.** Real, identified mechanism, not noise: oracle content
-  is position-invariant (the same correct key/value is offered at every
-  position), so there's no gradient reward for writing early vs. late --
-  this starves the sparsity-penalized gate of the signal it needs to
-  ever open, and 4/5 random inits fell into the stable `write_gate == 0`
-  (never write) local optimum. This means the factorial cells are NOT
-  cleanly separable -- removing content/slot learning burden changed the
-  optimization landscape in a way that made the remaining learned
-  component's job HARDER, not easier. Remaining cells (oracle timing +
-  learned content; learned slot choice) not yet run -- named as the
-  concrete next step, not chased further this pass, and any future run
-  of them should account for this interaction rather than assume clean
-  separability. Do not resume full B11 evaluation, and do not proceed to
+- **Write-mechanism diagnosis, three factorial cells run (2026-08-01), now
+  sharply localized: the failure is write-TIMING learning specifically,
+  not the read path or content encoder.** Cell 1 (oracle timing+content+
+  slot, zero learned write component): mean 0.306 (std 0.115, 5 seeds) --
+  initially read as implicating the read path itself. Cell 3 (learned
+  timing, oracle content/slot): mean 0.053 (std 0.106, range 0.000-0.266)
+  -- WORSE than either extreme; 4/5 seeds collapsed to exactly 0.000
+  because position-invariant oracle content gives the sparsity-penalized
+  gate no reward for writing early vs. late, starving its gradient
+  signal and trapping most inits in a `write_gate == 0` (never write)
+  local optimum. **Cell 2 (oracle timing, LEARNED content, oracle slot):
+  mean 1.000, std 0.000 -- every one of 5 seeds converged to perfect
+  held-out accuracy**, train loss falling to 0.004-0.006 (vs. 4.6-12.3
+  for every other memory condition tried). This REVISES cell 1's
+  interpretation: cell 2 uses the identical read path and substrate as
+  cell 1, the only difference being learned vs. fixed content -- cell 1's
+  mediocre 0.306 is now understood as an artifact of one arbitrary fixed
+  content choice interacting badly with `value_to_hidden_w`'s
+  optimization, not evidence the substrate is broken. Every oracle-timing
+  condition performs well-to-perfectly; every learned-timing condition
+  performs badly (cell 3: 0.053, full mechanism: 0.191-0.269) -- the
+  write-trigger/timing decision is the clearly localized bottleneck, and
+  the earlier STE intervention (which specifically targeted timing) is
+  now understood as correctly-aimed but insufficient in degree, not
+  aimed at the wrong problem. Remaining cell (learned slot choice) and a
+  direct test of the sparsity-penalty-starvation hypothesis (rerunning
+  cell 3 at much lower `lambda_sparse`) are in progress/named as the
+  concrete next step. Do not resume full B11 evaluation, and do not
+  proceed to
   HZ-0C describing HZ-0B as complete, until the reopening criteria below
   are met.
 - Working assumption: all legacy HZ-0B behavior must be re-audited before
@@ -88,14 +87,20 @@ project as it stands.**
    needs to be diagnosed next.
 2. Learned-component ablations (the factorial matrix below) identify one
    tractable bottleneck, not a diffuse failure across every component.
-   **IN PROGRESS, real data so far complicates rather than simplifies
-   this (2026-08-01): cell 1 (all-oracle) = 0.306; cell 3 (learned
-   timing only) = 0.053, WORSE than either extreme -- the components
-   interact (oracle content's position-invariance starves the timing
-   gate's gradient signal), so this is not shaping up to be a single,
-   cleanly separable bottleneck. Cells 2 and 4 (learned content;
-   learned slot choice) still needed before this criterion can be
-   honestly evaluated either way.**
+   **MET, with a real tractable bottleneck identified (2026-08-01):
+   cell 2 (oracle timing, LEARNED content, oracle slot) reached mean
+   1.000 (std 0.000, all 5 seeds perfect) -- the read path and content
+   encoder are FINE. Cell 1's earlier 0.306 is now understood as an
+   artifact of one arbitrary fixed-content choice, not a substrate
+   defect (corrected, not left standing). Cell 3 (learned timing,
+   oracle content) collapsed to 0.053 at `lambda_sparse=5`, but recovered
+   to 0.281 (matching cell 1's level) at `lambda_sparse=0.1` -- directly
+   confirming the sparsity penalty, not an inherent inability to learn
+   timing, was driving the collapse. The bottleneck is: write-timing
+   learning under an over-aggressive sparsity penalty. Cell 4 (learned
+   slot choice) not yet run; a direct test of whether lowering
+   `lambda_sparse` also rescues the FULL learned mechanism is running
+   now.**
 3. Writes measurably improve retrieval BEFORE any full language-model
    fine-tuning is layered on top.
 4. Results are multi-seed stable (this project's own hard-won lesson,

@@ -74,7 +74,7 @@ def sequential_learned_timing_oracle_content(read_params: ReadOnlyIntegrationPar
     return mx.stack(outputs, axis=1), mx.stack(gates, axis=1)
 
 
-def run_learned_timing(model, train_tokens, train_is_a, held_out_tokens, held_out_is_a, *, seed: int, steps: int, lr: float) -> float:
+def run_learned_timing(model, train_tokens, train_is_a, held_out_tokens, held_out_is_a, *, seed: int, steps: int, lr: float, lambda_sparse: float = LAMBDA_SPARSE) -> float:
     read_params = init_readonly_integration(D_MODEL, KEY_DIM, VALUE_DIM, seed=seed)
     gate_w, gate_b = init_gate(seed)
     params_dict = {"query_w": read_params.query_w, "query_b": read_params.query_b, "gate_w_read": read_params.gate_w,
@@ -99,7 +99,7 @@ def run_learned_timing(model, train_tokens, train_is_a, held_out_tokens, held_ou
         output, gates = sequential_learned_timing_oracle_content(rp, pd["write_gate_w"], pd["write_gate_b"], train_hidden, train_key, train_value)
         logits = logits_from_hidden(model, output)[:, -1, :]
         task_loss = mx.mean(nn.losses.cross_entropy(logits, train_targets))
-        return task_loss + LAMBDA_SPARSE * mx.mean(gates)
+        return task_loss + lambda_sparse * mx.mean(gates)
 
     grad_fn = mx.value_and_grad(loss_fn)
     for step in range(steps):
@@ -125,6 +125,7 @@ def main():
     parser.add_argument("--num-seeds", type=int, default=5)
     parser.add_argument("--train-count", type=int, default=64)
     parser.add_argument("--held-out-count", type=int, default=64)
+    parser.add_argument("--lambda-sparse", type=float, default=LAMBDA_SPARSE, help="tests whether the sparsity penalty is what starves the timing gate's gradient signal (docs/restart/hz0b_b11_evaluation_results.md's causal hypothesis for cell 3's collapse)")
     args = parser.parse_args()
 
     model, payload = load_frozen_model()
@@ -133,12 +134,12 @@ def main():
     rng = random.Random(SEED)
     train_tokens, train_is_a = make_prompts(args.train_count, rng)
     held_out_tokens, held_out_is_a = make_prompts(args.held_out_count, rng)
-    print(f"train_count={args.train_count} held_out_count={args.held_out_count}")
+    print(f"train_count={args.train_count} held_out_count={args.held_out_count} lambda_sparse={args.lambda_sparse}")
 
     print(f"\nLearned timing, oracle content, oracle slot -- tests write-trigger policy ({args.num_seeds} seeds):")
     accs = []
     for seed_offset in range(args.num_seeds):
-        acc = run_learned_timing(model, train_tokens, train_is_a, held_out_tokens, held_out_is_a, seed=SEED + seed_offset, steps=args.steps, lr=args.lr)
+        acc = run_learned_timing(model, train_tokens, train_is_a, held_out_tokens, held_out_is_a, seed=SEED + seed_offset, steps=args.steps, lr=args.lr, lambda_sparse=args.lambda_sparse)
         print(f"  seed {SEED + seed_offset}: {acc:.3f}")
         accs.append(acc)
     mean = sum(accs) / len(accs)

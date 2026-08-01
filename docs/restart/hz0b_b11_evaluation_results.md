@@ -376,6 +376,65 @@ starves the timing signal of gradient. Any future cell 2 (oracle timing,
 learned content, oracle slot) or cell 4 (learned slot choice) run should
 account for this interaction rather than assume clean separability.
 
+### Factorial cell 2: oracle timing, learned content, oracle slot (2026-08-01) -- the pivotal result
+
+Run immediately after cell 3, to test the content encoder specifically
+with a write TIMING that can't collapse (fixed at `FACT_POS + 1`, one
+position after the fact-id token, no gate to fail to open).
+`scripts/hz0b_b11_write_diagnosis_learned_content.py`: same scale (5
+seeds, steps=1000, lr=0.15, train_count=64, held_out_count=64). Content
+(`key_proj`/`value_proj`) is learned from the hidden state at the fixed
+write position; the read path (`query_w`/`gate_w`/`value_to_hidden_w`)
+is trained jointly, exactly as in every other cell.
+
+| Configuration | mean | std | range |
+| --- | --- | --- | --- |
+| Cell 3 (learned timing, oracle content) | 0.053 | 0.106 | 0.000-0.266 |
+| Cell 1 (oracle timing/content/slot) | 0.306 | 0.115 | 0.125-0.438 |
+| Soft-gate full HZ-0B (all learned) | 0.191 | 0.039 | 0.141-0.250 |
+| STE full HZ-0B (all learned) | 0.269 | 0.079 | 0.203-0.422 |
+| **Cell 2 (oracle timing, learned content)** | **1.000** | **0.000** | **1.000-1.000** |
+| Equal-param adapter (no memory) | 0.512 | 0.061 | 0.438-0.562 |
+
+**Every one of 5 seeds converged to perfect held-out accuracy**, train
+loss falling to 0.004-0.006 by step 999 (vs. 4.6-12.3 for every other
+memory condition tried in this entire investigation). This is not a
+marginal improvement -- it is a clean, complete, fully robust solve,
+the only one this whole investigation has produced.
+
+**This result revises the interpretation from cell 1, not just adds to
+it.** Cell 1 (oracle timing/content/slot, mean 0.306) was read as
+evidence the read path/memory substrate itself was a bottleneck. Cell 2
+uses the EXACT SAME read path and substrate (same `gated_memory_read`,
+same single-slot memory, same fixed write position) and gets a perfect
+result -- the only thing that changed is that content is LEARNED
+(`key_proj`/`value_proj`, co-adapting with the read path) instead of
+FIXED to an arbitrary constant I chose for cell 1 (one-hot-style vectors
+at dims 0/1, scaled by 5.0). With only one memory slot, the read
+operation's similarity-based addressing is trivial in both cells (there
+is nothing else to select) -- so the only real difference is whether the
+content the read path has to work with can co-adapt with it during
+training, or is held fixed to an arbitrary, possibly poorly-conditioned
+choice. **Cell 1's mediocre 0.306 is now best explained as an artifact
+of that specific fixed-content choice interacting badly with
+`value_to_hidden_w`'s optimization landscape -- not evidence the read
+path or memory substrate is fundamentally broken.** Corrected here
+rather than left standing.
+
+**The failure is now sharply localized to write-TIMING learning.**
+Every condition with oracle (non-learned) timing performs well-to-
+perfectly (cell 2: 1.000; cell 1: 0.306, now understood as a fixable
+content-choice artifact rather than a substrate defect). Every condition
+requiring LEARNED timing performs badly (cell 3: 0.053; full mechanism:
+0.191-0.269). This is the clearest, most actionable finding in the whole
+investigation: **the write-trigger/timing decision is the bottleneck**,
+not the read path, not the content encoder, not (necessarily) the
+addressing mechanism (still untested in isolation -- cell 4). The
+earlier STE intervention, which specifically targeted timing (discretizing
+the gate), improving results (0.191 -> 0.269) without fixing them, is
+now understood as a small, correctly-targeted nudge that was
+insufficient in degree, not aimed at the wrong problem.
+
 ### What this does NOT mean
 
 - It does not mean HZ-0B's write mechanism is broken in every setting --

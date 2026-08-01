@@ -159,7 +159,7 @@ def run_equal_param_adapter(model, train_tokens, train_is_a, held_out_tokens, he
     return float(mx.mean((predicted == targets).astype(mx.float32)))
 
 
-def run_hzb_memory(model, train_tokens, train_is_a, held_out_tokens, held_out_is_a, *, seed: int, steps: int, lr: float, num_slots: int = NUM_SLOTS, ste: bool = False) -> float:
+def run_hzb_memory(model, train_tokens, train_is_a, held_out_tokens, held_out_is_a, *, seed: int, steps: int, lr: float, num_slots: int = NUM_SLOTS, ste: bool = False, lambda_sparse: float = LAMBDA_SPARSE) -> float:
     """Real HZ-0B latent write+read, trained fresh at this seed --
     reuses reference/hz0b_b8_latent_write.py unmodified, same mechanics
     as scripts/hz0b_b8_stage3_latent_write_probe.py. `num_slots`
@@ -170,7 +170,12 @@ def run_hzb_memory(model, train_tokens, train_is_a, held_out_tokens, held_out_is
     out -- see that doc). `ste` (2026-08-01, same day): tests the real
     candidate fix -- hard/discrete write decisions via a straight-through
     estimator instead of the continuous blend traced as the likely root
-    cause."""
+    cause. `lambda_sparse` (2026-08-01, same day): the factorial write-
+    mechanism diagnosis found the sparsity penalty itself starves the
+    timing gate's gradient signal when content offers no
+    position-differentiating reward -- lowering it rescued cell 3's
+    isolated collapse (0.053 -> 0.281); this tests whether it also
+    rescues the FULL learned mechanism."""
     init_params = init_latent_write_controller(D_MODEL, KEY_DIM, VALUE_DIM, seed=seed)
     params_dict = latent_params_to_dict(init_params)
 
@@ -181,7 +186,7 @@ def run_hzb_memory(model, train_tokens, train_is_a, held_out_tokens, held_out_is
         targets = targets_for(train_is_a)
         task_loss = mx.mean(nn.losses.cross_entropy(final, targets))
         sparsity_loss = mx.mean(gates)
-        return task_loss + LAMBDA_SPARSE * sparsity_loss
+        return task_loss + lambda_sparse * sparsity_loss
 
     grad_fn = mx.value_and_grad(loss_fn)
     for step in range(steps):
@@ -209,6 +214,7 @@ def main():
     parser.add_argument("--num-slots", type=int, default=NUM_SLOTS, help="memory controller's slot count -- tests whether the train_count=64 reversal is slot-capacity interference, not a fundamental mechanism failure")
     parser.add_argument("--skip-adapter", action="store_true", help="skip the adapter condition (no slots, unaffected by --num-slots/--ste) to save time when only re-checking the memory condition")
     parser.add_argument("--ste", action="store_true", help="hard/discrete write decisions via straight-through estimator (reference/hz0b_b8_latent_write.py) instead of the continuous blend -- the real candidate fix for the reversal, per B1 decision 5's deferred hard-routing experiment")
+    parser.add_argument("--lambda-sparse", type=float, default=LAMBDA_SPARSE, help="the factorial diagnosis found this penalty starves the timing gate's gradient when content offers no position-differentiating reward -- lowering it rescued the isolated cell-3 collapse (0.053->0.281); tests whether it also helps the full mechanism")
     args = parser.parse_args()
 
     print(f"equal-param adapter budget: {param_count(D_MODEL, ADAPTER_HIDDEN)} params, "
@@ -239,10 +245,10 @@ def main():
         print("\n2. Equal-parameter no-memory adapter: SKIPPED (--skip-adapter)")
         adapter_mean = adapter_std = float("nan")
 
-    print(f"\n3. HZ-0B real latent write+read ({args.num_seeds} seeds, steps={args.steps}, lr={args.lr}, lambda_sparse={LAMBDA_SPARSE}, num_slots={args.num_slots}, ste={args.ste}):")
+    print(f"\n3. HZ-0B real latent write+read ({args.num_seeds} seeds, steps={args.steps}, lr={args.lr}, lambda_sparse={args.lambda_sparse}, num_slots={args.num_slots}, ste={args.ste}):")
     memory_accs = []
     for seed_offset in range(args.num_seeds):
-        acc = run_hzb_memory(model, train_tokens, train_is_a, held_out_tokens, held_out_is_a, seed=SEED + seed_offset, steps=args.steps, lr=args.lr, num_slots=args.num_slots, ste=args.ste)
+        acc = run_hzb_memory(model, train_tokens, train_is_a, held_out_tokens, held_out_is_a, seed=SEED + seed_offset, steps=args.steps, lr=args.lr, num_slots=args.num_slots, ste=args.ste, lambda_sparse=args.lambda_sparse)
         print(f"  seed {SEED + seed_offset}: {acc:.3f}")
         memory_accs.append(acc)
     memory_mean = sum(memory_accs) / len(memory_accs)
