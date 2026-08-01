@@ -1,5 +1,12 @@
 # HZ-0B B11 (Evaluation): First Real Experiment
 
+**Update (2026-07-31, same day): the original single-seed/16-example
+result below (section "Result") is SUPERSEDED by section "Update: real
+multi-seed result at larger scale," which reverses the conclusion. Read
+that section for the current honest state -- kept here in full, not
+deleted, per this project's standard of disclosing reversals rather than
+quietly editing them away.**
+
 Date: 2026-07-31. B11's plan text names 16 eval tasks x 5 baselines
 (`plans/HZ-0B_Total_Restart_Plan.md`). **This doc covers exactly 1 task
 and 1 baseline, run against the real frozen checkpoint -- not the full
@@ -79,6 +86,80 @@ which is the specific comparison the exit gate cares about.
    This result cannot be generalized to "HZ-0B beats all baselines on
    all tasks" -- it is one real, honest data point in that direction, not
    the completed evaluation suite.
+
+## Update: real multi-seed result at larger scale (2026-07-31, same day) -- REVERSES the conclusion above
+
+The two caveats above (16 examples, single-seed memory number) were
+addressed directly: `scripts/hz0b_b11_baseline_comparison.py` extended to
+train the memory condition multi-seed too (previously only the adapter
+was), and both `--train-count`/`--held-out-count` raised from 32/16 to
+64/64 (1/64 granularity instead of 1/16). Run: 5 seeds, steps=1000,
+lr=0.15, lambda_sparse=5.0 -- otherwise identical setup, same real frozen
+checkpoint.
+
+| Condition | Held-out accuracy (64 examples, chance=0.5) | Seeds |
+| --- | --- | --- |
+| True floor (frozen backbone, 0 extra params) | 0.000 | -- |
+| Equal-parameter no-memory adapter (692,418 params) | mean **0.512**, std 0.061 (range 0.438-0.562) | 5 |
+| HZ-0B real latent write+read (692,837 params) | mean **0.191**, std 0.039 (range 0.141-0.250) | 5 |
+
+**This reverses the original finding.** At this larger, multi-seed
+scale, HZ-0B's real memory mechanism performs WORSE than the
+equal-parameter no-memory adapter, and worse than chance (0.5) --
+essentially at the same level as a model that has learned nothing
+useful about which fact was shown. The adapter, meanwhile, hovers near
+chance (0.512), consistent with "some, but very little, real learning."
+
+### Ruling out the obvious confound before trusting this
+
+Memory's training loss was still 7.8-10.7 at step 999 (barely moved in
+the last 300 steps), vs. the adapter's 0.6-0.7 -- raising a real
+possibility that memory was simply undertrained at the larger
+`train_count=64` (double the original 32), not genuinely worse. Checked
+directly: reran the memory condition at seed=555 (the worst-loss run) at
+`steps=3000` instead of 1000. Result: **training loss barely moved
+(10.46 -> 9.98 over 2000 extra steps, a shallow plateau) and held-out
+accuracy was EXACTLY identical (0.141 at both 1000 and 3000 steps).**
+Tripling the step budget changed nothing. This rules out undertraining
+as the explanation -- the memory mechanism is genuinely stuck, not
+slowly converging.
+
+### Honest interpretation
+
+The most likely real cause, not chased further this pass: doubling the
+training set (32 -> 64 examples) against a fixed `num_slots=8` memory
+plausibly increases write/slot competition and interference in a way the
+architecture doesn't handle well -- consistent with (though not proven
+to be the same mechanism as) B8 Stage 3's own documented finding that
+this exact latent-write architecture gets stuck in real, non-shallow
+local optima (`docs/restart/hz0b_b8_stage3_results.md` section 5, five
+independent real fix attempts, none succeeded). This is a second,
+independent data point for that same underlying fragility, now showing
+up as a scale sensitivity rather than a write-position bias.
+
+**B11's exit gate is NOT supported by this task at this scale.** The
+original single-seed 0.750-vs-0.562 result was real (verified, not
+fabricated) but was not robust to more seeds and more training data --
+exactly the kind of reversal this project's GDN-3 investigation warned
+about, now reproduced within HZ-0B itself. The honest current state:
+memory's real-checkpoint advantage over a matched-capacity non-memory
+baseline is unconfirmed, and the one clean multi-seed data point that
+exists points the other way.
+
+### What this does NOT mean
+
+- It does not mean HZ-0B's write mechanism is broken in every setting --
+  B7's supervised-write result and B9's fine-tuning results remain real,
+  measured, and unaffected by this finding (different tasks, different
+  training regimes).
+- It does not mean the equal-param adapter is a good solution either --
+  0.512 is barely above chance; neither condition actually solved this
+  harder (64-example) version of the task well.
+- It does not retroactively invalidate the original 0.750 number as a
+  MEASUREMENT (it was measured correctly, at the scale it was measured
+  at) -- it invalidates trusting it as representative of behavior at
+  realistic scale without checking further, which is exactly the
+  multi-seed discipline this project has had to relearn repeatedly.
 
 ## What's NOT covered by this experiment (explicit B11 scope remaining)
 

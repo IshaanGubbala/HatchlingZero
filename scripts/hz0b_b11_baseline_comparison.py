@@ -34,6 +34,7 @@ Three-way comparison:
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import random
 from pathlib import Path
@@ -43,8 +44,11 @@ import mlx.nn as nn
 from mlx.utils import tree_unflatten
 
 from reference.hz0a_mlx_model import HZ0AMlxModel
+from reference.hz0b_b8_latent_write import LatentWriteControllerParams, forward as latent_forward_pass, init_latent_write_controller
 from reference.hz0b_b11_equal_param_adapter import adapter_forward, init_equal_param_adapter, param_count
 from reference.hz0b_b11_equal_param_adapter import forward as adapter_forward_pass
+from reference.hz0b_readonly_integration import ReadOnlyIntegrationParams
+from reference.hz0b_write_integration import WriteControllerParams
 
 VOCAB_SIZE, D_MODEL, LAYERS, HEADS, D_FF = 24576, 768, 31, 12, 2304
 ATTENTION_INDICES = (4, 9, 14, 19, 24, 29)
@@ -62,6 +66,37 @@ MIDDLE_LEN = 24
 PROMPT_LEN = FACT_POS + 2 + MIDDLE_LEN + 2
 SEED = 555
 ADAPTER_HIDDEN = 450  # 692,418 params -- matched to the latent write controller's 692,837 (0.06% off)
+KEY_DIM = VALUE_DIM = 32
+NUM_SLOTS = 8
+LAMBDA_SPARSE = 5.0  # matches the documented baseline (docs/restart/hz0b_b8_stage3_results.md)
+
+
+def latent_params_to_dict(p: LatentWriteControllerParams) -> dict:
+    """Copied from scripts/hz0b_b8_stage3_latent_write_probe.py for
+    byte-identical training mechanics (mx.value_and_grad needs a flat
+    dict, not the nested dataclass)."""
+    d = {f"key_proj.{n}": v for n, v in (("w", p.key_proj_w), ("b", p.key_proj_b))}
+    d.update({f"value_proj.{n}": v for n, v in (("w", p.value_proj_w), ("b", p.value_proj_b))})
+    d["occupancy_gate_w"] = p.occupancy_gate_w
+    wc = p.write_controller
+    d.update({f"read_params.{f.name}": getattr(wc.read_params, f.name) for f in dataclasses.fields(wc.read_params)})
+    for f in dataclasses.fields(wc):
+        if f.name != "read_params":
+            d[f"wc.{f.name}"] = getattr(wc, f.name)
+    return d
+
+
+def dict_to_latent_params(d: dict) -> LatentWriteControllerParams:
+    read_fields = {k.split(".", 1)[1]: v for k, v in d.items() if k.startswith("read_params.")}
+    read_params = ReadOnlyIntegrationParams(**read_fields)
+    wc_fields = {k.split(".", 1)[1]: v for k, v in d.items() if k.startswith("wc.")}
+    write_controller = WriteControllerParams(read_params=read_params, **wc_fields)
+    return LatentWriteControllerParams(
+        write_controller=write_controller,
+        key_proj_w=d["key_proj.w"], key_proj_b=d["key_proj.b"],
+        value_proj_w=d["value_proj.w"], value_proj_b=d["value_proj.b"],
+        occupancy_gate_w=d["occupancy_gate_w"],
+    )
 
 
 def load_frozen_model():
@@ -124,20 +159,56 @@ def run_equal_param_adapter(model, train_tokens, train_is_a, held_out_tokens, he
     return float(mx.mean((predicted == targets).astype(mx.float32)))
 
 
+def run_hzb_memory(model, train_tokens, train_is_a, held_out_tokens, held_out_is_a, *, seed: int, steps: int, lr: float) -> float:
+    """Real HZ-0B latent write+read, trained fresh at this seed --
+    reuses reference/hz0b_b8_latent_write.py unmodified, same mechanics
+    as scripts/hz0b_b8_stage3_latent_write_probe.py."""
+    init_params = init_latent_write_controller(D_MODEL, KEY_DIM, VALUE_DIM, seed=seed)
+    params_dict = latent_params_to_dict(init_params)
+
+    def loss_fn(pd: dict) -> mx.array:
+        p = dict_to_latent_params(pd)
+        logits, _, gates = latent_forward_pass(model, train_tokens, latent_params=p, num_slots=NUM_SLOTS)
+        final = logits[:, -1, :]
+        targets = targets_for(train_is_a)
+        task_loss = mx.mean(nn.losses.cross_entropy(final, targets))
+        sparsity_loss = mx.mean(gates)
+        return task_loss + LAMBDA_SPARSE * sparsity_loss
+
+    grad_fn = mx.value_and_grad(loss_fn)
+    for step in range(steps):
+        loss, grads = grad_fn(params_dict)
+        mx.eval(loss)
+        params_dict = {k: params_dict[k] - lr * grads[k] for k in params_dict}
+        mx.eval(*params_dict.values())
+        if step % 300 == 0 or step == steps - 1:
+            print(f"    [memory seed={seed}] step {step:4d}  train loss {float(loss):.5f}")
+
+    trained = dict_to_latent_params(params_dict)
+    logits, _, _ = latent_forward_pass(model, held_out_tokens, latent_params=trained, num_slots=NUM_SLOTS)
+    predicted = mx.argmax(logits[:, -1, :], axis=-1)
+    targets = targets_for(held_out_is_a)
+    return float(mx.mean((predicted == targets).astype(mx.float32)))
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--steps", type=int, default=1000, help="matches the documented HZ-0B baseline's step budget")
     parser.add_argument("--lr", type=float, default=0.15, help="matches the documented HZ-0B baseline's lr")
-    parser.add_argument("--num-seeds", type=int, default=3, help="the original HZ-0B 0.750 number was single-seed; this baseline is run multi-seed from the start, a real asymmetry disclosed in the results doc")
+    parser.add_argument("--num-seeds", type=int, default=5, help="now applied to BOTH conditions -- fixes the original single-seed-memory-vs-3-seed-adapter asymmetry")
+    parser.add_argument("--train-count", type=int, default=64, help="4x the original 32 -- more training signal for the larger held-out check below")
+    parser.add_argument("--held-out-count", type=int, default=64, help="4x the original 16 -- 1/64 granularity instead of 1/16, the main fix for the coarse-accuracy caveat")
     args = parser.parse_args()
 
-    print(f"equal-param adapter budget: {param_count(D_MODEL, ADAPTER_HIDDEN)} params (HZ-0B latent write controller: 692,837)")
+    print(f"equal-param adapter budget: {param_count(D_MODEL, ADAPTER_HIDDEN)} params, "
+          f"latent memory controller budget: {692_837} params")
     model, payload = load_frozen_model()
     print(f"loaded frozen checkpoint: step={payload['step']} tokens_seen={payload['tokens_seen']}")
 
     rng = random.Random(SEED)
-    train_tokens, train_is_a = make_prompts(32, rng)
-    held_out_tokens, held_out_is_a = make_prompts(16, rng)
+    train_tokens, train_is_a = make_prompts(args.train_count, rng)
+    held_out_tokens, held_out_is_a = make_prompts(args.held_out_count, rng)
+    print(f"train_count={args.train_count} held_out_count={args.held_out_count} (granularity: 1/{args.held_out_count} = {1/args.held_out_count:.4f})")
 
     floor_acc = run_true_floor(model, held_out_tokens, held_out_is_a)
     print(f"\n1. True floor (frozen backbone, zero extra params): {floor_acc:.3f}")
@@ -148,24 +219,31 @@ def main():
         acc = run_equal_param_adapter(model, train_tokens, train_is_a, held_out_tokens, held_out_is_a, seed=SEED + seed_offset, steps=args.steps, lr=args.lr)
         print(f"  seed {SEED + seed_offset}: {acc:.3f}")
         adapter_accs.append(acc)
-    mean_acc = sum(adapter_accs) / len(adapter_accs)
-    print(f"  mean: {mean_acc:.3f}  (range {min(adapter_accs):.3f}-{max(adapter_accs):.3f})")
+    adapter_mean = sum(adapter_accs) / len(adapter_accs)
+    adapter_std = (sum((a - adapter_mean) ** 2 for a in adapter_accs) / len(adapter_accs)) ** 0.5
+    print(f"  mean: {adapter_mean:.3f}  std: {adapter_std:.3f}  (range {min(adapter_accs):.3f}-{max(adapter_accs):.3f})")
 
-    print("\n3. HZ-0B real latent write+read (already measured, single seed 555, "
-          "lr=0.15, lambda_sparse=5, steps=1000 -- scripts/hz0b_b8_stage3_latent_write_probe.py): 0.750")
+    print(f"\n3. HZ-0B real latent write+read ({args.num_seeds} seeds, steps={args.steps}, lr={args.lr}, lambda_sparse={LAMBDA_SPARSE}):")
+    memory_accs = []
+    for seed_offset in range(args.num_seeds):
+        acc = run_hzb_memory(model, train_tokens, train_is_a, held_out_tokens, held_out_is_a, seed=SEED + seed_offset, steps=args.steps, lr=args.lr)
+        print(f"  seed {SEED + seed_offset}: {acc:.3f}")
+        memory_accs.append(acc)
+    memory_mean = sum(memory_accs) / len(memory_accs)
+    memory_std = (sum((a - memory_mean) ** 2 for a in memory_accs) / len(memory_accs)) ** 0.5
+    print(f"  mean: {memory_mean:.3f}  std: {memory_std:.3f}  (range {min(memory_accs):.3f}-{max(memory_accs):.3f})")
 
-    print("\n--- Summary ---")
+    print("\n--- Summary (real frozen HZ-0A checkpoint, both conditions now multi-seed, larger held-out set) ---")
     print(f"floor (0 params):            {floor_acc:.3f}")
-    print(f"equal-param adapter (no mem): {mean_acc:.3f}  (range {min(adapter_accs):.3f}-{max(adapter_accs):.3f}, {args.num_seeds} seeds)")
-    print("HZ-0B real memory:            0.750  (single seed)")
-    if mean_acc >= 0.70:
-        print("\nRESULT: the equal-parameter no-memory adapter matches HZ-0B's real result -- "
-              "this task's advantage is NOT specific to the memory mechanism, only to having "
-              "extra trained capacity anywhere in the forward pass. B11's exit gate is NOT met by this task.")
+    print(f"equal-param adapter (no mem): mean {adapter_mean:.3f}  std {adapter_std:.3f}  (range {min(adapter_accs):.3f}-{max(adapter_accs):.3f}, {args.num_seeds} seeds)")
+    print(f"HZ-0B real memory:            mean {memory_mean:.3f}  std {memory_std:.3f}  (range {min(memory_accs):.3f}-{max(memory_accs):.3f}, {args.num_seeds} seeds)")
+    if memory_mean - adapter_mean < 0.05:
+        print("\nRESULT: the equal-parameter no-memory adapter is within 5 points of HZ-0B's real result at this "
+              "larger, multi-seed scale -- this task's advantage may NOT be specific to the memory mechanism. "
+              "Re-examine before trusting the original single-seed 0.750 vs 0.562 gap.")
     else:
-        print("\nRESULT: the equal-parameter no-memory adapter falls well short of HZ-0B's real result -- "
-              "real evidence the explicit memory mechanism itself matters, not just added capacity. "
-              "B11's exit gate is supported by this task (pending more tasks/baselines).")
+        print("\nRESULT: the equal-parameter no-memory adapter still falls clearly short of HZ-0B's real result at "
+              "this larger, multi-seed scale -- the original gap holds up, not an artifact of small-sample noise.")
 
 
 if __name__ == "__main__":
