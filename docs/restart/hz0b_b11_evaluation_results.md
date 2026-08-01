@@ -124,18 +124,49 @@ Tripling the step budget changed nothing. This rules out undertraining
 as the explanation -- the memory mechanism is genuinely stuck, not
 slowly converging.
 
+### Testing the slot-capacity hypothesis directly (2026-08-01)
+
+One real hypothesis for the reversal: doubling the training set (32 ->
+64 examples) against a fixed `num_slots=8` memory could increase
+write/slot competition and interference beyond what 8 slots can absorb
+-- this would mean the mechanism isn't fundamentally broken, just
+under-provisioned at this scale. Checked directly rather than assumed:
+reran the memory condition, same 5 seeds/steps/lr, with `--num-slots 16`
+(double the capacity).
+
+| num_slots | mean | std | range |
+| --- | --- | --- | --- |
+| 8 (original) | 0.191 | 0.039 | 0.141-0.250 |
+| 16 | 0.222 | 0.139 | **0.016-0.453** |
+
+**Result does not support the slot-capacity hypothesis.** The mean
+barely moved (0.191 -> 0.222, well within combined noise) and remains
+far below the adapter's 0.512 -- doubling capacity did not close the
+gap. What DID change is telling: variance exploded (std 0.039 -> 0.139).
+One seed (559) underwent a real, sharp loss phase transition between
+steps 300-600 (8.68 -> 1.46, a genuine escape to a qualitatively
+different, much better regime) and reached 0.453 accuracy -- close to
+the adapter's level. Another seed (555) got WORSE than any 8-slot run
+(0.016, near-total failure). More capacity didn't reliably help; it made
+outcomes more dependent on which local optimum a given random init
+happens to fall into.
+
 ### Honest interpretation
 
-The most likely real cause, not chased further this pass: doubling the
-training set (32 -> 64 examples) against a fixed `num_slots=8` memory
-plausibly increases write/slot competition and interference in a way the
-architecture doesn't handle well -- consistent with (though not proven
-to be the same mechanism as) B8 Stage 3's own documented finding that
-this exact latent-write architecture gets stuck in real, non-shallow
-local optima (`docs/restart/hz0b_b8_stage3_results.md` section 5, five
-independent real fix attempts, none succeeded). This is a second,
-independent data point for that same underlying fragility, now showing
-up as a scale sensitivity rather than a write-position bias.
+This rules out "simple capacity starvation" as the explanation and
+instead directly supports a different one: doubling the training set
+plausibly increases write/slot competition and interference in a way
+that creates a genuinely harder, multi-modal optimization landscape --
+consistent with (and now a second, independently-replicated instance of)
+B8 Stage 3's own documented finding that this exact latent-write
+architecture gets stuck in real, non-shallow local optima
+(`docs/restart/hz0b_b8_stage3_results.md` section 5, five independent
+real fix attempts there; this is a sixth, in a different task, same
+underlying fragility). Seed 559's escape shows the "good" solution is
+reachable from SOME initializations -- it is not structurally impossible
+-- but it is not reliably reached, which is itself the finding: this
+mechanism's training dynamics are fragile at this scale, not simply
+under-resourced.
 
 **B11's exit gate is NOT supported by this task at this scale.** The
 original single-seed 0.750-vs-0.562 result was real (verified, not
@@ -160,6 +191,9 @@ exists points the other way.
   at) -- it invalidates trusting it as representative of behavior at
   realistic scale without checking further, which is exactly the
   multi-seed discipline this project has had to relearn repeatedly.
+- It does not mean more slots are useless in general -- seed 559's
+  escape at `num_slots=16` shows real headroom exists. It means slot
+  count alone, at the budget tried, is not a reliable fix.
 
 ## What's NOT covered by this experiment (explicit B11 scope remaining)
 

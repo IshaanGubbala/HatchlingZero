@@ -159,16 +159,20 @@ def run_equal_param_adapter(model, train_tokens, train_is_a, held_out_tokens, he
     return float(mx.mean((predicted == targets).astype(mx.float32)))
 
 
-def run_hzb_memory(model, train_tokens, train_is_a, held_out_tokens, held_out_is_a, *, seed: int, steps: int, lr: float) -> float:
+def run_hzb_memory(model, train_tokens, train_is_a, held_out_tokens, held_out_is_a, *, seed: int, steps: int, lr: float, num_slots: int = NUM_SLOTS) -> float:
     """Real HZ-0B latent write+read, trained fresh at this seed --
     reuses reference/hz0b_b8_latent_write.py unmodified, same mechanics
-    as scripts/hz0b_b8_stage3_latent_write_probe.py."""
+    as scripts/hz0b_b8_stage3_latent_write_probe.py. `num_slots`
+    parameterized (2026-08-01) to test whether the train_count=64
+    reversal (docs/restart/hz0b_b11_evaluation_results.md) is a
+    slot-capacity/interference artifact of the default 8 slots against
+    a doubled training set, not a fundamental mechanism failure."""
     init_params = init_latent_write_controller(D_MODEL, KEY_DIM, VALUE_DIM, seed=seed)
     params_dict = latent_params_to_dict(init_params)
 
     def loss_fn(pd: dict) -> mx.array:
         p = dict_to_latent_params(pd)
-        logits, _, gates = latent_forward_pass(model, train_tokens, latent_params=p, num_slots=NUM_SLOTS)
+        logits, _, gates = latent_forward_pass(model, train_tokens, latent_params=p, num_slots=num_slots)
         final = logits[:, -1, :]
         targets = targets_for(train_is_a)
         task_loss = mx.mean(nn.losses.cross_entropy(final, targets))
@@ -182,10 +186,10 @@ def run_hzb_memory(model, train_tokens, train_is_a, held_out_tokens, held_out_is
         params_dict = {k: params_dict[k] - lr * grads[k] for k in params_dict}
         mx.eval(*params_dict.values())
         if step % 300 == 0 or step == steps - 1:
-            print(f"    [memory seed={seed}] step {step:4d}  train loss {float(loss):.5f}")
+            print(f"    [memory seed={seed} num_slots={num_slots}] step {step:4d}  train loss {float(loss):.5f}")
 
     trained = dict_to_latent_params(params_dict)
-    logits, _, _ = latent_forward_pass(model, held_out_tokens, latent_params=trained, num_slots=NUM_SLOTS)
+    logits, _, _ = latent_forward_pass(model, held_out_tokens, latent_params=trained, num_slots=num_slots)
     predicted = mx.argmax(logits[:, -1, :], axis=-1)
     targets = targets_for(held_out_is_a)
     return float(mx.mean((predicted == targets).astype(mx.float32)))
@@ -198,6 +202,8 @@ def main():
     parser.add_argument("--num-seeds", type=int, default=5, help="now applied to BOTH conditions -- fixes the original single-seed-memory-vs-3-seed-adapter asymmetry")
     parser.add_argument("--train-count", type=int, default=64, help="4x the original 32 -- more training signal for the larger held-out check below")
     parser.add_argument("--held-out-count", type=int, default=64, help="4x the original 16 -- 1/64 granularity instead of 1/16, the main fix for the coarse-accuracy caveat")
+    parser.add_argument("--num-slots", type=int, default=NUM_SLOTS, help="memory controller's slot count -- tests whether the train_count=64 reversal is slot-capacity interference, not a fundamental mechanism failure")
+    parser.add_argument("--skip-adapter", action="store_true", help="skip the adapter condition (no slots, unaffected by --num-slots) to save time when only re-checking the memory condition")
     args = parser.parse_args()
 
     print(f"equal-param adapter budget: {param_count(D_MODEL, ADAPTER_HIDDEN)} params, "
@@ -213,37 +219,43 @@ def main():
     floor_acc = run_true_floor(model, held_out_tokens, held_out_is_a)
     print(f"\n1. True floor (frozen backbone, zero extra params): {floor_acc:.3f}")
 
-    print(f"\n2. Equal-parameter no-memory adapter ({args.num_seeds} seeds, steps={args.steps}, lr={args.lr}):")
-    adapter_accs = []
-    for seed_offset in range(args.num_seeds):
-        acc = run_equal_param_adapter(model, train_tokens, train_is_a, held_out_tokens, held_out_is_a, seed=SEED + seed_offset, steps=args.steps, lr=args.lr)
-        print(f"  seed {SEED + seed_offset}: {acc:.3f}")
-        adapter_accs.append(acc)
-    adapter_mean = sum(adapter_accs) / len(adapter_accs)
-    adapter_std = (sum((a - adapter_mean) ** 2 for a in adapter_accs) / len(adapter_accs)) ** 0.5
-    print(f"  mean: {adapter_mean:.3f}  std: {adapter_std:.3f}  (range {min(adapter_accs):.3f}-{max(adapter_accs):.3f})")
+    adapter_accs = [None]
+    if not args.skip_adapter:
+        print(f"\n2. Equal-parameter no-memory adapter ({args.num_seeds} seeds, steps={args.steps}, lr={args.lr}):")
+        adapter_accs = []
+        for seed_offset in range(args.num_seeds):
+            acc = run_equal_param_adapter(model, train_tokens, train_is_a, held_out_tokens, held_out_is_a, seed=SEED + seed_offset, steps=args.steps, lr=args.lr)
+            print(f"  seed {SEED + seed_offset}: {acc:.3f}")
+            adapter_accs.append(acc)
+        adapter_mean = sum(adapter_accs) / len(adapter_accs)
+        adapter_std = (sum((a - adapter_mean) ** 2 for a in adapter_accs) / len(adapter_accs)) ** 0.5
+        print(f"  mean: {adapter_mean:.3f}  std: {adapter_std:.3f}  (range {min(adapter_accs):.3f}-{max(adapter_accs):.3f})")
+    else:
+        print("\n2. Equal-parameter no-memory adapter: SKIPPED (--skip-adapter)")
+        adapter_mean = adapter_std = float("nan")
 
-    print(f"\n3. HZ-0B real latent write+read ({args.num_seeds} seeds, steps={args.steps}, lr={args.lr}, lambda_sparse={LAMBDA_SPARSE}):")
+    print(f"\n3. HZ-0B real latent write+read ({args.num_seeds} seeds, steps={args.steps}, lr={args.lr}, lambda_sparse={LAMBDA_SPARSE}, num_slots={args.num_slots}):")
     memory_accs = []
     for seed_offset in range(args.num_seeds):
-        acc = run_hzb_memory(model, train_tokens, train_is_a, held_out_tokens, held_out_is_a, seed=SEED + seed_offset, steps=args.steps, lr=args.lr)
+        acc = run_hzb_memory(model, train_tokens, train_is_a, held_out_tokens, held_out_is_a, seed=SEED + seed_offset, steps=args.steps, lr=args.lr, num_slots=args.num_slots)
         print(f"  seed {SEED + seed_offset}: {acc:.3f}")
         memory_accs.append(acc)
     memory_mean = sum(memory_accs) / len(memory_accs)
     memory_std = (sum((a - memory_mean) ** 2 for a in memory_accs) / len(memory_accs)) ** 0.5
     print(f"  mean: {memory_mean:.3f}  std: {memory_std:.3f}  (range {min(memory_accs):.3f}-{max(memory_accs):.3f})")
 
-    print("\n--- Summary (real frozen HZ-0A checkpoint, both conditions now multi-seed, larger held-out set) ---")
+    print(f"\n--- Summary (real frozen HZ-0A checkpoint, num_slots={args.num_slots}) ---")
     print(f"floor (0 params):            {floor_acc:.3f}")
-    print(f"equal-param adapter (no mem): mean {adapter_mean:.3f}  std {adapter_std:.3f}  (range {min(adapter_accs):.3f}-{max(adapter_accs):.3f}, {args.num_seeds} seeds)")
+    if not args.skip_adapter:
+        print(f"equal-param adapter (no mem): mean {adapter_mean:.3f}  std {adapter_std:.3f}  (range {min(adapter_accs):.3f}-{max(adapter_accs):.3f}, {args.num_seeds} seeds)")
     print(f"HZ-0B real memory:            mean {memory_mean:.3f}  std {memory_std:.3f}  (range {min(memory_accs):.3f}-{max(memory_accs):.3f}, {args.num_seeds} seeds)")
-    if memory_mean - adapter_mean < 0.05:
-        print("\nRESULT: the equal-parameter no-memory adapter is within 5 points of HZ-0B's real result at this "
-              "larger, multi-seed scale -- this task's advantage may NOT be specific to the memory mechanism. "
-              "Re-examine before trusting the original single-seed 0.750 vs 0.562 gap.")
-    else:
-        print("\nRESULT: the equal-parameter no-memory adapter still falls clearly short of HZ-0B's real result at "
-              "this larger, multi-seed scale -- the original gap holds up, not an artifact of small-sample noise.")
+    if not args.skip_adapter:
+        if memory_mean - adapter_mean < 0.05:
+            print("\nRESULT: the equal-parameter no-memory adapter is within 5 points of HZ-0B's real result at this "
+                  "larger, multi-seed scale -- this task's advantage may NOT be specific to the memory mechanism.")
+        else:
+            print("\nRESULT: the equal-parameter no-memory adapter still falls clearly short of HZ-0B's real result at "
+                  "this larger, multi-seed scale -- the gap holds up, not an artifact of small-sample noise.")
 
 
 if __name__ == "__main__":
