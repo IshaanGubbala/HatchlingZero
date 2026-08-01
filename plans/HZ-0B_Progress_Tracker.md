@@ -1,16 +1,85 @@
 # HZ-0B Progress Tracker
 
-Updated: July 31, 2026 (B10 CPU-tensor Rust port done)
+Updated: August 1, 2026 (B11 scientific verdict: HZ-0B not validated)
 
 ## Mission
 
 Add explicit, controllable, session-local associative memory to a finished and frozen HZ-0A base.
 
-## Current Status
+## Current Status (honest verdict, 2026-08-01)
 
-- Overall phase: B0-B5 complete. HZ-0A is now frozen (both Stage 2 architectures finished 2026-07-30, full-holdout evaluated). B6/B7 have isolated prep done (untested against real HZ-0A) but real integration has not started. Plan's own "first concrete milestone" reached at B2: "a standalone, deterministic memory simulator with explicit read, write, update, protect, forget, delete, reset, and restore operations that passes synthetic tests for recall, overwrite, collision, and protection" -- `reference/hz0b_memory_simulator.py`, 20/20 tests passing, no LM attached.
-- Dependency status: B0-B5 all done. B6 (real read-only integration against the actual frozen HZ-0A checkpoint) is the next real work -- not yet started, only its isolated-module prep is done.
-- Working assumption: all legacy HZ-0B behavior must be re-audited before reuse -- **this was not a hypothetical caution**, see B0 below
+**HZ-0B B11 failed under multi-seed, matched-capacity, real-checkpoint
+evaluation. The current learned write mechanism is unresolved. HZ-0B
+overall is NOT validated -- no capability claim should be made from this
+project as it stands.**
+
+- **B1-B9: engineering and integration complete, verified.** The memory
+  contract, pure simulator, semantics layer, baselines, read-only
+  integration, controlled writes, latent writes, and fine-tuning
+  compatibility are all real, tested, and correctly wired to the frozen
+  HZ-0A checkpoint. This is genuine evidence the SYSTEM is implemented
+  coherently -- it is not evidence the memory MECHANISM is useful. Those
+  are different claims and this tracker previously conflated "the plumbing
+  works" with "the capability exists"; corrected here.
+- **B10: CPU-tensor Rust port and Python bridge complete and tested**
+  (real, parity-verified against the Python reference); the GPU tier was
+  deliberately not built, benchmark-justified. Infrastructure-complete,
+  independent of B11's finding.
+- **B11: the phase that actually tests the plan's central claim ("HZ-0B
+  provides a measurable advantage that cannot be explained only by more
+  parameters or more context") has run, and the claim is not supported.**
+  Real memory scored WORSE than a matched-parameter no-memory adapter and
+  worse than chance under proper multi-seed, realistic-scale evaluation on
+  the real frozen checkpoint (`docs/restart/hz0b_b11_evaluation_results.md`).
+  Three targeted fixes (more training steps, more memory slots, hard/
+  discrete write decisions via STE) each helped a little or not at all,
+  none closed the gap -- ruling out undertraining, slot-capacity
+  starvation, and soft-write blur as the sole explanations. The remaining
+  likely causes are deeper: unstable credit assignment into writes,
+  destructive/high-variance writes, a read path that outpaces the write
+  path during training, backbone representations that were never trained
+  to be "write-friendly," and/or an end-task loss too indirect to
+  supervise a semi-discrete write decision.
+- **Write-mechanism diagnosis started, factorial cell 1 run (2026-08-01):
+  the problem is NOT confined to the learned write controller.** Cell 1
+  (oracle timing + oracle content + oracle slot -- everything handed to
+  the mechanism for free, zero learned write component) still only
+  reached mean 0.306 (std 0.115, range 0.125-0.438, 5 seeds) -- below the
+  equal-param adapter's 0.512, still near chance
+  (`docs/restart/hz0b_b11_evaluation_results.md`, "B11 continuation:
+  write-mechanism diagnosis"). This directly implicates the READ path
+  itself (`gated_memory_read`'s query/gate/value-to-hidden mechanism),
+  not just the write controller -- the same read mechanism that reached a
+  perfect rank-0 result in B6, but on an easier, single-fixed-fact task
+  that (per B8 Stage 3's own critique) never actually tested genuine
+  content discrimination. Remaining factorial cells (oracle timing +
+  learned content; learned timing + oracle content; learned slot choice)
+  not yet run -- named as the concrete next step, not chased further this
+  pass. Do not resume full B11 evaluation, and do not proceed to HZ-0C
+  describing HZ-0B as complete, until the reopening criteria below are
+  met.
+- Working assumption: all legacy HZ-0B behavior must be re-audited before
+  reuse -- **this was not a hypothetical caution**, see B0 below. The
+  same discipline now applies to this project's OWN B11 single-seed
+  result, which also turned out not to hold up.
+
+### Reopening criteria for HZ-0B (do not resume full B11 training until ALL of these pass)
+
+1. ~~Oracle-everything memory (fixed correct content, fixed correct
+   timing, fixed correct slot) decisively beats no-memory on the SAME
+   task/scale B11's reversal was found on.~~ **NOT MET, checked directly
+   (2026-08-01): oracle-everything scored mean 0.306, below the
+   equal-param adapter's 0.512 and near chance.** This criterion cannot
+   be satisfied by write-controller fixes alone -- the read path itself
+   needs to be diagnosed next.
+2. Learned-component ablations (the factorial matrix below) identify one
+   tractable bottleneck, not a diffuse failure across every component.
+3. Writes measurably improve retrieval BEFORE any full language-model
+   fine-tuning is layered on top.
+4. Results are multi-seed stable (this project's own hard-won lesson,
+   now twice-confirmed: once via GDN-3, once via B11 itself).
+5. Memory state does not degrade monotonically as write count grows.
+6. Bad writes can be detected or rolled back, not just hoped away.
 
 ## Phase Tracker
 

@@ -238,6 +238,78 @@ latent-write architecture has a genuine, still-unresolved training
 fragility at realistic data scale, and B11's exit gate remains
 unsupported by this task.
 
+## B11 continuation: write-mechanism diagnosis, factorial cell 1 (2026-08-01)
+
+Every intervention above (step budget, slot count, STE) targeted the
+LEARNED WRITE CONTROLLER, on the theory that the write-decision-learning
+process itself was the fragile part. A cleaner diagnostic question,
+proposed directly rather than assumed: strip out write-learning
+entirely, hand the mechanism a perfect write (correct content, correct
+timing, correct slot -- an oracle write, zero learned write component),
+and see if it can even retrieve what it was given.
+
+`scripts/hz0b_b11_write_diagnosis_oracle_all.py`: same 2-way task, same
+reversal-triggering scale (train_count=64, held_out_count=64, 5 seeds,
+steps=1000, lr=0.15), oracle-populated single-slot memory (fixed,
+distinguishable key/value pair per fact-id, written directly into
+`MemoryState` -- no `write()` call, no learned gate, no timing decision
+at all), training ONLY the read path (`query_w`/`gate_w`/
+`value_to_hidden_w` -- the same read mechanism B6 used to reach a
+PERFECT rank-0 result on its own, easier, single-fixed-fact task).
+
+| Configuration | mean | std | range |
+| --- | --- | --- | --- |
+| Floor (no memory) | 0.000 | -- | -- |
+| Soft-gate full HZ-0B | 0.191 | 0.039 | 0.141-0.250 |
+| STE full HZ-0B | 0.269 | 0.079 | 0.203-0.422 |
+| **Oracle-everything (this test)** | **0.306** | 0.115 | 0.125-0.438 |
+| Equal-param adapter (no memory) | 0.512 | 0.061 | 0.438-0.562 |
+
+**This is the most important finding in the whole investigation: even
+with EVERYTHING handed to the mechanism for free -- perfect write
+content, perfect write timing, perfect slot choice, zero learned write
+component whatsoever -- mean accuracy is 0.306, still below the
+equal-param adapter and still near chance.** Train loss at step 999
+across all 5 seeds was 7.1-7.7, barely better than the full learned
+mechanisms' losses in the same range. This directly answers the
+diagnostic question the factorial matrix was designed to ask: the
+problem is NOT confined to the learned write controller. Handing the
+model a perfect write does not fix the outcome.
+
+**What this rules in**: the read path itself (`gated_memory_read`'s
+query/gate/value-to-hidden mechanism) -- the exact same mechanism that
+achieved a PERFECT rank-0 result in B6 -- fails to reliably learn
+genuine two-way content discrimination at this task's scale (64 training
+examples, full 8192-token vocabulary softmax, 1000 steps). B6's
+easier task (a single fixed fact, one fixed target, content-independent
+constant-bias-compatible per B8 Stage 3's own documented critique of
+that setup) was not actually testing this read path's ability to
+discriminate between DIFFERENT stored contents -- only whether reading
+memory at all could move a prediction. This oracle-all result shows
+that harder, genuinely content-dependent question was never actually
+answered positively before now, and the honest answer at this scale is:
+not reliably.
+
+**What this does NOT yet rule out**: whether the bottleneck is the read
+path's own optimization dynamics (same class of local-optimum fragility
+already documented in the write controller), the `gate_w` parameter's
+`[d_model, d_model]` size (589,824 of the read path's 640,544 params --
+by far the largest and least structured piece, per
+`docs/restart/hz0b_costs_and_limitations.md`'s exact param breakdown),
+or something about how oracle memory content interacts with this
+specific frozen backbone's representations. The remaining factorial
+cells (oracle timing + learned content; learned timing + oracle content;
+oracle timing/content + learned slot choice) are needed to localize this
+further -- not run this pass, named as the concrete next step.
+
+**Revised interpretation of the whole investigation**: this is not
+primarily a "the write controller can't decide what/when to write"
+story. It's a more fundamental "this read/gate mechanism, trained from
+scratch at this data scale on a genuinely two-way discrimination task,
+has a real optimization difficulty" story -- writing was never given a
+fair chance to be exonerated or blamed in isolation until this test, and
+now that it has been, the substrate itself is implicated too.
+
 ### What this does NOT mean
 
 - It does not mean HZ-0B's write mechanism is broken in every setting --
