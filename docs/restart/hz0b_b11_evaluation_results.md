@@ -310,6 +310,72 @@ has a real optimization difficulty" story -- writing was never given a
 fair chance to be exonerated or blamed in isolation until this test, and
 now that it has been, the substrate itself is implicated too.
 
+### Factorial cell 3: learned timing, oracle content, oracle slot (2026-08-01)
+
+Isolates whether the write-TRIGGER policy specifically (deciding WHEN to
+write) is an independent contributor to the failure, with content and
+slot handed to the mechanism for free -- the naive expectation is that
+this should be no harder than cell 1 (oracle everything, mean 0.306),
+since strictly less is being learned than in the full mechanism.
+
+`scripts/hz0b_b11_write_diagnosis_learned_timing.py`: same scale (5
+seeds, steps=1000, lr=0.15, train_count=64, held_out_count=64). A single
+learned linear+sigmoid gate decides, at every position, whether to
+commit the SAME fixed oracle key/value pair (position-invariant --
+content doesn't depend on where in the sequence the gate fires), trained
+jointly with the read path and a write-sparsity penalty, exactly
+mirroring the full mechanism's training setup minus the content/slot
+learning burden.
+
+| Configuration | mean | std | range |
+| --- | --- | --- | --- |
+| Floor (no memory) | 0.000 | -- | -- |
+| **Learned timing, oracle content/slot (cell 3)** | **0.053** | 0.106 | **0.000-0.266** |
+| Soft-gate full HZ-0B (all learned) | 0.191 | 0.039 | 0.141-0.250 |
+| STE full HZ-0B (all learned) | 0.269 | 0.079 | 0.203-0.422 |
+| Oracle-everything (cell 1) | 0.306 | 0.115 | 0.125-0.438 |
+| Equal-param adapter (no memory) | 0.512 | 0.061 | 0.438-0.562 |
+
+**The naive expectation is wrong, and the actual result is informative
+precisely because it's counterintuitive.** Isolating write-timing
+learning alone is not a moderate, in-between result -- it is the WORST
+outcome in the entire investigation. 4 of 5 seeds collapsed to EXACTLY
+0.000 (train loss still 10.3-12.3 at step 999, essentially flat,
+matching the no-memory floor); only one seed (555) learned anything
+(train loss reached 7.99, accuracy 0.266). Mean 0.053 is below cell 1's
+0.306, below the equal-param adapter, and below BOTH full-learned
+configurations (0.191, 0.269) that learn timing, content, AND slot
+choice all together.
+
+**Why isolating the sub-problem made it harder, not easier -- a real,
+identifiable mechanism, not just noise**: because the oracle content
+offered at every position is IDENTICAL regardless of when the gate
+fires, there is no reward for writing EARLY versus LATE in the
+sequence -- correctness only requires writing at all, at any point
+before the read. This removes essentially all of the gradient signal
+that would otherwise teach the sparsity-penalized gate to open in the
+first place: with `lambda_sparse=5` pushing every position's gate toward
+0, and no per-position differentiation in what a write there is worth,
+gradient descent has a very easy, very stable local optimum available
+(`write_gate == 0` everywhere, i.e. never write) that 4 of 5 random
+inits fell into and never escaped. In the FULL learned mechanism, by
+contrast, content itself varies with hidden state, which apparently
+provides enough additional gradient texture across positions to avoid
+this particular collapse (even though it has its own, different,
+already-documented fragility).
+
+**This is a real, load-bearing finding for the factorial diagnosis**:
+it means the naive "test each component in isolation, worst offender
+wins" framing doesn't cleanly apply here -- removing learning burden
+from two of three components changed the OPTIMIZATION LANDSCAPE itself
+in a way that made the remaining learned component's job harder, not
+easier. The write-trigger policy is not simply "one broken piece among
+several" -- its difficulty is entangled with what the OTHER components
+are doing, specifically because oracle content's position-invariance
+starves the timing signal of gradient. Any future cell 2 (oracle timing,
+learned content, oracle slot) or cell 4 (learned slot choice) run should
+account for this interaction rather than assume clean separability.
+
 ### What this does NOT mean
 
 - It does not mean HZ-0B's write mechanism is broken in every setting --

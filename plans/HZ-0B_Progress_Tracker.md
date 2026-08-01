@@ -52,12 +52,26 @@ project as it stands.**
   not just the write controller -- the same read mechanism that reached a
   perfect rank-0 result in B6, but on an easier, single-fixed-fact task
   that (per B8 Stage 3's own critique) never actually tested genuine
-  content discrimination. Remaining factorial cells (oracle timing +
-  learned content; learned timing + oracle content; learned slot choice)
-  not yet run -- named as the concrete next step, not chased further this
-  pass. Do not resume full B11 evaluation, and do not proceed to HZ-0C
-  describing HZ-0B as complete, until the reopening criteria below are
-  met.
+  content discrimination. **Cell 3 run (2026-08-01, same day): learned
+  timing + oracle content + oracle slot -- the naive expectation was that
+  isolating just the timing decision should be no harder than cell 1.
+  It was the WORST result in the entire investigation instead: mean
+  0.053 (std 0.106, range 0.000-0.266), with 4 of 5 seeds collapsing to
+  EXACTLY 0.000.** Real, identified mechanism, not noise: oracle content
+  is position-invariant (the same correct key/value is offered at every
+  position), so there's no gradient reward for writing early vs. late --
+  this starves the sparsity-penalized gate of the signal it needs to
+  ever open, and 4/5 random inits fell into the stable `write_gate == 0`
+  (never write) local optimum. This means the factorial cells are NOT
+  cleanly separable -- removing content/slot learning burden changed the
+  optimization landscape in a way that made the remaining learned
+  component's job HARDER, not easier. Remaining cells (oracle timing +
+  learned content; learned slot choice) not yet run -- named as the
+  concrete next step, not chased further this pass, and any future run
+  of them should account for this interaction rather than assume clean
+  separability. Do not resume full B11 evaluation, and do not proceed to
+  HZ-0C describing HZ-0B as complete, until the reopening criteria below
+  are met.
 - Working assumption: all legacy HZ-0B behavior must be re-audited before
   reuse -- **this was not a hypothetical caution**, see B0 below. The
   same discipline now applies to this project's OWN B11 single-seed
@@ -74,6 +88,14 @@ project as it stands.**
    needs to be diagnosed next.
 2. Learned-component ablations (the factorial matrix below) identify one
    tractable bottleneck, not a diffuse failure across every component.
+   **IN PROGRESS, real data so far complicates rather than simplifies
+   this (2026-08-01): cell 1 (all-oracle) = 0.306; cell 3 (learned
+   timing only) = 0.053, WORSE than either extreme -- the components
+   interact (oracle content's position-invariance starves the timing
+   gate's gradient signal), so this is not shaping up to be a single,
+   cleanly separable bottleneck. Cells 2 and 4 (learned content;
+   learned slot choice) still needed before this criterion can be
+   honestly evaluated either way.**
 3. Writes measurably improve retrieval BEFORE any full language-model
    fine-tuning is layered on top.
 4. Results are multi-seed stable (this project's own hard-won lesson,
