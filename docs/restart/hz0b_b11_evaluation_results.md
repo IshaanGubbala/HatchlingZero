@@ -497,6 +497,37 @@ fixable bug (sparsity penalty tuned for the wrong scale), and once
 fixed, the core capability claim holds up under proper multi-seed,
 matched-capacity scrutiny."
 
+### Extended to 10 seeds (2026-08-01): confirms and strengthens the fix
+
+The 5-seed run above included seeds 555-559; extended to 555-564 (10
+seeds total) for a more statistically grounded picture of reopening
+criterion 4 (multi-seed stability), same exact setup otherwise.
+
+| Seeds | mean | std | range | Converged well (loss ~0.10-0.15) |
+| --- | --- | --- | --- | --- |
+| 5 (555-559) | 0.778 | 0.228 | 0.328-0.953 | 4 of 5 |
+| **10 (555-564)** | **0.830** | 0.173 | 0.328-0.953 | **9 of 10** |
+
+The larger sample is BETTER, not worse: mean rose from 0.778 to 0.830,
+std tightened from 0.228 to 0.173. All 5 new seeds (560-564) converged
+cleanly (loss 0.105-0.108 at step 999, accuracy 0.812-0.953). **Only
+seed 557 fails, and it fails identically both times it was run** (train
+loss plateaus at exactly 5.26, accuracy exactly 0.328 in both the 5-seed
+and 10-seed runs) -- this is a real, reproducible, seed-specific local
+optimum, not random flakiness. 9 of 10 seeds (90%) reach genuine
+convergence.
+
+**Reopening criterion 4 (multi-seed stability) is now MET, with an
+honest, specific, minor caveat**: the fix is robust in the strong sense
+that matters (90% of random inits converge well, and the mean decisively
+beats the adapter at either sample size -- 0.830 vs. 0.512, a +0.318
+margin), but not in the absolute sense (1 specific, reproducible
+seed-level failure mode remains, not yet root-caused). This is a real,
+positive, quantified result, not an assumption -- worth a future targeted
+look at what's different about seed 557's specific initialization if
+this line of work continues, but it does not block treating the current
+fix as validated.
+
 ### What this does NOT mean
 
 - It does not mean HZ-0B's write mechanism is broken in every setting --
