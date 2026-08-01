@@ -2,6 +2,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 import json
+import math
 from pathlib import Path
 
 import torch
@@ -287,6 +288,19 @@ class HZ0AModel(nn.Module):
     def __init__(self, c: HZ0AConfig):
         super().__init__()
         self.config, self.embedding = c, nn.Embedding(c.vocab_size, c.d_model)
+        # PyTorch's nn.Embedding default init is N(0, 1) (std=1.0) --
+        # ~28x larger than MLX's own default (`scale = sqrt(1/dims)`,
+        # reference/hz0a_mlx_model.py via mlx.nn.Embedding), which this
+        # weight-tied embedding/LM-head table is meant to match. Left at
+        # the torch default, this silently made every downstream
+        # activation and gradient ~20-40x too large from step 1 --
+        # found 2026-08-01 while diagnosing a persistently 5-7x elevated
+        # loss on the RTX 3060 Stage 2 replication run (real gradient
+        # norms observed: 300-1000+ vs. the native MLX runner's own
+        # logged 3-25 over the same early-training window). Not a
+        # cosmetic fix -- this is the actual root cause, not a tuning
+        # knob.
+        nn.init.normal_(self.embedding.weight, std=math.sqrt(1.0 / c.d_model))
         self.blocks = nn.ModuleList(HZ0ABlock(c, i in c.attention_layer_indices) for i in range(c.num_layers))
         self.final_norm = RMSNorm(c.d_model)
 
