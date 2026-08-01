@@ -159,20 +159,24 @@ def run_equal_param_adapter(model, train_tokens, train_is_a, held_out_tokens, he
     return float(mx.mean((predicted == targets).astype(mx.float32)))
 
 
-def run_hzb_memory(model, train_tokens, train_is_a, held_out_tokens, held_out_is_a, *, seed: int, steps: int, lr: float, num_slots: int = NUM_SLOTS) -> float:
+def run_hzb_memory(model, train_tokens, train_is_a, held_out_tokens, held_out_is_a, *, seed: int, steps: int, lr: float, num_slots: int = NUM_SLOTS, ste: bool = False) -> float:
     """Real HZ-0B latent write+read, trained fresh at this seed --
     reuses reference/hz0b_b8_latent_write.py unmodified, same mechanics
     as scripts/hz0b_b8_stage3_latent_write_probe.py. `num_slots`
     parameterized (2026-08-01) to test whether the train_count=64
     reversal (docs/restart/hz0b_b11_evaluation_results.md) is a
     slot-capacity/interference artifact of the default 8 slots against
-    a doubled training set, not a fundamental mechanism failure."""
+    a doubled training set, not a fundamental mechanism failure (ruled
+    out -- see that doc). `ste` (2026-08-01, same day): tests the real
+    candidate fix -- hard/discrete write decisions via a straight-through
+    estimator instead of the continuous blend traced as the likely root
+    cause."""
     init_params = init_latent_write_controller(D_MODEL, KEY_DIM, VALUE_DIM, seed=seed)
     params_dict = latent_params_to_dict(init_params)
 
     def loss_fn(pd: dict) -> mx.array:
         p = dict_to_latent_params(pd)
-        logits, _, gates = latent_forward_pass(model, train_tokens, latent_params=p, num_slots=num_slots)
+        logits, _, gates = latent_forward_pass(model, train_tokens, latent_params=p, num_slots=num_slots, ste=ste)
         final = logits[:, -1, :]
         targets = targets_for(train_is_a)
         task_loss = mx.mean(nn.losses.cross_entropy(final, targets))
@@ -186,10 +190,10 @@ def run_hzb_memory(model, train_tokens, train_is_a, held_out_tokens, held_out_is
         params_dict = {k: params_dict[k] - lr * grads[k] for k in params_dict}
         mx.eval(*params_dict.values())
         if step % 300 == 0 or step == steps - 1:
-            print(f"    [memory seed={seed} num_slots={num_slots}] step {step:4d}  train loss {float(loss):.5f}")
+            print(f"    [memory seed={seed} num_slots={num_slots} ste={ste}] step {step:4d}  train loss {float(loss):.5f}")
 
     trained = dict_to_latent_params(params_dict)
-    logits, _, _ = latent_forward_pass(model, held_out_tokens, latent_params=trained, num_slots=num_slots)
+    logits, _, _ = latent_forward_pass(model, held_out_tokens, latent_params=trained, num_slots=num_slots, ste=ste)
     predicted = mx.argmax(logits[:, -1, :], axis=-1)
     targets = targets_for(held_out_is_a)
     return float(mx.mean((predicted == targets).astype(mx.float32)))
@@ -203,7 +207,8 @@ def main():
     parser.add_argument("--train-count", type=int, default=64, help="4x the original 32 -- more training signal for the larger held-out check below")
     parser.add_argument("--held-out-count", type=int, default=64, help="4x the original 16 -- 1/64 granularity instead of 1/16, the main fix for the coarse-accuracy caveat")
     parser.add_argument("--num-slots", type=int, default=NUM_SLOTS, help="memory controller's slot count -- tests whether the train_count=64 reversal is slot-capacity interference, not a fundamental mechanism failure")
-    parser.add_argument("--skip-adapter", action="store_true", help="skip the adapter condition (no slots, unaffected by --num-slots) to save time when only re-checking the memory condition")
+    parser.add_argument("--skip-adapter", action="store_true", help="skip the adapter condition (no slots, unaffected by --num-slots/--ste) to save time when only re-checking the memory condition")
+    parser.add_argument("--ste", action="store_true", help="hard/discrete write decisions via straight-through estimator (reference/hz0b_b8_latent_write.py) instead of the continuous blend -- the real candidate fix for the reversal, per B1 decision 5's deferred hard-routing experiment")
     args = parser.parse_args()
 
     print(f"equal-param adapter budget: {param_count(D_MODEL, ADAPTER_HIDDEN)} params, "
@@ -234,10 +239,10 @@ def main():
         print("\n2. Equal-parameter no-memory adapter: SKIPPED (--skip-adapter)")
         adapter_mean = adapter_std = float("nan")
 
-    print(f"\n3. HZ-0B real latent write+read ({args.num_seeds} seeds, steps={args.steps}, lr={args.lr}, lambda_sparse={LAMBDA_SPARSE}, num_slots={args.num_slots}):")
+    print(f"\n3. HZ-0B real latent write+read ({args.num_seeds} seeds, steps={args.steps}, lr={args.lr}, lambda_sparse={LAMBDA_SPARSE}, num_slots={args.num_slots}, ste={args.ste}):")
     memory_accs = []
     for seed_offset in range(args.num_seeds):
-        acc = run_hzb_memory(model, train_tokens, train_is_a, held_out_tokens, held_out_is_a, seed=SEED + seed_offset, steps=args.steps, lr=args.lr, num_slots=args.num_slots)
+        acc = run_hzb_memory(model, train_tokens, train_is_a, held_out_tokens, held_out_is_a, seed=SEED + seed_offset, steps=args.steps, lr=args.lr, num_slots=args.num_slots, ste=args.ste)
         print(f"  seed {SEED + seed_offset}: {acc:.3f}")
         memory_accs.append(acc)
     memory_mean = sum(memory_accs) / len(memory_accs)

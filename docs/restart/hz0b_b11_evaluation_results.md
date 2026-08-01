@@ -177,6 +177,67 @@ memory's real-checkpoint advantage over a matched-capacity non-memory
 baseline is unconfirmed, and the one clean multi-seed data point that
 exists points the other way.
 
+### Testing the real candidate fix: hard/discrete write decisions via STE (2026-08-01)
+
+Both this doc and `docs/restart/hz0b_b8_stage3_results.md` had named the
+same candidate fix for the underlying fragility: the write mechanism
+uses a SOFT, continuous blend (`_blend_state_by_row` with a
+`write_gate` in `(0, 1)`) -- B1 decision 5 explicitly deferred "hard/STE
+routing" to a later experiment. That experiment was finally run.
+
+Added `ste: bool = False` to `reference/hz0b_b8_latent_write.py`
+(`latent_write_and_read_step`/`sequential_latent_write_and_read`/
+`forward`, default-off so every existing caller is unaffected --
+verified by a dedicated regression test): when `True`, the write gate is
+discretized to exactly 0 or 1 in the forward pass via a straight-through
+estimator (`soft + stop_gradient(hard - soft)`), so a write either fully
+happens or doesn't -- no partial commit for gradient descent to exploit.
+Verified correct with 3 new unit tests (`tests/reference/
+test_hz0b_b8_latent_write.py`, 5/5 total passing): forward values are
+exactly binary, gradients still flow to `write_gate_w` (not zero, not
+NaN), and `ste=False` is bit-identical to the pre-existing behavior.
+
+Reran the exact reversal-triggering setup (5 seeds, steps=1000, lr=0.15,
+train_count=64, held_out_count=64, num_slots=8) with `--ste`:
+
+| Configuration | mean | std | range |
+| --- | --- | --- | --- |
+| Soft gate (original, num_slots=8) | 0.191 | 0.039 | 0.141-0.250 |
+| Soft gate, num_slots=16 | 0.222 | 0.139 | 0.016-0.453 |
+| **STE (hard gate), num_slots=8** | **0.269** | 0.079 | 0.203-0.422 |
+| Equal-param adapter (reference) | 0.512 | 0.061 | 0.438-0.562 |
+
+**STE helps, partially, honestly reported as neither a fix nor a null
+result.** Mean accuracy improved over the soft baseline (0.191 -> 0.269,
++0.078) and one seed (555) showed real, clean convergence -- train loss
+dropped smoothly to 0.233 (the lowest final loss of any memory run in
+this entire investigation, soft or hard) and reached 0.422 accuracy, the
+best individually-converged result seen. STE's variance (std 0.079) is
+also more contained than num_slots=16's (0.139) -- more seeds land in a
+similar, moderate range rather than the wide lucky-escape-vs-collapse
+split slot-capacity produced.
+
+But **STE does not close the gap to the adapter.** Mean 0.269 is still
+0.243 below the adapter's 0.512, and no seed reached competitive levels.
+Removing the continuous blend measurably reduces the training
+pathology (higher mean, one genuinely clean convergence) without
+eliminating it (still four of five seeds stuck well below chance-plus-
+adapter level, at losses of 4.6-8.5).
+
+**Stated plainly, not softened**: the "real candidate fix" both docs
+named did not resolve the underlying issue. It is a real, measurable,
+positive but partial result -- worth keeping (the STE path is now a real,
+tested capability, not reverted), but not sufficient on its own to
+restore B11's exit gate on this task. Given this is now the fourth
+independent real intervention across this investigation (step-budget
+check, slot-capacity check, STE) plus the five from B8 Stage 3's own
+earlier investigation -- nine real, honest attempts total across two
+related investigations -- further hyperparameter/mechanism variations
+are not being chased this pass. The honest conclusion stands: this
+latent-write architecture has a genuine, still-unresolved training
+fragility at realistic data scale, and B11's exit gate remains
+unsupported by this task.
+
 ### What this does NOT mean
 
 - It does not mean HZ-0B's write mechanism is broken in every setting --
