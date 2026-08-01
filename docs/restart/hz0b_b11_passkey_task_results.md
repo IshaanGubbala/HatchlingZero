@@ -64,6 +64,39 @@ classes) or a stronger regularizer against overfitting specifically
 generalization) -- named as real future work, not chased further this
 pass.
 
+## Testing the obvious fix: more training data (2026-08-01)
+
+Doubled `train_count` from 80 to 160 (40 examples/class instead of 20),
+same 5 seeds, steps, lr, `lambda_sparse=0.1`, `held_out_count=80`
+unchanged for a like-for-like comparison.
+
+| Condition | train_count=80 (original) | train_count=160 (doubled) |
+| --- | --- | --- |
+| Adapter mean (std) | 0.330 (0.058) | 0.398 (0.050) |
+| Memory mean (std) | 0.455 (0.198) | **0.608 (0.277)** |
+| Memory seeds below chance (0.25) | 2 of 5 (0.200, 0.225) | **0 of 5** (worst: 0.263) |
+| Memory advantage over adapter | +0.125 | **+0.210** |
+
+**Real, partial fix -- reported precisely, not rounded to "solved" or
+"didn't help."** More data clearly helps: mean rose (0.455 -> 0.608),
+no seed collapsed below chance anymore (worst case moved from 0.200 to
+0.263, now just barely above chance rather than meaningfully below it),
+and memory's margin over the adapter widened (more data helps the
+memory mechanism MORE than it helps the adapter, not just both equally).
+
+**But it does not fully fix the underlying inconsistency.** Std actually
+INCREASED (0.198 -> 0.277), not decreased -- because the well-converging
+seeds got much better (0.812-0.850, near ceiling, all with real,
+low, non-overfit-looking final train loss 0.12-0.14) while the two
+previously-below-chance seeds (556, 557) only recovered to
+barely-above-chance (0.263, 0.275) despite reaching even LOWER training
+loss than before (0.054, 0.042 -- still the overfitting signature: very
+low train loss, unremarkable held-out accuracy). More data raised the
+ceiling and the floor together, but did not close the gap between seeds
+that find a good solution and seeds that memorize instead -- doubling
+data is a real, measurable improvement, not a complete fix for this
+task's seed-to-seed inconsistency.
+
 ## What this adds to B11's real coverage
 
 2 of 16 named tasks now have real, checkpoint-backed, multi-seed
