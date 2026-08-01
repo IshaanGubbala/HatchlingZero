@@ -102,3 +102,29 @@ def test_ste_false_is_unchanged_from_before_this_flag_existed():
     _, _, gates_explicit_false = sequential_latent_write_and_read(params, hidden, ste=False)
     assert bool(mx.all(gates_default == gates_explicit_false))
     assert bool(mx.any((gates_default > 1e-6) & (gates_default < 1 - 1e-6)))  # genuinely continuous, not accidentally already binary
+
+
+def test_precomputed_hidden_matches_token_path_exactly():
+    """2026-08-01 caching optimization: forward(precomputed_hidden=...)
+    must be bit-identical to forward(token_ids=...) -- this is purely a
+    performance change, not a behavior change. Uses a minimal dummy
+    model (identity final_norm, identity-matrix embedding) so this test
+    doesn't need a real frozen HZ-0A checkpoint -- it's checking the
+    forward() plumbing, not backbone correctness."""
+    from reference.hz0b_b8_latent_write import forward
+
+    params = init_latent_write_controller(D_MODEL, KEY_DIM, VALUE_DIM, seed=1)
+    hidden = make_hidden(seed=3)
+
+    class DummyModel:
+        embedding = type("E", (), {"weight": mx.eye(D_MODEL)})()
+
+        @staticmethod
+        def final_norm(x):
+            return x
+
+    logits_a, _, gates_a = forward(DummyModel, precomputed_hidden=hidden, latent_params=params)
+    hidden2, _, gates_b = sequential_latent_write_and_read(params, hidden)
+    logits_b = DummyModel.final_norm(hidden2) @ DummyModel.embedding.weight.T
+    assert bool(mx.all(mx.abs(logits_a - logits_b) < 1e-6))
+    assert bool(mx.all(gates_a == gates_b))

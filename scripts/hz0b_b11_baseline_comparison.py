@@ -44,6 +44,7 @@ import mlx.nn as nn
 from mlx.utils import tree_unflatten
 
 from reference.hz0a_mlx_model import HZ0AMlxModel
+from reference.hz0b_b6_hz0a_integration import frozen_hidden_states
 from reference.hz0b_b8_latent_write import LatentWriteControllerParams, forward as latent_forward_pass, init_latent_write_controller
 from reference.hz0b_b11_equal_param_adapter import adapter_forward, init_equal_param_adapter, param_count
 from reference.hz0b_b11_equal_param_adapter import forward as adapter_forward_pass
@@ -125,23 +126,29 @@ def targets_for(is_a: mx.array) -> mx.array:
     return mx.where(is_a > 0.5, mx.array(TARGET_A), mx.array(TARGET_B)).astype(mx.int32)
 
 
-def run_true_floor(model, held_out_tokens, held_out_is_a) -> float:
-    logits, _ = adapter_forward_pass(model, held_out_tokens, adapter_params=None)
+def run_true_floor(model, held_out_hidden, held_out_is_a) -> float:
+    logits, _ = adapter_forward_pass(model, precomputed_hidden=held_out_hidden, adapter_params=None)
     predicted = mx.argmax(logits[:, -1, :], axis=-1)
     targets = targets_for(held_out_is_a)
     return float(mx.mean((predicted == targets).astype(mx.float32)))
 
 
-def run_equal_param_adapter(model, train_tokens, train_is_a, held_out_tokens, held_out_is_a, *, seed: int, steps: int, lr: float) -> float:
+def run_equal_param_adapter(model, train_hidden, train_is_a, held_out_hidden, held_out_is_a, *, seed: int, steps: int, lr: float) -> float:
+    """`train_hidden`/`held_out_hidden` are PRECOMPUTED frozen-backbone
+    hidden states (2026-08-01 caching optimization -- see
+    reference/hz0b_b11_equal_param_adapter.py::forward's docstring): the
+    301M-param backbone forward pass runs ONCE outside this function
+    (and outside the whole seed loop), not once per gradient step. The
+    backbone never changes across this loop -- only the adapter's own
+    small params do -- so recomputing it every step was pure waste."""
     params = init_equal_param_adapter(D_MODEL, ADAPTER_HIDDEN, seed=seed)
     params_dict = {"w1": params.w1, "b1": params.b1, "w2": params.w2, "b2": params.b2}
+    targets = targets_for(train_is_a)
 
     def loss_fn(pd: dict) -> mx.array:
         p = type(params)(**pd)
-        logits, _ = adapter_forward_pass(model, train_tokens, adapter_params=p)
-        final = logits[:, -1, :]
-        targets = targets_for(train_is_a)
-        return mx.mean(nn.losses.cross_entropy(final, targets))
+        logits, _ = adapter_forward_pass(model, precomputed_hidden=train_hidden, adapter_params=p)
+        return mx.mean(nn.losses.cross_entropy(logits[:, -1, :], targets))
 
     grad_fn = mx.value_and_grad(loss_fn)
     for step in range(steps):
@@ -153,13 +160,12 @@ def run_equal_param_adapter(model, train_tokens, train_is_a, held_out_tokens, he
             print(f"    [adapter seed={seed}] step {step:4d}  train loss {float(loss):.5f}")
 
     trained = type(params)(**params_dict)
-    logits, _ = adapter_forward_pass(model, held_out_tokens, adapter_params=trained)
+    logits, _ = adapter_forward_pass(model, precomputed_hidden=held_out_hidden, adapter_params=trained)
     predicted = mx.argmax(logits[:, -1, :], axis=-1)
-    targets = targets_for(held_out_is_a)
-    return float(mx.mean((predicted == targets).astype(mx.float32)))
+    return float(mx.mean((predicted == targets_for(held_out_is_a)).astype(mx.float32)))
 
 
-def run_hzb_memory(model, train_tokens, train_is_a, held_out_tokens, held_out_is_a, *, seed: int, steps: int, lr: float, num_slots: int = NUM_SLOTS, ste: bool = False, lambda_sparse: float = LAMBDA_SPARSE) -> float:
+def run_hzb_memory(model, train_hidden, train_is_a, held_out_hidden, held_out_is_a, *, seed: int, steps: int, lr: float, num_slots: int = NUM_SLOTS, ste: bool = False, lambda_sparse: float = LAMBDA_SPARSE) -> float:
     """Real HZ-0B latent write+read, trained fresh at this seed --
     reuses reference/hz0b_b8_latent_write.py unmodified, same mechanics
     as scripts/hz0b_b8_stage3_latent_write_probe.py. `num_slots`
@@ -175,16 +181,21 @@ def run_hzb_memory(model, train_tokens, train_is_a, held_out_tokens, held_out_is
     timing gate's gradient signal when content offers no
     position-differentiating reward -- lowering it rescued cell 3's
     isolated collapse (0.053 -> 0.281); this tests whether it also
-    rescues the FULL learned mechanism."""
+    rescues the FULL learned mechanism.
+
+    `train_hidden`/`held_out_hidden` are PRECOMPUTED frozen-backbone
+    hidden states (2026-08-01 caching optimization -- the memory
+    mechanism itself still runs fresh every step via `sequential_
+    latent_write_and_read`, only the 301M-param BACKBONE forward is
+    cached and reused across every step and every seed)."""
     init_params = init_latent_write_controller(D_MODEL, KEY_DIM, VALUE_DIM, seed=seed)
     params_dict = latent_params_to_dict(init_params)
+    targets = targets_for(train_is_a)
 
     def loss_fn(pd: dict) -> mx.array:
         p = dict_to_latent_params(pd)
-        logits, _, gates = latent_forward_pass(model, train_tokens, latent_params=p, num_slots=num_slots, ste=ste)
-        final = logits[:, -1, :]
-        targets = targets_for(train_is_a)
-        task_loss = mx.mean(nn.losses.cross_entropy(final, targets))
+        logits, _, gates = latent_forward_pass(model, precomputed_hidden=train_hidden, latent_params=p, num_slots=num_slots, ste=ste)
+        task_loss = mx.mean(nn.losses.cross_entropy(logits[:, -1, :], targets))
         sparsity_loss = mx.mean(gates)
         return task_loss + lambda_sparse * sparsity_loss
 
@@ -198,10 +209,9 @@ def run_hzb_memory(model, train_tokens, train_is_a, held_out_tokens, held_out_is
             print(f"    [memory seed={seed} num_slots={num_slots} ste={ste}] step {step:4d}  train loss {float(loss):.5f}")
 
     trained = dict_to_latent_params(params_dict)
-    logits, _, _ = latent_forward_pass(model, held_out_tokens, latent_params=trained, num_slots=num_slots, ste=ste)
+    logits, _, _ = latent_forward_pass(model, precomputed_hidden=held_out_hidden, latent_params=trained, num_slots=num_slots, ste=ste)
     predicted = mx.argmax(logits[:, -1, :], axis=-1)
-    targets = targets_for(held_out_is_a)
-    return float(mx.mean((predicted == targets).astype(mx.float32)))
+    return float(mx.mean((predicted == targets_for(held_out_is_a)).astype(mx.float32)))
 
 
 def main():
@@ -227,7 +237,16 @@ def main():
     held_out_tokens, held_out_is_a = make_prompts(args.held_out_count, rng)
     print(f"train_count={args.train_count} held_out_count={args.held_out_count} (granularity: 1/{args.held_out_count} = {1/args.held_out_count:.4f})")
 
-    floor_acc = run_true_floor(model, held_out_tokens, held_out_is_a)
+    # 2026-08-01 caching optimization: the frozen 301M-param backbone
+    # forward pass is the same for every seed and every gradient step in
+    # this whole script (only the small adapter/memory params change) --
+    # compute it ONCE here instead of inside every training step. See
+    # reference/hz0b_b8_latent_write.py::forward's docstring.
+    train_hidden, _ = frozen_hidden_states(model, train_tokens)
+    held_out_hidden, _ = frozen_hidden_states(model, held_out_tokens)
+    mx.eval(train_hidden, held_out_hidden)
+
+    floor_acc = run_true_floor(model, held_out_hidden, held_out_is_a)
     print(f"\n1. True floor (frozen backbone, zero extra params): {floor_acc:.3f}")
 
     adapter_accs = [None]
@@ -235,7 +254,7 @@ def main():
         print(f"\n2. Equal-parameter no-memory adapter ({args.num_seeds} seeds, steps={args.steps}, lr={args.lr}):")
         adapter_accs = []
         for seed_offset in range(args.num_seeds):
-            acc = run_equal_param_adapter(model, train_tokens, train_is_a, held_out_tokens, held_out_is_a, seed=SEED + seed_offset, steps=args.steps, lr=args.lr)
+            acc = run_equal_param_adapter(model, train_hidden, train_is_a, held_out_hidden, held_out_is_a, seed=SEED + seed_offset, steps=args.steps, lr=args.lr)
             print(f"  seed {SEED + seed_offset}: {acc:.3f}")
             adapter_accs.append(acc)
         adapter_mean = sum(adapter_accs) / len(adapter_accs)
@@ -248,7 +267,7 @@ def main():
     print(f"\n3. HZ-0B real latent write+read ({args.num_seeds} seeds, steps={args.steps}, lr={args.lr}, lambda_sparse={args.lambda_sparse}, num_slots={args.num_slots}, ste={args.ste}):")
     memory_accs = []
     for seed_offset in range(args.num_seeds):
-        acc = run_hzb_memory(model, train_tokens, train_is_a, held_out_tokens, held_out_is_a, seed=SEED + seed_offset, steps=args.steps, lr=args.lr, num_slots=args.num_slots, ste=args.ste, lambda_sparse=args.lambda_sparse)
+        acc = run_hzb_memory(model, train_hidden, train_is_a, held_out_hidden, held_out_is_a, seed=SEED + seed_offset, steps=args.steps, lr=args.lr, num_slots=args.num_slots, ste=args.ste, lambda_sparse=args.lambda_sparse)
         print(f"  seed {SEED + seed_offset}: {acc:.3f}")
         memory_accs.append(acc)
     memory_mean = sum(memory_accs) / len(memory_accs)

@@ -169,13 +169,26 @@ def sequential_latent_write_and_read(params: LatentWriteControllerParams, hidden
     return mx.stack(outputs, axis=1), memory_state, mx.stack(gates, axis=1)
 
 
-def forward(model, token_ids: mx.array, *, latent_params: LatentWriteControllerParams | None = None, states=None, num_slots: int = 8, decay_rate: float = 1.0, ste: bool = False):
+def forward(model, token_ids: mx.array | None = None, *, latent_params: LatentWriteControllerParams | None = None, states=None, num_slots: int = 8, decay_rate: float = 1.0, ste: bool = False, precomputed_hidden: mx.array | None = None):
     """Full forward pass. `latent_params=None` -> exact no-memory
     behavior. Otherwise every position gets the latent write+read path.
     `ste=False` (default) preserves every existing caller's behavior
     exactly -- opt-in, matching this project's own convention for
-    non-breaking additions."""
-    hidden, next_states = frozen_hidden_states(model, token_ids, states)
+    non-breaking additions.
+
+    `precomputed_hidden` (2026-08-01): skips re-running the frozen
+    301M-param backbone (`frozen_hidden_states`) when the caller already
+    computed it once for these exact tokens -- the backbone never
+    changes across a B11-style training loop (only `latent_params`
+    does), so recomputing it every gradient step was pure waste. Pass
+    EITHER `token_ids` OR `precomputed_hidden`, not both. `next_states`
+    is `None` in this path (unused by every current caller, which all
+    discard it via `_`) since there is no fresh backbone call to derive
+    it from."""
+    if precomputed_hidden is not None:
+        hidden, next_states = precomputed_hidden, None
+    else:
+        hidden, next_states = frozen_hidden_states(model, token_ids, states)
     write_gates = None
     if latent_params is not None:
         hidden, _, write_gates = sequential_latent_write_and_read(latent_params, hidden, num_slots=num_slots, decay_rate=decay_rate, ste=ste)

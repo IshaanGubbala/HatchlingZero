@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import mlx.core as mx
 
-from reference.hz0b_b11_equal_param_adapter import adapter_forward, init_equal_param_adapter, param_count
+from reference.hz0b_b11_equal_param_adapter import adapter_forward, forward, init_equal_param_adapter, param_count
 
 
 def test_param_count_matches_formula():
@@ -50,3 +50,26 @@ def test_no_cross_position_information_flow():
     assert bool(mx.all(mx.abs(out_a[:, :2, :] - out_b[:, :2, :]) < 1e-6))
     assert bool(mx.all(mx.abs(out_a[:, 3:, :] - out_b[:, 3:, :]) < 1e-6))
     assert not bool(mx.all(mx.abs(out_a[:, 2, :] - out_b[:, 2, :]) < 1e-6))
+
+
+def test_precomputed_hidden_matches_token_path_exactly():
+    """2026-08-01 caching optimization: forward(precomputed_hidden=...)
+    must be bit-identical to forward(token_ids=...) -- purely a
+    performance change. Minimal dummy model (identity final_norm,
+    identity-matrix embedding), same convention as the equivalent test
+    in test_hz0b_b8_latent_write.py."""
+    d_model = 16
+    params = init_equal_param_adapter(d_model=d_model, hidden=8, seed=0)
+    hidden = mx.random.normal((2, 5, d_model))
+
+    class DummyModel:
+        embedding = type("E", (), {"weight": mx.eye(d_model)})()
+
+        @staticmethod
+        def final_norm(x):
+            return x
+
+    logits_a, _ = forward(DummyModel, precomputed_hidden=hidden, adapter_params=params)
+    expected_hidden = adapter_forward(params, hidden)
+    logits_b = DummyModel.final_norm(expected_hidden) @ DummyModel.embedding.weight.T
+    assert bool(mx.all(mx.abs(logits_a - logits_b) < 1e-6))

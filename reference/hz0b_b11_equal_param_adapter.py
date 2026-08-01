@@ -64,10 +64,19 @@ def adapter_forward(params: EqualParamAdapterParams, hidden: mx.array) -> mx.arr
     return hidden + (h @ params.w2 + params.b2)
 
 
-def forward(model, token_ids: mx.array, *, adapter_params: EqualParamAdapterParams | None = None, states=None):
+def forward(model, token_ids: mx.array | None = None, *, adapter_params: EqualParamAdapterParams | None = None, states=None, precomputed_hidden: mx.array | None = None):
     """`adapter_params=None` -> exact no-memory, no-adapter behavior
-    (the true zero-extra-parameter floor)."""
-    hidden, next_states = frozen_hidden_states(model, token_ids, states)
+    (the true zero-extra-parameter floor).
+
+    `precomputed_hidden` (2026-08-01): skips re-running the frozen
+    backbone when the caller already computed it once for these exact
+    tokens -- see `reference/hz0b_b8_latent_write.py::forward`'s
+    docstring for the full rationale. Pass EITHER `token_ids` OR
+    `precomputed_hidden`, not both."""
+    if precomputed_hidden is not None:
+        hidden, next_states = precomputed_hidden, None
+    else:
+        hidden, next_states = frozen_hidden_states(model, token_ids, states)
     if adapter_params is not None:
         hidden = adapter_forward(adapter_params, hidden)
     return logits_from_hidden(model, hidden), next_states
