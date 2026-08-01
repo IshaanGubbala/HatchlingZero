@@ -141,6 +141,19 @@ away, matching this whole investigation's own standard.
    remaining caveat: seed 557's specific failure is not yet root-caused
    -- real future work, not blocking.**
 5. Memory state does not degrade monotonically as write count grows.
+   **MET at the mechanism level (2026-08-01):**
+   `scripts/hz0b_reopening_criterion5_monotonic_degradation.py` (pure B2
+   simulator, no LM needed -- eviction/capacity behavior is a property
+   of the mechanism itself). Tested the real, non-trivial version (not
+   the trivial "protection works" case, already covered by B8 Stage 5):
+   200 sustained UNPROTECTED writes into 8 slots (25x over capacity) --
+   immediate-retrievability rate (does the just-written fact stay
+   retrievable right after writing) stayed at a flat 1.000 across every
+   20-write window, first half and second half identical. No wear-out,
+   no degradation over time -- the mechanism reaches stable steady-state
+   eviction behavior. 1 new regression test locks this in. Real-model
+   (not pure-simulator) version not yet run -- same honest gap named for
+   B8 Stage 5's own scenarios.
 6. Bad writes can be detected or rolled back, not just hoped away.
 
 ## Phase Tracker
