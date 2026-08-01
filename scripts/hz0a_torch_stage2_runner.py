@@ -426,8 +426,6 @@ def main() -> None:
                     if device.type == "cuda":
                         entry["peak_memory_bytes"] = int(torch.cuda.max_memory_allocated())
                     chunk_metrics.append(entry)
-                    with memory_log.open("a", encoding="utf-8") as handle:
-                        handle.write(json.dumps(entry) + "\n")
                 batch_index += 1
                 item = chunk_metrics[-1]
             else:
@@ -452,8 +450,7 @@ def main() -> None:
                 tokens_seen += args.batch_size * sequence_length
                 microbatch_count += 1
                 item = {"step": step, "tokens_seen": tokens_seen, "loss": float(loss), "gradient_norm": grad_norm, "update_norm": update_norm, "lr": last_lr, "wall_time": time.perf_counter() - started, "microbatch_count": microbatch_count, "epoch_or_data_pass": epoch_counter[0]}
-                with memory_log.open("a", encoding="utf-8") as handle:
-                    handle.write(json.dumps(item) + "\n")
+                chunk_metrics.append(item)
 
             is_new_best = False
             if step % args.validation_interval == 0 or tokens_seen >= args.target_tokens:
@@ -461,6 +458,15 @@ def main() -> None:
                 if best_validation_loss is None or item["validation_loss"] < best_validation_loss:
                     best_validation_loss = item["validation_loss"]
                     is_new_best = True
+            # Written here, after validation_loss (if any) has already been added to `item`
+            # above -- writing inside the truncate-backward per-chunk loop or immediately in
+            # the non-truncate-backward branch (as this used to) flushes each line to disk
+            # BEFORE this validation block runs, so validation_loss -- though correctly
+            # computed and present in `metrics`/the checkpoint's own saved metrics -- was
+            # silently never written to the live-tailed torch_stage2_memory.jsonl file.
+            with memory_log.open("a", encoding="utf-8") as handle:
+                for logged_entry in chunk_metrics:
+                    handle.write(json.dumps(logged_entry) + "\n")
             metrics.append(item)
             if step % args.checkpoint_interval == 0 or tokens_seen >= args.target_tokens:
                 save_checkpoint(checkpoint, model, optimizer, step, tokens_seen, batch_index, metrics, microbatch_count, epoch_counter[0], best_validation_loss, milestones_hit)
