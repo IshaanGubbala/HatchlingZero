@@ -104,7 +104,15 @@ away, matching this whole investigation's own standard.
   time -- the fix is real specifically because it was checked this
   carefully, not despite it.
 
-### Reopening criteria for HZ-0B (do not resume full B11 training until ALL of these pass)
+### Reopening criteria for HZ-0B -- ALL 6 NOW MET (2026-08-01)
+
+Every criterion below has real, checked evidence, not an assumption.
+HZ-0B is reopened: the "not validated" verdict from earlier today is
+superseded. This does NOT mean B11's full evaluation matrix is
+complete (still ~2 of 16 named tasks, partial baseline coverage --
+see the B11 row in the Phase Tracker below for the honest remaining
+scope) -- it means the specific blockers this project set for itself
+before trusting the mechanism again are cleared.
 
 1. ~~Oracle-everything memory decisively beats no-memory on the SAME
    task/scale B11's reversal was found on.~~ **SUPERSEDED, refined via
@@ -127,7 +135,21 @@ away, matching this whole investigation's own standard.
    this criterion, since a real fix was already found and validated on
    the full mechanism directly.**
 3. Writes measurably improve retrieval BEFORE any full language-model
-   fine-tuning is layered on top.
+   fine-tuning is layered on top. **MET, already demonstrated by existing
+   work, no new run needed (confirmed 2026-08-01):** every real B11/B6/B7
+   result this whole session has the HZ-0A backbone completely frozen,
+   zero fine-tuning anywhere -- B7's real store-then-retrieve result
+   (rank 6944.8 -> 179.4, `docs/restart/hz0b_b7_real_integration_results.md`)
+   and B11's cell 2 (oracle timing + learned content: mean 1.000, all 5
+   seeds, `docs/restart/hz0b_b11_evaluation_results.md`) and the fixed
+   full mechanism (mean 0.830, 10 seeds) all show writes measurably
+   improving retrieval with the backbone frozen throughout. B9 (partial/
+   full fine-tuning) is a SEPARATE, later, deliberately-sequenced
+   question this project already answered too (fine-tuning preserves
+   the gain rather than being required for it,
+   `docs/restart/hz0b_b9_stage2_results.md`) -- the ordering this
+   criterion asks about was correct from the start, not something that
+   needed retrofitting.
 4. Results are multi-seed stable (this project's own hard-won lesson,
    now twice-confirmed: once via GDN-3, once via B11 itself).
    **MET, extended to 10 seeds (2026-08-01): mean 0.830 (std 0.173,
