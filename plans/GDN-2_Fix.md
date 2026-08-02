@@ -1,8 +1,9 @@
 # GDN-2 Fix: Upgrading HZ-0A's Recurrence to Gated DeltaNet-2
 
-Status: in progress. Oracle, Torch parity path, MLX opt-in path, and deterministic
-recurrence controls are implemented; native Metal forward/backward and matched
-training remain open. Updated 2026-08-01.
+Status: in progress. The corrected recurrence, native Metal forward/backward,
+checkpoint replay, and small matched reports are implemented; scale retraining,
+long-context stability, and final quality comparisons remain open. Updated
+2026-08-01.
 
 ## Execution tracker
 
@@ -54,8 +55,9 @@ model initialization, batches, and AdamW on each arm):
 | Old GDN-2 | 4.77e-7 | 3.80e-7 | 1.78e-6 | 1.82e-6 | match | 61.3 MB | 3.19 s |
 | Exact GDN-2 fix | 4.77e-7 | 2.98e-7 | 1.78e-6 | 1.78e-6 | match | 65.8 MB | 4.08 s |
 
-Both arms were finite throughout. This validates the native-forward plus MLX
-VJP bridge, not a native Metal backward; the latter remains a separate gate.
+Both arms were finite throughout. This report predates the native backward
+wiring and is retained as the bridge baseline; the later native-backward report
+below is the authoritative native result.
 
 After wiring the normalized native Metal backward, the corrected 100-step replay
 reported maximum loss error `4.77e-7`, maximum gradient error `3.58e-7`, maximum
