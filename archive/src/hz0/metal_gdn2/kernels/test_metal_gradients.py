@@ -4,7 +4,10 @@ Tests: Compiled kernels produce correct gradients within tolerance.
 """
 
 import mlx.core as mx
-from gdn2_backward_wrapper import GDN2BackwardMetal
+try:
+    from .gdn2_backward_wrapper import GDN2BackwardMetal
+except ImportError:
+    from gdn2_backward_wrapper import GDN2BackwardMetal
 import math
 
 
