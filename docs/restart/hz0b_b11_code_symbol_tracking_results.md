@@ -49,6 +49,40 @@ position/recency artifacts specific to the 80 training examples to
 guess the right one, rather than learning a true "most recent write
 wins" rule that generalizes to unseen reassignment orderings.
 
+## Tested the passkey task's own fix (2026-08-01, same day) -- it does NOT transfer, and makes this task WORSE
+
+The passkey task's overfitting was fixed by doubling training data
+(80->160). Tried the identical fix here:
+
+| Configuration (train_count=160) | mean | std | range |
+| --- | --- | --- | --- |
+| Equal-param adapter | 0.360 | 0.053 | 0.263-0.412 |
+| HZ-0B memory | **0.233** | 0.022 | 0.200-0.263 |
+
+**This is not an improvement -- it is a further regression.** Memory's
+mean dropped from 0.283 (train_count=80) to 0.233 (train_count=160),
+now solidly BELOW the 0.250 chance floor on average, with every seed
+in a tight 0.200-0.263 band. The adapter is essentially unchanged
+(0.370 -> 0.360). Training loss for memory also changed character:
+with more data it converges much more slowly and to a HIGHER final
+loss (mostly 1.0-1.5, vs. 0.148-0.277 at train_count=80) -- the
+opposite of overfitting-with-low-train-loss seen before; this looks
+more like genuine difficulty fitting the harder, larger training set
+at all within 1000 steps, not a data-starvation problem the passkey
+fix addressed.
+
+**Honest conclusion**: the "more data" fix is task-specific, not a
+general remedy for memory underperforming on B11 tasks. It helped the
+passkey task (single clean write, sparse 4-way retrieval) and hurt
+this one (3 sequential overwrites to the same key). This is real
+evidence the overwrite/reassignment-tracking failure mode is
+mechanistically different from the passkey task's sparse-retrieval
+overfitting, not just "needs more examples" -- consistent with the
+architectural hypothesis named above (repeated writes to the same key
+may not be cleanly overwriting). Not yet tried: an explicit
+reassignment-clearing mechanism change, or more training steps at the
+same data size (ruling out simple undertraining at the larger set).
+
 ## What this adds to B11's real coverage
 
 One more of the 16 named tasks moves from 0% to done, with an honest
