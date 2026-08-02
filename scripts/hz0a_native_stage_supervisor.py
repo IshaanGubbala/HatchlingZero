@@ -59,6 +59,7 @@ def main() -> None:
             "--data", str(args.data), "--validation-data", str(args.validation_data),
             "--run-dir", str(run_dir), "--target-tokens", str(args.target_tokens),
             "--stop-tokens", str(child_target),
+            "--quiet",
             "--batch-size", str(args.batch_size), "--checkpoint-interval", str(args.checkpoint_interval),
             "--validation-interval", str(args.validation_interval), "--chunk-length", str(args.chunk_length),
             "--truncate-backward", "--vocab-size", str(args.vocab_size), "--dim", str(args.dim),

@@ -150,6 +150,7 @@ def main() -> None:
     parser.add_argument("--run-dir", type=Path, required=True)
     parser.add_argument("--target-tokens", type=int, default=10_000_000)
     parser.add_argument("--stop-tokens", type=int, default=0, help="Optional bounded child-run stop point; scheduler still uses --target-tokens")
+    parser.add_argument("--quiet", action="store_true", help="Write the full JSON report but suppress its large stdout payload")
     parser.add_argument("--batch-size", type=int, default=2)
     parser.add_argument("--checkpoint-interval", type=int, default=100)
     parser.add_argument("--validation-interval", type=int, default=100)
@@ -430,7 +431,10 @@ def main() -> None:
                         milestones_hit.append(target)
     report = {"backend": "native_metal_mlx", "architecture": args.architecture, "mixer": args.mixer, "stage": "stage1_validation", "dtype": args.dtype, "activation_checkpoint": args.activation_checkpoint, "chunk_length": args.chunk_length, "gradient_accumulation_chunks": args.gradient_accumulation_chunks, "gradient_accumulation_dtype": args.gradient_accumulation_dtype, "reset_attention_state": args.reset_attention_state, "carry_attention_state": carry_attention_state, "lr_schedule": args.lr_schedule, "max_lr": args.max_lr, "warmup_steps": args.warmup_steps, "lr_min_ratio": args.lr_min_ratio, "total_optimizer_steps_estimate": total_optimizer_steps, "final_lr": last_lr, "validation_batch_size": args.validation_batch_size, "steps": step, "microbatch_count": microbatch_count, "epoch_or_data_pass": epoch_counter[0], "best_validation_loss": best_validation_loss, "milestones_hit": milestones_hit, "tokens_seen": tokens_seen, "target_tokens": args.target_tokens, "budget_complete": tokens_seen >= args.target_tokens, "parameter_count": sum(value.size for _, value in tree_flatten(model.parameters())), "initialization_seed": args.seed, "final_parameter_sha256": model_fingerprint(model), "metrics": metrics, "checkpoint": str(checkpoint), "training_seconds": time.perf_counter() - started, "tokens_per_second": tokens_seen / max(time.perf_counter() - started, 1e-9), "peak_memory_bytes": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss}
     (args.run_dir / "native_metal.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
-    print(json.dumps(report, indent=2))
+    if args.quiet:
+        print(json.dumps({key: report[key] for key in ("tokens_seen", "target_tokens", "budget_complete", "steps", "best_validation_loss", "tokens_per_second", "peak_memory_bytes")}, sort_keys=True))
+    else:
+        print(json.dumps(report, indent=2))
 
 
 if __name__ == "__main__":
