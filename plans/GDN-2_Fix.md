@@ -102,6 +102,14 @@ four/eight-chunk and repeated-1,024-token direct native stability gates. The
 production runner and long-corpus training protocol still require a separate
 matched quality run.
 
+A fresh batch-1 production mitigation probe (`100,000`-token target, same
+float32/compile/checkpoint protocol) stopped at `26,240` telemetry tokens / step
+205 without a final report. Peak memory remained approximately `8.42 GB`, so
+reducing batch size did not move the failure boundary or the peak allocation.
+This rules out batch size as the sole cause and leaves runner graph/command-
+buffer lifetime as the active production blocker; no additional long runs are
+being spawned until that lifecycle is corrected.
+
 Exact 301M matched replay (`scripts/hz0a_gdn2_fix_301m_comparison.py`, run as
 separate processes to avoid two full graphs sharing allocator pressure): both
 arms completed 100 steps / 12,800 real packed-corpus tokens with global
