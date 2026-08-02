@@ -71,6 +71,33 @@ non-shallow local optimum this whole investigation has repeatedly
 encountered. Named as the most likely explanation, not re-verified to
 certainty this pass.
 
+## Tested the named fix candidate (2026-08-01, same day): STE does NOT help
+
+The diagnosis above named `ste=True` (hard/discrete write decisions,
+already validated by B8 Stage 3 as a real, partial fix for write-
+position selectivity) as the natural next thing to try, on the theory
+that it should reduce filler-position dilution. Added `--ste` to
+`scripts/hz0b_b11_code_symbol_tracking.py` and ran the full 5-seed
+comparison:
+
+| Configuration | mean | std | range |
+| --- | --- | --- | --- |
+| Memory, continuous (baseline) | 0.283 | 0.038 | 0.225-0.325 |
+| Memory, `ste=True` | 0.285 | 0.037 | 0.237-0.350 |
+
+**No meaningful change** (+0.002, well within noise) -- STE does NOT
+fix this task's failure, unlike its partial success on B11's earlier
+culminating test and B8 Stage 3's own write-position-selectivity
+problem. This is a real, honest negative: the filler-position-dilution
+hypothesis, at least as addressed by STE's discretization alone, does
+not explain (or is not fixed by addressing) this specific task's
+read-focus failure. The gap between "write is clean" and "read can't
+find it" remains open, real future work (not attempted this pass):
+directly logging filler-position write_gate values to confirm or
+refute the dilution hypothesis itself, and inspecting the read
+query's actual similarity landscape against all 8 slots' keys instead
+of only the argmax/target-slot weight.
+
 ## What this adds to B11's real coverage
 
 A complete, honest root-cause chain for code-symbol tracking's

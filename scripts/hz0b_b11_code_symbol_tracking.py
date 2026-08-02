@@ -120,14 +120,22 @@ def run_equal_param_adapter(model, train_hidden, train_idx, held_out_hidden, hel
     return float(mx.mean((predicted == targets_for(held_out_idx)).astype(mx.float32)))
 
 
-def run_hzb_memory(model, train_hidden, train_idx, held_out_hidden, held_out_idx, *, seed: int, steps: int, lr: float) -> float:
+def run_hzb_memory(model, train_hidden, train_idx, held_out_hidden, held_out_idx, *, seed: int, steps: int, lr: float, ste: bool = False) -> float:
+    """`ste` (2026-08-01): hard/discrete write decisions via a straight-
+    through estimator instead of the continuous blend -- tests whether
+    this fixes the read-focus failure diagnosed in
+    docs/restart/hz0b_b11_write_slot_diagnosis_code_symbol_results.md
+    (write routing is clean, but the READ step fails to reliably
+    retrieve the correctly-written slot; the leading hypothesis is
+    diluted-by-filler-position writes, which STE's all-or-nothing
+    commits should reduce)."""
     init_params = init_latent_write_controller(D_MODEL, KEY_DIM, VALUE_DIM, seed=seed)
     params_dict = latent_params_to_dict(init_params)
     targets = targets_for(train_idx)
 
     def loss_fn(pd: dict) -> mx.array:
         p = dict_to_latent_params(pd)
-        logits, _, gates = latent_forward_pass(model, precomputed_hidden=train_hidden, latent_params=p, num_slots=NUM_SLOTS)
+        logits, _, gates = latent_forward_pass(model, precomputed_hidden=train_hidden, latent_params=p, num_slots=NUM_SLOTS, ste=ste)
         task_loss = mx.mean(nn.losses.cross_entropy(logits[:, -1, :], targets))
         write_rate = mx.mean(gates)
         sparsity_loss = (write_rate - TARGET_WRITE_RATE) ** 2
@@ -140,10 +148,10 @@ def run_hzb_memory(model, train_hidden, train_idx, held_out_hidden, held_out_idx
         params_dict = {k: params_dict[k] - lr * grads[k] for k in params_dict}
         mx.eval(*params_dict.values())
         if step % 300 == 0 or step == steps - 1:
-            print(f"    [memory seed={seed}] step {step:4d}  train loss {float(loss):.5f}")
+            print(f"    [memory seed={seed} ste={ste}] step {step:4d}  train loss {float(loss):.5f}")
 
     trained = dict_to_latent_params(params_dict)
-    logits, _, _ = latent_forward_pass(model, precomputed_hidden=held_out_hidden, latent_params=trained, num_slots=NUM_SLOTS)
+    logits, _, _ = latent_forward_pass(model, precomputed_hidden=held_out_hidden, latent_params=trained, num_slots=NUM_SLOTS, ste=ste)
     predicted = mx.argmax(logits[:, -1, :], axis=-1)
     return float(mx.mean((predicted == targets_for(held_out_idx)).astype(mx.float32)))
 
@@ -155,6 +163,7 @@ def main():
     parser.add_argument("--num-seeds", type=int, default=5)
     parser.add_argument("--train-count", type=int, default=80)
     parser.add_argument("--held-out-count", type=int, default=80)
+    parser.add_argument("--ste", action="store_true", help="hard/discrete write decisions via STE -- tests the fix candidate named in the read-focus root-cause diagnosis")
     args = parser.parse_args()
 
     print(f"num_reassignments={NUM_REASSIGNMENTS} num_values={NUM_VALUES} (chance={1/NUM_VALUES:.3f}) adapter budget={param_count(D_MODEL, ADAPTER_HIDDEN)} memory budget=692,837")
@@ -183,10 +192,10 @@ def main():
     adapter_std = (sum((a - adapter_mean) ** 2 for a in adapter_accs) / len(adapter_accs)) ** 0.5
     print(f"  mean: {adapter_mean:.3f}  std: {adapter_std:.3f}  range: {min(adapter_accs):.3f}-{max(adapter_accs):.3f}")
 
-    print(f"\n3. HZ-0B real memory, lambda_sparse={LAMBDA_SPARSE}, target_write_rate={TARGET_WRITE_RATE} ({args.num_seeds} seeds):")
+    print(f"\n3. HZ-0B real memory, lambda_sparse={LAMBDA_SPARSE}, target_write_rate={TARGET_WRITE_RATE}, ste={args.ste} ({args.num_seeds} seeds):")
     memory_accs = []
     for i in range(args.num_seeds):
-        acc = run_hzb_memory(model, train_hidden, train_idx, held_out_hidden, held_out_idx, seed=SEED + i, steps=args.steps, lr=args.lr)
+        acc = run_hzb_memory(model, train_hidden, train_idx, held_out_hidden, held_out_idx, seed=SEED + i, steps=args.steps, lr=args.lr, ste=args.ste)
         print(f"  seed {SEED + i}: {acc:.3f}")
         memory_accs.append(acc)
     memory_mean = sum(memory_accs) / len(memory_accs)
