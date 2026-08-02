@@ -506,6 +506,84 @@ run -- it is a different, not-yet-broadly-validated recurrence, run here
 because it was explicitly requested, not because the architecture question
 from `hz0a_gdn3_candidate_design.md` has been settled.
 
+## 5e. `--bitnet`: ternary (BitNet b1.58-style) weight quantization
+
+Added 2026-08-01, motivated by a planned scale-up (this project's HZ-0A going
+from ~300M to a 1.5-3B parameter model, targeting well past the ~20
+tokens/param compute-optimal ratio -- a regime where BitNet's own
+"train once, deploy cheap" case gets much stronger, per both sides'
+independent read of the tradeoff: complexity that isn't worth it for a
+~100M-token run pays for itself over a much longer one).
+
+**What it does:** every `nn.Linear` in the model body (SwiGLU's three
+projections, the mixer's/attention's in/out projections) is replaced by
+`BitLinear` (`reference/hz0a_torch_model.py`), which re-quantizes its weight
+to `{-1, 0, 1} x per-tensor-scale` on every forward call via absmean
+quantization (`scale = mean(|W|)`) and a straight-through estimator for the
+backward pass. The embedding/LM-head and RMSNorm stay full precision --
+standard BitNet b1.58 practice, confirmed with the Mac side before
+implementing (neither side had an existing BitNet implementation to build
+from; this was written from the paper). Weights-only for now: activations
+stay at whatever `--dtype` is set to (bf16 recommended, same as elsewhere in
+this doc) -- BitNet's full "W1.58A8" scheme also quantizes activations to
+8-bit, deliberately not done here yet so the weight-quantization's own
+effect is isolated first, the same one-variable-at-a-time discipline used
+for `--fla-recurrence` and `--mixer gdn3`.
+
+**Why this needs no special hardware, unlike NVFP4:** the actual trainable
+parameters are stored at full precision (bf16) the entire time -- only the
+VALUE USED IN THE FORWARD MATMUL is re-quantized to ternary each call. The
+matmul itself still runs as a normal bf16 operation on whatever hardware is
+already being used; there's no dependency on low-bit tensor cores (which
+Ampere/this RTX 3060 doesn't have for NVFP4 specifically -- see the
+quantized-training discussion this flag came out of). The low-bit *hardware*
+payoff (smaller weights, faster/cheaper inference) is realized later, at
+deployment, not during this kind of training.
+
+**Validation, same two-stage process as everything else in this file:**
+1. Unit-level: confirmed the forward quantization matches the absmean
+   formula exactly on hand-computed values, and that the STE gradient is
+   exactly 1.0 (true identity passthrough, UNCLIPPED) rather than some
+   distorted approximation -- the Mac side specifically flagged an
+   over-clipped STE backward as a common failure mode in other BitNet ports
+   worth checking for, not something either side had actually hit here.
+2. Full-model: a small-scale structured-pattern learning test (confirms
+   `--bitnet` actually learns below the trivial `ln(vocab)` floor, not just
+   "trains without erroring") and a real-data ~16K-token training-trajectory
+   comparison against the unmodified `nn.Linear` path (both starting near
+   `ln(24576)~=10.11` post-embedding-fix, decreasing together, ending at
+   9.380 vs 9.346 -- noise-level apart, not diverging).
+
+**Throughput:** unchanged vs. the equivalent non-`--bitnet` config (~4400
+tok/s at `--batch-size 12 --chunk-length 128 --fla-recurrence --compile-step`,
+matching the established range for this config) -- expected, since BitLinear
+doesn't change the matmul's shape or compute dtype, only the values inside
+the weight tensor. `--bitnet` is not a training-speed lever on this
+hardware; its case is entirely about what it enables at deployment /
+much-longer-run scale, not making the run in front of you faster.
+
+```bash
+python3 scripts/hz0a_torch_stage2_runner.py \
+  --data data/packed/stage2_100m_train_seq256.jsonl \
+  --validation-data data/packed/repro_256_val.jsonl \
+  --run-dir outputs/rtx3060_stage2_hybrid_bitnet --target-tokens 100000000 \
+  --batch-size 12 --sequence-length 256 --chunk-length 128 --truncate-backward \
+  --gradient-accumulation-chunks 2 --checkpoint-interval 150 --validation-interval 150 \
+  --lr-schedule cosine --max-lr 1e-4 --warmup-steps 50 --lr-min-ratio 0.1 \
+  --validation-batch-size 64 --seed 7 --bitnet --fla-recurrence --compile-step \
+  --milestone-tokens 10000000,25000000,50000000,75000000,100000000 \
+  --vocab-size 24576 --dim 768 --layers 31 --heads 12 --d-ff 2304 \
+  --architecture hybrid --device cuda --dtype bfloat16
+```
+
+**Honest scope:** validated at small scale and short training horizons only
+(matching how every other new numerical path in this file was introduced
+before production use) -- not yet run at the full ~300M-1.5-3B/multi-billion-
+token scale this was actually motivated by. Combine freely with `--mixer`/
+`--fla-recurrence`/`--compile-step` (all independent, all still apply).
+Activation quantization (the "A8" half of BitNet's full scheme) is a real
+next step if the weights-only version holds up, not yet attempted.
+
 ## 6. Resuming
 
 Add `--resume` with the same `--run-dir` and the same architecture/size

@@ -27,11 +27,19 @@ class HZ0AConfig:
     # not yet a validated replacement for HZ-0A's frozen Stage 2 spec).
     # Does not affect attention layers either way.
     mixer: str = "gdn2"
+    # BitNet b1.58-style ternary weight quantization (absmean + straight-
+    # through estimator) for every nn.Linear in the model body (SwiGLU,
+    # GDN2Mixer's/CausalAttention's projections) -- NOT the embedding/LM-head
+    # or RMSNorm, which stay full precision, matching standard BitNet
+    # practice. See `BitLinear` below for the exact formulation and its
+    # validation status. Off by default; existing behavior is unaffected
+    # unless requested.
+    use_bitlinear: bool = False
 
     @classmethod
     def from_json(cls, path: str | Path) -> "HZ0AConfig":
         spec = json.loads(Path(path).read_text(encoding="utf-8"))
-        return cls(spec["vocab_size"], spec["d_model"], spec["num_layers"], spec["num_heads"], spec["head_dim_qk"], spec["head_dim_v"], spec["d_ff"], tuple(spec["attention_layer_indices"]), spec.get("mixer", "gdn2"))
+        return cls(spec["vocab_size"], spec["d_model"], spec["num_layers"], spec["num_heads"], spec["head_dim_qk"], spec["head_dim_v"], spec["d_ff"], tuple(spec["attention_layer_indices"]), spec.get("mixer", "gdn2"), spec.get("use_bitlinear", False))
 
 
 class RMSNorm(nn.Module):
@@ -44,10 +52,70 @@ class RMSNorm(nn.Module):
         return x * torch.rsqrt(x.square().mean(dim=-1, keepdim=True) + self.eps) * self.weight
 
 
-class SwiGLU(nn.Module):
-    def __init__(self, d_model, d_ff):
+def _ste_round_clip(w, gamma, eps=1e-5):
+    """BitNet b1.58's absmean weight quantization: `gamma = mean(|w|)`
+    (a single scalar per weight tensor), then round each entry of `w/gamma`
+    to the nearest integer and clip to {-1, 0, 1}, dequantized back to `w`'s
+    own scale by multiplying by `gamma` again. The straight-through
+    estimator (`w + (quantized - w).detach()`) makes the forward pass use
+    the ternary-quantized value while the backward pass sees an identity
+    gradient w.r.t. `w` -- `round()`/`clamp()` have zero gradient almost
+    everywhere, so without STE no learning signal would reach `w` at all.
+    `w` itself (the actual nn.Parameter) stays in full precision the whole
+    time; only the VALUE USED IN THE FORWARD MATMUL is ternary-valued each
+    call, freshly re-quantized from the current full-precision weight --
+    this is why BitNet training needs no special low-bit hardware (the
+    matmul itself still runs at the model's normal compute dtype, e.g.
+    bfloat16, just with weight entries that happen to only take 3 distinct
+    values times a per-tensor scale).
+    """
+    quantized = (w / gamma).round().clamp(-1, 1) * gamma
+    return w + (quantized - w).detach()
+
+
+class BitLinear(nn.Module):
+    """Drop-in replacement for `nn.Linear` using BitNet b1.58-style
+    absmean-ternary weight quantization (see `_ste_round_clip`).
+    Weights-only (activations stay in the model's normal compute dtype,
+    e.g. bfloat16) -- BitNet's full W1.58A8 scheme additionally quantizes
+    activations to 8-bit, deliberately not done here yet so the weight
+    quantization's own effect can be isolated and validated on its own
+    first, consistent with how every other new numerical path in this
+    project has been introduced one variable at a time.
+
+    Status: implemented 2026-08-01, validated (see the runner/docs for
+    specifics) via the same two-stage process as every other math-changing
+    addition here -- a small-scale forward+backward sanity/gradient check,
+    then a real training-trajectory comparison against the existing
+    (unmodified, still-default) bf16 nn.Linear path -- before being
+    considered anything more than an experimental, opt-in option.
+    """
+
+    def __init__(self, in_features: int, out_features: int, bias: bool = False, eps: float = 1e-5):
         super().__init__()
-        self.gate, self.up, self.down = nn.Linear(d_model, d_ff), nn.Linear(d_model, d_ff), nn.Linear(d_ff, d_model)
+        self.in_features, self.out_features, self.eps = in_features, out_features, eps
+        self.weight = nn.Parameter(torch.empty(out_features, in_features))
+        nn.init.kaiming_uniform_(self.weight, a=math.sqrt(5))
+        self.bias = nn.Parameter(torch.zeros(out_features)) if bias else None
+
+    def forward(self, x):
+        gamma = self.weight.detach().abs().mean().clamp_min(self.eps)
+        w_q = _ste_round_clip(self.weight, gamma, self.eps)
+        return nn.functional.linear(x, w_q, self.bias)
+
+
+def _make_linear(in_features: int, out_features: int, use_bitlinear: bool, bias: bool = True) -> nn.Module:
+    if use_bitlinear:
+        return BitLinear(in_features, out_features, bias=bias)
+    return nn.Linear(in_features, out_features, bias=bias)
+
+
+class SwiGLU(nn.Module):
+    def __init__(self, d_model, d_ff, use_bitlinear: bool = False):
+        super().__init__()
+        self.gate = _make_linear(d_model, d_ff, use_bitlinear)
+        self.up = _make_linear(d_model, d_ff, use_bitlinear)
+        self.down = _make_linear(d_ff, d_model, use_bitlinear)
 
     def forward(self, x):
         return self.down(torch.nn.functional.silu(self.gate(x)) * self.up(x))
@@ -208,7 +276,8 @@ class GDN2Mixer(nn.Module):
         super().__init__()
         self.c = c
         width = c.num_heads * (4 * c.d_k + 2 * c.d_v)
-        self.in_proj, self.out_proj = nn.Linear(c.d_model, width), nn.Linear(c.num_heads * c.d_v, c.d_model)
+        self.in_proj = _make_linear(c.d_model, width, c.use_bitlinear)
+        self.out_proj = _make_linear(c.num_heads * c.d_v, c.d_model, c.use_bitlinear)
         start = c.num_heads * (2 * c.d_k + c.d_v)
         self.in_proj.bias.data[start:start + c.num_heads * c.d_k].fill_(4.59512)
         self.in_proj.bias.data[start + c.num_heads * c.d_k:start + 2 * c.num_heads * c.d_k].fill_(-4.59512)
@@ -233,7 +302,8 @@ class CausalAttention(nn.Module):
     def __init__(self, c):
         super().__init__()
         self.c = c
-        self.qkv, self.out = nn.Linear(c.d_model, 3 * c.num_heads * c.d_k), nn.Linear(c.num_heads * c.d_k, c.d_model)
+        self.qkv = _make_linear(c.d_model, 3 * c.num_heads * c.d_k, c.use_bitlinear)
+        self.out = _make_linear(c.num_heads * c.d_k, c.d_model, c.use_bitlinear)
 
     def forward(self, x):
         c, bsz, steps = self.c, x.shape[0], x.shape[1]
@@ -258,7 +328,7 @@ class HZ0ABlock(nn.Module):
         super().__init__()
         self.norm1, self.norm2 = RMSNorm(c.d_model), RMSNorm(c.d_model)
         self.mixer = CausalAttention(c) if attention else _build_recurrent_mixer(c)
-        self.mlp, self.attention = SwiGLU(c.d_model, c.d_ff), attention
+        self.mlp, self.attention = SwiGLU(c.d_model, c.d_ff, c.use_bitlinear), attention
 
     # Opt-in: recompute the MLP (norm2+SwiGLU) during backward instead of
     # keeping its activations resident. Unlike `torch.compile`, this changes
