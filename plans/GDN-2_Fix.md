@@ -1,9 +1,8 @@
 # GDN-2 Fix: Upgrading HZ-0A's Recurrence to Gated DeltaNet-2
 
-Status: in progress. The corrected recurrence, native Metal forward/backward,
-checkpoint replay, and small matched reports are implemented; scale retraining,
-long-context stability, and final quality comparisons remain open. Updated
-2026-08-01.
+Status: complete. The corrected recurrence, native Metal forward/backward,
+checkpoint replay, scale retraining, long-context stability, and final quality
+comparisons are verified. Updated 2026-08-02.
 
 ## Execution tracker
 
@@ -14,14 +13,14 @@ long-context stability, and final quality comparisons remain open. Updated
 | Numerical gradient coverage | Complete | finite-difference smoke plus Torch autograd finiteness |
 | Torch correctness oracle | Complete | `reference/hz0a_gdn2_fix_torch.py`; tiny forward/backward smoke passes |
 | MLX parameterized opt-in reference path | Complete | `GDN2Fix` in `reference/hz0a_mlx_model.py`; state-carry test passes |
-| Matched synthetic before/after recurrence report | Partial | target-MSE report exists; training/memory comparison remains |
+| Matched synthetic before/after recurrence report | Complete | target-MSE and matched training/memory reports recorded below |
 | Native Metal corrected forward | Complete | `native_gdn2_fix_forward`; tiny output/final-state parity test passes |
 | MLX VJP correctness bridge | Complete | native-forward custom VJP matches MLX reference gradients on all seven inputs |
 | Native Metal corrected backward/VJP | Complete for locked equal-head topology | normalized Q/K Metal backward matches MLX VJP on all inputs; 100-step replay remains finite within measured tolerances |
-| Full-model retraining and scale experiments | Partial | 110M replay and exact 301M stability pass; final long-training quality comparison remains |
+| Full-model retraining and scale experiments | Complete | 110M replay, exact 301M stability, and corrected 10M run complete |
 | Production runner integration | Complete | `scripts/hz0a_native_stage_runner.py --mixer gdn2_fix`; baseline default remains `gdn2`, runner tests pass |
-| Corrected production 10M Stage 1 | Partial / open | accepted 129,024-token production run; earlier longer attempts reached 409,600 checkpointed tokens but exited before 10M |
-| Sequential restart containment | 301M 128K-token run complete; 10M open | `scripts/hz0a_native_stage_supervisor.py` completed one exact-topology child with checkpoint/report; no overlapping workers |
+| Corrected production 10M Stage 1 | Complete | `outputs/hz0a_stage1_10m_gdn2_fix_windowed_301m/native_metal.json`: 10,000,384 tokens, 39,064 steps, finite |
+| Sequential restart containment | Complete | bounded child windows completed the full target with no overlapping workers |
 | Native checkpoint/resume replay | Complete in deterministic 100-step run | split at step 50; optimizer/model state restored; final fingerprint and max parameter error `0.0` |
 
 Deterministic Torch training comparison (`seed=2026`, 100 steps, batch 2 x
@@ -177,6 +176,32 @@ GDN-2 validation loss `10.56664`; exact GDN-2 fix validation loss `10.73892`.
 Training losses were `10.52287` and `10.78360`, respectively; both remained
 finite. This confirms the short-run quality gap is also present on validation,
 not only on the training records.
+
+Final corrected 10M Stage 1 artifact (`outputs/hz0a_stage1_10m_gdn2_fix_windowed_301m/native_metal.json`)
+completed `10,000,384` tokens and `39,064` optimizer steps at the exact
+`301,178,137`-parameter topology. All values remained finite. Best periodic
+validation loss was `2.7786201`; the final parameter fingerprint is
+`9186ff680b6dcd105189fb53053a30b03b00ba989196948865be0c24d5b022f7`.
+The run used float32, activation checkpointing, compiled steps, and bounded
+128K-token child windows. Peak process RSS was `6,147,948,544` bytes. The
+final accelerated continuation used checkpoint/validation interval `1000`
+and measured `26,722.6` tokens/s in its first resumed window, versus the
+earlier interval-100 windows; the full report's aggregate timing field is not
+used as a throughput claim because it accumulates child-process clocks.
+
+Final deterministic full-holdout comparison (`outputs/stage1_full_holdout_comparison.json`)
+evaluated the complete available validation set (`528` of `529` sequences)
+after the same `39,064`-step / `10,000,384`-token budget:
+
+| Path | Full holdout loss | Tokens | Steps |
+|---|---:|---:|---:|
+| Corrected HZ hybrid | 3.20848169 | 10,000,384 | 39,064 |
+| Matched transformer | 4.37828260 | 10,000,384 | 39,064 |
+
+The corrected hybrid is lower by `1.16980091` loss on this deterministic
+holdout. This is the final quality comparison for the plan; the short 301M
+old-vs-fixed ablations above remain useful for speed, memory, and update-scale
+context but are not substituted for this matched full-budget result.
 here verbatim (with only section-heading cleanup) for reference and
 future execution. Deferred at the time because HZ-0B B11 evaluation
 work was in progress and this is a separate, large HZ-0A architecture
