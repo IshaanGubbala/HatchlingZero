@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import time
@@ -66,9 +67,25 @@ def main() -> None:
         if args.compile_step:
             command.append("--compile-step")
         started = time.perf_counter()
-        completed = subprocess.run(command, check=False)
+        process = subprocess.Popen(
+            command,
+            start_new_session=True,
+        )
+        try:
+            returncode = process.wait()
+        except BaseException:
+            # Keep an interrupted supervisor from orphaning a GPU runner.
+            try:
+                os.killpg(process.pid, 15)
+                process.wait(timeout=10)
+            except (OSError, subprocess.TimeoutExpired):
+                try:
+                    os.killpg(process.pid, 9)
+                except OSError:
+                    pass
+            raise
         current = checkpoint_tokens(run_dir)
-        history.append({"restart": restart, "exit_code": completed.returncode, "checkpoint_tokens": current, "seconds": time.perf_counter() - started})
+        history.append({"restart": restart, "exit_code": returncode, "checkpoint_tokens": current, "seconds": time.perf_counter() - started})
         print(json.dumps(history[-1], sort_keys=True), flush=True)
         if current >= args.target_tokens:
             break

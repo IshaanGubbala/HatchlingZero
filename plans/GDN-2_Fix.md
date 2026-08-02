@@ -20,8 +20,8 @@ long-context stability, and final quality comparisons remain open. Updated
 | Native Metal corrected backward/VJP | Complete for locked equal-head topology | normalized Q/K Metal backward matches MLX VJP on all inputs; 100-step replay remains finite within measured tolerances |
 | Full-model retraining and scale experiments | Partial | 110M replay and exact 301M stability pass; final long-training quality comparison remains |
 | Production runner integration | Complete | `scripts/hz0a_native_stage_runner.py --mixer gdn2_fix`; baseline default remains `gdn2`, runner tests pass |
-| Corrected production 10M Stage 1 | Partial / open | real runner reached 409,600 checkpointed tokens / 412,672 telemetry tokens with finite loss; repeated process exits before budget completion |
-| Sequential restart containment | Tiny lifecycle test complete; scale result open | `scripts/hz0a_native_stage_supervisor.py` completes a 1,024-token corrected run with one child; no 10M completion is claimed |
+| Corrected production 10M Stage 1 | Partial / open | accepted 129,024-token production run; earlier longer attempts reached 409,600 checkpointed tokens but exited before 10M |
+| Sequential restart containment | 301M 128K-token run complete; 10M open | `scripts/hz0a_native_stage_supervisor.py` completed one exact-topology child with checkpoint/report; no overlapping workers |
 | Native checkpoint/resume replay | Complete in deterministic 100-step run | split at step 50; optimizer/model state restored; final fingerprint and max parameter error `0.0` |
 
 Deterministic Torch training comparison (`seed=2026`, 100 steps, batch 2 x
@@ -140,6 +140,20 @@ without it). Checkpoints and per-chunk memory logs were written, but the 10M
 budget was not completed. This remains an open production-runner stability
 blocker, distinct from the direct 1,024-token corrected stability probe that
 passed.
+
+Accepted bounded production run (`outputs/hz0a_stage1_128k_gdn2_fix_supervised_301m`)
+completed one exact-topology supervised child through `129,024` tokens (504
+updates) without overlap or restart. The run used 301,178,137 parameters,
+reported finite training loss `3.4807446`, held-out validation loss `4.6152457`,
+and throughput `574.94` tokens/s. Active memory stayed at `4,844,809,136`
+bytes; peak device allocation was `8,434,150,852` bytes. The checkpoint contains
+model, optimizer, recurrent-state, and validation metadata. This is the accepted
+production-scale containment artifact, not completion of the 10M-token gate.
+
+The supervisor now launches each child in its own process group and terminates
+the whole group on interruption, preventing a stopped check from leaving an
+orphaned GPU runner. The tiny sequential supervisor test remains green.
+
 The longer 1,000-step matched replay (same script, same data protocol, run in
 separate processes) completed `128,000` real tokens for both arms:
 
