@@ -149,6 +149,7 @@ def main() -> None:
     parser.add_argument("--validation-data", type=Path, required=True)
     parser.add_argument("--run-dir", type=Path, required=True)
     parser.add_argument("--target-tokens", type=int, default=10_000_000)
+    parser.add_argument("--stop-tokens", type=int, default=0, help="Optional bounded child-run stop point; scheduler still uses --target-tokens")
     parser.add_argument("--batch-size", type=int, default=2)
     parser.add_argument("--checkpoint-interval", type=int, default=100)
     parser.add_argument("--validation-interval", type=int, default=100)
@@ -179,6 +180,9 @@ def main() -> None:
     parser.add_argument("--validation-batch-size", type=int, default=32, help="Fixed number of validation sequences read once at startup and reused for every validation check (was a single rotating sequence -- high variance, not comparable across runs)")
     parser.add_argument("--milestone-tokens", type=str, default="", help="Comma-separated token counts (e.g. 25000000,50000000,75000000,100000000) to preserve as separate, never-overwritten checkpoint snapshots -- in addition to the regular rolling checkpoint. Fixes the earlier mistake of only keeping one overwritten checkpoint slot.")
     args = parser.parse_args()
+    stop_tokens = args.stop_tokens or args.target_tokens
+    if stop_tokens > args.target_tokens:
+        raise ValueError("--stop-tokens cannot exceed --target-tokens")
     if args.gradient_accumulation_chunks <= 0:
         raise ValueError("--gradient-accumulation-chunks must be positive")
     if args.warmup_steps < 0:
@@ -319,7 +323,7 @@ def main() -> None:
             # accumulation path before adopting (see the commit this
             # accompanies).
             apply_optimizer_update = mx.compile(apply_optimizer_update, inputs=[model.state, optimizer.state], outputs=[model.state, optimizer.state])
-        while tokens_seen < args.target_tokens:
+        while tokens_seen < stop_tokens:
             tokens = read_batch(train, args.batch_size, sequence_length, epoch_counter)
             chunk_metrics = []
             if args.truncate_backward:
@@ -410,13 +414,13 @@ def main() -> None:
                     handle.write(json.dumps(item) + "\n")
                 gc.collect()
             is_new_best = False
-            if step % args.validation_interval == 0 or tokens_seen >= args.target_tokens:
+            if step % args.validation_interval == 0 or tokens_seen >= stop_tokens:
                 item["validation_loss"] = evaluate_fixed_validation(model)
                 if best_validation_loss is None or item["validation_loss"] < best_validation_loss:
                     best_validation_loss = item["validation_loss"]
                     is_new_best = True
             metrics.append(item)
-            if step % args.checkpoint_interval == 0 or tokens_seen >= args.target_tokens:
+            if step % args.checkpoint_interval == 0 or tokens_seen >= stop_tokens:
                 save_checkpoint(checkpoint, model, optimizer, step, tokens_seen, batch_index, metrics, microbatch_count=microbatch_count, epoch_or_data_pass=epoch_counter[0], best_validation_loss=best_validation_loss, milestones_hit=milestones_hit)
                 if is_new_best:
                     snapshot_checkpoint(checkpoint, checkpoint.parent / f"{checkpoint.name}_best")

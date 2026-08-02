@@ -152,7 +152,12 @@ production-scale containment artifact, not completion of the 10M-token gate.
 
 The supervisor now launches each child in its own process group and terminates
 the whole group on interruption, preventing a stopped check from leaving an
-orphaned GPU runner. The tiny sequential supervisor test remains green.
+orphaned GPU runner. It also supports bounded child windows: the global
+`--target-tokens` remains the scheduler horizon while `--child-tokens` limits
+each process lifetime; checkpoints occur at full sequence boundaries. The
+multi-window supervisor regression test confirms two sequential children reach
+the same target without overlap. The focused native/reference suite remains
+green.
 
 The longer 1,000-step matched replay (same script, same data protocol, run in
 separate processes) completed `128,000` real tokens for both arms:

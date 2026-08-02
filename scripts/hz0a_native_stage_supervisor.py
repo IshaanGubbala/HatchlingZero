@@ -30,6 +30,7 @@ def main() -> None:
     parser.add_argument("--validation-data", type=Path, required=True)
     parser.add_argument("--run-dir", type=Path, required=True)
     parser.add_argument("--target-tokens", type=int, default=10_000_000)
+    parser.add_argument("--child-tokens", type=int, default=128_000, help="Maximum new tokens per child process; keeps GPU graph lifetime bounded")
     parser.add_argument("--max-restarts", type=int, default=200)
     parser.add_argument("--batch-size", type=int, default=2)
     parser.add_argument("--checkpoint-interval", type=int, default=100)
@@ -45,15 +46,19 @@ def main() -> None:
     parser.add_argument("--activation-checkpoint", action="store_true")
     parser.add_argument("--compile-step", action="store_true")
     args = parser.parse_args()
+    if args.child_tokens <= 0:
+        raise ValueError("--child-tokens must be positive")
     run_dir = args.run_dir
     run_dir.mkdir(parents=True, exist_ok=True)
     history = []
     previous = checkpoint_tokens(run_dir)
     for restart in range(args.max_restarts + 1):
+        child_target = min(args.target_tokens, previous + args.child_tokens)
         command = [
             sys.executable, "scripts/hz0a_native_stage_runner.py",
             "--data", str(args.data), "--validation-data", str(args.validation_data),
             "--run-dir", str(run_dir), "--target-tokens", str(args.target_tokens),
+            "--stop-tokens", str(child_target),
             "--batch-size", str(args.batch_size), "--checkpoint-interval", str(args.checkpoint_interval),
             "--validation-interval", str(args.validation_interval), "--chunk-length", str(args.chunk_length),
             "--truncate-backward", "--vocab-size", str(args.vocab_size), "--dim", str(args.dim),
