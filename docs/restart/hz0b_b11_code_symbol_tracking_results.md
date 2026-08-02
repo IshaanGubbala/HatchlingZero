@@ -83,6 +83,24 @@ may not be cleanly overwriting). Not yet tried: an explicit
 reassignment-clearing mechanism change, or more training steps at the
 same data size (ruling out simple undertraining at the larger set).
 
+## Correction (2026-08-01, same day): the "blending/split-writes" hypothesis above is REFUTED by direct evidence
+
+`docs/restart/hz0b_b11_write_slot_diagnosis_code_symbol_results.md`,
+`scripts/hz0b_b11_write_slot_diagnosis_code_symbol.py` directly tested
+the hypothesis named above (writes to the same key may be
+split/blended across multiple slots instead of cleanly overwriting).
+Result, checked against real held-out examples, not assumed: **8/8
+held-out examples route all 3 reassignments to the SAME slot, with
+write_gate saturated at 1.000 (full commit) every single time** --
+this is a real, clean, in-place overwrite on held-out data, not the
+named failure mode. The hypothesis is wrong, stated plainly rather
+than left uncorrected in the record. The real cause of this task's
+negative result must be downstream of write/slot-routing (which this
+diagnostic shows works correctly) -- most likely the READ step at the
+`READ_TRIGGER` position or generalization of the read-query/value
+projections, not investigated further this pass. See that doc for
+full detail.
+
 ## What this adds to B11's real coverage
 
 One more of the 16 named tasks moves from 0% to done, with an honest
