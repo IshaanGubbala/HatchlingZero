@@ -1,6 +1,35 @@
 # GDN-2 Fix: Upgrading HZ-0A's Recurrence to Gated DeltaNet-2
 
-Status: proposal, not started. Pasted by the user 2026-08-01, saved
+Status: in progress. Oracle, Torch parity path, MLX opt-in path, and deterministic
+recurrence controls are implemented; native Metal forward/backward and matched
+training remain open. Updated 2026-08-01.
+
+## Execution tracker
+
+| Gate | Status | Evidence |
+|---|---|---|
+| Tensor convention and exact vector-gated recurrence | Complete | `reference/hz0a_gdn2_fix_reference.py`; 7 reference/benchmark tests pass |
+| NumPy oracle control cases | Complete | additive write, targeted erase, overwrite, chunk equivalence |
+| Numerical gradient coverage | Complete | finite-difference smoke plus Torch autograd finiteness |
+| Torch correctness oracle | Complete | `reference/hz0a_gdn2_fix_torch.py`; tiny forward/backward smoke passes |
+| MLX parameterized opt-in reference path | Complete | `GDN2Fix` in `reference/hz0a_mlx_model.py`; state-carry test passes |
+| Matched synthetic before/after recurrence report | Partial | target-MSE report exists; training/memory comparison remains |
+| Native Metal corrected forward | Complete | `native_gdn2_fix_forward`; tiny output/final-state parity test passes |
+| Native Metal corrected backward/VJP | Open | existing backward is still the old recurrence |
+| Full-model retraining and scale experiments | Open | must wait for native kernel parity |
+
+Current deterministic recurrence-control result (`--seed 7 --trials 32 --dim 16`):
+
+| Path | Mean target-state MSE | Mean untouched-state MSE | Cases/s |
+|---|---:|---:|---:|
+| Old HZ additive | 0.00397153 | 0.00000000 | 27,267.85 |
+| Scalar KDA-like | 0.00723940 | 0.00000000 | 34,444.79 |
+| Exact vector GDN-2 | 0.00016310 | 0.00000000 | 14,486.55 |
+| Full-history control | 0.00000000 | 0.00000000 | 68,574.22 |
+
+These are recurrence-isolation numbers, not language-model quality claims. The
+old path remains the frozen HZ-0A baseline; no checkpoint has been relabeled as
+the corrected model.
 here verbatim (with only section-heading cleanup) for reference and
 future execution. Deferred at the time because HZ-0B B11 evaluation
 work was in progress and this is a separate, large HZ-0A architecture

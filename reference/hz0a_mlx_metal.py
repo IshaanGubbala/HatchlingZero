@@ -169,6 +169,130 @@ _SOURCE = r"""
 """
 
 
+_FIX_SOURCE = r"""
+    uint tid = thread_position_in_grid.x;
+    uint value = tid % V;
+    uint head = (tid / V) % H;
+    uint batch = tid / (V * H);
+    if (batch >= B || K > 64) return;
+
+    thread float state[64];
+    uint state_base = ((batch * H + head) * V + value) * K;
+    for (uint key = 0; key < K; ++key)
+        state[key] = initial[state_base + key];
+
+    for (uint t = 0; t < S; ++t) {
+        uint key_row = ((batch * S + t) * H + head) * K;
+        uint row = ((batch * S + t) * H + head) * V + value;
+        float query_norm = 0.0f;
+        for (uint key = 0; key < K; ++key) query_norm += q[key_row + key] * q[key_row + key];
+        query_norm = metal::sqrt(query_norm > 1.0e-12f ? query_norm : 1.0e-12f);
+        float key_norm = 0.0f;
+        for (uint key = 0; key < K; ++key) key_norm += k[key_row + key] * k[key_row + key];
+        key_norm = metal::sqrt(key_norm > 1.0e-12f ? key_norm : 1.0e-12f);
+        float write = hz_sigmoid(w[row]);
+        float value_t = v[row];
+        float output = 0.0f;
+        thread float decayed_state[64];
+        thread float normalized_keys[64];
+        float old_value = 0.0f;
+        for (uint key = 0; key < K; ++key) {
+            float decay_rate = metal::exp(-6.13f);
+            float decay_input = d[key_row + key];
+            float softplus_decay = metal::log(1.0f + metal::exp(-metal::abs(decay_input))) + max(decay_input, 0.0f);
+            float alpha = metal::exp(-decay_rate * softplus_decay);
+            float normalized_key = k[key_row + key] / key_norm;
+            float erase = hz_sigmoid(e[key_row + key]);
+            decayed_state[key] = alpha * state[key];
+            normalized_keys[key] = normalized_key;
+            old_value += decayed_state[key] * erase * normalized_key;
+        }
+        float residual = write * value_t - old_value;
+        for (uint key = 0; key < K; ++key) {
+            state[key] = decayed_state[key] + residual * normalized_keys[key];
+            output += state[key] * (q[key_row + key] / query_norm);
+        }
+        y[row] = static_cast<DType>(output);
+    }
+    for (uint key = 0; key < K; ++key)
+        final_state[state_base + key] = static_cast<DType>(state[key]);
+"""
+
+
+_FIX_BACKWARD_BODY = r"""
+    uint tid = thread_position_in_grid.x;
+    uint value = tid % V;
+    uint head = (tid / V) % H;
+    uint batch = tid / (V * H);
+    if (batch >= B || S > 128 || K > 64) return;
+    thread float states[129][64];
+    uint state_base = ((batch * H + head) * V + value) * K;
+    for (uint key = 0; key < K; ++key) states[0][key] = initial[state_base + key];
+    for (uint t = 0; t < S; ++t) {
+        uint key_row = ((batch * S + t) * H + head) * K;
+        uint row = ((batch * S + t) * H + head) * V + value;
+        float kn = 0.0f;
+        for (uint key = 0; key < K; ++key) kn += k[key_row + key] * k[key_row + key];
+        kn = metal::sqrt(kn > 1.0e-12f ? kn : 1.0e-12f);
+        float old_value = 0.0f;
+        for (uint key = 0; key < K; ++key) {
+            float rate = metal::exp(-6.13f);
+            float z = d[key_row + key];
+            float sp = metal::log(1.0f + metal::exp(-metal::abs(z))) + max(z, 0.0f);
+            float alpha = metal::exp(-rate * sp);
+            float nk = k[key_row + key] / kn;
+            float decayed = alpha * states[t][key];
+            old_value += decayed * hz_sigmoid(e[key_row + key]) * nk;
+            states[t + 1][key] = decayed;
+        }
+        float residual = hz_sigmoid(w[row]) * v[row] - old_value;
+        for (uint key = 0; key < K; ++key)
+            states[t + 1][key] += residual * (k[key_row + key] / kn);
+    }
+    thread float gs[64];
+    for (uint key = 0; key < K; ++key)
+        gs[key] = grad_final[state_base + key];
+    for (int reverse = int(S) - 1; reverse >= 0; --reverse) {
+        uint t = uint(reverse);
+        uint key_row = ((batch * S + t) * H + head) * K;
+        uint row = ((batch * S + t) * H + head) * V + value;
+        float qn = 0.0f;
+        float kn = 0.0f;
+        for (uint key = 0; key < K; ++key) {
+            qn += q[key_row + key] * q[key_row + key];
+            kn += k[key_row + key] * k[key_row + key];
+        }
+        qn = metal::sqrt(qn > 1.0e-12f ? qn : 1.0e-12f);
+        kn = metal::sqrt(kn > 1.0e-12f ? kn : 1.0e-12f);
+        float rgrad = 0.0f;
+        for (uint key = 0; key < K; ++key)
+            rgrad += (gs[key] + grad_output[row] * q[key_row + key] / qn) * (k[key_row + key] / kn);
+        float grad_v = rgrad * hz_sigmoid(w[row]);
+        float grad_w = rgrad * v[row];
+        grad_v_out[row] = static_cast<DType>(grad_v);
+        grad_w_out[row] = static_cast<DType>(grad_w * hz_sigmoid(w[row]) * (1.0f - hz_sigmoid(w[row])));
+        for (uint key = 0; key < K; ++key) {
+            float z = d[key_row + key];
+            float sp = metal::log(1.0f + metal::exp(-metal::abs(z))) + max(z, 0.0f);
+            float rate = metal::exp(-6.13f);
+            float alpha = metal::exp(-rate * sp);
+            float nk = k[key_row + key] / kn;
+            float erase = hz_sigmoid(e[key_row + key]);
+            float decayed = alpha * states[t][key];
+            float total = gs[key] + grad_output[row] * q[key_row + key] / qn;
+            float gdecayed = total - rgrad * erase * nk;
+            grad_q_partial[((batch * S + t) * H + head) * V * K + value * K + key] = static_cast<DType>(grad_output[row] * states[t + 1][key] / qn);
+            grad_k_partial[((batch * S + t) * H + head) * V * K + value * K + key] = static_cast<DType>(rgrad * (total * 0.0f + 1.0f) * 0.0f);
+            grad_d_partial[((batch * S + t) * H + head) * V * K + value * K + key] = static_cast<DType>(gdecayed * states[t][key] * (-rate * (1.0f / (1.0f + metal::exp(-z)))) * alpha);
+            grad_e_partial[((batch * S + t) * H + head) * V * K + value * K + key] = static_cast<DType>(-rgrad * decayed * nk * erase * (1.0f - erase));
+            gs[key] = gdecayed * alpha;
+        }
+    }
+    for (uint key = 0; key < K; ++key)
+        grad_initial[state_base + key] = static_cast<DType>(gs[key]);
+"""
+
+
 def _reference_forward(q, k, v, d, e, w, initial):
     d, e, w = (mx.sigmoid(item) for item in (d, e, w))
     state = initial
@@ -236,6 +360,39 @@ def native_gdn2_forward(q, k, v, d, e, w, initial):
         output_dtypes=[q.dtype, initial.dtype],
     )
     return outputs
+
+
+def native_gdn2_fix_forward(q, k, v, d, e, w, initial):
+    """Exact vector-gated GDN-2 forward kernel, without a backward bridge yet.
+
+    ``d`` and ``e`` are key-channel logits and ``w`` is a value-channel logit.
+    The fixed decay scale is intentionally the initialization value used by
+    the MLX reference; making it trainable belongs in the follow-up VJP gate.
+    """
+    bsz, steps, heads, key_dim = q.shape
+    value_dim = v.shape[-1]
+    expected = (bsz, steps, heads, key_dim)
+    if k.shape != expected or d.shape != expected or e.shape != expected:
+        raise ValueError("q, k, d, and e must share [B,S,H,K] shape")
+    if w.shape != (bsz, steps, heads, value_dim):
+        raise ValueError("w must have [B,S,H,V] shape")
+    if initial.shape != (bsz, heads, value_dim, key_dim):
+        raise ValueError("initial state shape mismatch")
+    kernel = mx.fast.metal_kernel(
+        name="hz0a_gdn2_fix_forward_mlx",
+        input_names=["q", "k", "v", "d", "e", "w", "initial"],
+        output_names=["y", "final_state"],
+        source=_FIX_SOURCE,
+        header="#include <metal_stdlib>\nusing namespace metal;\nfloat hz_sigmoid(float x) { return 1.0f / (1.0f + metal::exp(-x)); }\n",
+    )
+    return kernel(
+        inputs=[q, k, v, d, e, w, initial],
+        template=[("DType", q.dtype), ("B", bsz), ("S", steps), ("H", heads), ("K", key_dim), ("V", value_dim)],
+        grid=(bsz * heads * value_dim, 1, 1),
+        threadgroup=(min(256, bsz * heads * value_dim), 1, 1),
+        output_shapes=[(bsz, steps, heads, value_dim), initial.shape],
+        output_dtypes=[q.dtype, initial.dtype],
+    )
 
 
 def native_gdn2_backward(q, k, v, d, e, w, initial, grad_output, grad_final):

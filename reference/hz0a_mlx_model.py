@@ -46,6 +46,50 @@ class GDN2(nn.Module):
         return self.out(mx.stack(outputs, axis=1).reshape(bsz, steps, self.dim)), state
 
 
+class GDN2Fix(nn.Module):
+    """Opt-in exact vector-gated GDN-2 reference path.
+
+    This deliberately remains separate from ``GDN2`` until the Metal kernel
+    and its VJP have matched this implementation on every tensor.
+    """
+
+    def __init__(self, dim: int, heads: int):
+        super().__init__()
+        self.dim, self.heads, self.head_dim = dim, heads, dim // heads
+        self.in_proj = nn.Linear(dim, 6 * dim)
+        self.out = nn.Linear(dim, dim)
+        self.decay_a = mx.full((dim,), -6.13)
+        self.in_proj.bias = mx.concatenate([
+            mx.zeros((3 * dim,)),
+            mx.full((dim,), 4.59512),
+            mx.full((2 * dim,), -4.59512),
+        ])
+
+    def __call__(self, x, state=None):
+        bsz, steps, _ = x.shape
+        projected = self.in_proj(x).reshape(bsz, steps, 6, self.heads, self.head_dim)
+        q, k, v, decay, erase, write = mx.split(projected, 6, axis=2)
+        q, k, v, decay, erase, write = (mx.squeeze(item, axis=2) for item in (q, k, v, decay, erase, write))
+        q = q / mx.maximum(mx.linalg.norm(q.astype(mx.float32), axis=-1, keepdims=True), 1e-6)
+        k = k / mx.maximum(mx.linalg.norm(k.astype(mx.float32), axis=-1, keepdims=True), 1e-6)
+        decay_rate = mx.exp(self.decay_a).reshape(1, 1, self.heads, self.head_dim)
+        decay_fp32 = decay.astype(mx.float32)
+        softplus_decay = mx.maximum(decay_fp32, 0) + mx.log1p(mx.exp(-mx.abs(decay_fp32)))
+        alpha = mx.exp(-decay_rate * softplus_decay).astype(x.dtype)
+        erase = mx.sigmoid(erase.astype(mx.float32)).astype(x.dtype)
+        write = mx.sigmoid(write.astype(mx.float32)).astype(x.dtype)
+        if state is None:
+            state = mx.zeros((bsz, self.heads, self.head_dim, self.head_dim), dtype=x.dtype)
+        outputs = []
+        for t in range(steps):
+            decayed = state * alpha[:, t, :, None, :]
+            old_value = mx.sum(decayed * (erase[:, t] * k[:, t])[:, :, None, :], axis=-1)
+            residual = write[:, t] * v[:, t] - old_value
+            state = decayed + residual[:, :, :, None] * k[:, t, :, None, :]
+            outputs.append(mx.sum(state * q[:, t, :, None, :], axis=-1))
+        return self.out(mx.stack(outputs, axis=1).reshape(bsz, steps, self.dim)), state
+
+
 class CausalAttention(nn.Module):
     def __init__(self, dim: int, heads: int):
         super().__init__()
@@ -70,11 +114,18 @@ class CausalAttention(nn.Module):
 
 
 class Block(nn.Module):
-    def __init__(self, dim: int, heads: int, d_ff: int, attention: bool, native_metal: bool = False):
+    def __init__(self, dim: int, heads: int, d_ff: int, attention: bool, native_metal: bool = False, mixer: str = "gdn2"):
         super().__init__()
         self.attention = attention
         self.norm1, self.norm2 = nn.RMSNorm(dim), nn.RMSNorm(dim)
-        self.mixer = CausalAttention(dim, heads) if attention else GDN2(dim, heads, native_metal)
+        if attention:
+            self.mixer = CausalAttention(dim, heads)
+        elif mixer == "gdn2_fix":
+            if native_metal:
+                raise ValueError("native_metal gdn2_fix is not available until Metal parity is verified")
+            self.mixer = GDN2Fix(dim, heads)
+        else:
+            self.mixer = GDN2(dim, heads, native_metal)
         self.gate, self.up, self.down = nn.Linear(dim, d_ff), nn.Linear(dim, d_ff), nn.Linear(d_ff, dim)
 
     def __call__(self, x, state=None):
@@ -86,12 +137,12 @@ class Block(nn.Module):
 
 
 class HZ0AMlxModel(nn.Module):
-    def __init__(self, vocab_size: int, dim: int, layers: int, heads: int, d_ff: int, attention_indices: tuple[int, ...], native_metal: bool = False, checkpoint_blocks: bool = False):
+    def __init__(self, vocab_size: int, dim: int, layers: int, heads: int, d_ff: int, attention_indices: tuple[int, ...], native_metal: bool = False, checkpoint_blocks: bool = False, mixer: str = "gdn2"):
         super().__init__()
         self.vocab_size, self.dim, self.heads = vocab_size, dim, heads
         self.checkpoint_blocks = checkpoint_blocks
         self.embedding = nn.Embedding(vocab_size, dim)
-        self.blocks = [Block(dim, heads, d_ff, index in attention_indices, native_metal) for index in range(layers)]
+        self.blocks = [Block(dim, heads, d_ff, index in attention_indices, native_metal, mixer) for index in range(layers)]
         self._checkpointed_blocks = [checkpoint(block) for block in self.blocks] if checkpoint_blocks else self.blocks
         self.final_norm = nn.RMSNorm(dim)
 

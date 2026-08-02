@@ -20,7 +20,8 @@ class HZ0AConfig:
     d_v: int
     d_ff: int
     attention_layer_indices: tuple[int, ...]
-    # "gdn2" (default, the current locked-spec mixer) or "gdn3" (the
+    # "gdn2" (default, the current locked-spec mixer), "gdn2_fix" (the
+    # vector-gated delta-rule successor), or "gdn3" (the
     # candidate delta-rule mixer investigated in
     # docs/restart/hz0a_gdn3_candidate_design.md -- real, positive, but
     # still single-seed/small-scale evidence per that doc's own verdict,
@@ -314,12 +315,16 @@ class CausalAttention(nn.Module):
 
 
 def _build_recurrent_mixer(c):
+    if c.mixer == "gdn2_fix":
+        from reference.hz0a_gdn2_fix_torch import GDN2FixMixer
+        assert c.d_k == c.d_v == c.d_model // c.num_heads, "GDN2FixMixer currently requires equal head dimensions"
+        return GDN2FixMixer(c.d_model, c.num_heads)
     if c.mixer == "gdn3":
         from reference.hz0a_gdn3_candidate_mixer_torch import GDN3CandidateMixerTorch
         assert c.d_k == c.d_v, "GDN3CandidateMixerTorch assumes a single head_dim (d_k == d_v)"
         return GDN3CandidateMixerTorch(c.d_model, c.num_heads, head_dim=c.d_k)
     if c.mixer != "gdn2":
-        raise ValueError(f"unknown mixer {c.mixer!r}, expected 'gdn2' or 'gdn3'")
+        raise ValueError(f"unknown mixer {c.mixer!r}, expected 'gdn2', 'gdn2_fix', or 'gdn3'")
     return GDN2Mixer(c)
 
 
