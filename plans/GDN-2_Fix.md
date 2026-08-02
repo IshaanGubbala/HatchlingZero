@@ -18,6 +18,19 @@ training remain open. Updated 2026-08-01.
 | Native Metal corrected backward/VJP | Open | existing backward is still the old recurrence |
 | Full-model retraining and scale experiments | Open | must wait for native kernel parity |
 
+Deterministic Torch training comparison (`seed=2026`, 100 steps, batch 2 x
+sequence 16, AdamW `lr=2e-4`, same generated batches):
+
+| Path | Parameters | First loss | Mean loss | Final loss | Mean grad norm | Mean update norm | Steps/s |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Old HZ GDN-2 | 26,432 | 4.89736 | 4.53856 | 4.36742 | 2.32511 | 0.0118131 | 323.20 |
+| Exact GDN-2 fix | 26,464 | 4.94451 | 4.51679 | 4.48489 | 2.67219 | 0.0098026 | 317.42 |
+
+Machine-readable source: `scripts/hz0a_gdn2_fix_training_comparison.py`.
+Because this uses independently initialized models with the same seed and
+batch stream, it is a smoke comparison rather than a strict paired-weight
+ablation; strict weight mapping and scale experiments remain open.
+
 Current deterministic recurrence-control result (`--seed 7 --trials 32 --dim 16`):
 
 | Path | Mean target-state MSE | Mean untouched-state MSE | Cases/s |
