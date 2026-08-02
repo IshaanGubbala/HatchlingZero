@@ -18,6 +18,7 @@ training remain open. Updated 2026-08-01.
 | MLX VJP correctness bridge | Complete | native-forward custom VJP matches MLX reference gradients on all seven inputs |
 | Native Metal corrected backward/VJP | Complete for locked equal-head topology | normalized Q/K Metal backward matches MLX VJP on all inputs; 100-step replay remains finite within measured tolerances |
 | Full-model retraining and scale experiments | Open | must wait for native kernel parity |
+| Native checkpoint/resume replay | Complete in deterministic 100-step run | split at step 50; optimizer/model state restored; final fingerprint and max parameter error `0.0` |
 
 Deterministic Torch training comparison (`seed=2026`, 100 steps, batch 2 x
 sequence 16, AdamW `lr=2e-4`, same generated batches):
@@ -61,6 +62,12 @@ reported maximum loss error `4.77e-7`, maximum gradient error `3.58e-7`, maximum
 update error `1.58e-6`, maximum parameter error `1.58e-6`, and finite values.
 The three-decimal canonical fingerprint differed after accumulated roundoff;
 this is recorded as a tolerance result rather than claimed as bit identity.
+
+Checkpoint/resume report (`scripts/hz0a_gdn2_fix_checkpoint_replay.py`, 100
+steps, interrupt at 50) reproduced the uninterrupted final parameter fingerprint
+exactly, with finite loss and `max_parameter_error=0.0`. A prior run showed a
+`5.96e-8` variation while retaining `resume_within_1e-6=true`, so repeated
+hardware-level determinism is tracked separately from checkpoint correctness.
 here verbatim (with only section-heading cleanup) for reference and
 future execution. Deferred at the time because HZ-0B B11 evaluation
 work was in progress and this is a separate, large HZ-0A architecture
