@@ -37,10 +37,10 @@ def flat_norm(values):
     return float(mx.sqrt(sum(mx.sum(value * value) for value in values)))
 
 
-def run(steps: int) -> dict:
+def run(steps: int, mixer: str = "gdn2") -> dict:
     mx.random.seed(41)
-    native = HZ0AMlxModel(64, 32, 3, 4, 64, (), native_metal=True)
-    reference = HZ0AMlxModel(64, 32, 3, 4, 64, (), native_metal=False)
+    native = HZ0AMlxModel(64, 32, 3, 4, 64, (), native_metal=True, mixer=mixer)
+    reference = HZ0AMlxModel(64, 32, 3, 4, 64, (), native_metal=False, mixer=mixer)
     reference.update(native.parameters())
     native_optimizer = optim.AdamW(learning_rate=1e-4, weight_decay=0.01)
     reference_optimizer = optim.AdamW(learning_rate=1e-4, weight_decay=0.01)
@@ -78,11 +78,12 @@ def run(steps: int) -> dict:
     native_values = [value for _, value in tree_flatten(native.parameters())]
     reference_values = [value for _, value in tree_flatten(reference.parameters())]
     max_parameter_error = max(float(mx.max(mx.abs(a - b))) for a, b in zip(native_values, reference_values))
-    return {"steps": steps, "metrics": metrics, "native_fingerprint": native_fingerprint, "reference_fingerprint": reference_fingerprint, "canonical_native_fingerprint": native_canonical, "canonical_reference_fingerprint": reference_canonical, "fingerprints_match": native_fingerprint == reference_fingerprint, "canonical_fingerprints_match": native_canonical == reference_canonical, "max_parameter_error": max_parameter_error, "max_loss_difference": max(item["loss_difference"] for item in metrics), "max_gradient_error": max(item["max_gradient_error"] for item in metrics), "max_update_error": max(item["max_update_error"] for item in metrics), "finite": all(item["finite"] for item in metrics), "peak_memory_bytes": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss, "execution_seconds": time.perf_counter() - started}
+    return {"steps": steps, "mixer": mixer, "metrics": metrics, "native_fingerprint": native_fingerprint, "reference_fingerprint": reference_fingerprint, "canonical_native_fingerprint": native_canonical, "canonical_reference_fingerprint": reference_canonical, "fingerprints_match": native_fingerprint == reference_fingerprint, "canonical_fingerprints_match": native_canonical == reference_canonical, "max_parameter_error": max_parameter_error, "max_loss_difference": max(item["loss_difference"] for item in metrics), "max_gradient_error": max(item["max_gradient_error"] for item in metrics), "max_update_error": max(item["max_update_error"] for item in metrics), "finite": all(item["finite"] for item in metrics), "peak_memory_bytes": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss, "execution_seconds": time.perf_counter() - started}
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--steps", type=int, default=100)
+    parser.add_argument("--mixer", choices=("gdn2", "gdn2_fix"), default="gdn2")
     args = parser.parse_args()
-    print(json.dumps(run(args.steps), indent=2, sort_keys=True))
+    print(json.dumps(run(args.steps, args.mixer), indent=2, sort_keys=True))

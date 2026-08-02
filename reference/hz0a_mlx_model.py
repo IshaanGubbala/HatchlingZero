@@ -83,7 +83,7 @@ class GDN2Fix(nn.Module):
         if state is None:
             state = mx.zeros((bsz, self.heads, self.head_dim, self.head_dim), dtype=x.dtype)
         if self.native_metal:
-            mixed, state = native_gdn2_fix_forward_differentiable(raw_q, raw_k, v, raw_decay, raw_erase, raw_write, state)
+            mixed, state = native_gdn2_fix_forward_differentiable(raw_q, raw_k, v, raw_decay, raw_erase, raw_write, state, self.decay_a)
             return self.out(mixed.reshape(bsz, steps, self.dim)), state
         outputs = []
         for t in range(steps):

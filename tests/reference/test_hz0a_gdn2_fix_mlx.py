@@ -25,8 +25,9 @@ def test_metal_fix_forward_matches_reference_on_tiny_inputs():
     q, k, v, d, e = arrays
     w = mx.array(rng.normal(size=(bsz, steps, heads, width)).astype(np.float32))
     initial = mx.zeros((bsz, heads, width, width), dtype=mx.float32)
+    decay_a = mx.array([-6.13], dtype=mx.float32)
     try:
-        metal_out, metal_state = native_gdn2_fix_forward(q, k, v, d, e, w, initial)
+        metal_out, metal_state = native_gdn2_fix_forward(q, k, v, d, e, w, initial, decay_a)
         mx.eval(metal_out, metal_state)
     except Exception as exc:
         import pytest
@@ -50,6 +51,7 @@ def test_native_fix_vjp_matches_mlx_reference_vjp():
     shape = (1, 2, 1, 3)
     inputs = [mx.array(rng.normal(size=shape).astype(np.float32)) for _ in range(6)]
     inputs.append(mx.zeros((1, 1, 3, 3), dtype=mx.float32))
+    inputs.append(mx.array([-6.13], dtype=mx.float32))
 
     def objective(fn, values):
         output, state = fn(*values)

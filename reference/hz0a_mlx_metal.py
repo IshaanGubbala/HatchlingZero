@@ -197,7 +197,7 @@ _FIX_SOURCE = r"""
         thread float normalized_keys[64];
         float old_value = 0.0f;
         for (uint key = 0; key < K; ++key) {
-            float decay_rate = metal::exp(-6.13f);
+            float decay_rate = metal::exp(decay_a[0]);
             float decay_input = d[key_row + key];
             float softplus_decay = metal::log(1.0f + metal::exp(-metal::abs(decay_input))) + max(decay_input, 0.0f);
             float alpha = metal::exp(-decay_rate * softplus_decay);
@@ -304,12 +304,12 @@ def _reference_forward(q, k, v, d, e, w, initial):
     return mx.stack(outputs, axis=1), state
 
 
-def _fix_reference_forward(q, k, v, d, e, w, initial):
+def _fix_reference_forward(q, k, v, d, e, w, initial, decay_a):
     q = q / mx.maximum(mx.linalg.norm(q.astype(mx.float32), axis=-1, keepdims=True), 1e-6)
     k = k / mx.maximum(mx.linalg.norm(k.astype(mx.float32), axis=-1, keepdims=True), 1e-6)
     d_fp32 = d.astype(mx.float32)
     softplus = mx.maximum(d_fp32, 0) + mx.log1p(mx.exp(-mx.abs(d_fp32)))
-    alpha = mx.exp(-mx.exp(mx.array(-6.13, dtype=mx.float32)) * softplus).astype(v.dtype)
+    alpha = mx.exp(-mx.exp(decay_a.astype(mx.float32)) * softplus).astype(v.dtype)
     erase = mx.sigmoid(e.astype(mx.float32)).astype(v.dtype)
     write = mx.sigmoid(w.astype(mx.float32)).astype(v.dtype)
     state = initial
@@ -330,9 +330,9 @@ def native_gdn2_forward_differentiable(q, k, v, d, e, w, initial):
 
 
 @mx.custom_function
-def native_gdn2_fix_forward_differentiable(q, k, v, d, e, w, initial):
+def native_gdn2_fix_forward_differentiable(q, k, v, d, e, w, initial, decay_a):
     """Native fixed-recurrence forward with an MLX VJP correctness bridge."""
-    return tuple(native_gdn2_fix_forward(q, k, v, d, e, w, initial))
+    return tuple(native_gdn2_fix_forward(q, k, v, d, e, w, initial, decay_a))
 
 
 @native_gdn2_fix_forward_differentiable.vjp
@@ -396,7 +396,7 @@ def native_gdn2_forward(q, k, v, d, e, w, initial):
     return outputs
 
 
-def native_gdn2_fix_forward(q, k, v, d, e, w, initial):
+def native_gdn2_fix_forward(q, k, v, d, e, w, initial, decay_a):
     """Exact vector-gated GDN-2 forward kernel, without a backward bridge yet.
 
     ``d`` and ``e`` are key-channel logits and ``w`` is a value-channel logit.
@@ -412,15 +412,17 @@ def native_gdn2_fix_forward(q, k, v, d, e, w, initial):
         raise ValueError("w must have [B,S,H,V] shape")
     if initial.shape != (bsz, heads, value_dim, key_dim):
         raise ValueError("initial state shape mismatch")
+    if decay_a.shape != (1,):
+        raise ValueError("decay_a must have shape [1]")
     kernel = mx.fast.metal_kernel(
         name="hz0a_gdn2_fix_forward_mlx",
-        input_names=["q", "k", "v", "d", "e", "w", "initial"],
+        input_names=["q", "k", "v", "d", "e", "w", "initial", "decay_a"],
         output_names=["y", "final_state"],
         source=_FIX_SOURCE,
         header="#include <metal_stdlib>\nusing namespace metal;\nfloat hz_sigmoid(float x) { return 1.0f / (1.0f + metal::exp(-x)); }\n",
     )
     return kernel(
-        inputs=[q, k, v, d, e, w, initial],
+        inputs=[q, k, v, d, e, w, initial, decay_a],
         template=[("DType", q.dtype), ("B", bsz), ("S", steps), ("H", heads), ("K", key_dim), ("V", value_dim)],
         grid=(bsz * heads * value_dim, 1, 1),
         threadgroup=(min(256, bsz * heads * value_dim), 1, 1),

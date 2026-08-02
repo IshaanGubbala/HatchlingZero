@@ -44,6 +44,17 @@ Current deterministic recurrence-control result (`--seed 7 --trials 32 --dim 16`
 These are recurrence-isolation numbers, not language-model quality claims. The
 old path remains the frozen HZ-0A baseline; no checkpoint has been relabeled as
 the corrected model.
+
+Native-forward MLX model replay (`seed=41`, 100 optimizer steps, identical
+model initialization, batches, and AdamW on each arm):
+
+| Path | Max loss error vs MLX reference | Max gradient error | Max update error | Max parameter error | Canonical fingerprint | Peak RSS | Runtime |
+|---|---:|---:|---:|---:|---|---:|---:|
+| Old GDN-2 | 4.77e-7 | 3.80e-7 | 1.78e-6 | 1.82e-6 | match | 61.3 MB | 3.19 s |
+| Exact GDN-2 fix | 4.77e-7 | 2.98e-7 | 1.78e-6 | 1.78e-6 | match | 65.8 MB | 4.08 s |
+
+Both arms were finite throughout. This validates the native-forward plus MLX
+VJP bridge, not a native Metal backward; the latter remains a separate gate.
 here verbatim (with only section-heading cleanup) for reference and
 future execution. Deferred at the time because HZ-0B B11 evaluation
 work was in progress and this is a separate, large HZ-0A architecture
