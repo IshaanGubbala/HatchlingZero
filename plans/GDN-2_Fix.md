@@ -116,6 +116,17 @@ the old path ended lower on this short run. The very large unclipped norm
 figures are retained as diagnostic evidence; clipping was applied identically
 to both arms and a longer tuned run is required before drawing convergence
 conclusions.
+The longer 1,000-step matched replay (same script, same data protocol, run in
+separate processes) completed `128,000` real tokens for both arms:
+
+| Path | Mean loss | Final loss | Mean update norm | Tokens/s | Peak RSS |
+|---|---:|---:|---:|---:|---:|
+| Old GDN-2 | 10.54891 | 10.54595 | 0.40264 | 639.5 | 60.9 MiB |
+| Exact GDN-2 fix | 10.64830 | 10.76137 | 0.34869 | 661.3 | 63.1 MiB |
+
+At this matched short budget, the corrected recurrence is approximately 3.4%
+faster and uses approximately 2.3 MiB more RSS, but the old recurrence has the
+better loss. No quality win is claimed from this result.
 here verbatim (with only section-heading cleanup) for reference and
 future execution. Deferred at the time because HZ-0B B11 evaluation
 work was in progress and this is a separate, large HZ-0A architecture
