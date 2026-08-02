@@ -101,3 +101,19 @@ def test_native_normalized_backward_matches_reference():
     mx.eval(*reference_grads, *native_grads)
     for native, reference_value in zip(native_grads, reference_grads):
         np.testing.assert_allclose(np.asarray(native), np.asarray(reference_value), atol=3e-5, rtol=3e-5)
+
+
+def test_native_uneven_chunk_boundaries_match_full_scan():
+    rng = np.random.default_rng(23)
+    shape = (1, 5, 2, 4)
+    q, k, v, d, e, w = [mx.array(rng.normal(size=shape).astype(np.float32)) for _ in range(6)]
+    q = q / mx.maximum(mx.linalg.norm(q, axis=-1, keepdims=True), 1e-6)
+    k = k / mx.maximum(mx.linalg.norm(k, axis=-1, keepdims=True), 1e-6)
+    initial = mx.zeros((1, 2, 4, 4), dtype=mx.float32)
+    decay_a = mx.array([-6.13], dtype=mx.float32)
+    full = native_gdn2_fix_forward_normalized(q, k, v, d, e, w, initial, decay_a)
+    first = native_gdn2_fix_forward_normalized(q[:, :2], k[:, :2], v[:, :2], d[:, :2], e[:, :2], w[:, :2], initial, decay_a)
+    second = native_gdn2_fix_forward_normalized(q[:, 2:], k[:, 2:], v[:, 2:], d[:, 2:], e[:, 2:], w[:, 2:], first[1], decay_a)
+    mx.eval(full[0], full[1], first[0], second[0], second[1])
+    np.testing.assert_allclose(np.asarray(mx.concatenate([first[0], second[0]], axis=1)), np.asarray(full[0]), atol=3e-5, rtol=3e-5)
+    np.testing.assert_allclose(np.asarray(second[1]), np.asarray(full[1]), atol=3e-5, rtol=3e-5)

@@ -18,7 +18,7 @@ long-context stability, and final quality comparisons remain open. Updated
 | Native Metal corrected forward | Complete | `native_gdn2_fix_forward`; tiny output/final-state parity test passes |
 | MLX VJP correctness bridge | Complete | native-forward custom VJP matches MLX reference gradients on all seven inputs |
 | Native Metal corrected backward/VJP | Complete for locked equal-head topology | normalized Q/K Metal backward matches MLX VJP on all inputs; 100-step replay remains finite within measured tolerances |
-| Full-model retraining and scale experiments | Open | must wait for native kernel parity |
+| Full-model retraining and scale experiments | Partial | 110M one-step and 100-step real-packed-corpus smoke pass; 301M/final quality runs remain |
 | Native checkpoint/resume replay | Complete in deterministic 100-step run | split at step 50; optimizer/model state restored; final fingerprint and max parameter error `0.0` |
 
 Deterministic Torch training comparison (`seed=2026`, 100 steps, batch 2 x
@@ -70,6 +70,15 @@ steps, interrupt at 50) reproduced the uninterrupted final parameter fingerprint
 exactly, with finite loss and `max_parameter_error=0.0`. A prior run showed a
 `5.96e-8` variation while retaining `resume_within_1e-6=true`, so repeated
 hardware-level determinism is tracked separately from checkpoint correctness.
+
+Corrected native 110M smoke/replay (`scripts/hz0a_gdn2_fix_110m_replay.py`):
+the documented topology (`d_model=576`, 22 layers, 18 heads, `d_ff=1728`)
+instantiated with `117,135,958` parameters and completed 100 steps / 12,800
+tokens from real `stage1_10m_train.jsonl` records. Loss was `9.34148 -> 6.66772`
+(mean `7.47689`), all values were finite, and throughput was `2,105.5
+tokens/s` on the batch-1 x 128-token smoke. This is not directly comparable to
+the existing 110M production replay (`batch/sequence/cadence differ`); it is a
+native corrected-path execution gate, not a quality claim.
 here verbatim (with only section-heading cleanup) for reference and
 future execution. Deferred at the time because HZ-0B B11 evaluation
 work was in progress and this is a separate, large HZ-0A architecture
