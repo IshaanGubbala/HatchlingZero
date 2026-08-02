@@ -18,7 +18,7 @@ long-context stability, and final quality comparisons remain open. Updated
 | Native Metal corrected forward | Complete | `native_gdn2_fix_forward`; tiny output/final-state parity test passes |
 | MLX VJP correctness bridge | Complete | native-forward custom VJP matches MLX reference gradients on all seven inputs |
 | Native Metal corrected backward/VJP | Complete for locked equal-head topology | normalized Q/K Metal backward matches MLX VJP on all inputs; 100-step replay remains finite within measured tolerances |
-| Full-model retraining and scale experiments | Partial | 110M one-step and 100-step real-packed-corpus smoke pass; 301M/final quality runs remain |
+| Full-model retraining and scale experiments | Partial | 110M replay and exact 301M stability pass; final long-training quality comparison remains |
 | Native checkpoint/resume replay | Complete in deterministic 100-step run | split at step 50; optimizer/model state restored; final fingerprint and max parameter error `0.0` |
 
 Deterministic Torch training comparison (`seed=2026`, 100 steps, batch 2 x
@@ -89,6 +89,16 @@ forward/backward/AdamW step was finite (loss `10.62352`, gradient norm
 losses `10.45936`, `10.66866`) at peak RSS `61.3 MB` in the tiny smoke process.
 This closes exact-topology instantiation and two-chunk execution only; the
 four/eight-chunk and repeated-1024-token stability gates remain open.
+
+The exact 301M long-context gate subsequently passed with
+`scripts/hz0a_gdn2_fix_301m_stability.py`: two independent 1,024-token records
+(16 carried-state chunks, 2,048 tokens total), all finite. Peak RSS rose from
+`56.9 MiB` during the first chunk to `58.5 MiB` and then plateaued at `58.5 MiB`
+for the entire second record; no command-buffer recovery or monotonic cache
+growth occurred in this direct corrected-path harness. This closes the
+four/eight-chunk and repeated-1,024-token direct native stability gates. The
+production runner and long-corpus training protocol still require a separate
+matched quality run.
 here verbatim (with only section-heading cleanup) for reference and
 future execution. Deferred at the time because HZ-0B B11 evaluation
 work was in progress and this is a separate, large HZ-0A architecture
