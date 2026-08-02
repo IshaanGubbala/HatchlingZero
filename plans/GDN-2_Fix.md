@@ -21,7 +21,7 @@ long-context stability, and final quality comparisons remain open. Updated
 | Full-model retraining and scale experiments | Partial | 110M replay and exact 301M stability pass; final long-training quality comparison remains |
 | Production runner integration | Complete | `scripts/hz0a_native_stage_runner.py --mixer gdn2_fix`; baseline default remains `gdn2`, runner tests pass |
 | Corrected production 10M Stage 1 | Partial / open | real runner reached 409,600 checkpointed tokens / 412,672 telemetry tokens with finite loss; repeated process exits before budget completion |
-| Sequential restart containment | Implemented, not yet accepted as a result | `scripts/hz0a_native_stage_supervisor.py` runs one child at a time and resumes checkpoints; no 10M completion is claimed |
+| Sequential restart containment | Tiny lifecycle test complete; scale result open | `scripts/hz0a_native_stage_supervisor.py` completes a 1,024-token corrected run with one child; no 10M completion is claimed |
 | Native checkpoint/resume replay | Complete in deterministic 100-step run | split at step 50; optimizer/model state restored; final fingerprint and max parameter error `0.0` |
 
 Deterministic Torch training comparison (`seed=2026`, 100 steps, batch 2 x
