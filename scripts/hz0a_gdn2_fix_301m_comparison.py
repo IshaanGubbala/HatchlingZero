@@ -33,7 +33,7 @@ def records(path: Path, steps: int):
     return result
 
 
-def run(mixer: str, batches, vocab_size: int):
+def run(mixer: str, batches, validation, vocab_size: int):
     mx.random.seed(444)
     model = HZ0AMlxModel(vocab_size, 768, 31, 12, 2304, (4, 9, 14, 19, 24, 29), native_metal=True, mixer=mixer)
     optimizer = optim.AdamW(learning_rate=1e-4, weight_decay=0.01)
@@ -58,12 +58,19 @@ def run(mixer: str, batches, vocab_size: int):
         update_norms.append(float(mx.sqrt(sum(mx.sum((a - b) * (a - b)) for a, b in zip(after, before)))))
         losses.append(float(loss))
     elapsed = time.perf_counter() - started
+    validation_losses = []
+    for tokens in validation:
+        logits, _ = model(tokens[None, :])
+        value = mx.mean(nn.losses.cross_entropy(logits[:, :-1], tokens[None, 1:]))
+        mx.eval(value)
+        validation_losses.append(float(value))
     return {
         "mixer": mixer,
         "parameters": sum(value.size for _, value in tree_flatten(model.parameters())),
         "loss_first": losses[0],
         "loss_last": losses[-1],
         "loss_mean": sum(losses) / len(losses),
+        "validation_loss": sum(validation_losses) / len(validation_losses),
         "gradient_norm_mean": sum(gradient_norms) / len(gradient_norms),
         "clipped_gradient_norm_mean": sum(clipped_gradient_norms) / len(clipped_gradient_norms),
         "update_norm_mean": sum(update_norms) / len(update_norms),
@@ -77,14 +84,17 @@ def run(mixer: str, batches, vocab_size: int):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--data", type=Path, default=Path("data/packed/stage1_10m_train.jsonl"))
+    parser.add_argument("--validation-data", type=Path, default=Path("data/packed/repro_1024_val.jsonl"))
+    parser.add_argument("--validation-steps", type=int, default=16)
     parser.add_argument("--steps", type=int, default=100)
     parser.add_argument("--vocab-size", type=int, default=24576)
     parser.add_argument("--mixer", choices=("gdn2", "gdn2_fix"))
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
     batches = records(args.data, args.steps)
+    validation = records(args.validation_data, args.validation_steps)
     mixers = (args.mixer,) if args.mixer else ("gdn2", "gdn2_fix")
-    report = {"steps": args.steps, "tokens": args.steps * 128, "results": [run(mixer, batches, args.vocab_size) for mixer in mixers]}
+    report = {"steps": args.steps, "tokens": args.steps * 128, "validation_steps": args.validation_steps, "results": [run(mixer, batches, validation, args.vocab_size) for mixer in mixers]}
     rendered = json.dumps(report, indent=2, sort_keys=True) + "\n"
     if args.output:
         args.output.write_text(rendered, encoding="utf-8")

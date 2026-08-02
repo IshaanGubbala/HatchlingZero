@@ -127,6 +127,13 @@ separate processes) completed `128,000` real tokens for both arms:
 At this matched short budget, the corrected recurrence is approximately 3.4%
 faster and uses approximately 2.3 MiB more RSS, but the old recurrence has the
 better loss. No quality win is claimed from this result.
+
+Held-out validation was added to the comparison script and rerun for 100
+steps / 12,800 training tokens (16 deterministic validation records): old
+GDN-2 validation loss `10.56664`; exact GDN-2 fix validation loss `10.73892`.
+Training losses were `10.52287` and `10.78360`, respectively; both remained
+finite. This confirms the short-run quality gap is also present on validation,
+not only on the training records.
 here verbatim (with only section-heading cleanup) for reference and
 future execution. Deferred at the time because HZ-0B B11 evaluation
 work was in progress and this is a separate, large HZ-0A architecture
