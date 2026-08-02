@@ -304,10 +304,44 @@ def _reference_forward(q, k, v, d, e, w, initial):
     return mx.stack(outputs, axis=1), state
 
 
+def _fix_reference_forward(q, k, v, d, e, w, initial):
+    q = q / mx.maximum(mx.linalg.norm(q.astype(mx.float32), axis=-1, keepdims=True), 1e-6)
+    k = k / mx.maximum(mx.linalg.norm(k.astype(mx.float32), axis=-1, keepdims=True), 1e-6)
+    d_fp32 = d.astype(mx.float32)
+    softplus = mx.maximum(d_fp32, 0) + mx.log1p(mx.exp(-mx.abs(d_fp32)))
+    alpha = mx.exp(-mx.exp(mx.array(-6.13, dtype=mx.float32)) * softplus).astype(v.dtype)
+    erase = mx.sigmoid(e.astype(mx.float32)).astype(v.dtype)
+    write = mx.sigmoid(w.astype(mx.float32)).astype(v.dtype)
+    state = initial
+    outputs = []
+    for t in range(q.shape[1]):
+        decayed = state * alpha[:, t, :, None, :]
+        old_value = mx.sum(decayed * (erase[:, t] * k[:, t])[:, :, None, :], axis=-1)
+        residual = write[:, t] * v[:, t] - old_value
+        state = decayed + residual[:, :, :, None] * k[:, t, :, None, :]
+        outputs.append(mx.sum(state * q[:, t, :, None, :], axis=-1))
+    return mx.stack(outputs, axis=1), state
+
+
 @mx.custom_function
 def native_gdn2_forward_differentiable(q, k, v, d, e, w, initial):
     """Native Metal forward with an MLX recurrence VJP during bring-up."""
     return tuple(native_gdn2_forward(q, k, v, d, e, w, initial))
+
+
+@mx.custom_function
+def native_gdn2_fix_forward_differentiable(q, k, v, d, e, w, initial):
+    """Native fixed-recurrence forward with an MLX VJP correctness bridge."""
+    return tuple(native_gdn2_fix_forward(q, k, v, d, e, w, initial))
+
+
+@native_gdn2_fix_forward_differentiable.vjp
+def _native_gdn2_fix_vjp(primals, cotangents, outputs):
+    def reference(*args):
+        return _fix_reference_forward(*args)
+
+    _, gradients = mx.vjp(reference, list(primals), list(cotangents))
+    return tuple(gradients)
 
 
 @native_gdn2_forward_differentiable.vjp

@@ -9,7 +9,7 @@ import mlx.core as mx
 import mlx.nn as nn
 from mlx.nn.utils import checkpoint
 
-from reference.hz0a_mlx_metal import native_gdn2_forward_differentiable
+from reference.hz0a_mlx_metal import native_gdn2_fix_forward_differentiable, native_gdn2_forward_differentiable
 
 
 class GDN2(nn.Module):
@@ -53,9 +53,10 @@ class GDN2Fix(nn.Module):
     and its VJP have matched this implementation on every tensor.
     """
 
-    def __init__(self, dim: int, heads: int):
+    def __init__(self, dim: int, heads: int, native_metal: bool = False):
         super().__init__()
         self.dim, self.heads, self.head_dim = dim, heads, dim // heads
+        self.native_metal = native_metal
         self.in_proj = nn.Linear(dim, 6 * dim)
         self.out = nn.Linear(dim, dim)
         self.decay_a = mx.full((1,), -6.13)
@@ -70,6 +71,7 @@ class GDN2Fix(nn.Module):
         projected = self.in_proj(x).reshape(bsz, steps, 6, self.heads, self.head_dim)
         q, k, v, decay, erase, write = mx.split(projected, 6, axis=2)
         q, k, v, decay, erase, write = (mx.squeeze(item, axis=2) for item in (q, k, v, decay, erase, write))
+        raw_q, raw_k, raw_decay, raw_erase, raw_write = q, k, decay, erase, write
         q = q / mx.maximum(mx.linalg.norm(q.astype(mx.float32), axis=-1, keepdims=True), 1e-6)
         k = k / mx.maximum(mx.linalg.norm(k.astype(mx.float32), axis=-1, keepdims=True), 1e-6)
         decay_rate = mx.exp(self.decay_a).reshape(1, 1, 1, 1)
@@ -80,6 +82,9 @@ class GDN2Fix(nn.Module):
         write = mx.sigmoid(write.astype(mx.float32)).astype(x.dtype)
         if state is None:
             state = mx.zeros((bsz, self.heads, self.head_dim, self.head_dim), dtype=x.dtype)
+        if self.native_metal:
+            mixed, state = native_gdn2_fix_forward_differentiable(raw_q, raw_k, v, raw_decay, raw_erase, raw_write, state)
+            return self.out(mixed.reshape(bsz, steps, self.dim)), state
         outputs = []
         for t in range(steps):
             decayed = state * alpha[:, t, :, None, :]
@@ -121,9 +126,7 @@ class Block(nn.Module):
         if attention:
             self.mixer = CausalAttention(dim, heads)
         elif mixer == "gdn2_fix":
-            if native_metal:
-                raise ValueError("native_metal gdn2_fix is not available until Metal parity is verified")
-            self.mixer = GDN2Fix(dim, heads)
+            self.mixer = GDN2Fix(dim, heads, native_metal)
         else:
             self.mixer = GDN2(dim, heads, native_metal)
         self.gate, self.up, self.down = nn.Linear(dim, d_ff), nn.Linear(dim, d_ff), nn.Linear(d_ff, dim)

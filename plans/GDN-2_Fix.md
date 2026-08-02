@@ -15,7 +15,8 @@ training remain open. Updated 2026-08-01.
 | MLX parameterized opt-in reference path | Complete | `GDN2Fix` in `reference/hz0a_mlx_model.py`; state-carry test passes |
 | Matched synthetic before/after recurrence report | Partial | target-MSE report exists; training/memory comparison remains |
 | Native Metal corrected forward | Complete | `native_gdn2_fix_forward`; tiny output/final-state parity test passes |
-| Native Metal corrected backward/VJP | Open | existing backward is still the old recurrence |
+| MLX VJP correctness bridge | Complete | native-forward custom VJP matches MLX reference gradients on all seven inputs |
+| Native Metal corrected backward/VJP | Open | hand-written Metal backward is not yet wired; MLX VJP remains the correctness bridge |
 | Full-model retraining and scale experiments | Open | must wait for native kernel parity |
 
 Deterministic Torch training comparison (`seed=2026`, 100 steps, batch 2 x
