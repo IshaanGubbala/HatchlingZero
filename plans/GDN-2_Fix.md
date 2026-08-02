@@ -79,6 +79,16 @@ tokens from real `stage1_10m_train.jsonl` records. Loss was `9.34148 -> 6.66772`
 tokens/s` on the batch-1 x 128-token smoke. This is not directly comparable to
 the existing 110M production replay (`batch/sequence/cadence differ`); it is a
 native corrected-path execution gate, not a quality claim.
+
+Exact locked-topology corrected smoke also passed at `301,178,137` parameters
+(`d_model=768`, 31 layers, 12 heads, `d_ff=2304`, vocab `24,576`, attention
+layers `4,9,14,19,24,29`). The frozen old topology is `301,178,112`; the +25
+delta is one shared learned decay scale per recurrent block. One native
+forward/backward/AdamW step was finite (loss `10.62352`, gradient norm
+`34.24268`), followed by two carried-state 128-token updates (`256` tokens;
+losses `10.45936`, `10.66866`) at peak RSS `61.3 MB` in the tiny smoke process.
+This closes exact-topology instantiation and two-chunk execution only; the
+four/eight-chunk and repeated-1024-token stability gates remain open.
 here verbatim (with only section-heading cleanup) for reference and
 future execution. Deferred at the time because HZ-0B B11 evaluation
 work was in progress and this is a separate, large HZ-0A architecture
