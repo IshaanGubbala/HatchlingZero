@@ -99,6 +99,23 @@ growth occurred in this direct corrected-path harness. This closes the
 four/eight-chunk and repeated-1,024-token direct native stability gates. The
 production runner and long-corpus training protocol still require a separate
 matched quality run.
+
+Exact 301M matched replay (`scripts/hz0a_gdn2_fix_301m_comparison.py`, run as
+separate processes to avoid two full graphs sharing allocator pressure): both
+arms completed 100 steps / 12,800 real packed-corpus tokens with global
+gradient clipping at `1.0` and finite metrics.
+
+| Path | Parameters | First loss | Mean loss | Final loss | Mean unclipped norm | Mean update norm | Tokens/s | Peak RSS |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| Old GDN-2 | 301,178,112 | 10.57745 | 10.49552 | 10.41851 | 4.85e10 | 1.53866 | 731.0 | 58.4 MiB |
+| Exact GDN-2 fix | 301,178,137 | 10.65518 | 10.68692 | 10.75961 | 2.36e7 | 1.44886 | 759.1 | 60.1 MiB |
+
+The fixed path was about 3.8% faster in this batch-1/128-token smoke and used
+about 1.7 MiB more RSS. The loss result is mixed rather than a quality win:
+the old path ended lower on this short run. The very large unclipped norm
+figures are retained as diagnostic evidence; clipping was applied identically
+to both arms and a longer tuned run is required before drawing convergence
+conclusions.
 here verbatim (with only section-heading cleanup) for reference and
 future execution. Deferred at the time because HZ-0B B11 evaluation
 work was in progress and this is a separate, large HZ-0A architecture
