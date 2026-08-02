@@ -9,7 +9,7 @@ import mlx.core as mx
 import mlx.nn as nn
 from mlx.nn.utils import checkpoint
 
-from reference.hz0a_mlx_metal import native_gdn2_fix_forward_differentiable, native_gdn2_forward_differentiable
+from reference.hz0a_mlx_metal import native_gdn2_fix_normalized_differentiable, native_gdn2_fix_forward_differentiable, native_gdn2_forward_differentiable
 
 
 class GDN2(nn.Module):
@@ -83,7 +83,7 @@ class GDN2Fix(nn.Module):
         if state is None:
             state = mx.zeros((bsz, self.heads, self.head_dim, self.head_dim), dtype=x.dtype)
         if self.native_metal:
-            mixed, state = native_gdn2_fix_forward_differentiable(raw_q, raw_k, v, raw_decay, raw_erase, raw_write, state, self.decay_a)
+            mixed, state = native_gdn2_fix_normalized_differentiable(q, k, v, raw_decay, raw_erase, raw_write, state, self.decay_a)
             return self.out(mixed.reshape(bsz, steps, self.dim)), state
         outputs = []
         for t in range(steps):

@@ -218,6 +218,84 @@ _FIX_SOURCE = r"""
         final_state[state_base + key] = static_cast<DType>(state[key]);
 """
 
+# The backward primitive receives Q/K after MLX has applied their stable
+# normalization. Keeping that operation outside the kernel makes the reverse
+# pass local and avoids a cross-value reduction just to differentiate a norm.
+_FIX_NORMALIZED_SOURCE = _FIX_SOURCE.replace(
+    "float query_norm = 0.0f;\n        for (uint key = 0; key < K; ++key) query_norm += q[key_row + key] * q[key_row + key];\n        query_norm = metal::sqrt(query_norm > 1.0e-12f ? query_norm : 1.0e-12f);",
+    "float query_norm = 1.0f;",
+).replace(
+    "float key_norm = 0.0f;\n        for (uint key = 0; key < K; ++key) key_norm += k[key_row + key] * k[key_row + key];\n        key_norm = metal::sqrt(key_norm > 1.0e-12f ? key_norm : 1.0e-12f);",
+    "float key_norm = 1.0f;",
+)
+
+_FIX_NORMALIZED_BACKWARD = r"""
+    uint tid = thread_position_in_grid.x;
+    uint value = tid % V;
+    uint head = (tid / V) % H;
+    uint batch = tid / (V * H);
+    if (batch >= B || S > 128 || K > 64) return;
+    thread float states[129][64];
+    uint state_base = ((batch * H + head) * V + value) * K;
+    for (uint key = 0; key < K; ++key) states[0][key] = initial[state_base + key];
+    float rate = metal::exp(decay_a[0]);
+    for (uint t = 0; t < S; ++t) {
+        uint kr = ((batch * S + t) * H + head) * K;
+        uint vr = ((batch * S + t) * H + head) * V + value;
+        float old_value = 0.0f;
+        for (uint key = 0; key < K; ++key) {
+            float z = d[kr + key];
+            float sp = metal::log(1.0f + metal::exp(-metal::abs(z))) + max(z, 0.0f);
+            float alpha = metal::exp(-rate * sp);
+            float decayed = alpha * states[t][key];
+            old_value += decayed * hz_sigmoid(e[kr + key]) * k[kr + key];
+            states[t + 1][key] = decayed;
+        }
+        float residual = hz_sigmoid(w[vr]) * v[vr] - old_value;
+        for (uint key = 0; key < K; ++key) states[t + 1][key] += residual * k[kr + key];
+    }
+    thread float gs[64];
+    for (uint key = 0; key < K; ++key) gs[key] = grad_final[state_base + key];
+    float decay_grad = 0.0f;
+    for (int reverse = int(S) - 1; reverse >= 0; --reverse) {
+        uint t = uint(reverse);
+        uint kr = ((batch * S + t) * H + head) * K;
+        uint vr = ((batch * S + t) * H + head) * V + value;
+        float old_value = 0.0f;
+        for (uint key = 0; key < K; ++key)
+            old_value += (states[t][key] * metal::exp(-rate * (metal::log(1.0f + metal::exp(-metal::abs(d[kr + key]))) + max(d[kr + key], 0.0f)))) * hz_sigmoid(e[kr + key]) * k[kr + key];
+        float residual = hz_sigmoid(w[vr]) * v[vr] - old_value;
+        float rgrad = 0.0f;
+        for (uint key = 0; key < K; ++key) {
+            float total = gs[key] + grad_output[vr] * q[kr + key];
+            rgrad += total * k[kr + key];
+            grad_q_partial[((batch * S + t) * H + head) * V * K + value * K + key] = static_cast<DType>(grad_output[vr] * states[t + 1][key]);
+        }
+        float write_gate = hz_sigmoid(w[vr]);
+        grad_v[vr] = static_cast<DType>(rgrad * write_gate);
+        grad_w[vr] = static_cast<DType>(rgrad * v[vr] * write_gate * (1.0f - write_gate));
+        for (uint key = 0; key < K; ++key) {
+            float z = d[kr + key];
+            float sigmoid_z = hz_sigmoid(z);
+            float sp = metal::log(1.0f + metal::exp(-metal::abs(z))) + max(z, 0.0f);
+            float alpha = metal::exp(-rate * sp);
+            float erase_gate = hz_sigmoid(e[kr + key]);
+            float decayed = alpha * states[t][key];
+            float total = gs[key] + grad_output[vr] * q[kr + key];
+            float gdecayed = total - rgrad * erase_gate * k[kr + key];
+            grad_k_partial[((batch * S + t) * H + head) * V * K + value * K + key] = static_cast<DType>(total * residual - rgrad * decayed * erase_gate);
+            grad_d_partial[((batch * S + t) * H + head) * V * K + value * K + key] = static_cast<DType>(gdecayed * states[t][key] * (-rate * sigmoid_z * alpha));
+            grad_e_partial[((batch * S + t) * H + head) * V * K + value * K + key] = static_cast<DType>(-rgrad * decayed * k[kr + key] * erase_gate * (1.0f - erase_gate));
+            // d alpha / d log(rate) = -rate * softplus(d) * alpha.
+            decay_grad += gdecayed * states[t][key] * (-rate * sp * alpha);
+            gs[key] = gdecayed * alpha;
+        }
+    }
+    grad_initial[state_base + 0] = static_cast<DType>(gs[0]);
+    for (uint key = 1; key < K; ++key) grad_initial[state_base + key] = static_cast<DType>(gs[key]);
+    grad_decay_partial[(batch * H + head) * V + value] = static_cast<DType>(decay_grad);
+"""
+
 
 _FIX_BACKWARD_BODY = r"""
     uint tid = thread_position_in_grid.x;
@@ -429,6 +507,63 @@ def native_gdn2_fix_forward(q, k, v, d, e, w, initial, decay_a):
         output_shapes=[(bsz, steps, heads, value_dim), initial.shape],
         output_dtypes=[q.dtype, initial.dtype],
     )
+
+
+def native_gdn2_fix_forward_normalized(q, k, v, d, e, w, initial, decay_a):
+    """Forward primitive for already-normalized Q/K tensors."""
+    bsz, steps, heads, key_dim = q.shape
+    value_dim = v.shape[-1]
+    if k.shape != q.shape or d.shape != q.shape or e.shape != q.shape:
+        raise ValueError("normalized q, k, d, and e must share shape")
+    kernel = mx.fast.metal_kernel(
+        name="hz0a_gdn2_fix_forward_normalized_mlx",
+        input_names=["q", "k", "v", "d", "e", "w", "initial", "decay_a"],
+        output_names=["y", "final_state"],
+        source=_FIX_NORMALIZED_SOURCE,
+        header="#include <metal_stdlib>\nusing namespace metal;\nfloat hz_sigmoid(float x) { return 1.0f / (1.0f + metal::exp(-x)); }\n",
+    )
+    return kernel(
+        inputs=[q, k, v, d, e, w, initial, decay_a],
+        template=[("DType", q.dtype), ("B", bsz), ("S", steps), ("H", heads), ("K", key_dim), ("V", value_dim)],
+        grid=(bsz * heads * value_dim, 1, 1),
+        threadgroup=(min(256, bsz * heads * value_dim), 1, 1),
+        output_shapes=[(bsz, steps, heads, value_dim), initial.shape],
+        output_dtypes=[q.dtype, initial.dtype],
+    )
+
+
+def native_gdn2_fix_backward_normalized(q, k, v, d, e, w, initial, decay_a, grad_output, grad_final):
+    bsz, steps, heads, key_dim = q.shape
+    value_dim = v.shape[-1]
+    partial_shape = (bsz, steps, heads, value_dim, key_dim)
+    kernel = mx.fast.metal_kernel(
+        name="hz0a_gdn2_fix_backward_normalized_mlx",
+        input_names=["q", "k", "v", "d", "e", "w", "initial", "decay_a", "grad_output", "grad_final"],
+        output_names=["grad_q_partial", "grad_k_partial", "grad_v", "grad_d_partial", "grad_e_partial", "grad_w", "grad_initial", "grad_decay_partial"],
+        source=_FIX_NORMALIZED_BACKWARD,
+        header="#include <metal_stdlib>\nusing namespace metal;\nfloat hz_sigmoid(float x) { return 1.0f / (1.0f + metal::exp(-x)); }\n",
+    )
+    outputs = kernel(
+        inputs=[q, k, v, d, e, w, initial, decay_a, grad_output, grad_final],
+        template=[("DType", q.dtype), ("B", bsz), ("S", steps), ("H", heads), ("K", key_dim), ("V", value_dim)],
+        grid=(bsz * heads * value_dim, 1, 1),
+        threadgroup=(min(256, bsz * heads * value_dim), 1, 1),
+        output_shapes=[partial_shape, partial_shape, v.shape, partial_shape, partial_shape, w.shape, initial.shape, (bsz, heads, value_dim)],
+        output_dtypes=[q.dtype, k.dtype, v.dtype, d.dtype, e.dtype, w.dtype, initial.dtype, decay_a.dtype],
+    )
+    return (mx.sum(outputs[0], axis=3), mx.sum(outputs[1], axis=3), outputs[2], mx.sum(outputs[3], axis=3), mx.sum(outputs[4], axis=3), outputs[5], outputs[6], mx.sum(outputs[7], axis=(0, 1, 2)))
+
+
+@mx.custom_function
+def native_gdn2_fix_normalized_differentiable(q, k, v, d, e, w, initial, decay_a):
+    return tuple(native_gdn2_fix_forward_normalized(q, k, v, d, e, w, initial, decay_a))
+
+
+@native_gdn2_fix_normalized_differentiable.vjp
+def _native_gdn2_fix_normalized_vjp(primals, cotangents, outputs):
+    q, k, v, d, e, w, initial, decay_a = primals
+    grad_output, grad_final = cotangents
+    return native_gdn2_fix_backward_normalized(q, k, v, d, e, w, initial, decay_a, grad_output, grad_final)
 
 
 def native_gdn2_backward(q, k, v, d, e, w, initial, grad_output, grad_final):

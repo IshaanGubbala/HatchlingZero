@@ -3,7 +3,7 @@ import numpy as np
 
 from reference.hz0a_mlx_model import GDN2Fix
 from reference.hz0a_mlx_metal import native_gdn2_fix_forward
-from reference.hz0a_mlx_metal import _fix_reference_forward, native_gdn2_fix_forward_differentiable
+from reference.hz0a_mlx_metal import _fix_reference_forward, native_gdn2_fix_backward_normalized, native_gdn2_fix_forward_differentiable, native_gdn2_fix_forward_normalized
 from reference.hz0a_gdn2_fix_reference import gdn2_fix_scan, normalize_keys
 
 
@@ -66,3 +66,38 @@ def test_native_fix_vjp_matches_mlx_reference_vjp():
         pytest.skip(f"native VJP unavailable in this runtime: {exc}")
     for native, reference in zip(native_grads, reference_grads):
         np.testing.assert_allclose(np.asarray(native), np.asarray(reference), atol=2e-5, rtol=2e-5)
+
+
+def test_native_normalized_backward_matches_reference():
+    rng = np.random.default_rng(19)
+    shape = (1, 3, 1, 3)
+    raw = [mx.array(rng.normal(size=shape).astype(np.float32)) for _ in range(6)]
+    q, k = (item / mx.maximum(mx.linalg.norm(item, axis=-1, keepdims=True), 1e-6) for item in raw[:2])
+    v, d, e, w = raw[2:]
+    initial = mx.zeros((1, 1, 3, 3), dtype=mx.float32)
+    decay_a = mx.array([-6.13], dtype=mx.float32)
+    grad_output = mx.array(rng.normal(size=(1, 3, 1, 3)).astype(np.float32))
+    grad_final = mx.array(rng.normal(size=(1, 1, 3, 3)).astype(np.float32))
+
+    def reference(q_, k_, v_, d_, e_, w_, initial_, decay_):
+        alpha = mx.exp(-mx.exp(decay_) * (mx.maximum(d_, 0) + mx.log1p(mx.exp(-mx.abs(d_)))))
+        erase = mx.sigmoid(e_)
+        write = mx.sigmoid(w_)
+        state = initial_
+        outputs = []
+        for t in range(q_.shape[1]):
+            decayed = state * alpha[:, t, :, None, :]
+            old = mx.sum(decayed * (erase[:, t] * k_[:, t])[:, :, None, :], axis=-1)
+            state = decayed + (write[:, t] * v_[:, t] - old)[:, :, :, None] * k_[:, t, :, None, :]
+            outputs.append(mx.sum(state * q_[:, t, :, None, :], axis=-1))
+        return mx.stack(outputs, axis=1), state
+
+    def loss_fn(*values):
+        out, state = reference(*values)
+        return mx.sum(out * grad_output) + mx.sum(state * grad_final)
+
+    reference_grads = mx.grad(loss_fn, argnums=(0, 1, 2, 3, 4, 5, 6, 7))(q, k, v, d, e, w, initial, decay_a)
+    native_grads = native_gdn2_fix_backward_normalized(q, k, v, d, e, w, initial, decay_a, grad_output, grad_final)
+    mx.eval(*reference_grads, *native_grads)
+    for native, reference_value in zip(native_grads, reference_grads):
+        np.testing.assert_allclose(np.asarray(native), np.asarray(reference_value), atol=3e-5, rtol=3e-5)

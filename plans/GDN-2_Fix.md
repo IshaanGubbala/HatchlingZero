@@ -16,7 +16,7 @@ training remain open. Updated 2026-08-01.
 | Matched synthetic before/after recurrence report | Partial | target-MSE report exists; training/memory comparison remains |
 | Native Metal corrected forward | Complete | `native_gdn2_fix_forward`; tiny output/final-state parity test passes |
 | MLX VJP correctness bridge | Complete | native-forward custom VJP matches MLX reference gradients on all seven inputs |
-| Native Metal corrected backward/VJP | Open | hand-written Metal backward is not yet wired; MLX VJP remains the correctness bridge |
+| Native Metal corrected backward/VJP | Complete for locked equal-head topology | normalized Q/K Metal backward matches MLX VJP on all inputs; 100-step replay remains finite within measured tolerances |
 | Full-model retraining and scale experiments | Open | must wait for native kernel parity |
 
 Deterministic Torch training comparison (`seed=2026`, 100 steps, batch 2 x
@@ -55,6 +55,12 @@ model initialization, batches, and AdamW on each arm):
 
 Both arms were finite throughout. This validates the native-forward plus MLX
 VJP bridge, not a native Metal backward; the latter remains a separate gate.
+
+After wiring the normalized native Metal backward, the corrected 100-step replay
+reported maximum loss error `4.77e-7`, maximum gradient error `3.58e-7`, maximum
+update error `1.58e-6`, maximum parameter error `1.58e-6`, and finite values.
+The three-decimal canonical fingerprint differed after accumulated roundoff;
+this is recorded as a tolerance result rather than claimed as bit identity.
 here verbatim (with only section-heading cleanup) for reference and
 future execution. Deferred at the time because HZ-0B B11 evaluation
 work was in progress and this is a separate, large HZ-0A architecture
