@@ -36,7 +36,9 @@ class GDN2FixMixer(nn.Module):
         self.out_proj = nn.Linear(dim, dim)
         # Choose a small positive log-decay scale so the new parameterization
         # starts near the old ~0.99 retention regime.
-        self.decay_a = nn.Parameter(torch.full((dim,), -6.13))
+        # One shared learned scale keeps the successor parameter count
+        # comparable to the frozen baseline while retaining log-decay a.
+        self.decay_a = nn.Parameter(torch.full((1,), -6.13))
         with torch.no_grad():
             self.in_proj.bias[: 3 * dim].zero_()
             self.in_proj.bias[3 * dim:4 * dim].fill_(4.59512)
@@ -49,7 +51,7 @@ class GDN2FixMixer(nn.Module):
         query, key, value, alpha, erase, write = projected.unbind(dim=2)
         query = query / query.float().norm(dim=-1, keepdim=True).clamp_min(1e-6).to(x.dtype)
         key = key / key.float().norm(dim=-1, keepdim=True).clamp_min(1e-6).to(x.dtype)
-        decay_rate = torch.exp(self.decay_a).view(1, 1, self.heads, self.head_dim)
+        decay_rate = torch.exp(self.decay_a).view(1, 1, 1, 1)
         alpha = torch.exp(-decay_rate * torch.nn.functional.softplus(alpha.float())).to(x.dtype)
         erase = torch.sigmoid(erase.float()).to(x.dtype)
         write = torch.sigmoid(write.float()).to(x.dtype)

@@ -58,7 +58,7 @@ class GDN2Fix(nn.Module):
         self.dim, self.heads, self.head_dim = dim, heads, dim // heads
         self.in_proj = nn.Linear(dim, 6 * dim)
         self.out = nn.Linear(dim, dim)
-        self.decay_a = mx.full((dim,), -6.13)
+        self.decay_a = mx.full((1,), -6.13)
         self.in_proj.bias = mx.concatenate([
             mx.zeros((3 * dim,)),
             mx.full((dim,), 4.59512),
@@ -72,7 +72,7 @@ class GDN2Fix(nn.Module):
         q, k, v, decay, erase, write = (mx.squeeze(item, axis=2) for item in (q, k, v, decay, erase, write))
         q = q / mx.maximum(mx.linalg.norm(q.astype(mx.float32), axis=-1, keepdims=True), 1e-6)
         k = k / mx.maximum(mx.linalg.norm(k.astype(mx.float32), axis=-1, keepdims=True), 1e-6)
-        decay_rate = mx.exp(self.decay_a).reshape(1, 1, self.heads, self.head_dim)
+        decay_rate = mx.exp(self.decay_a).reshape(1, 1, 1, 1)
         decay_fp32 = decay.astype(mx.float32)
         softplus_decay = mx.maximum(decay_fp32, 0) + mx.log1p(mx.exp(-mx.abs(decay_fp32)))
         alpha = mx.exp(-decay_rate * softplus_decay).astype(x.dtype)

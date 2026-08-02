@@ -23,8 +23,8 @@ sequence 16, AdamW `lr=2e-4`, same generated batches):
 
 | Path | Parameters | First loss | Mean loss | Final loss | Mean grad norm | Mean update norm | Steps/s |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| Old HZ GDN-2 | 26,432 | 4.89736 | 4.53856 | 4.36742 | 2.32511 | 0.0118131 | 323.20 |
-| Exact GDN-2 fix | 26,464 | 4.94451 | 4.51679 | 4.48489 | 2.67219 | 0.0098026 | 317.42 |
+| Old HZ GDN-2 | 26,432 | 4.89736 | 4.53856 | 4.36742 | 2.32511 | 0.0118131 | 327.83 |
+| Exact GDN-2 fix | 26,433 | 4.94451 | 4.51679 | 4.48489 | 2.67219 | 0.0097986 | 338.78 |
 
 Machine-readable source: `scripts/hz0a_gdn2_fix_training_comparison.py`.
 Because this uses independently initialized models with the same seed and
