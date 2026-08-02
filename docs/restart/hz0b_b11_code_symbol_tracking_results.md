@@ -83,23 +83,33 @@ may not be cleanly overwriting). Not yet tried: an explicit
 reassignment-clearing mechanism change, or more training steps at the
 same data size (ruling out simple undertraining at the larger set).
 
-## Correction (2026-08-01, same day): the "blending/split-writes" hypothesis above is REFUTED by direct evidence
+## Correction + full root-cause chain (2026-08-01, same day)
 
 `docs/restart/hz0b_b11_write_slot_diagnosis_code_symbol_results.md`,
 `scripts/hz0b_b11_write_slot_diagnosis_code_symbol.py` directly tested
 the hypothesis named above (writes to the same key may be
-split/blended across multiple slots instead of cleanly overwriting).
-Result, checked against real held-out examples, not assumed: **8/8
-held-out examples route all 3 reassignments to the SAME slot, with
-write_gate saturated at 1.000 (full commit) every single time** --
-this is a real, clean, in-place overwrite on held-out data, not the
-named failure mode. The hypothesis is wrong, stated plainly rather
-than left uncorrected in the record. The real cause of this task's
-negative result must be downstream of write/slot-routing (which this
-diagnostic shows works correctly) -- most likely the READ step at the
-`READ_TRIGGER` position or generalization of the read-query/value
-projections, not investigated further this pass. See that doc for
-full detail.
+split/blended across multiple slots instead of cleanly overwriting)
+and traced the real cause one level deeper:
+
+1. **The "split writes" hypothesis is REFUTED**: 8/8 held-out examples
+   route all 3 reassignments to the SAME slot, write_gate saturated at
+   1.000 (full commit) every time -- a real, clean, in-place overwrite
+   on held-out data, not the named failure mode.
+2. **The real cause: the READ step fails to reliably retrieve the
+   correctly-written slot.** Only 2/8 held-out examples correctly
+   focus (argmax) on the slot holding the right value at the final
+   `READ_TRIGGER` position; the other 6 focus on a different slot
+   entirely, with mean weight on the correct slot (0.151) close to the
+   0.125 uniform-across-8-slots baseline.
+3. Most likely explanation (named, not re-verified to certainty this
+   pass): consistent with the ALREADY-established B8 Stage 3 finding
+   that write_gate is not cleanly selective to semantically meaningful
+   positions -- filler/padding positions between the markers may be
+   softly populating other slots with noise, diluting the read.
+
+The information IS stored correctly; the mechanism cannot reliably
+find it again. See that doc for the full chain and honest disclosure
+of what was not re-verified.
 
 ## What this adds to B11's real coverage
 

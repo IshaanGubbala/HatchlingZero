@@ -23,8 +23,9 @@ import mlx.nn as nn
 from reference.hz0b_b6_hz0a_integration import frozen_hidden_states
 from reference.hz0b_b8_latent_write import latent_write_and_read_step, init_latent_write_controller
 from reference.hz0b_memory_simulator import MemoryState, _choose_write_slot, _cosine_similarity
+from reference.hz0b_readonly_integration import gated_memory_read
 from scripts.hz0b_b11_code_symbol_tracking import (
-    ASSIGN_MARKER, LAMBDA_SPARSE, NUM_SLOTS, PROMPT_LEN, SEED, TARGET_WRITE_RATE,
+    ASSIGN_MARKER, LAMBDA_SPARSE, NUM_SLOTS, PROMPT_LEN, READ_TRIGGER, SEED, TARGET_WRITE_RATE,
     dict_to_latent_params, latent_params_to_dict, load_frozen_model, make_prompts, targets_for,
 )
 
@@ -78,6 +79,8 @@ def main():
 
     same_slot_count = 0
     all_gates = []
+    read_focus_flags = []
+    read_weights_on_target = []
     for ex in range(held_out_hidden.shape[0]):
         memory_state = MemoryState(
             keys=mx.zeros((1, NUM_SLOTS, 32)), values=mx.zeros((1, NUM_SLOTS, 32)),
@@ -87,6 +90,9 @@ def main():
         )
         chosen_slots, gates_at_value_pos, keys_at_value_pos = [], [], []
         example_hidden = held_out_hidden[ex:ex + 1]
+        read_trigger_pos = PROMPT_LEN - 1
+        assert int(held_out_tokens[ex, read_trigger_pos]) == READ_TRIGGER
+        pre_read_trigger_state = None
         for t in range(PROMPT_LEN):
             hidden_t = example_hidden[:, t, :]
             key = hidden_t @ trained.key_proj_w + trained.key_proj_b
@@ -98,7 +104,16 @@ def main():
                 chosen_slots.append(int(slot_idx[0]))
                 gates_at_value_pos.append(gate)
                 keys_at_value_pos.append(key)
+            if t == read_trigger_pos:
+                pre_read_trigger_state = memory_state  # read uses the PRE-write state at this position
             _, memory_state, _ = latent_write_and_read_step(trained, hidden_t, memory_state, step=t)
+
+        _, read_weights = gated_memory_read(trained.write_controller.read_params, example_hidden[:, read_trigger_pos, :], pre_read_trigger_state)
+        target_slot = chosen_slots[-1] if chosen_slots else None
+        read_weight_on_target_slot = float(read_weights[0, target_slot]) if target_slot is not None else float("nan")
+        read_weight_argmax = int(mx.argmax(read_weights[0]))
+        print(f"  [read diagnosis] final memory slot holding the LAST reassignment's value: slot {target_slot}")
+        print(f"  [read diagnosis] read_weights argmax slot: {read_weight_argmax}  weight on that slot: {float(mx.max(read_weights[0])):.4f}  weight on target slot {target_slot}: {read_weight_on_target_slot:.4f}")
 
         pairwise_key_sims = []
         for i in range(len(keys_at_value_pos)):
@@ -109,6 +124,9 @@ def main():
         all_same_slot = len(set(chosen_slots)) == 1
         same_slot_count += int(all_same_slot)
         all_gates.extend(gates_at_value_pos)
+        read_correctly_focused = (read_weight_argmax == target_slot)
+        read_focus_flags.append(read_correctly_focused)
+        read_weights_on_target.append(read_weight_on_target_slot)
         print(f"example {ex}: chosen slots at 3 reassignments = {chosen_slots}  "
               f"({'SAME slot every time (real overwrite)' if all_same_slot else 'DIFFERENT slots (separate entries, not an overwrite)'})")
         print(f"  write_gate at each reassignment: {[f'{g:.3f}' for g in gates_at_value_pos]}")
@@ -119,6 +137,8 @@ def main():
     print(f"examples where all 3 reassignments hit the SAME slot (real overwrite): {same_slot_count}/{n}")
     print(f"examples where reassignments were split across DIFFERENT slots: {n - same_slot_count}/{n}")
     print(f"mean write_gate at reassignment positions: {sum(all_gates)/len(all_gates):.3f}  (range {min(all_gates):.3f}-{max(all_gates):.3f})")
+    print(f"examples where the READ at READ_TRIGGER correctly focused (argmax) on the slot holding the final value: {sum(read_focus_flags)}/{n}")
+    print(f"mean read_weight placed on the correct (final-value) slot: {sum(read_weights_on_target)/len(read_weights_on_target):.4f}  (range {min(read_weights_on_target):.4f}-{max(read_weights_on_target):.4f})")
 
 
 if __name__ == "__main__":
