@@ -317,6 +317,12 @@ one-seed probe (`0.331` vs `0.331`) but did not produce an advantage. These
 are useful bounds on the remaining problem, not exit-gate wins; no changes
 from these experiments were retained.
 
+Balanced code-symbol training with the existing STE hard-write option was the
+strongest overwrite follow-up: memory reached **0.338 +/- 0.020** versus the
+adapter's **0.350 +/- 0.049** across three seeds. It reduces variance and
+improves the worst seed, but still misses the matched baseline, so STE is
+recorded as partial mitigation rather than a completed fix.
+
 ## Known Constraints
 
 - Memory must stay distinct from recurrent state.
