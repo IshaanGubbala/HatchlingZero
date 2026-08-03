@@ -77,7 +77,7 @@ def init_latent_write_controller(d_model: int, key_dim: int, value_dim: int, see
     )
 
 
-def latent_write_and_read_step(params: LatentWriteControllerParams, hidden_state: mx.array, memory_state: MemoryState, *, step: int, ste: bool = False, shared_key_query: bool = False) -> tuple[mx.array, MemoryState, mx.array]:
+def latent_write_and_read_step(params: LatentWriteControllerParams, hidden_state: mx.array, memory_state: MemoryState, *, step: int, ste: bool = False, shared_key_query: bool = False, read_hops: int = 1) -> tuple[mx.array, MemoryState, mx.array, mx.array]:
     """Read happens against the PRE-write state (same write-visibility
     convention as B7 -- a write at position t is visible from t+1
     onward, matching B1 decision 7). Returns (output, new_state,
@@ -117,6 +117,13 @@ def latent_write_and_read_step(params: LatentWriteControllerParams, hidden_state
         confidence_scaled=True,
         query_override=key if shared_key_query else None,
     )
+    if read_hops > 1:
+        first_readout = output - hidden_state
+        second_query = key + first_readout @ params.write_controller.read_params.query_w
+        output, read_weights = gated_memory_read(
+            wc.read_params, hidden_state, memory_state,
+            confidence_scaled=True, query_override=second_query,
+        )
     max_confidence = mx.max(memory_state.confidence, axis=-1)
     write_logit = (hidden_state @ wc.write_gate_w + wc.write_gate_b)[:, 0] + max_confidence * params.occupancy_gate_w[0]
     write_gate_soft = mx.sigmoid(write_logit)
@@ -132,7 +139,7 @@ def latent_write_and_read_step(params: LatentWriteControllerParams, hidden_state
     return output, new_state, write_gate, read_entropy
 
 
-def sequential_latent_write_and_read(params: LatentWriteControllerParams, hidden: mx.array, *, num_slots: int = 8, decay_rate: float = 1.0, ste: bool = False, shared_key_query: bool = False, return_read_entropy: bool = False):
+def sequential_latent_write_and_read(params: LatentWriteControllerParams, hidden: mx.array, *, num_slots: int = 8, decay_rate: float = 1.0, ste: bool = False, shared_key_query: bool = False, read_hops: int = 1, return_read_entropy: bool = False):
     """hidden: [batch, seq, d_model]. Every position gets a chance to
     write, gated continuously by its own learned `write_gate` -- no
     position is hand-picked or labeled as "the" write position, unlike
@@ -168,7 +175,7 @@ def sequential_latent_write_and_read(params: LatentWriteControllerParams, hidden
     )
     outputs, gates, entropies = [], [], []
     for t in range(seq):
-        output, memory_state, write_gate, read_entropy = latent_write_and_read_step(params, hidden[:, t, :], memory_state, step=t, ste=ste, shared_key_query=shared_key_query)
+        output, memory_state, write_gate, read_entropy = latent_write_and_read_step(params, hidden[:, t, :], memory_state, step=t, ste=ste, shared_key_query=shared_key_query, read_hops=read_hops)
         if decay_rate < 1.0:
             memory_state = forget_or_decay(memory_state, decay_rate=decay_rate)
         outputs.append(output)
@@ -178,7 +185,7 @@ def sequential_latent_write_and_read(params: LatentWriteControllerParams, hidden
     return result + (mx.stack(entropies, axis=1),) if return_read_entropy else result
 
 
-def forward(model, token_ids: mx.array | None = None, *, latent_params: LatentWriteControllerParams | None = None, states=None, num_slots: int = 8, decay_rate: float = 1.0, ste: bool = False, shared_key_query: bool = False, return_read_entropy: bool = False, precomputed_hidden: mx.array | None = None):
+def forward(model, token_ids: mx.array | None = None, *, latent_params: LatentWriteControllerParams | None = None, states=None, num_slots: int = 8, decay_rate: float = 1.0, ste: bool = False, shared_key_query: bool = False, read_hops: int = 1, return_read_entropy: bool = False, precomputed_hidden: mx.array | None = None):
     """Full forward pass. `latent_params=None` -> exact no-memory
     behavior. Otherwise every position gets the latent write+read path.
     `ste=False` (default) preserves every existing caller's behavior
@@ -201,7 +208,7 @@ def forward(model, token_ids: mx.array | None = None, *, latent_params: LatentWr
     write_gates = None
     read_entropy = None
     if latent_params is not None:
-        result = sequential_latent_write_and_read(latent_params, hidden, num_slots=num_slots, decay_rate=decay_rate, ste=ste, shared_key_query=shared_key_query, return_read_entropy=return_read_entropy)
+        result = sequential_latent_write_and_read(latent_params, hidden, num_slots=num_slots, decay_rate=decay_rate, ste=ste, shared_key_query=shared_key_query, read_hops=read_hops, return_read_entropy=return_read_entropy)
         if return_read_entropy:
             hidden, _, write_gates, read_entropy = result
         else:

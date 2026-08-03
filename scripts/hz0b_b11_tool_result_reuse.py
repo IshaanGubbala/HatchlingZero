@@ -50,6 +50,7 @@ NUM_SLOTS = 8
 LAMBDA_SPARSE = 0.1
 TARGET_WRITE_RATE = 0.1
 LAMBDA_READ_ENTROPY = 0.01
+LAMBDA_VALUE_PRESERVE = 0.001
 SEED = 555
 
 
@@ -126,7 +127,10 @@ def run_hzb_memory(model, train_hidden, train_is_greater, held_out_hidden, held_
         task_loss = mx.mean(nn.losses.cross_entropy(logits[:, -1, :], targets))
         write_rate = mx.mean(gates)
         sparsity_loss = (write_rate - TARGET_WRITE_RATE) ** 2
-        return task_loss + LAMBDA_SPARSE * sparsity_loss + LAMBDA_READ_ENTROPY * mx.mean(read_entropy)
+        value = train_hidden @ p.value_proj_w + p.value_proj_b
+        reconstructed = value @ p.write_controller.read_params.value_to_hidden_w + p.write_controller.read_params.value_to_hidden_b
+        preserve_loss = mx.mean((reconstructed - train_hidden) ** 2) / (mx.mean(train_hidden ** 2) + 1e-6)
+        return task_loss + LAMBDA_SPARSE * sparsity_loss + LAMBDA_READ_ENTROPY * mx.mean(read_entropy) + LAMBDA_VALUE_PRESERVE * preserve_loss
 
     grad_fn = mx.value_and_grad(loss_fn)
     for step in range(steps):
