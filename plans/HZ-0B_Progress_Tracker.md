@@ -300,6 +300,15 @@ tool-result evaluator now defaults to this stable learning rate. This closes
 the previously observed tool-result underperformance for the tested protocol;
 broader robustness across task families still requires separate reruns.
 
+Follow-up audit on the other negative task shapes (2026-08-03) did not find a
+transferable quick fix. Value-64 plus `lr=0.05` scored code-symbol memory
+`0.288 +/- 0.010` versus adapter `0.304 +/- 0.021`; multi-hop scored memory
+`0.308 +/- 0.031` versus adapter `0.367 +/- 0.033`. Single-hop retrieval,
+aligned key/query initialization, and larger value capacity were each tested
+and rejected where they regressed the matched baseline. Those experiments
+were reverted. Code-symbol overwrite/read focus and multi-hop discrimination
+remain open, with the original validated configurations preserved.
+
 ## Known Constraints
 
 - Memory must stay distinct from recurrent state.
