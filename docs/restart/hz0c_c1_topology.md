@@ -99,13 +99,17 @@ asymmetry (model 3) explained rather than hidden.
 ## Not yet done (explicitly C2-C9's work, not this pass's scope)
 
 - C2's own exit gate ("surprise correlates with controlled novelty or
-  difficulty") -- **now checked, 2026-08-02, see
+  difficulty") -- **now genuinely met, 2026-08-02, see
   `docs/restart/hz0c_c2_surprise_validation_results.md`**: real
-  positive result for difficulty (random vs. constant tokens, 7.09x),
-  but a real, robust, wrong-direction NEGATIVE result for novelty-
-  point detection specifically (the more architecturally relevant
-  case) -- `surprise_score()` should not be carried into C3 as-is for
-  novelty-point triggering without further work.
+  positive result for difficulty (random vs. constant tokens, 7.09x)
+  AND, after diagnosing and fixing a real task-construction confound
+  (random token-ID patterns don't form a real "expectation" for a
+  language model), a real positive result for novelty-point detection
+  using `state_novelty_score()` (window 4-8) on real, in-distribution
+  content: 90.6% of examples score the anomaly above steady-state,
+  47-53% trigger at a 15%-target rate. `state_novelty_score` should be
+  the signal carried into C3, not `surprise_score` (delta-norm), which
+  works but far more weakly.
 - C3's isolated trigger simulator (novelty points, topic shifts, etc.)
   -- not built.
 - C4's fair-baseline comparisons (no/fixed/random/oracle anchors, full

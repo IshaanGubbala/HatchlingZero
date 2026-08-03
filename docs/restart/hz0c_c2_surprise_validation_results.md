@@ -120,6 +120,45 @@ or contradiction inserted, matching the plan's own C3 task list:
 ... contradictions"). This is now the priority before either signal
 is judged as failed for real.
 
+## The hypothesis, tested directly and CONFIRMED (2026-08-02, same day)
+
+`scripts/hz0c_c2_natural_novelty_validation.py`. Rebuilt Scenario 1
+using REAL data: a real 4-token n-gram extracted from
+`data/packed/repro_1024_val.jsonl` (real packed training data),
+repeated to form a genuine local pattern, with the "anomaly" ALSO a
+real, in-distribution token (from a different random position in the
+real corpus) -- isolating in-distribution-ness as the variable, not
+randomness.
+
+| Signal | Delta (novelty - steady-state) | Fraction novelty above steady-state | Novelty positions triggered at 15% rate |
+| --- | --- | --- | --- |
+| delta-norm (random-ID construction, for reference) | -0.822 | 0.094 | 0/32 (0%) |
+| delta-norm (REAL construction) | **+0.119** | 0.562 | 5/32 (15.6%) |
+| state-novelty w=4 (random-ID construction, for reference) | -0.322 | 0.031 | 0/32 (0%) |
+| **state-novelty w=4 (REAL construction)** | **+1.364** | **0.906** | **15/32 (46.9%)** |
+| state-novelty w=8 (REAL construction) | +1.395 | 0.906 | 17/32 (53.1%) |
+
+**The hypothesis is confirmed, decisively.** With real, in-distribution
+data, both signals flip to the CORRECT direction. `state_novelty_score`
+in particular now works well: 90.6% of examples score the injected
+anomaly above the steady-state mean (vs. 9.4%/3.1% on the random-ID
+construction), and at a 15%-target trigger rate, 47-53% of the actual
+novelty positions get triggered -- roughly 3x the base rate, a real,
+strong positive correlation. `surprise_score` (delta-norm) also flips
+to the correct direction but far more weakly (56.2% above steady-state,
+only 15.6% triggered, barely above the base rate) -- state-novelty is
+the clearly better candidate of the two for novelty-point detection.
+
+**C2's exit gate ("surprise correlates with controlled novelty or
+difficulty") is now genuinely met**, not just via the difficulty half:
+`state_novelty_score` (window 4 or 8) correlates with novelty on a
+real, in-distribution construction. The earlier negative result was a
+real, correctly-diagnosed task-construction artifact, not a dead end
+for either signal -- both findings are kept for the record (the
+random-ID confound is a genuine, useful lesson for C3's own simulator
+construction: synthetic tasks must use in-distribution content, not
+arbitrary token IDs, to fairly test a language-trained model).
+
 ## What this adds to HZ-0C's real progress
 
 A real, checked answer to C2's exit gate, with the negative half

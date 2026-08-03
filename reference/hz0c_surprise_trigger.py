@@ -48,9 +48,19 @@ signals failing the same way on the same real-model construction
 points toward a TASK-CONSTRUCTION issue (random, semantically
 meaningless token-ID cycles may not form a real "expectation" for a
 language-trained model to violate) rather than two independently bad
-signal choices -- real next step: rebuild the novelty-point test with
-a construction closer to what a language model actually models well,
-before judging either signal as failed for real.
+signal choices.
+
+**Hypothesis CONFIRMED (same date, `scripts/hz0c_c2_natural_novelty_validation.py`)**:
+rebuilt with a real n-gram from real packed training data and a real,
+in-distribution anomaly token -- both signals flip to the correct
+direction. `state_novelty_score` (window 4-8) works well: 90.6% of
+examples score the anomaly above steady-state (vs. 3-9% on the
+random-ID construction), 47-53% of novelty positions trigger at a
+15%-target rate (vs. 0%). `surprise_score` also flips but far more
+weakly. C2's exit gate is genuinely met via `state_novelty_score` on
+real, in-distribution content -- the random-ID confound is now a
+documented lesson for C3's own task construction (use real,
+in-distribution content, not arbitrary token IDs).
 """
 from __future__ import annotations
 
