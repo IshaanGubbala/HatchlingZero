@@ -49,6 +49,7 @@ KEY_DIM = VALUE_DIM = 32
 NUM_SLOTS = 8
 LAMBDA_SPARSE = 0.1
 TARGET_WRITE_RATE = 0.1
+LAMBDA_READ_ENTROPY = 0.01
 SEED = 555
 
 
@@ -121,11 +122,11 @@ def run_hzb_memory(model, train_hidden, train_is_greater, held_out_hidden, held_
 
     def loss_fn(pd: dict) -> mx.array:
         p = dict_to_latent_params(pd)
-        logits, _, gates = latent_forward_pass(model, precomputed_hidden=train_hidden, latent_params=p, num_slots=NUM_SLOTS)
+        logits, _, gates, read_entropy = latent_forward_pass(model, precomputed_hidden=train_hidden, latent_params=p, num_slots=NUM_SLOTS, return_read_entropy=True)
         task_loss = mx.mean(nn.losses.cross_entropy(logits[:, -1, :], targets))
         write_rate = mx.mean(gates)
         sparsity_loss = (write_rate - TARGET_WRITE_RATE) ** 2
-        return task_loss + LAMBDA_SPARSE * sparsity_loss
+        return task_loss + LAMBDA_SPARSE * sparsity_loss + LAMBDA_READ_ENTROPY * mx.mean(read_entropy)
 
     grad_fn = mx.value_and_grad(loss_fn)
     for step in range(steps):
