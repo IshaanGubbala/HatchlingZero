@@ -191,9 +191,30 @@ def scenario_rare_token_burst(count: int, rng: random.Random, general: list[list
 
 def scenario_distractor_heavy_retrieval(count: int, rng: random.Random, general: list[list[int]]) -> tuple[mx.array, list[list[int]]]:
     """8. Multiple decoy anomalies plus one designated TARGET anomaly
-    -- only the target position is ground truth; the decoys test
-    whether the mechanism stays selective under distraction rather
-    than triggering on everything unusual."""
+    -- only the target position is ground truth.
+
+    **Real, honest structural finding (2026-08-02, "fix" investigation,
+    see `docs/restart/hz0c_c3_trigger_simulator_results.md`)**: three
+    decoy-severity constructions were tried, hypothesizing that making
+    decoys genuinely "milder" than the target would let the mechanism
+    show real selectivity (currently just fully-unrelated real tokens
+    for both target and decoys). Directly measured target-vs-decoy
+    trigger rate gap under each:
+      - target/decoy from unrelated real sources (this version): 0.50 / 0.42 (gap +0.08)
+      - decoys from the SAME source sequence as the row: 0.53 / 0.48 (gap +0.05)
+      - decoys an IN-PATTERN token at the wrong cycle phase: 0.41 / 0.39 (gap +0.02)
+    All three show a small-to-negligible gap, and this (the original,
+    simplest) construction empirically has the LARGEST gap of the
+    three -- not beaten by attempts to make decoys "milder." Within a
+    TIGHT REPEATING-PATTERN substrate specifically, essentially any
+    deviation from the exact expected next token disrupts next-token
+    prediction about equally, regardless of how "foreign" the
+    substitute content is -- a genuine structural property of this
+    task shape, not a fixable decoy-construction bug. Kept as the
+    original (best-performing) construction; a real severity gradient
+    would need a different substrate entirely (e.g. ordinary flowing
+    text with one disruptive event vs. a genuinely milder one), not
+    attempted this pass."""
     rows, gts = [], []
     pattern_len, reps = 4, 8
     for _ in range(count):

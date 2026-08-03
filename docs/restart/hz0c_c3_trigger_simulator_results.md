@@ -256,3 +256,39 @@ mechanism itself.
   time signal) to aim for, and rules out "the model just doesn't
   represent these events distinctly" as an explanation for
   `state_novelty_score`'s earlier weak results.
+
+## Scenario 8 (distractor-heavy retrieval): a real structural finding, not a fixable construction bug
+
+The one scenario `token_loss_score` only modestly improved (0.344 ->
+0.406). Directly diagnosed rather than left as a residual gap:
+measured target-vs-decoy trigger rate separately (not just the
+aggregate recall) and found them nearly identical (target 0.50, decoy
+0.42) -- the mechanism was CORRECTLY treating the arbitrarily-labeled
+"target" and the "decoys" the same, since the original construction
+made them statistically identical (both random real tokens from random
+unrelated real sequences). The scenario's own ground truth, not the
+signal, was the source of the apparent weakness.
+
+Tried fixing it by giving decoys a genuinely MILDER kind of anomaly
+than the target, on the hypothesis that a real severity gradient would
+let the mechanism show real selectivity:
+
+| Decoy construction | Target trigger rate | Decoy trigger rate | Gap |
+| --- | --- | --- | --- |
+| Unrelated real source (original) | 0.50 | 0.42 | +0.08 |
+| Same source sequence as the row | 0.53 | 0.48 | +0.05 |
+| In-pattern token, wrong cycle phase | 0.41 | 0.39 | +0.02 |
+
+**All three constructions show a small-to-negligible gap, and the
+original (simplest) construction has the LARGEST gap of the three --
+not beaten by any attempt to make decoys milder.** This is a real,
+convergent, honest structural finding: within a TIGHT REPEATING-
+PATTERN substrate, essentially any deviation from the exact expected
+next token disrupts next-token prediction about equally, regardless
+of how "foreign" the substitute content is. Not a signal bug, not a
+threshold bug, not a fixable decoy-construction bug -- a genuine
+property of this task shape. A real severity gradient for distractor-
+heavy retrieval would need a fundamentally different substrate (e.g.
+ordinary flowing text with one genuinely disruptive event and one
+genuinely milder one), not attempted this pass. Kept the original
+construction since it was not beaten.
