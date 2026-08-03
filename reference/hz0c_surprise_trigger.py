@@ -26,6 +26,18 @@ this token move the state" -- no teacher-forced next-token loss needed
 (which would require access unavailable at real inference time), no
 new HZ-0B integration needed (deferred, real future C2 candidate:
 memory-read uncertainty, once C6 wires this to frozen HZ-0B).
+
+**C2 validation finding (2026-08-02, `docs/restart/hz0c_c2_surprise_validation_results.md`),
+disclosed here so it isn't missed**: against the real frozen
+checkpoint, this signal correlates well with general DIFFICULTY
+(random vs. constant tokens: 7.09x higher mean surprise, correct
+direction) but FAILS at novelty-POINT detection specifically -- a
+single anomalous token injected into an otherwise-repeating pattern
+scores LOWER than ordinary steady-state positions (wrong direction,
+0% trigger rate on 32 injected anomalies at a 15%-target-rate
+threshold). Usable as a difficulty/entropy proxy; NOT yet validated
+as a novelty-point trigger signal for C3's simulator without further
+work (a different C2 candidate, or a fix to this one).
 """
 from __future__ import annotations
 
@@ -44,6 +56,70 @@ def surprise_score(hidden: mx.array) -> mx.array:
     delta_norm = mx.sqrt(mx.sum(delta * delta, axis=-1) + 1e-8)
     first = mx.zeros((batch, 1))
     return mx.concatenate([first, delta_norm], axis=1)
+
+
+def normalize_score(score: mx.array, *, method: str = "zscore", eps: float = 1e-6) -> mx.array:
+    """C2's own required spec item: "specify normalization." score:
+    [batch, seq]. Raw `surprise_score` magnitude depends on `dim` and
+    training dynamics, not directly comparable across sequences or
+    checkpoints -- normalize PER SEQUENCE (each row of the batch
+    independently, not across the batch) so a threshold set once is
+    meaningful regardless of a particular sequence's raw scale.
+
+    `"zscore"` (default): `(score - mean) / (std + eps)` per sequence.
+    `"minmax"`: rescale each sequence's own [min, max] to [0, 1].
+    Position 0 is always exactly 0 in raw `surprise_score` by
+    construction -- included in the normalization statistics like any
+    other position (not special-cased), since excluding it would bias
+    the mean/std for short sequences."""
+    if method == "zscore":
+        mean = mx.mean(score, axis=-1, keepdims=True)
+        std = mx.std(score, axis=-1, keepdims=True)
+        return (score - mean) / (std + eps)
+    if method == "minmax":
+        lo = mx.min(score, axis=-1, keepdims=True)
+        hi = mx.max(score, axis=-1, keepdims=True)
+        return (score - lo) / (hi - lo + eps)
+    raise ValueError(f"unknown normalize_score method: {method!r}")
+
+
+def smooth_score(score: mx.array, *, window: int = 1) -> mx.array:
+    """C2's own required spec item: "specify smoothing." score:
+    [batch, seq]. A causal moving average over the last `window`
+    positions (including the current one) -- smooths single-position
+    noise spikes without looking ahead (inference-safe, no future
+    leakage). `window=1` (default) is the identity (no smoothing),
+    preserving every existing caller's exact behavior."""
+    if window <= 1:
+        return score
+    batch, seq = score.shape
+    padded = mx.concatenate([mx.zeros((batch, window - 1)), score], axis=1)
+    windows = mx.stack([padded[:, i:i + seq] for i in range(window)], axis=-1)
+    counts = mx.array([min(i + 1, window) for i in range(seq)], dtype=mx.float32)[None, :]
+    return mx.sum(windows, axis=-1) / counts
+
+
+def rate_bounded_threshold(score: mx.array, *, target_rate: float, min_rate: float, max_rate: float) -> mx.array:
+    """C2's own required spec item: "specify... thresholding, minimum
+    and maximum trigger rates." score: [batch, seq] (typically already
+    normalized). Returns a per-BATCH-ROW threshold (`[batch, 1]`) set
+    via the `(1 - target_rate)`-quantile of that sequence's own score
+    distribution, so triggering `score > threshold` yields close to
+    `target_rate` fraction of positions triggered BY CONSTRUCTION,
+    regardless of the score distribution's absolute scale -- clamped
+    so the resulting rate cannot fall outside `[min_rate, max_rate]`
+    (approximated by clamping `target_rate` itself into that range
+    before computing the quantile, since the quantile-threshold
+    construction makes the ACHIEVED rate track the TARGET rate
+    directly). Fully deterministic -- no sampling, same output every
+    call for the same input, satisfying C2's "deterministic inference
+    behavior" requirement."""
+    clamped_rate = min(max(target_rate, min_rate), max_rate)
+    quantile = 1.0 - clamped_rate
+    sorted_scores = mx.sort(score, axis=-1)
+    seq = score.shape[-1]
+    idx = min(max(int(quantile * seq), 0), seq - 1)
+    return sorted_scores[:, idx:idx + 1]
 
 
 def trigger_decision(score: mx.array, *, scale: mx.array, bias: mx.array, ste: bool = False) -> mx.array:

@@ -99,9 +99,13 @@ asymmetry (model 3) explained rather than hidden.
 ## Not yet done (explicitly C2-C9's work, not this pass's scope)
 
 - C2's own exit gate ("surprise correlates with controlled novelty or
-  difficulty") -- `surprise_score()` exists and is unit-tested for
-  basic sanity (zero on no change, positive on change) but has NOT
-  been validated against actual novelty/difficulty-labeled data yet.
+  difficulty") -- **now checked, 2026-08-02, see
+  `docs/restart/hz0c_c2_surprise_validation_results.md`**: real
+  positive result for difficulty (random vs. constant tokens, 7.09x),
+  but a real, robust, wrong-direction NEGATIVE result for novelty-
+  point detection specifically (the more architecturally relevant
+  case) -- `surprise_score()` should not be carried into C3 as-is for
+  novelty-point triggering without further work.
 - C3's isolated trigger simulator (novelty points, topic shifts, etc.)
   -- not built.
 - C4's fair-baseline comparisons (no/fixed/random/oracle anchors, full

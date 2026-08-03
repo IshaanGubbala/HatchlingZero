@@ -7,7 +7,7 @@ import mlx.core as mx
 from reference.hz0a_mlx_model import HZ0AMlxModel
 from reference.hz0c_surprise_trigger import (
     HZ0CSurpriseTriggeredModel, SurpriseTriggeredBlock, masked_anchor_attention,
-    surprise_score, trigger_decision,
+    normalize_score, rate_bounded_threshold, smooth_score, surprise_score, trigger_decision,
 )
 
 
@@ -149,3 +149,65 @@ def test_c1_three_models_forward_pass_on_same_real_tokens():
         logits, _ = model(tokens)
         assert logits.shape == (1, 6, vocab_size)
         assert bool(mx.all(mx.isfinite(logits)))
+
+
+def test_normalize_score_zscore_has_zero_mean_unit_std():
+    score = mx.array([[1.0, 2.0, 3.0, 4.0, 5.0]])
+    normed = normalize_score(score, method="zscore")
+    assert abs(float(mx.mean(normed))) < 1e-4
+    assert abs(float(mx.std(normed)) - 1.0) < 1e-3
+
+
+def test_normalize_score_minmax_bounds_zero_one():
+    score = mx.array([[1.0, 5.0, 3.0, -2.0]])
+    normed = normalize_score(score, method="minmax")
+    assert abs(float(mx.min(normed))) < 1e-5
+    assert abs(float(mx.max(normed)) - 1.0) < 1e-5
+
+
+def test_normalize_score_per_row_not_across_batch():
+    """Two rows with different raw scales must each normalize to their
+    OWN zero-mean/unit-std, not be normalized jointly."""
+    score = mx.array([[0.0, 10.0], [100.0, 200.0]])
+    normed = normalize_score(score, method="zscore")
+    for row in range(2):
+        assert abs(float(mx.mean(normed[row]))) < 1e-4
+
+
+def test_smooth_score_identity_at_window_one():
+    score = mx.array([[1.0, 5.0, 2.0, 9.0]])
+    assert bool(mx.array_equal(smooth_score(score, window=1), score))
+
+
+def test_smooth_score_averages_causally_no_future_leakage():
+    score = mx.array([[10.0, 0.0, 0.0, 0.0]])
+    smoothed = smooth_score(score, window=2)
+    # position 0: avg of just itself (10). position 1: avg(10,0)=5.
+    assert abs(float(smoothed[0, 0]) - 10.0) < 1e-5
+    assert abs(float(smoothed[0, 1]) - 5.0) < 1e-5
+    # position 2 must NOT see position 0's spike (window=2 excludes it) -- no future or stale leakage beyond the window
+    assert abs(float(smoothed[0, 2]) - 0.0) < 1e-5
+
+
+def test_rate_bounded_threshold_achieves_target_rate():
+    mx.random.seed(3)
+    score = mx.random.normal((1, 1000))
+    threshold = rate_bounded_threshold(score, target_rate=0.1, min_rate=0.01, max_rate=0.5)
+    achieved_rate = float(mx.mean((score > threshold).astype(mx.float32)))
+    assert abs(achieved_rate - 0.1) < 0.02
+
+
+def test_rate_bounded_threshold_clamps_to_bounds():
+    mx.random.seed(4)
+    score = mx.random.normal((1, 1000))
+    threshold = rate_bounded_threshold(score, target_rate=0.9, min_rate=0.01, max_rate=0.2)
+    achieved_rate = float(mx.mean((score > threshold).astype(mx.float32)))
+    assert achieved_rate <= 0.25  # clamped toward max_rate=0.2, not the requested 0.9
+
+
+def test_rate_bounded_threshold_deterministic():
+    mx.random.seed(5)
+    score = mx.random.normal((2, 50))
+    t1 = rate_bounded_threshold(score, target_rate=0.2, min_rate=0.01, max_rate=0.5)
+    t2 = rate_bounded_threshold(score, target_rate=0.2, min_rate=0.01, max_rate=0.5)
+    assert bool(mx.array_equal(t1, t2))
