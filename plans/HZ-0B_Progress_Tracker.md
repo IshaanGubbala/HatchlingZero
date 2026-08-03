@@ -309,6 +309,14 @@ and rejected where they regressed the matched baseline. Those experiments
 were reverted. Code-symbol overwrite/read focus and multi-hop discrimination
 remain open, with the original validated configurations preserved.
 
+Additional controlled checks (2026-08-03) sharpened the status. Balanced
+code-symbol training (`320` examples, `lr=0.05`) was nearly tied at 1,000
+steps (`0.346` memory vs `0.350` adapter) but fell behind after 2,000 steps
+(`0.360` vs `0.377`). Balanced multi-hop training tied the adapter in a
+one-seed probe (`0.331` vs `0.331`) but did not produce an advantage. These
+are useful bounds on the remaining problem, not exit-gate wins; no changes
+from these experiments were retained.
+
 ## Known Constraints
 
 - Memory must stay distinct from recurrent state.
