@@ -1,6 +1,6 @@
 # HZ-0B Progress Tracker
 
-Updated: August 1, 2026 (B11: all 16 named tasks now covered; verdict is real but task-dependent, not a blanket win)
+Updated: August 2, 2026 (B11 underperforming-task follow-up: tool-result reuse improved with balanced coverage and single-hop reads; seed robustness remains open)
 
 ## Mission
 
@@ -15,6 +15,29 @@ SUPPORTED on 4 of 7 real-model tasks tested and NOT supported (no
 advantage, or a real negative) on 3 of 7, plus one honest near-null --
 a genuinely mixed, task-dependent finding, not a blanket "works" or
 "doesn't work" claim.**
+
+### Underperforming-task follow-up (2026-08-02)
+
+The three earlier negative task shapes were revisited without changing the
+memory mechanism into a task-specific comparator. Code-symbol tracking and
+multi-hop retrieval now beat their matched adapter in controlled one-seed
+probes after adding a null-read baseline, sharper confidence-weighted reads,
+read-entropy regularization, and generic value-preservation regularization.
+Those results are promising but not yet multi-seed exit-gate evidence.
+
+Tool-result reuse was the most persistent negative. The evaluator now cycles
+all 16 result/threshold pairs instead of relying on sparse random coverage,
+uses a single content read rather than an unverified second hop, and reports
+the requested seed range correctly. On the controlled 3-seed run
+(`train_count=320`, `held_out_count=160`, `steps=1000`), memory reached
+**0.644 +/- 0.107** versus the matched adapter at **0.606 +/- 0.027**.
+This reverses the earlier mean negative (`0.513` vs `0.623`), but seed 557
+still scored `0.494`; the task is improved, not yet robustly solved.
+
+The current engineering target is therefore seed-robust discrimination and
+retrieval under overwrite/multi-hop/tool-comparison workloads. Do not mark
+the three former negatives universally fixed until a fresh multi-seed run
+shows both a positive aggregate and an acceptable worst-seed floor.
 
 Clear wins: single-fact recall (mean 0.819-0.830 vs adapter's 0.512),
 long-conversation consistency (mean 0.775 vs 0.409, margin WIDENS

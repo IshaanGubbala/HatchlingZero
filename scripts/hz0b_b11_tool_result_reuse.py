@@ -125,7 +125,7 @@ def run_hzb_memory(model, train_hidden, train_is_greater, held_out_hidden, held_
 
     def loss_fn(pd: dict) -> mx.array:
         p = dict_to_latent_params(pd)
-        logits, _, gates, read_entropy = latent_forward_pass(model, precomputed_hidden=train_hidden, latent_params=p, num_slots=NUM_SLOTS, read_hops=2, return_read_entropy=True)
+        logits, _, gates, read_entropy = latent_forward_pass(model, precomputed_hidden=train_hidden, latent_params=p, num_slots=NUM_SLOTS, read_hops=1, return_read_entropy=True)
         task_loss = mx.mean(nn.losses.cross_entropy(logits[:, -1, :], targets))
         write_rate = mx.mean(gates)
         sparsity_loss = (write_rate - TARGET_WRITE_RATE) ** 2
@@ -144,7 +144,7 @@ def run_hzb_memory(model, train_hidden, train_is_greater, held_out_hidden, held_
             print(f"    [memory seed={seed}] step {step:4d}  train loss {float(loss):.5f}")
 
     trained = dict_to_latent_params(params_dict)
-    logits, _, _ = latent_forward_pass(model, precomputed_hidden=held_out_hidden, latent_params=trained, num_slots=NUM_SLOTS, read_hops=2)
+    logits, _, _ = latent_forward_pass(model, precomputed_hidden=held_out_hidden, latent_params=trained, num_slots=NUM_SLOTS, read_hops=1)
     predicted = mx.argmax(logits[:, -1, :], axis=-1)
     return float(mx.mean((predicted == targets_for(held_out_is_greater)).astype(mx.float32)))
 
@@ -154,6 +154,7 @@ def main():
     parser.add_argument("--steps", type=int, default=1000)
     parser.add_argument("--lr", type=float, default=0.15)
     parser.add_argument("--num-seeds", type=int, default=5)
+    parser.add_argument("--seed-start", type=int, default=SEED)
     parser.add_argument("--train-count", type=int, default=320, help="Balanced-scale training set; 80 examples under-cover result/threshold combinations")
     parser.add_argument("--held-out-count", type=int, default=80)
     args = parser.parse_args()
@@ -179,8 +180,8 @@ def main():
     print(f"\n2. Equal-parameter no-memory adapter ({args.num_seeds} seeds):")
     adapter_accs = []
     for i in range(args.num_seeds):
-        acc = run_equal_param_adapter(model, train_hidden, train_is_greater, held_out_hidden, held_out_is_greater, seed=SEED + i, steps=args.steps, lr=args.lr)
-        print(f"  seed {SEED + i}: {acc:.3f}")
+        acc = run_equal_param_adapter(model, train_hidden, train_is_greater, held_out_hidden, held_out_is_greater, seed=args.seed_start + i, steps=args.steps, lr=args.lr)
+        print(f"  seed {args.seed_start + i}: {acc:.3f}")
         adapter_accs.append(acc)
     adapter_mean = sum(adapter_accs) / len(adapter_accs)
     adapter_std = (sum((a - adapter_mean) ** 2 for a in adapter_accs) / len(adapter_accs)) ** 0.5
@@ -189,8 +190,8 @@ def main():
     print(f"\n3. HZ-0B real memory ({args.num_seeds} seeds):")
     memory_accs = []
     for i in range(args.num_seeds):
-        acc = run_hzb_memory(model, train_hidden, train_is_greater, held_out_hidden, held_out_is_greater, seed=SEED + i, steps=args.steps, lr=args.lr)
-        print(f"  seed {SEED + i}: {acc:.3f}")
+        acc = run_hzb_memory(model, train_hidden, train_is_greater, held_out_hidden, held_out_is_greater, seed=args.seed_start + i, steps=args.steps, lr=args.lr)
+        print(f"  seed {args.seed_start + i}: {acc:.3f}")
         memory_accs.append(acc)
     memory_mean = sum(memory_accs) / len(memory_accs)
     memory_std = (sum((a - memory_mean) ** 2 for a in memory_accs) / len(memory_accs)) ** 0.5
