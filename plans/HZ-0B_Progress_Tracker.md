@@ -323,6 +323,12 @@ adapter's **0.350 +/- 0.049** across three seeds. It reduces variance and
 improves the worst seed, but still misses the matched baseline, so STE is
 recorded as partial mitigation rather than a completed fix.
 
+The multi-hop follow-up also tested a concrete second-hop query correction:
+using only the pointer-derived query improved seed 555 (`0.344` vs adapter
+`0.331`) but failed the three-seed gate (`0.331 +/- 0.037` memory vs
+`0.388 +/- 0.040` adapter). The correction and temporary CLI plumbing were
+reverted; chained retrieval remains unresolved.
+
 ## Known Constraints
 
 - Memory must stay distinct from recurrent state.
