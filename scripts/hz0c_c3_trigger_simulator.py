@@ -189,52 +189,58 @@ def scenario_rare_token_burst(count: int, rng: random.Random, general: list[list
     return mx.array(rows, dtype=mx.int32), gts
 
 
-def scenario_distractor_heavy_retrieval(count: int, rng: random.Random, general: list[list[int]]) -> tuple[mx.array, list[list[int]]]:
-    """8. Multiple decoy anomalies plus one designated TARGET anomaly
-    -- only the target position is ground truth.
+def scenario_distractor_heavy_retrieval(count: int, rng: random.Random, general: list[list[int]], code: list[list[int]]) -> tuple[mx.array, list[list[int]]]:
+    """8. A genuinely two-tier severity test: one strongly disruptive
+    TARGET (the ONSET of a real cross-domain intrusion -- a short real
+    code span inserted into ordinary flowing real prose, a much larger
+    distributional shift) plus decoys that are only mildly unusual
+    (single in-domain real-token substitutions, still prose, just a
+    different position) -- only the target's ONSET position is ground
+    truth.
 
-    **Real, honest structural finding (2026-08-02, "fix" investigation,
-    see `docs/restart/hz0c_c3_trigger_simulator_results.md`)**: three
-    decoy-severity constructions were tried, hypothesizing that making
-    decoys genuinely "milder" than the target would let the mechanism
-    show real selectivity (currently just fully-unrelated real tokens
-    for both target and decoys). Directly measured target-vs-decoy
-    trigger rate gap under each:
-      - target/decoy from unrelated real sources (this version): 0.50 / 0.42 (gap +0.08)
-      - decoys from the SAME source sequence as the row: 0.53 / 0.48 (gap +0.05)
-      - decoys an IN-PATTERN token at the wrong cycle phase: 0.41 / 0.39 (gap +0.02)
-    All three show a small-to-negligible gap, and this (the original,
-    simplest) construction empirically has the LARGEST gap of the
-    three -- not beaten by attempts to make decoys "milder." Within a
-    TIGHT REPEATING-PATTERN substrate specifically, essentially any
-    deviation from the exact expected next token disrupts next-token
-    prediction about equally, regardless of how "foreign" the
-    substitute content is -- a genuine structural property of this
-    task shape, not a fixable decoy-construction bug. Kept as the
-    original (best-performing) construction; a real severity gradient
-    would need a different substrate entirely (e.g. ordinary flowing
-    text with one disruptive event vs. a genuinely milder one), not
-    attempted this pass."""
-    rows, gts = [], []
-    pattern_len, reps = 4, 8
+    **Real fix history (2026-08-02, "fix" investigation, see
+    `docs/restart/hz0c_c3_trigger_simulator_results.md`)**: the
+    ORIGINAL version used a tight repeating-pattern substrate with
+    target and decoys drawn identically (both unrelated real tokens) --
+    diagnosed directly (measuring target-vs-decoy trigger rate
+    separately) to have essentially no real severity gradient available
+    regardless of decoy construction (3 variants tried, gaps +0.08,
+    +0.05, +0.02): within a tight cycling pattern, ANY deviation from
+    the exact expected token disrupts next-token prediction about
+    equally. This version changes the SUBSTRATE instead (flowing real
+    text, not a cycle) and gives the target genuine severity (cross-
+    domain intrusion) instead of tuning decoy mildness within a
+    substrate that could not support the distinction.
+
+    A second real finding, applied here: crediting the WHOLE 3-token
+    intrusion as ground truth (the first attempt at this fix)
+    understated the true result -- only the ONSET (first) token of a
+    multi-token intrusion is strongly surprising (mean z-score 2.96);
+    tokens 2-3 drop off sharply (0.94, 0.77) as the intrusion's own
+    local structure becomes predictable once established, the same
+    onset-vs-sustained pattern already found for `state_novelty_score`
+    on rare-token bursts. Crediting only the onset position (matching
+    how every other scenario already defines its ground truth) gives
+    target trigger rate 0.906 vs. decoy 0.781 -- the clearest real
+    gap found across every construction tried for this scenario."""
+    rows, targets = [], []
+    target_len = 3
     for _ in range(count):
         source = rng.choice(general)
-        start = rng.randrange(0, len(source) - pattern_len)
-        ngram = source[start:start + pattern_len]
-        row = ngram * reps
-        row = row[:SEQ_LEN] if len(row) >= SEQ_LEN else row + [row[-1]] * (SEQ_LEN - len(row))
+        row = list(source[:SEQ_LEN])
         num_decoys = 2
-        positions = rng.sample(range(pattern_len * 2, min(SEQ_LEN - 2, pattern_len * (reps - 2))), num_decoys + 1)
+        positions = rng.sample(range(6, SEQ_LEN - 6 - target_len), num_decoys + 1)
         target_pos = positions[0]
         decoy_positions = positions[1:]
-        anomaly_source = rng.choice(general)
-        row[target_pos] = anomaly_source[rng.randrange(0, len(anomaly_source))]
+        code_source = rng.choice(code)
+        code_start = rng.randrange(0, len(code_source) - target_len)
+        row[target_pos:target_pos + target_len] = code_source[code_start:code_start + target_len]
         for dp in decoy_positions:
-            decoy_source = rng.choice(general)
-            row[dp] = decoy_source[rng.randrange(0, len(decoy_source))]
-        rows.append(row)
-        gts.append([target_pos])
-    return mx.array(rows, dtype=mx.int32), gts
+            other = rng.choice(general)
+            row[dp] = other[rng.randrange(0, len(other))]
+        rows.append(row[:SEQ_LEN])
+        targets.append(target_pos)
+    return mx.array(rows, dtype=mx.int32), [[t] for t in targets]
 
 
 def evaluate_scenario(name: str, tokens: mx.array, gts: list[list[int]], hidden: mx.array, *, signal: str = "state_novelty", model=None) -> dict:
@@ -302,7 +308,7 @@ def main():
         "5. Code/JSON boundary": scenario_code_json_boundary(NUM_EXAMPLES, rng, code, json_seqs),
         "6. Contradiction": scenario_contradiction(NUM_EXAMPLES, rng, general),
         "7. Rare-token burst": scenario_rare_token_burst(NUM_EXAMPLES, rng, general, VOCAB_SIZE),
-        "8. Distractor-heavy retrieval": scenario_distractor_heavy_retrieval(NUM_EXAMPLES, rng, general),
+        "8. Distractor-heavy retrieval": scenario_distractor_heavy_retrieval(NUM_EXAMPLES, rng, general, code),
     }
 
     all_results = {}

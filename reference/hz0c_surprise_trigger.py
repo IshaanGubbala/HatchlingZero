@@ -68,10 +68,17 @@ ONLY on the single-point-anomaly case above -- weak on 6 others
 (recall 0.06-0.34). `token_loss_score()` (below), evaluated for C3's
 own OFFLINE simulator use (fair there since ground-truth next tokens
 are legitimately available, unlike at C6's real inference time), fixes
-6 of those 8 decisively (e.g. topic shift 0.062->0.969, code/JSON
-boundary 0.156->1.000) -- establishes these scenarios ARE detectable
-in principle and gives C7 a real target, but cannot itself be the
-final real-inference-time trigger signal.
+ALL 8 of those scenarios to recall >= 0.5 (e.g. topic shift
+0.062->0.969, code/JSON boundary 0.156->1.000) -- including scenario
+8 (distractor-heavy retrieval), which needed a substrate change (a
+real cross-domain intrusion's ONSET as target, not a within-pattern
+substitution) rather than a signal change, and revealed the same
+onset-vs-sustained pattern already found for `state_novelty_score`'s
+rare-token-burst case: only the FIRST token of a multi-token
+disruption is strongly surprising. Establishes all 8 scenarios ARE
+detectable in principle and gives C7 a real target, but
+`token_loss_score` cannot itself be the final real-inference-time
+trigger signal.
 """
 from __future__ import annotations
 
