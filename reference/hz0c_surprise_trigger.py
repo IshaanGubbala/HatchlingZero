@@ -61,6 +61,17 @@ weakly. C2's exit gate is genuinely met via `state_novelty_score` on
 real, in-distribution content -- the random-ID confound is now a
 documented lesson for C3's own task construction (use real,
 in-distribution content, not arbitrary token IDs).
+
+**C3 finding (2026-08-02, `docs/restart/hz0c_c3_trigger_simulator_results.md`)**:
+across all 8 named scenario types, `state_novelty_score` stays strong
+ONLY on the single-point-anomaly case above -- weak on 6 others
+(recall 0.06-0.34). `token_loss_score()` (below), evaluated for C3's
+own OFFLINE simulator use (fair there since ground-truth next tokens
+are legitimately available, unlike at C6's real inference time), fixes
+6 of those 8 decisively (e.g. topic shift 0.062->0.969, code/JSON
+boundary 0.156->1.000) -- establishes these scenarios ARE detectable
+in principle and gives C7 a real target, but cannot itself be the
+final real-inference-time trigger signal.
 """
 from __future__ import annotations
 
@@ -154,6 +165,44 @@ def ema_novelty_score(hidden: mx.array, *, decay: float = 0.9, eps: float = 1e-6
         scores.append(1.0 - cos_sim)
         expectation = decay * expectation + (1.0 - decay) * current
     return mx.stack(scores, axis=1)
+
+
+def token_loss_score(model, hidden: mx.array, token_ids: mx.array) -> mx.array:
+    """C2's "token-loss proxy" candidate, previously DEFERRED (see the
+    module docstring) because it "requires teacher-forced next-token
+    access unavailable at real inference time" -- a real constraint
+    for C6's eventual live deployment, but NOT for C3's own OFFLINE
+    trigger simulator, which legitimately has access to ground-truth
+    next tokens as part of evaluating candidate signals, the same way
+    it has access to ground-truth trigger positions. This is fair to
+    use here even though it cannot be the FINAL deployed signal as-is.
+
+    Found (2026-08-02, `docs/restart/hz0c_c3_trigger_simulator_results.md`'s
+    fix section) to be dramatically stronger than either hidden-state-
+    geometry signal (`state_novelty_score`, `ema_novelty_score`) for
+    boundary/shift-type events specifically: on the topic-shift
+    scenario, mean rank of the true boundary position dropped from
+    ~18.9 (chance level) to 1.4, and top-15%-recall rose from 6% to
+    91% -- exactly the intuition that a genuine topic change makes the
+    very next real token much harder to predict, a direct signal
+    `state_novelty_score`'s hidden-state distance never had access to.
+
+    `hidden`: [batch, seq, dim] (already-computed backbone hidden
+    states, matching every other score function's `precomputed_hidden`
+    convention used throughout this project). `token_ids`: [batch, seq]
+    the REAL tokens actually at each position. Returns [batch, seq]:
+    position `t`'s score is the negative log-probability the model
+    assigned to the REAL token that appeared at position `t`, using
+    only hidden state up to `t-1` (causal, no leakage from `t` itself)
+    -- position 0 has no prior context, scored 0 like every other
+    signal here."""
+    logits = model.final_norm(hidden) @ model.embedding.weight.T
+    log_probs = nn.log_softmax(logits, axis=-1)
+    batch, seq, vocab = logits.shape
+    next_tokens = token_ids[:, 1:]
+    pred_log_probs = log_probs[:, :-1, :]
+    nll = -mx.take_along_axis(pred_log_probs, next_tokens[:, :, None], axis=-1)[:, :, 0]
+    return mx.concatenate([mx.zeros((batch, 1)), nll], axis=1)
 
 
 def normalize_score(score: mx.array, *, method: str = "zscore", eps: float = 1e-6) -> mx.array:

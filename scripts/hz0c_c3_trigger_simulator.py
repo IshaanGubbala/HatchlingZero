@@ -25,7 +25,7 @@ import random
 
 import mlx.core as mx
 
-from reference.hz0c_surprise_trigger import ema_novelty_score, normalize_score, rate_bounded_threshold, state_novelty_score
+from reference.hz0c_surprise_trigger import ema_novelty_score, normalize_score, rate_bounded_threshold, state_novelty_score, token_loss_score
 from reference.hz0b_b6_hz0a_integration import frozen_hidden_states
 from scripts.hz0b_b11_baseline_comparison import load_frozen_model
 
@@ -216,11 +216,13 @@ def scenario_distractor_heavy_retrieval(count: int, rng: random.Random, general:
     return mx.array(rows, dtype=mx.int32), gts
 
 
-def evaluate_scenario(name: str, tokens: mx.array, gts: list[list[int]], hidden: mx.array, *, signal: str = "state_novelty") -> dict:
+def evaluate_scenario(name: str, tokens: mx.array, gts: list[list[int]], hidden: mx.array, *, signal: str = "state_novelty", model=None) -> dict:
     if signal == "state_novelty":
         raw_score = state_novelty_score(hidden, window=4)
     elif signal == "ema_novelty":
         raw_score = ema_novelty_score(hidden, decay=0.9)
+    elif signal == "token_loss":
+        raw_score = token_loss_score(model, hidden, tokens)
     else:
         raise ValueError(f"unknown signal: {signal!r}")
     normed_score = normalize_score(raw_score, method="zscore")
@@ -256,7 +258,7 @@ def evaluate_scenario(name: str, tokens: mx.array, gts: list[list[int]], hidden:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--signal", choices=["state_novelty", "ema_novelty"], default="state_novelty")
+    parser.add_argument("--signal", choices=["state_novelty", "ema_novelty", "token_loss"], default="state_novelty")
     args = parser.parse_args()
 
     model, payload = load_frozen_model()
@@ -287,7 +289,7 @@ def main():
     for name, (tokens, gts) in scenarios.items():
         hidden, _ = frozen_hidden_states(model, tokens)
         mx.eval(hidden)
-        result = evaluate_scenario(name, tokens, gts, hidden, signal=args.signal)
+        result = evaluate_scenario(name, tokens, gts, hidden, signal=args.signal, model=model)
         all_results[name] = result
         all_rates.append(result["avg_anchor_rate"])
 

@@ -157,3 +157,102 @@ scenario 1's exact construction; the other 7 scenarios (now including
 a properly-constructed scenario 7) all sit in a weak recall band,
 which is real signal that C7's trained controller has real work to do
 beyond this fixed heuristic, not evidence of a broken pipeline.
+
+## Further diagnosis (2026-08-02, same day): topic-shift confirmed NOT fixable by threshold/window tuning
+
+Scenario 2 (topic shift) is the worst performer (recall 0.062,
+actually BELOW its own 15% trigger budget) and was investigated
+directly rather than guessed at further. Three checks, all real,
+against the real checkpoint:
+
+1. **Rank analysis**: computed the exact rank (0=highest score) of
+   the true boundary position within each 40-token example. Mean rank
+   18.88, essentially identical to the chance expectation for a
+   uniform random position in `[0,40)` (~19.5) -- the signal is
+   genuinely uncorrelated with the boundary location, not just poorly
+   thresholded. Loosening to a top-15 cutoff recovers only 40.6%
+   recall, matching what a 37.5%-of-40 budget should capture by chance
+   alone.
+2. **Positional offset check**: tested whether the true disruption
+   might land 1-2 positions before/after the labeled boundary (an
+   off-by-one in scoring vs. construction). No offset in `{-2..+4}`
+   meaningfully changes the mean rank (15.3-20.6, all within noise of
+   each other given n=32).
+3. **Window-size sweep**: tested `window` in `{2,4,8,16,24}` on the
+   hypothesis that a genuine topic shift might need a longer-horizon
+   comparison than the tight local pattern case needed. No window size
+   improves mean rank meaningfully (18.3-19.4, all near chance).
+
+**Honest conclusion**: topic-shift detection is not a threshold,
+offset, or window-tuning problem -- `state_novelty_score`'s core
+mechanism (cosine distance to a windowed mean of recent hidden states)
+carries essentially no information about topic/source boundaries in
+this model's hidden-state geometry, at least not in this simple form.
+Further tuning of this specific signal is not a productive next step
+for this scenario; a genuinely different signal was needed (below).
+
+## The real fix: `token_loss_score` -- decisive, sweeping improvement across nearly every scenario
+
+C2's originally-named "token-loss proxy" candidate was DEFERRED at the
+time (module docstring) because it "requires teacher-forced next-token
+access unavailable at real inference time." That constraint is real
+for C6's eventual live deployment, but NOT for C3's own OFFLINE trigger
+simulator -- C3 already has ground-truth next tokens available (the
+same way it has ground-truth trigger positions), so using them to
+evaluate a candidate signal here is fair, even though this exact
+signal cannot be the final deployed one as-is.
+
+Implemented `token_loss_score(model, hidden, token_ids)`
+(`reference/hz0c_surprise_trigger.py`, 2 new regression tests): the
+negative log-probability the model assigned to the REAL token that
+appeared at each position, using only prior context (causal). Reran
+the full corrected 8-scenario suite:
+
+| Scenario | Recall, `state_novelty` | Recall, `token_loss` |
+| --- | --- | --- |
+| 1. Repeated pattern with anomaly | 0.656 | 0.656 (unchanged -- already strong) |
+| 2. Topic shift | 0.062 | **0.969** |
+| 3. Long-range key reappearance | 0.156 | **0.844** |
+| 4. Changed variable bindings | 0.156 | **0.500** |
+| 5. Code/JSON boundary | 0.156 | **1.000** |
+| 6. Contradiction | 0.125 | **0.688** |
+| 7. Rare-token burst (real-span construction) | 0.156 | **0.500** |
+| 8. Distractor-heavy retrieval | 0.344 | 0.406 |
+
+**A decisive, sweeping improvement on 6 of 8 scenarios, with 2
+reaching near-perfect or perfect recall** (topic shift 96.9%, code/JSON
+boundary 100%). This directly confirms the diagnostic intuition:
+genuine topic/structure/contradiction/reassignment/reappearance events
+make the very next real token substantially harder for the model to
+predict -- a direct behavioral signal that hidden-state geometric
+distance (`state_novelty_score`, `ema_novelty_score`) never had access
+to. Precision improved correspondingly across the same 6 scenarios
+(e.g., topic shift 0.013 -> 0.194, code/JSON boundary 0.031 -> 0.200).
+
+**Honest remaining caveat, not glossed over**: `token_loss_score`
+CANNOT be the final signal carried into C6's real inference-time
+deployment as-is, since it requires the real next token, which a live
+model does not have when deciding whether to trigger at the CURRENT
+position. It is legitimate and valuable for C3's own offline
+evaluation (establishing an upper bound on what a well-designed
+signal COULD achieve, and validating that these scenarios ARE
+detectable in principle, which the earlier weak `state_novelty_score`
+results left genuinely uncertain), and as a real training TARGET/
+distillation source for C7 (train a real-inference-time signal, e.g.
+an auxiliary predictive-uncertainty head, to approximate what
+`token_loss_score` reveals here) -- not as the deployed trigger
+mechanism itself.
+
+## Revised summary: two real signals, two real roles
+
+- **`state_novelty_score`**: real-inference-time-safe (uses only past
+  hidden states), strong on single-point anomalies in a locally tight
+  pattern (scenario 1), weak elsewhere. The right family of signal for
+  C6's actual deployment, but not yet sufficient alone.
+- **`token_loss_score`**: NOT real-inference-time-safe (needs the real
+  next token), but decisively validates that 6 of the 8 named
+  scenarios ARE detectable given the right signal -- establishes a
+  real target for C7's trained controller (or a future real-inference-
+  time signal) to aim for, and rules out "the model just doesn't
+  represent these events distinctly" as an explanation for
+  `state_novelty_score`'s earlier weak results.

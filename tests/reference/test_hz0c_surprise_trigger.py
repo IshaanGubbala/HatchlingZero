@@ -8,7 +8,7 @@ from reference.hz0a_mlx_model import HZ0AMlxModel
 from reference.hz0c_surprise_trigger import (
     HZ0CSurpriseTriggeredModel, SurpriseTriggeredBlock, masked_anchor_attention,
     ema_novelty_score, normalize_score, rate_bounded_threshold, smooth_score, state_novelty_score, surprise_score,
-    trigger_decision,
+    token_loss_score, trigger_decision,
 )
 
 
@@ -302,3 +302,36 @@ def test_ema_novelty_score_does_not_decay_within_a_multi_position_anomaly_burst(
     mean_steady = sum(steady_scores) / len(steady_scores)
     for s in burst_scores:
         assert s > mean_steady + 0.1
+
+
+def test_token_loss_score_first_position_is_zero():
+    from reference.hz0a_mlx_model import HZ0AMlxModel
+
+    model = HZ0AMlxModel(vocab_size=32, dim=16, layers=2, heads=2, d_ff=32, attention_indices=())
+    hidden = mx.random.normal((2, 5, 16))
+    tokens = mx.random.randint(0, 32, (2, 5))
+    score = token_loss_score(model, hidden, tokens)
+    assert bool(mx.all(score[:, 0] == 0.0))
+
+
+def test_token_loss_score_high_when_prediction_is_wrong():
+    """A DummyModel whose final_norm is identity and whose embedding
+    weight is a one-hot identity matrix makes the logits at each
+    position exactly equal `hidden[t]` -- constructing a hidden state
+    that confidently "predicts" the WRONG next token must score a
+    higher (worse) loss than one that predicts the CORRECT token."""
+    from reference.hz0a_mlx_model import HZ0AMlxModel
+
+    vocab = 8
+    model = HZ0AMlxModel(vocab_size=vocab, dim=vocab, layers=1, heads=1, d_ff=8, attention_indices=())
+    model.final_norm.weight = mx.ones((vocab,))
+    model.embedding.weight = mx.eye(vocab) * 10.0  # sharp one-hot-ish predictions
+
+    tokens = mx.array([[0, 1, 2]])
+    # hidden[0] predicts token 1 correctly (confident), hidden[1] predicts token 2 correctly, but let's
+    # make position 1's hidden state confidently predict the WRONG token (say token 5) instead of the real token 2.
+    hidden = mx.zeros((1, 3, vocab))
+    hidden = hidden.at[0, 0, 1].add(1.0)  # confidently predicts real next token (1) correctly
+    hidden = hidden.at[0, 1, 5].add(1.0)  # confidently predicts token 5, but real next token is 2 -- wrong
+    score = token_loss_score(model, hidden, tokens)
+    assert float(score[0, 2]) > float(score[0, 1])
