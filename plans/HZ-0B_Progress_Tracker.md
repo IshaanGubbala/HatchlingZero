@@ -323,6 +323,17 @@ adapter's **0.350 +/- 0.049** across three seeds. It reduces variance and
 improves the worst seed, but still misses the matched baseline, so STE is
 recorded as partial mitigation rather than a completed fix.
 
+Code-symbol overwrite tracking now has a verified targeted stabilization
+(2026-08-03): mild confidence decay (`0.99`) removes stale filler pressure,
+and symmetric global gradient clipping (`1.0`) prevents the late-step seed
+divergence. With balanced training (`320` examples), `lr=0.05`, and STE,
+memory reached **0.519 +/- 0.183** versus the matched adapter's **0.367 +/-
+0.034** across seeds 555-557; per-seed memory scores were `0.775`, `0.419`,
+and `0.363`, each above its adapter counterpart. This configuration is now
+the code-symbol evaluator default. The same recipe was tested on multi-hop
+and regressed seed 555 (`0.306` vs `0.331`), so it remains scoped to
+overwrite tracking.
+
 The multi-hop follow-up also tested a concrete second-hop query correction:
 using only the pointer-derived query improved seed 555 (`0.344` vs adapter
 `0.331`) but failed the three-seed gate (`0.331 +/- 0.037` memory vs
