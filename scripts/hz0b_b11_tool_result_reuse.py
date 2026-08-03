@@ -20,6 +20,7 @@ from pathlib import Path
 
 import mlx.core as mx
 import mlx.nn as nn
+import mlx.optimizers as optim
 from mlx.utils import tree_unflatten
 
 from reference.hz0a_mlx_model import HZ0AMlxModel
@@ -50,7 +51,7 @@ NUM_SLOTS = 8
 LAMBDA_SPARSE = 0.1
 TARGET_WRITE_RATE = 0.1
 LAMBDA_READ_ENTROPY = 0.01
-LAMBDA_VALUE_PRESERVE = 0.001
+LAMBDA_VALUE_PRESERVE = 0.01
 SEED = 555
 
 
@@ -93,10 +94,17 @@ def run_true_floor(model, held_out_hidden, held_out_is_greater) -> float:
     return float(mx.mean((predicted == targets).astype(mx.float32)))
 
 
-def run_equal_param_adapter(model, train_hidden, train_is_greater, held_out_hidden, held_out_is_greater, *, seed: int, steps: int, lr: float) -> float:
+def _apply_update(params_dict: dict, grads: dict, *, optimizer, optimizer_name: str, lr: float) -> dict:
+    if optimizer_name == "adam":
+        return optimizer.apply_gradients(grads, params_dict)
+    return {k: params_dict[k] - lr * grads[k] for k in params_dict}
+
+
+def run_equal_param_adapter(model, train_hidden, train_is_greater, held_out_hidden, held_out_is_greater, *, seed: int, steps: int, lr: float, optimizer_name: str) -> float:
     params = init_equal_param_adapter(D_MODEL, ADAPTER_HIDDEN, seed=seed)
     params_dict = {"w1": params.w1, "b1": params.b1, "w2": params.w2, "b2": params.b2}
     targets = targets_for(train_is_greater)
+    optimizer = optim.Adam(learning_rate=lr) if optimizer_name == "adam" else None
 
     def loss_fn(pd: dict) -> mx.array:
         p = type(params)(**pd)
@@ -107,7 +115,7 @@ def run_equal_param_adapter(model, train_hidden, train_is_greater, held_out_hidd
     for step in range(steps):
         loss, grads = grad_fn(params_dict)
         mx.eval(loss)
-        params_dict = {k: params_dict[k] - lr * grads[k] for k in params_dict}
+        params_dict = _apply_update(params_dict, grads, optimizer=optimizer, optimizer_name=optimizer_name, lr=lr)
         mx.eval(*params_dict.values())
         if step % 300 == 0 or step == steps - 1:
             print(f"    [adapter seed={seed}] step {step:4d}  train loss {float(loss):.5f}")
@@ -118,10 +126,11 @@ def run_equal_param_adapter(model, train_hidden, train_is_greater, held_out_hidd
     return float(mx.mean((predicted == targets_for(held_out_is_greater)).astype(mx.float32)))
 
 
-def run_hzb_memory(model, train_hidden, train_is_greater, held_out_hidden, held_out_is_greater, *, seed: int, steps: int, lr: float) -> float:
+def run_hzb_memory(model, train_hidden, train_is_greater, held_out_hidden, held_out_is_greater, *, seed: int, steps: int, lr: float, optimizer_name: str) -> float:
     init_params = init_latent_write_controller(D_MODEL, KEY_DIM, VALUE_DIM, seed=seed)
     params_dict = latent_params_to_dict(init_params)
     targets = targets_for(train_is_greater)
+    optimizer = optim.Adam(learning_rate=lr) if optimizer_name == "adam" else None
 
     def loss_fn(pd: dict) -> mx.array:
         p = dict_to_latent_params(pd)
@@ -138,7 +147,7 @@ def run_hzb_memory(model, train_hidden, train_is_greater, held_out_hidden, held_
     for step in range(steps):
         loss, grads = grad_fn(params_dict)
         mx.eval(loss)
-        params_dict = {k: params_dict[k] - lr * grads[k] for k in params_dict}
+        params_dict = _apply_update(params_dict, grads, optimizer=optimizer, optimizer_name=optimizer_name, lr=lr)
         mx.eval(*params_dict.values())
         if step % 300 == 0 or step == steps - 1:
             print(f"    [memory seed={seed}] step {step:4d}  train loss {float(loss):.5f}")
@@ -155,6 +164,7 @@ def main():
     parser.add_argument("--lr", type=float, default=0.15)
     parser.add_argument("--num-seeds", type=int, default=5)
     parser.add_argument("--seed-start", type=int, default=SEED)
+    parser.add_argument("--optimizer", choices=("sgd", "adam"), default="sgd")
     parser.add_argument("--train-count", type=int, default=320, help="Balanced-scale training set; 80 examples under-cover result/threshold combinations")
     parser.add_argument("--held-out-count", type=int, default=80)
     args = parser.parse_args()
@@ -168,7 +178,7 @@ def main():
     train_tokens, train_is_greater = make_prompts(args.train_count, rng)
     held_out_tokens, held_out_is_greater = make_prompts(args.held_out_count, rng)
     base_rate = float(mx.mean(held_out_is_greater))
-    print(f"train_count={args.train_count} held_out_count={args.held_out_count} held_out_greater_rate={base_rate:.3f} lambda_sparse={LAMBDA_SPARSE} target_write_rate={TARGET_WRITE_RATE}")
+    print(f"train_count={args.train_count} held_out_count={args.held_out_count} held_out_greater_rate={base_rate:.3f} lambda_sparse={LAMBDA_SPARSE} target_write_rate={TARGET_WRITE_RATE} optimizer={args.optimizer}")
 
     train_hidden, _ = frozen_hidden_states(model, train_tokens)
     held_out_hidden, _ = frozen_hidden_states(model, held_out_tokens)
@@ -180,7 +190,7 @@ def main():
     print(f"\n2. Equal-parameter no-memory adapter ({args.num_seeds} seeds):")
     adapter_accs = []
     for i in range(args.num_seeds):
-        acc = run_equal_param_adapter(model, train_hidden, train_is_greater, held_out_hidden, held_out_is_greater, seed=args.seed_start + i, steps=args.steps, lr=args.lr)
+        acc = run_equal_param_adapter(model, train_hidden, train_is_greater, held_out_hidden, held_out_is_greater, seed=args.seed_start + i, steps=args.steps, lr=args.lr, optimizer_name=args.optimizer)
         print(f"  seed {args.seed_start + i}: {acc:.3f}")
         adapter_accs.append(acc)
     adapter_mean = sum(adapter_accs) / len(adapter_accs)
@@ -190,7 +200,7 @@ def main():
     print(f"\n3. HZ-0B real memory ({args.num_seeds} seeds):")
     memory_accs = []
     for i in range(args.num_seeds):
-        acc = run_hzb_memory(model, train_hidden, train_is_greater, held_out_hidden, held_out_is_greater, seed=args.seed_start + i, steps=args.steps, lr=args.lr)
+        acc = run_hzb_memory(model, train_hidden, train_is_greater, held_out_hidden, held_out_is_greater, seed=args.seed_start + i, steps=args.steps, lr=args.lr, optimizer_name=args.optimizer)
         print(f"  seed {args.seed_start + i}: {acc:.3f}")
         memory_accs.append(acc)
     memory_mean = sum(memory_accs) / len(memory_accs)

@@ -30,9 +30,13 @@ all 16 result/threshold pairs instead of relying on sparse random coverage,
 uses a single content read rather than an unverified second hop, and reports
 the requested seed range correctly. On the controlled 3-seed run
 (`train_count=320`, `held_out_count=160`, `steps=1000`), memory reached
-**0.644 +/- 0.107** versus the matched adapter at **0.606 +/- 0.027**.
-This reverses the earlier mean negative (`0.513` vs `0.623`), but seed 557
-still scored `0.494`; the task is improved, not yet robustly solved.
+**0.644 +/- 0.107** versus the matched adapter at **0.606 +/- 0.027** in
+the initial single-hop probe. Increasing the generic value-preservation
+regularizer from `0.001` to `0.01` gives a fresh three-seed result of
+**0.617 +/- 0.089** versus **0.606 +/- 0.027** for the adapter; seed 557
+improves from `0.494` to `0.588`. This reverses the earlier mean negative
+(`0.513` vs `0.623`), but the wide seed range (`0.525-0.738`) means the task
+is improved, not yet robustly solved.
 
 The current engineering target is therefore seed-robust discrimination and
 retrieval under overwrite/multi-hop/tool-comparison workloads. Do not mark
