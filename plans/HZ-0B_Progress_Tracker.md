@@ -43,6 +43,17 @@ retrieval under overwrite/multi-hop/tool-comparison workloads. Do not mark
 the three former negatives universally fixed until a fresh multi-seed run
 shows both a positive aggregate and an acceptable worst-seed floor.
 
+### Tool-result value-capacity follow-up (2026-08-02)
+
+The persistent tool-comparison weakness was also tested for value-channel
+capacity. Increasing the learned value projection from 32 to 64 dimensions
+and rematching the no-memory adapter budget (memory `791,237` parameters;
+adapter `792,323`) produced a fresh three-seed result of **0.635 +/- 0.091**
+for memory versus **0.608 +/- 0.024** for the adapter. Memory won seeds 555
+(`0.706`) and 557 (`0.694`); seed 556 remains weak (`0.506`). This is a
+verified fair-budget improvement over the prior value-32 result, but not a
+universal fix because worst-seed robustness is still below the required bar.
+
 Clear wins: single-fact recall (mean 0.819-0.830 vs adapter's 0.512),
 long-conversation consistency (mean 0.775 vs 0.409, margin WIDENS
 over 8x the gap), passkey retrieval after a data fix (mean 0.608 vs

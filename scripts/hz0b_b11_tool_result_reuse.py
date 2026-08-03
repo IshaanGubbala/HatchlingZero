@@ -45,14 +45,22 @@ assert NOT_GREATER_TARGET < VOCAB_SIZE, "all special token ids must be < VOCAB_S
 FACT_POS = 6
 PAD_LEN = 10
 PROMPT_LEN = FACT_POS + 2 + PAD_LEN + 2 + PAD_LEN + 1
-ADAPTER_HIDDEN = 450
-KEY_DIM = VALUE_DIM = 32
+ADAPTER_HIDDEN = 515
+# Tool comparisons need enough value capacity for a stored result and its
+# later decision context; the adapter budget is rematched below.
+KEY_DIM = VALUE_DIM = 64
 NUM_SLOTS = 8
 LAMBDA_SPARSE = 0.1
 TARGET_WRITE_RATE = 0.1
 LAMBDA_READ_ENTROPY = 0.01
 LAMBDA_VALUE_PRESERVE = 0.01
 SEED = 555
+
+
+def memory_param_count() -> int:
+    """Count trainable controller parameters for the current key/value width."""
+    d, k, v = D_MODEL, KEY_DIM, VALUE_DIM
+    return (d * k + k) + (d * v + v) + 1 + (d * k + k) + (d * d + d) + (v * d + d) + 4 * (d + 1)
 
 
 def load_frozen_model():
@@ -170,7 +178,7 @@ def main():
     args = parser.parse_args()
 
     print(f"num_levels={NUM_LEVELS} PROMPT_LEN={PROMPT_LEN}")
-    print(f"adapter budget={param_count(D_MODEL, ADAPTER_HIDDEN)} memory budget=692,837")
+    print(f"adapter budget={param_count(D_MODEL, ADAPTER_HIDDEN)} memory budget={memory_param_count()}")
     model, payload = load_frozen_model()
     print(f"loaded frozen checkpoint: step={payload['step']} tokens_seen={payload['tokens_seen']}")
 
