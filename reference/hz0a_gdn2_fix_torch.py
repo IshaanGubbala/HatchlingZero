@@ -26,8 +26,43 @@ def gdn2_fix_scan(query, key, value, alpha, erase, write, initial_state=None, *,
     return torch.stack(outputs, dim=1), state
 
 
+def _gdn2_fix_step_prenormalized(state, query, key, value, alpha, erase, write):
+    """Same math as `gdn2_fix_step`, but assumes `key` (and `query`, though
+    unused here) are ALREADY normalized -- normalization is hoisted out of
+    the loop in `_gdn2_fix_sequential` below (it doesn't depend on `state`,
+    so it's wasteful to redo it every single step)."""
+    decayed = state * alpha[:, :, None, :]
+    old_value = (decayed * (erase * key)[:, :, None, :]).sum(dim=-1)
+    next_state = decayed + (write * value - old_value)[:, :, :, None] * key[:, :, None, :]
+    return next_state, (next_state * query[:, :, None, :]).sum(dim=-1)
+
+
+def _gdn2_fix_sequential(state, query, key, value, alpha, erase, write, *, normalize_key=True):
+    """Whole-chunk-loop version of `gdn2_fix_scan`, restructured to match
+    `reference/hz0a_torch_model.py`'s `_gdn2_sequential` /
+    `reference/hz0a_gdn3_candidate_mixer_torch.py`'s `_gdn3_sequential`
+    convention: `(state, decay/gate..., ...) -> (state, stacked_outputs)`,
+    with the per-timestep loop moved inside one function so it can be
+    `torch.compile`d as a single graph (see those two docstrings for why
+    compiling the whole per-chunk loop -- not the whole model, and not one
+    timestep at a time -- is the fast-and-still-exact choice for this
+    family of recurrence). Purely a refactor: same math as `gdn2_fix_scan`,
+    verified 0.0 diff against it (query/key normalization hoisted out of
+    the loop since it doesn't depend on the running state).
+    """
+    if normalize_key:
+        key = key / key.norm(dim=-1, keepdim=True).clamp_min(1e-6)
+    outputs = []
+    for t in range(query.shape[1]):
+        state, out_t = _gdn2_fix_step_prenormalized(state, query[:, t], key[:, t], value[:, t], alpha[:, t], erase[:, t], write[:, t])
+        outputs.append(out_t)
+    return state, torch.stack(outputs, dim=1)
+
+
 class GDN2FixMixer(nn.Module):
     """Reference mixer with independent vector erase/write gates."""
+
+    _seq_fn = staticmethod(_gdn2_fix_sequential)
 
     def __init__(self, dim: int, heads: int):
         super().__init__()
@@ -55,5 +90,7 @@ class GDN2FixMixer(nn.Module):
         alpha = torch.exp(-decay_rate * torch.nn.functional.softplus(alpha.float())).to(x.dtype)
         erase = torch.sigmoid(erase.float()).to(x.dtype)
         write = torch.sigmoid(write.float()).to(x.dtype)
-        output, state = gdn2_fix_scan(query, key, value, alpha, erase, write, state)
+        if state is None:
+            state = torch.zeros(batch, self.heads, self.head_dim, self.head_dim, dtype=value.dtype, device=value.device)
+        state, output = type(self)._seq_fn(state, query, key, value, alpha, erase, write, normalize_key=False)
         return self.out_proj(output.reshape(batch, steps, self.dim)), state

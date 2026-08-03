@@ -584,6 +584,99 @@ token scale this was actually motivated by. Combine freely with `--mixer`/
 Activation quantization (the "A8" half of BitNet's full scheme) is a real
 next step if the weights-only version holds up, not yet attempted.
 
+## 5f. `--mixer gdn2_fix`: the corrected true Gated DeltaNet-2
+
+Added 2026-08-02. `gdn2_fix` (`reference/hz0a_gdn2_fix_torch.py`, `GDN2FixMixer`)
+is the Mac side's correction of the original `gdn2` math -- see
+`plans/GDN-2_Fix.md` for the full story, but in short: the original `gdn2`
+mixer was found not to actually implement Gated DeltaNet-2's delta-rule
+correction; `gdn3` (section 5d) was later found to be a mislabeled KDA
+variant, not GDN-2 either. `gdn2_fix` is the first mixer in this project that
+actually has GDN-2's real math: independent vector erase/write gates plus a
+genuine key-conditioned delta correction (`old_value = decayed_state @
+(erase*key)`, then the state is updated by `write*value - old_value` written
+via an outer product with `key`) -- distinct from `gdn2`'s plain elementwise
+gate and from `gdn3`'s KDA-style scalar-beta correction. The Mac side's own
+full holdout validation run reports this beating a matched transformer
+baseline (3.20848169 vs 4.37828260 loss).
+
+**Compile support (this session's contribution):** the Mac side's original
+`GDN2FixMixer.forward` called a `gdn2_fix_scan` free function directly, with
+no `_seq_fn` class-attribute hook to compile. Added `_gdn2_fix_sequential`
+(and a per-step helper `_gdn2_fix_step_prenormalized`) as a drop-in
+`_seq_fn`, following the exact pattern established for `gdn2`/`gdn3`:
+hoist query/key L2-normalization out of the timestep loop (it doesn't depend
+on the running state, so redoing it every step was wasted work), then compile
+the whole per-chunk sequential loop as one graph -- not the whole model
+(same "~8.7 minutes to compile a single unrolled 31-layer loop" problem noted
+in section 5b) -- shared as a class attribute across every layer instance so
+only one compilation happens regardless of layer count. Wired into
+`scripts/hz0a_torch_stage2_runner.py`'s existing `--compile-step` branch
+(`--mixer gdn2_fix` gets its own `elif`, parallel to the `gdn3` one).
+`--chunked-scan`/`--fla-recurrence` are original-`gdn2`-specific fast paths
+and are rejected with `--mixer gdn2_fix` (different math, no equivalent
+closed form derived yet).
+
+**Validation, same two-stage process as every other math-changing path
+here:**
+1. Refactor exactness: the extracted `_seq_fn` reproduces the original
+   `gdn2_fix_scan` forward+backward output to float-reassociation-level
+   precision only (not literal 0.0, since normalization was reordered
+   relative to the loop) -- max diff ~7e-9 in float32, ~1 ULP (~5e-4) in
+   bfloat16, both dtypes tested via a from-scratch forward pass with random
+   weights and random inputs.
+2. `torch.compile`d `_seq_fn` vs eager, full model, real data, ~32-step
+   training trajectory via the actual runner (`--target-tokens 24576
+   --batch-size 32 --chunk-length 8`, same small-scale-first discipline as
+   every other flag in this file): **max loss diff 0.0065** out of losses
+   moving 10.69 -> 8.85, **max gradient_norm diff 0.125** out of a 3.19-18.63
+   range -- both decreasing in lockstep. This is a tighter match than
+   `gdn3`'s own precedent (0.54 / 1.0) since this compile is a pure
+   reassociation refactor of already-validated math, not a new derivation.
+
+**Throughput:** unlike `gdn2` (which has `--fla-recurrence`, an exact
+external-kernel reduction to GLA) and unlike `gdn3` (delta-rule, no kernel
+equivalent found), `gdn2_fix` has no fast-path kernel available yet -- only
+`--compile-step`'s whole-chunk-loop compile applies. Its VRAM footprint per
+batch element is measurably heavier than `gdn3`'s at the same
+`--batch-size`/`--chunk-length` (the extra state-read dot product plus
+correction term costs real activations to keep for backward), so `gdn3`'s
+tuned config (`--batch-size 416 --chunk-length 8`) does not transfer --
+that config OOMs here. Swept `--batch-size` at fixed `--chunk-length 8`:
+
+| `--batch-size` | steady-state tok/s | peak VRAM |
+| --- | --- | --- |
+| 192 | ~4806 | 7.0 GB |
+| 288 | ~5166 | 9.4 GB |
+| 352 | OOM (backward pass) | -- |
+| 416 (gdn3's config) | OOM (allocation failure) | -- |
+
+**`--batch-size 288 --chunk-length 8` was the best found, at ~5166 tok/s**
+(9.4GB peak, leaving headroom under the 12GB ceiling but with 352 already
+failing -- not a wide margin, same non-monotonic-near-the-ceiling caveat
+noted elsewhere in this doc). Not yet re-swept at other `--chunk-length`
+values (only 8 was tried, matching `gdn3`'s tuned value as a starting point).
+
+```bash
+python3 scripts/hz0a_torch_stage2_runner.py \
+  --data data/packed/stage2_100m_train_seq256.jsonl \
+  --validation-data data/packed/repro_256_val.jsonl \
+  --run-dir outputs/rtx3060_stage2_hybrid_gdn2fix --target-tokens 100000000 \
+  --batch-size 288 --sequence-length 256 --chunk-length 8 --truncate-backward \
+  --gradient-accumulation-chunks 4 --checkpoint-interval 150 --validation-interval 150 \
+  --lr-schedule cosine --max-lr 1e-4 --warmup-steps 50 --lr-min-ratio 0.1 \
+  --validation-batch-size 64 --seed 7 --mixer gdn2_fix --compile-step \
+  --milestone-tokens 10000000,25000000,50000000,75000000,100000000 \
+  --vocab-size 24576 --dim 768 --layers 31 --heads 12 --d-ff 2304 \
+  --architecture hybrid --device cuda --dtype bfloat16
+```
+
+**Important:** same caveat as `gdn3` -- a run started this way is a
+different, not-yet-broadly-validated recurrence, run here because it was
+explicitly requested and because the Mac side's own full-holdout evidence
+for `gdn2_fix` is real and positive, not because this replaces the frozen
+HZ-0A Stage 2 spec.
+
 ## 6. Resuming
 
 Add `--resume` with the same `--run-dir` and the same architecture/size
