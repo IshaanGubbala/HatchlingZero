@@ -77,7 +77,7 @@ def init_latent_write_controller(d_model: int, key_dim: int, value_dim: int, see
     )
 
 
-def latent_write_and_read_step(params: LatentWriteControllerParams, hidden_state: mx.array, memory_state: MemoryState, *, step: int, ste: bool = False) -> tuple[mx.array, MemoryState, mx.array]:
+def latent_write_and_read_step(params: LatentWriteControllerParams, hidden_state: mx.array, memory_state: MemoryState, *, step: int, ste: bool = False, shared_key_query: bool = False) -> tuple[mx.array, MemoryState, mx.array]:
     """Read happens against the PRE-write state (same write-visibility
     convention as B7 -- a write at position t is visible from t+1
     onward, matching B1 decision 7). Returns (output, new_state,
@@ -109,7 +109,8 @@ def latent_write_and_read_step(params: LatentWriteControllerParams, hidden_state
     gradient descent to exploit as a cheap, uninformative way to reduce
     the sparsity penalty."""
     wc = params.write_controller
-    output, _ = gated_memory_read(wc.read_params, hidden_state, memory_state)
+    key = hidden_state @ params.key_proj_w + params.key_proj_b
+    output, _ = gated_memory_read(wc.read_params, hidden_state, memory_state, query_override=key if shared_key_query else None)
     max_confidence = mx.max(memory_state.confidence, axis=-1)
     write_logit = (hidden_state @ wc.write_gate_w + wc.write_gate_b)[:, 0] + max_confidence * params.occupancy_gate_w[0]
     write_gate_soft = mx.sigmoid(write_logit)
@@ -118,14 +119,13 @@ def latent_write_and_read_step(params: LatentWriteControllerParams, hidden_state
         write_gate = write_gate_soft + mx.stop_gradient(write_gate_hard - write_gate_soft)
     else:
         write_gate = write_gate_soft
-    key = hidden_state @ params.key_proj_w + params.key_proj_b
     value = hidden_state @ params.value_proj_w + params.value_proj_b
     candidate_state, _, _ = memory_write(memory_state, key, value, write_gate, step=step)
     new_state = _blend_state_by_row(memory_state, candidate_state, write_gate)
     return output, new_state, write_gate
 
 
-def sequential_latent_write_and_read(params: LatentWriteControllerParams, hidden: mx.array, *, num_slots: int = 8, decay_rate: float = 1.0, ste: bool = False) -> tuple[mx.array, MemoryState, mx.array]:
+def sequential_latent_write_and_read(params: LatentWriteControllerParams, hidden: mx.array, *, num_slots: int = 8, decay_rate: float = 1.0, ste: bool = False, shared_key_query: bool = False) -> tuple[mx.array, MemoryState, mx.array]:
     """hidden: [batch, seq, d_model]. Every position gets a chance to
     write, gated continuously by its own learned `write_gate` -- no
     position is hand-picked or labeled as "the" write position, unlike
@@ -161,7 +161,7 @@ def sequential_latent_write_and_read(params: LatentWriteControllerParams, hidden
     )
     outputs, gates = [], []
     for t in range(seq):
-        output, memory_state, write_gate = latent_write_and_read_step(params, hidden[:, t, :], memory_state, step=t, ste=ste)
+        output, memory_state, write_gate = latent_write_and_read_step(params, hidden[:, t, :], memory_state, step=t, ste=ste, shared_key_query=shared_key_query)
         if decay_rate < 1.0:
             memory_state = forget_or_decay(memory_state, decay_rate=decay_rate)
         outputs.append(output)
@@ -169,7 +169,7 @@ def sequential_latent_write_and_read(params: LatentWriteControllerParams, hidden
     return mx.stack(outputs, axis=1), memory_state, mx.stack(gates, axis=1)
 
 
-def forward(model, token_ids: mx.array | None = None, *, latent_params: LatentWriteControllerParams | None = None, states=None, num_slots: int = 8, decay_rate: float = 1.0, ste: bool = False, precomputed_hidden: mx.array | None = None):
+def forward(model, token_ids: mx.array | None = None, *, latent_params: LatentWriteControllerParams | None = None, states=None, num_slots: int = 8, decay_rate: float = 1.0, ste: bool = False, shared_key_query: bool = False, precomputed_hidden: mx.array | None = None):
     """Full forward pass. `latent_params=None` -> exact no-memory
     behavior. Otherwise every position gets the latent write+read path.
     `ste=False` (default) preserves every existing caller's behavior
@@ -191,5 +191,5 @@ def forward(model, token_ids: mx.array | None = None, *, latent_params: LatentWr
         hidden, next_states = frozen_hidden_states(model, token_ids, states)
     write_gates = None
     if latent_params is not None:
-        hidden, _, write_gates = sequential_latent_write_and_read(latent_params, hidden, num_slots=num_slots, decay_rate=decay_rate, ste=ste)
+        hidden, _, write_gates = sequential_latent_write_and_read(latent_params, hidden, num_slots=num_slots, decay_rate=decay_rate, ste=ste, shared_key_query=shared_key_query)
     return logits_from_hidden(model, hidden), next_states, write_gates

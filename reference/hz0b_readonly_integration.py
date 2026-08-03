@@ -58,7 +58,7 @@ def init_readonly_integration(d_model: int, key_dim: int, value_dim: int, seed: 
     )
 
 
-def gated_memory_read(params: ReadOnlyIntegrationParams, hidden_state: mx.array, memory_state: MemoryState, *, confidence_scaled: bool = False) -> tuple[mx.array, mx.array]:
+def gated_memory_read(params: ReadOnlyIntegrationParams, hidden_state: mx.array, memory_state: MemoryState, *, confidence_scaled: bool = False, query_override: mx.array | None = None) -> tuple[mx.array, mx.array]:
     """hidden_state: [batch, d_model], one sequence position.
 
     Read-only memory has no recurrence of its own: the memory bank is
@@ -88,7 +88,7 @@ def gated_memory_read(params: ReadOnlyIntegrationParams, hidden_state: mx.array,
     confidence 0 by construction), so the trained bias can never leak
     through regardless of what it has learned -- not just at init, at any
     point in training."""
-    query = hidden_state @ params.query_w + params.query_b
+    query = hidden_state @ params.query_w + params.query_b if query_override is None else query_override
     readout, read_weights = memory_read(memory_state, query)
     readout_in_hidden_space = readout @ params.value_to_hidden_w + params.value_to_hidden_b
     gate = mx.sigmoid(hidden_state @ params.gate_w + params.gate_b)

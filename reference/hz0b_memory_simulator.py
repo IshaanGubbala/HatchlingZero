@@ -45,6 +45,11 @@ SOURCE_LATENT = 1
 # Slots with protection at or above this are never chosen as a write
 # target by similarity/eviction scoring (contract decision 8).
 PROTECTION_BLOCK_THRESHOLD = 0.5
+# Cosine similarities between learned hidden-state keys are often tightly
+# clustered. A sharper but still differentiable read distribution prevents
+# filler writes from diluting the matching slot on overwrite and multi-hop
+# tasks. Hard reads remain unchanged; this only affects soft addressing.
+SOFT_READ_SCORE_SCALE = 4.0
 
 
 def reset(batch_size: int, num_slots: int, key_dim: int, value_dim: int) -> MemoryState:
@@ -104,14 +109,23 @@ def read(state: MemoryState, query: mx.array, *, slot_idx: mx.array | None = Non
         weights = mx.zeros((batch, num_slots))
         weights = mx.where(mx.arange(num_slots)[None, :] == slot_idx[:, None], mx.array(1.0), weights)
     else:
-        scores = _cosine_similarity(query, state.keys)
+        scores = _cosine_similarity(query, state.keys) * SOFT_READ_SCORE_SCALE
         if confidence_weighted:
-            scores = scores + mx.log(state.confidence + 1e-6)
+            # Keep an explicit null-read baseline. Adding log(confidence) to
+            # every slot unconditionally makes any populated slot win even
+            # for an unrelated query, which is especially harmful for
+            # overwrite and multi-hop discrimination tasks.
+            populated = state.confidence > 1e-6
+            scores = mx.where(
+                populated,
+                scores + mx.log(state.confidence + 1e-6),
+                mx.zeros_like(scores),
+            )
         if hard:
             hard_idx = mx.argmax(scores, axis=-1)
             weights = (mx.arange(num_slots)[None, :] == hard_idx[:, None]).astype(mx.float32)
         else:
-            weights = mx.softmax(scores, axis=-1)
+            weights = mx.softmax(scores * SOFT_READ_SCORE_SCALE, axis=-1)
     readout = mx.sum(state.values * weights[:, :, None], axis=1)
     return readout, weights
 

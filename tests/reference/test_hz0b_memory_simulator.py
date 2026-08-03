@@ -65,6 +65,17 @@ def test_retrieve_from_noisy_key():
     assert bool(mx.allclose(readout, value, atol=1e-4))
 
 
+def test_soft_read_sharpens_matching_slot_without_hard_routing():
+    state = fresh()
+    key_a, key_b = onehot(KEY_DIM, 0), onehot(KEY_DIM, 1)
+    state, _, _ = write(state, key_a, onehot(VALUE_DIM, 0), mx.array([1.0]), step=0)
+    state, _, _ = write(state, key_b, onehot(VALUE_DIM, 1), mx.array([1.0]), step=1)
+    _, weights = read(state, key_a, hard=False)
+    assert int(mx.argmax(weights[0])) == 0
+    assert float(weights[0, 0]) > 0.8
+    assert float(weights[0, 0]) > float(weights[0, 1]) * 3.0
+
+
 # 4. store multiple independent keys
 def test_store_multiple_independent_keys():
     state = fresh()
