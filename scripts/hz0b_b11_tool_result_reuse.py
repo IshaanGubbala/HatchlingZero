@@ -169,7 +169,7 @@ def run_hzb_memory(model, train_hidden, train_is_greater, held_out_hidden, held_
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--steps", type=int, default=1000)
-    parser.add_argument("--lr", type=float, default=0.15)
+    parser.add_argument("--lr", type=float, default=0.05, help="Controller learning rate; 0.05 avoids the value-64 high-rate seed instability")
     parser.add_argument("--num-seeds", type=int, default=5)
     parser.add_argument("--seed-start", type=int, default=SEED)
     parser.add_argument("--optimizer", choices=("sgd", "adam"), default="sgd")
