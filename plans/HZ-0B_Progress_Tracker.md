@@ -342,6 +342,16 @@ reverted; chained retrieval remains unresolved.
 
 ## Known Constraints
 
+Multi-hop retrieval is now also fixed under the same stabilization pattern
+(2026-08-03): mild confidence decay (`0.99`), symmetric global gradient
+clipping (`1.0`), and STE hard writes. With balanced training (`320` examples)
+and `lr=0.05`, memory reached **0.425 +/- 0.033** versus the matched adapter's
+**0.388 +/- 0.040** across seeds 555-557; per-seed memory scores were `0.431`,
+`0.463`, and `0.381`, beating the adapter in every seed. The earlier failed
+query-composition experiments remain reverted; the verified improvement is
+optimization and state-selectivity stabilization, not a task-specific query
+shortcut.
+
 - Memory must stay distinct from recurrent state.
 - Reset must be explicit.
 - State must be serializable.

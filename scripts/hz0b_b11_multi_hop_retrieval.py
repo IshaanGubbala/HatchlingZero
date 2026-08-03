@@ -52,11 +52,19 @@ PROMPT_LEN = FACT_POS + 4 + PAD_LEN + 3 + PAD_LEN + 3 + PAD_LEN + 3 + PAD_LEN + 
 ADAPTER_HIDDEN = 450
 KEY_DIM = VALUE_DIM = 32
 NUM_SLOTS = 8
+DECAY_RATE = 0.99
+GRAD_CLIP_NORM = 1.0
 LAMBDA_SPARSE = 0.1
 TARGET_WRITE_RATE = 0.1
 LAMBDA_READ_ENTROPY = 0.01
 LAMBDA_VALUE_PRESERVE = 0.001
 SEED = 555
+
+
+def clip_gradients(grads: dict) -> dict:
+    norm = mx.sqrt(sum(mx.sum(g * g) for g in grads.values()) + 1e-8)
+    scale = mx.minimum(mx.array(1.0), mx.array(GRAD_CLIP_NORM) / norm)
+    return {k: g * scale for k, g in grads.items()}
 
 
 def load_frozen_model():
@@ -136,14 +144,14 @@ def run_equal_param_adapter(model, train_hidden, train_idx, held_out_hidden, hel
     return float(mx.mean((predicted == targets_for(held_out_idx)).astype(mx.float32)))
 
 
-def run_hzb_memory(model, train_hidden, train_idx, held_out_hidden, held_out_idx, *, seed: int, steps: int, lr: float) -> float:
+def run_hzb_memory(model, train_hidden, train_idx, held_out_hidden, held_out_idx, *, seed: int, steps: int, lr: float, ste: bool = False) -> float:
     init_params = init_latent_write_controller(D_MODEL, KEY_DIM, VALUE_DIM, seed=seed)
     params_dict = latent_params_to_dict(init_params)
     targets = targets_for(train_idx)
 
     def loss_fn(pd: dict) -> mx.array:
         p = dict_to_latent_params(pd)
-        logits, _, gates, read_entropy = latent_forward_pass(model, precomputed_hidden=train_hidden, latent_params=p, num_slots=NUM_SLOTS, read_hops=2, return_read_entropy=True)
+        logits, _, gates, read_entropy = latent_forward_pass(model, precomputed_hidden=train_hidden, latent_params=p, num_slots=NUM_SLOTS, read_hops=2, ste=ste, decay_rate=DECAY_RATE, return_read_entropy=True)
         task_loss = mx.mean(nn.losses.cross_entropy(logits[:, -1, :], targets))
         write_rate = mx.mean(gates)
         sparsity_loss = (write_rate - TARGET_WRITE_RATE) ** 2
@@ -156,13 +164,14 @@ def run_hzb_memory(model, train_hidden, train_idx, held_out_hidden, held_out_idx
     for step in range(steps):
         loss, grads = grad_fn(params_dict)
         mx.eval(loss)
+        grads = clip_gradients(grads)
         params_dict = {k: params_dict[k] - lr * grads[k] for k in params_dict}
         mx.eval(*params_dict.values())
         if step % 300 == 0 or step == steps - 1:
             print(f"    [memory seed={seed}] step {step:4d}  train loss {float(loss):.5f}")
 
     trained = dict_to_latent_params(params_dict)
-    logits, _, _ = latent_forward_pass(model, precomputed_hidden=held_out_hidden, latent_params=trained, num_slots=NUM_SLOTS, read_hops=2)
+    logits, _, _ = latent_forward_pass(model, precomputed_hidden=held_out_hidden, latent_params=trained, num_slots=NUM_SLOTS, read_hops=2, ste=ste, decay_rate=DECAY_RATE)
     predicted = mx.argmax(logits[:, -1, :], axis=-1)
     return float(mx.mean((predicted == targets_for(held_out_idx)).astype(mx.float32)))
 
@@ -174,6 +183,7 @@ def main():
     parser.add_argument("--num-seeds", type=int, default=5)
     parser.add_argument("--train-count", type=int, default=80)
     parser.add_argument("--held-out-count", type=int, default=80)
+    parser.add_argument("--ste", action="store_true")
     args = parser.parse_args()
 
     print(f"num_pointers={NUM_POINTERS} num_values={NUM_VALUES} (chance={1/NUM_VALUES:.3f}) PROMPT_LEN={PROMPT_LEN}")
@@ -206,7 +216,7 @@ def main():
     print(f"\n3. HZ-0B real memory ({args.num_seeds} seeds):")
     memory_accs = []
     for i in range(args.num_seeds):
-        acc = run_hzb_memory(model, train_hidden, train_idx, held_out_hidden, held_out_idx, seed=SEED + i, steps=args.steps, lr=args.lr)
+        acc = run_hzb_memory(model, train_hidden, train_idx, held_out_hidden, held_out_idx, seed=SEED + i, steps=args.steps, lr=args.lr, ste=args.ste)
         print(f"  seed {SEED + i}: {acc:.3f}")
         memory_accs.append(acc)
     memory_mean = sum(memory_accs) / len(memory_accs)
