@@ -276,6 +276,57 @@ def rate_bounded_threshold(score: mx.array, *, target_rate: float, min_rate: flo
     return sorted_scores[:, idx:idx + 1]
 
 
+def no_anchor_trigger(batch: int, seq: int) -> mx.array:
+    """C4 baseline: model 1 (no anchors at all). Never triggers --
+    the zero-attention-cost floor every other baseline must beat."""
+    return mx.zeros((batch, seq))
+
+
+def fixed_periodic_trigger(batch: int, seq: int, *, period: int) -> mx.array:
+    """C4 baseline: model 2 (fixed periodic anchors), matching
+    `HZ0AMlxModel`'s own existing `attention_indices` pattern but at
+    the POSITION level (every `period`-th position triggers) rather
+    than the LAYER level, for a fair matched-rate comparison against
+    the other C4 baselines here. `period=8` gives a 12.5% rate, the
+    same target used throughout C3's simulator."""
+    positions = mx.arange(seq)
+    trigger_row = (positions % period == 0).astype(mx.float32)
+    return mx.broadcast_to(trigger_row[None, :], (batch, seq))
+
+
+def random_trigger(batch: int, seq: int, *, rate: float, seed: int) -> mx.array:
+    """C4 baseline: random anchors at a MATCHED rate -- the real test
+    of whether a candidate signal's advantage comes from its content
+    (knowing WHERE to look) or merely from activating attention at
+    all, at the same average cost. Deterministic given `seed` (not
+    re-randomized on every call), matching every other trigger
+    function's real, reproducible-inference-behavior requirement."""
+    mx.random.seed(seed)
+    scores = mx.random.uniform(shape=(batch, seq))
+    threshold = rate_bounded_threshold(scores, target_rate=rate, min_rate=0.0, max_rate=1.0)
+    return (scores > threshold).astype(mx.float32)
+
+
+def oracle_trigger(batch: int, seq: int, ground_truth_positions: list[list[int]]) -> mx.array:
+    """C4 baseline: oracle anchors -- triggers EXACTLY at the true
+    ground-truth positions and nowhere else, an upper bound on what
+    any real signal could achieve on a given scenario (not a
+    deployable mechanism -- it requires already knowing the answer)."""
+    trigger = [[0.0] * seq for _ in range(batch)]
+    for i, positions in enumerate(ground_truth_positions):
+        for p in positions:
+            if 0 <= p < seq:
+                trigger[i][p] = 1.0
+    return mx.array(trigger)
+
+
+def full_attention_trigger(batch: int, seq: int) -> mx.array:
+    """C4 baseline: full attention -- every position triggers, the
+    maximum-cost ceiling (100% rate) every bounded/triggered approach
+    is trying to beat or match at lower cost."""
+    return mx.ones((batch, seq))
+
+
 def trigger_decision(score: mx.array, *, scale: mx.array, bias: mx.array, ste: bool = False) -> mx.array:
     """score: [batch, seq]. `scale`/`bias` are learned scalars
     calibrating the raw delta-norm (whose typical magnitude depends on

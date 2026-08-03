@@ -7,7 +7,8 @@ import mlx.core as mx
 from reference.hz0a_mlx_model import HZ0AMlxModel
 from reference.hz0c_surprise_trigger import (
     HZ0CSurpriseTriggeredModel, SurpriseTriggeredBlock, masked_anchor_attention,
-    ema_novelty_score, normalize_score, rate_bounded_threshold, smooth_score, state_novelty_score, surprise_score,
+    ema_novelty_score, fixed_periodic_trigger, full_attention_trigger, no_anchor_trigger, normalize_score,
+    oracle_trigger, random_trigger, rate_bounded_threshold, smooth_score, state_novelty_score, surprise_score,
     token_loss_score, trigger_decision,
 )
 
@@ -335,3 +336,41 @@ def test_token_loss_score_high_when_prediction_is_wrong():
     hidden = hidden.at[0, 1, 5].add(1.0)  # confidently predicts token 5, but real next token is 2 -- wrong
     score = token_loss_score(model, hidden, tokens)
     assert float(score[0, 2]) > float(score[0, 1])
+
+
+def test_no_anchor_trigger_is_all_zero():
+    trigger = no_anchor_trigger(3, 10)
+    assert trigger.shape == (3, 10)
+    assert bool(mx.all(trigger == 0.0))
+
+
+def test_fixed_periodic_trigger_matches_period():
+    trigger = fixed_periodic_trigger(2, 16, period=8)
+    expected = [1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0]
+    assert trigger[0].tolist() == expected
+    assert trigger[1].tolist() == expected  # same schedule every row -- fixed, not data-dependent
+
+
+def test_random_trigger_achieves_approximately_the_target_rate():
+    trigger = random_trigger(4, 1000, rate=0.15, seed=1)
+    rate = float(mx.mean(trigger))
+    assert abs(rate - 0.15) < 0.02
+
+
+def test_random_trigger_deterministic_given_same_seed():
+    t1 = random_trigger(2, 50, rate=0.2, seed=7)
+    t2 = random_trigger(2, 50, rate=0.2, seed=7)
+    assert bool(mx.array_equal(t1, t2))
+
+
+def test_oracle_trigger_hits_exactly_the_ground_truth_positions():
+    gts = [[2, 5], [0], []]
+    trigger = oracle_trigger(3, 8, gts)
+    assert trigger[0].tolist() == [0, 0, 1, 0, 0, 1, 0, 0]
+    assert trigger[1].tolist() == [1, 0, 0, 0, 0, 0, 0, 0]
+    assert trigger[2].tolist() == [0, 0, 0, 0, 0, 0, 0, 0]
+
+
+def test_full_attention_trigger_is_all_one():
+    trigger = full_attention_trigger(2, 5)
+    assert bool(mx.all(trigger == 1.0))
