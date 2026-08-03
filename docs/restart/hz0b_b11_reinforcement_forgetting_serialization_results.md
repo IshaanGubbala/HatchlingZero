@@ -32,6 +32,25 @@ instantaneous cliff. By step 20 unreinforced accuracy saturates to
 0.000 and stays there through step 150. Reinforced facts hold 1.000
 throughout every tested horizon.
 
+**Update (2026-08-03)**: `reference/hz0b_memory_simulator.py`'s
+`SOFT_READ_SCORE_SCALE=4.0` (added 2026-08-02 for overwrite/multi-hop
+discrimination elsewhere) legitimately shifts the exact saturation
+point from step 20 to step 30. This was verified only after also
+fixing two real regressions the same date, both in `read()`'s
+confidence-weighted scoring: an unpopulated-slot score floor of `0.0`
+that let empty slots beat a real, sole, heavily-decayed candidate
+(broke `test_stale_memory_alone_still_retrieves_fine_no_competition_to_lose_to`
+and this doc's own saturation test), and `SOFT_READ_SCORE_SCALE` being
+applied a SECOND time to the whole combined score at softmax time (an
+unintentional double-scaling bug that oversharpened reads to the
+point of losing query-relevance discrimination and gradient signal --
+broke `test_unrelated_memory_produces_smaller_change_than_matching_memory`
+and `test_gated_memory_read_is_differentiable`). The qualitative
+finding here (gradual decay, real saturation, not a floor artifact) is
+unchanged, only the specific step number, reconfirmed under the fully
+corrected formula. Regression test updated accordingly
+(`tests/reference/test_hz0b_b11_reinforcement_forgetting_serialization.py`).
+
 **A real, non-obvious mechanism finding, not just "forgetting works":**
 at full decay (confidence -> ~0), an unreinforced fact's OWN slot
 still has the highest raw key-similarity (cosine ~1.0 against its

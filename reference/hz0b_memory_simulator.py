@@ -115,17 +115,49 @@ def read(state: MemoryState, query: mx.array, *, slot_idx: mx.array | None = Non
             # every slot unconditionally makes any populated slot win even
             # for an unrelated query, which is especially harmful for
             # overwrite and multi-hop discrimination tasks.
+            #
+            # The unpopulated branch must still score BELOW any real
+            # populated slot regardless of that slot's own confidence --
+            # this docstring's own "pushed to effectively negative-infinity"
+            # invariant, and what a sole surviving (heavily decayed but
+            # still real) memory's own retrievability depends on. A flat
+            # `0.0` here is not low enough: `scores + log(confidence)` for a
+            # real but heavily decayed slot can itself go negative (e.g.
+            # cos_sim*SOFT_READ_SCORE_SCALE=4.0 plus log(0.005)=-5.3 nets
+            # -1.3), which is HIGHER than a `0.0` floor -- letting a
+            # genuinely empty slot spuriously beat the only real candidate
+            # (caught as a real regression: 2026-08-03, both
+            # `test_stale_memory_alone_still_retrieves_fine_no_competition_to_lose_to`
+            # and `test_unreinforced_facts_saturate_to_unretrievable_by_step_20`
+            # failed against this exact invariant). Using the same
+            # `log(1e-6)` floor the original formula already used for
+            # confidence==0 keeps the null baseline (still excludes
+            # irrelevant-query-meets-random-populated-slot false matches,
+            # since that dynamic only involves the POPULATED branch) while
+            # never scoring above a real, matching, populated slot.
             populated = state.confidence > 1e-6
             scores = mx.where(
                 populated,
                 scores + mx.log(state.confidence + 1e-6),
-                mx.zeros_like(scores),
+                mx.zeros_like(scores) + float(mx.log(mx.array(1e-6))),
             )
         if hard:
             hard_idx = mx.argmax(scores, axis=-1)
             weights = (mx.arange(num_slots)[None, :] == hard_idx[:, None]).astype(mx.float32)
         else:
-            weights = mx.softmax(scores * SOFT_READ_SCORE_SCALE, axis=-1)
+            # `SOFT_READ_SCORE_SCALE` is already baked into `scores` above
+            # (applied once to the cosine-similarity term before combining
+            # with log(confidence)) -- re-applying it here to the COMBINED
+            # score double-scales it (and, worse, scales the log-confidence
+            # term too, which was never supposed to be sharpened this way).
+            # Found as a real bug (2026-08-03) causing softmax to saturate
+            # to bit-identical outputs regardless of query relevance --
+            # `test_unrelated_memory_produces_smaller_change_than_matching_memory`
+            # and `test_gated_memory_read_is_differentiable` both failed
+            # against this exact over-sharpening (the latter with an
+            # EXACTLY zero gradient, the unmistakable sign of a saturated,
+            # non-differentiable-in-practice softmax).
+            weights = mx.softmax(scores, axis=-1)
     readout = mx.sum(state.values * weights[:, :, None], axis=1)
     return readout, weights
 

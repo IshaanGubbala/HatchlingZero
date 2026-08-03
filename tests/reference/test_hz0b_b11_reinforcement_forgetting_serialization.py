@@ -1,9 +1,24 @@
 """HZ-0B B11 regression test: reinforcement/forgetting/serialization
 accuracy (scripts/hz0b_b11_reinforcement_forgetting_serialization.py).
 Locks in the real, swept result: reinforced facts stay retrievable,
-unreinforced facts decay into unretrievability by step 20 (not a
+unreinforced facts decay into unretrievability by step 30 (not a
 floor artifact -- step 10 shows a genuine partial transition), and
-serialize/restore is bit-exact at every point tested."""
+serialize/restore is bit-exact at every point tested.
+
+Saturation step updated 2026-08-03 from 20 to 30: `reference/hz0b_memory_simulator.py`'s
+`SOFT_READ_SCORE_SCALE=4.0` (added 2026-08-02 for overwrite/multi-hop
+discrimination) legitimately shifts the exact step at which
+`log(confidence)` comes to dominate the now-4x-scaled cosine-similarity
+term. Re-verified directly against the FULLY corrected formula (after
+also fixing two real regressions this same date -- an unpopulated-slot
+score floor of `0.0` that let empty slots beat a real, sole, heavily
+decayed candidate, and `SOFT_READ_SCORE_SCALE` being erroneously
+applied a second time to the whole combined score at softmax time,
+oversharpening reads to the point of losing query-relevance
+discrimination and gradient signal -- see `reference/hz0b_memory_simulator.py::read`'s
+own inline comments): saturation lands at step 30, not 20, confirmed
+with `_accuracy` swept at steps 10/20/25/30/35/40/50, before updating
+the number, not silently loosened."""
 from __future__ import annotations
 
 import mlx.core as mx
@@ -51,15 +66,15 @@ def test_reinforced_facts_stay_retrievable_at_50_steps():
     assert all(acc[i] for i in REINFORCED_IDX), "reinforced facts must remain retrievable"
 
 
-def test_unreinforced_facts_saturate_to_unretrievable_by_step_20():
-    state, keys = _build_session(20)
+def test_unreinforced_facts_saturate_to_unretrievable_by_step_30():
+    state, keys = _build_session(30)
     acc = _accuracy(state, keys)
-    assert not any(acc[i] for i in UNREINFORCED_IDX), "unreinforced facts should be unretrievable by step 20 at decay_rate=0.85"
+    assert not any(acc[i] for i in UNREINFORCED_IDX), "unreinforced facts should be unretrievable by step 30 at decay_rate=0.85"
 
 
 def test_forgetting_is_gradual_not_an_instant_cliff():
     """At step 10 (before full saturation), unreinforced facts are NOT
-    uniformly already gone -- confirms step-20 saturation is a real
+    uniformly already gone -- confirms step-30 saturation is a real
     decay curve, not an artifact of decay_rate being trivially harsh."""
     state, keys = _build_session(10)
     acc = _accuracy(state, keys)
