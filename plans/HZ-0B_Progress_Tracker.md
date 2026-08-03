@@ -1,6 +1,6 @@
 # HZ-0B Progress Tracker
 
-Updated: August 2, 2026 (B11 underperforming-task follow-up: tool-result reuse improved with balanced coverage and single-hop reads; seed robustness remains open)
+Updated: August 3, 2026 (fixed two real regressions in read()'s confidence-weighted scoring, introduced by the 2026-08-02 SOFT_READ_SCORE_SCALE/null-baseline change; all 280 tests pass)
 
 ## Mission
 
@@ -42,6 +42,44 @@ The current engineering target is therefore seed-robust discrimination and
 retrieval under overwrite/multi-hop/tool-comparison workloads. Do not mark
 the three former negatives universally fixed until a fresh multi-seed run
 shows both a positive aggregate and an acceptable worst-seed floor.
+
+### Real regression fix in read()'s confidence-weighted scoring (2026-08-03)
+
+Running the full test suite (standing discipline, before every commit) after
+the 2026-08-02 `SOFT_READ_SCORE_SCALE`/null-baseline change to
+`reference/hz0b_memory_simulator.py::read()` surfaced 2 failing tests. Both
+were real regressions from that change, not stale test assumptions -- fixed,
+not just updated:
+
+1. The unpopulated-slot score floor was set to exactly `0.0`. A real but
+   heavily decayed populated slot's own combined score
+   (`cos_sim*scale + log(confidence)`) can legitimately go negative, so a
+   flat `0.0` let genuinely empty slots spuriously beat the only real
+   candidate -- broke `test_stale_memory_alone_still_retrieves_fine_no_competition_to_lose_to`
+   and the B11 reinforcement test's step-20 saturation check. Fixed by using
+   the same `log(1e-6)` floor the pre-existing formula already used for zero
+   confidence, restoring the docstring's own "pushed to effectively
+   negative-infinity" invariant.
+2. `SOFT_READ_SCORE_SCALE` was applied a SECOND time to the whole combined
+   score at softmax time, on top of already being applied to just the
+   cosine-similarity term earlier -- an unintentional double-scaling bug that
+   oversharpened soft reads to the point of losing query-relevance
+   discrimination (matching and unrelated queries against a sole populated
+   slot both saturated to bit-identical readouts) and losing gradient signal
+   entirely (exactly zero gradient). Broke
+   `test_unrelated_memory_produces_smaller_change_than_matching_memory` and
+   `test_gated_memory_read_is_differentiable`. Fixed by removing the
+   redundant second multiplication -- the module's own comment ("Hard reads
+   remain unchanged; this only affects soft addressing") confirms the scale
+   was only ever meant to apply once.
+
+Re-verified the B11 reinforcement/forgetting test's saturation step under the
+fully corrected formula: legitimately shifted from step 20 to step 30 (a real
+effect of `SOFT_READ_SCORE_SCALE=4.0` itself, unrelated to either bug),
+confirmed by a fresh sweep before updating the assertion. All 280 tests pass.
+See `reference/hz0b_memory_simulator.py::read`'s inline comments and
+`docs/restart/hz0b_b11_reinforcement_forgetting_serialization_results.md`'s
+2026-08-03 update for full detail.
 
 ### Tool-result value-capacity follow-up (2026-08-02)
 
