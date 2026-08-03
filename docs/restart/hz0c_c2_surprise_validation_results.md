@@ -78,6 +78,48 @@ candidates (token-loss proxy, recurrent/attention disagreement, state
 novelty, HZ-0B memory-read uncertainty) specifically for the
 novelty-point case.
 
+## Follow-up (2026-08-02, same day): a second candidate signal also fails -- likely a task-construction issue, not just a bad signal choice
+
+Built `state_novelty_score()` (cosine distance to a causal windowed
+mean of recent hidden states, not just the immediately preceding
+position) specifically to fix the failure above -- verified on a toy
+synthetic pattern-break example that it correctly detects an anomaly
+there (`test_state_novelty_score_high_for_pattern_break`). Re-ran the
+SAME real-checkpoint Scenario 1 construction with it:
+
+| Signal | Delta (novelty - steady-state) | Fraction novelty above steady-state | Novelty positions triggered at 15% rate |
+| --- | --- | --- | --- |
+| delta-norm (`surprise_score`) | -0.822 | 0.094 | 0/32 |
+| state-novelty, window=4 | -0.322 | 0.031 | 0/32 |
+| state-novelty, window=8 | -0.245 | 0.156 | 0/32 |
+
+**Both signals fail, in the same direction, on the same construction**
+-- state-novelty is not clearly better (window=4 is actually worse
+than delta-norm; window=8 is marginally less bad but still fails).
+This pattern -- two mechanistically different signals both failing
+the same way -- is itself evidence worth taking seriously: rather than
+"the signal choice was wrong twice," a more likely explanation is that
+**the task construction itself may not be a fair test**. The
+"pattern" here is a cycle of RANDOM, semantically meaningless token
+IDs -- a real language-trained model has no reason to have built a
+strong sequence-level expectation for an arbitrary numeric cycle the
+way it would for a genuinely repeated natural-language phrase or
+topic. If the model never treats "random token ID repeats every 4
+positions" as something worth predicting in the first place, there is
+no real expectation for an anomaly to violate, and NEITHER signal
+should be expected to fire -- consistent with what was actually
+observed.
+
+**Real next step, not attempted this pass**: rebuild Scenario 1 using
+a construction closer to what a language model actually models well
+(e.g., a repeated short real-token n-gram drawn from the tokenizer's
+actual vocabulary in a way that forms a genuine local pattern, or a
+task built directly from natural corpus data with a real topic-shift
+or contradiction inserted, matching the plan's own C3 task list:
+"topic shifts, long-range key reappearance, changed variable bindings,
+... contradictions"). This is now the priority before either signal
+is judged as failed for real.
+
 ## What this adds to HZ-0C's real progress
 
 A real, checked answer to C2's exit gate, with the negative half

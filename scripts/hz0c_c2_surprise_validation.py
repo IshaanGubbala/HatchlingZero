@@ -24,7 +24,7 @@ import mlx.core as mx
 
 from reference.hz0a_mlx_model import HZ0AMlxModel
 from reference.hz0b_b6_hz0a_integration import frozen_hidden_states
-from reference.hz0c_surprise_trigger import normalize_score, rate_bounded_threshold, surprise_score
+from reference.hz0c_surprise_trigger import normalize_score, rate_bounded_threshold, state_novelty_score, surprise_score
 from scripts.hz0b_b11_baseline_comparison import CHECKPOINT, D_MODEL, D_FF, HEADS, LAYERS, VOCAB_SIZE, ATTENTION_INDICES
 import json
 from mlx.utils import tree_unflatten
@@ -53,21 +53,12 @@ def make_novelty_sequences(count: int, rng: random.Random, *, pattern_reps: int 
     return mx.array(rows, dtype=mx.int32), novelty_positions
 
 
-def main():
-    model, payload = load_frozen_model()
-    print(f"loaded frozen checkpoint: step={payload['step']} tokens_seen={payload['tokens_seen']}")
-
-    rng = random.Random(555)
-    NUM_EXAMPLES = 32
-    tokens, novelty_positions = make_novelty_sequences(NUM_EXAMPLES, rng)
-    hidden, _ = frozen_hidden_states(model, tokens)
-    mx.eval(hidden)
-
-    raw_score = surprise_score(hidden)
+def evaluate_scenario1(name, score_fn, hidden, novelty_positions, num_examples):
+    STARTUP_SKIP = 8  # skip the pattern's first 2 reps (startup transient, not yet steady-state)
+    raw_score = score_fn(hidden)
     normed_score = normalize_score(raw_score, method="zscore")
 
     at_novelty, after_novelty, steady_state = [], [], []
-    STARTUP_SKIP = 8  # skip the pattern's first 2 reps (startup transient, not yet steady-state)
     for i, pos in enumerate(novelty_positions):
         at_novelty.append(float(normed_score[i, pos]))
         if pos + 1 < normed_score.shape[1]:
@@ -78,16 +69,37 @@ def main():
     mean_at = sum(at_novelty) / len(at_novelty)
     mean_after = sum(after_novelty) / len(after_novelty)
     mean_steady = sum(steady_state) / len(steady_state)
+    fraction_above = sum(1 for v in at_novelty if v > mean_steady) / len(at_novelty)
 
-    print(f"\n--- Scenario 1: novelty point (n={NUM_EXAMPLES} sequences) ---")
+    threshold = rate_bounded_threshold(normed_score, target_rate=0.15, min_rate=0.05, max_rate=0.5)
+    triggered = normed_score > threshold
+    achieved_rate = float(mx.mean(triggered.astype(mx.float32)))
+    novelty_triggered = sum(1 for i, pos in enumerate(novelty_positions) if bool(triggered[i, pos])) / num_examples
+
+    print(f"\n--- Scenario 1 [{name}]: novelty point (n={num_examples} sequences) ---")
     print(f"mean normalized surprise AT the injected novelty position: {mean_at:.3f}")
     print(f"mean normalized surprise immediately AFTER novelty:        {mean_after:.3f}")
     print(f"mean normalized surprise at steady-state (repeated) positions: {mean_steady:.3f}")
     print(f"delta (at novelty - steady state): {mean_at - mean_steady:+.3f}")
-    print(f"delta (after novelty - steady state): {mean_after - mean_steady:+.3f}")
+    print(f"fraction of examples where novelty scores above steady-state mean: {fraction_above:.3f}")
+    print(f"achieved trigger rate at 15% target: {achieved_rate:.3f}")
+    print(f"fraction of novelty positions triggered: {novelty_triggered:.3f}")
+    return {"mean_at": mean_at, "mean_steady": mean_steady, "fraction_above": fraction_above, "novelty_triggered": novelty_triggered}
 
-    fraction_novelty_above_steady = sum(1 for v in at_novelty if v > mean_steady) / len(at_novelty)
-    print(f"fraction of examples where novelty position scores above the steady-state mean: {fraction_novelty_above_steady:.3f}")
+
+def main():
+    model, payload = load_frozen_model()
+    print(f"loaded frozen checkpoint: step={payload['step']} tokens_seen={payload['tokens_seen']}")
+
+    rng = random.Random(555)
+    NUM_EXAMPLES = 32
+    tokens, novelty_positions = make_novelty_sequences(NUM_EXAMPLES, rng)
+    hidden, _ = frozen_hidden_states(model, tokens)
+    mx.eval(hidden)
+
+    evaluate_scenario1("delta-norm (surprise_score)", surprise_score, hidden, novelty_positions, NUM_EXAMPLES)
+    evaluate_scenario1("state-novelty (window=4)", lambda h: state_novelty_score(h, window=4), hidden, novelty_positions, NUM_EXAMPLES)
+    evaluate_scenario1("state-novelty (window=8)", lambda h: state_novelty_score(h, window=8), hidden, novelty_positions, NUM_EXAMPLES)
 
     print(f"\n--- Scenario 2: difficulty proxy (random vs. constant tokens) ---")
     rng2 = random.Random(777)
@@ -106,14 +118,6 @@ def main():
     print(f"mean raw surprise, random (high-entropy) tokens: {mean_random:.4f}")
     print(f"mean raw surprise, constant (low-entropy) token: {mean_constant:.4f}")
     print(f"ratio (random / constant): {mean_random / max(mean_constant, 1e-8):.2f}x")
-
-    print(f"\n--- Rate-bounded thresholding sanity (target_rate=0.15) ---")
-    threshold = rate_bounded_threshold(normed_score, target_rate=0.15, min_rate=0.05, max_rate=0.5)
-    triggered = normed_score > threshold
-    achieved_rate = float(mx.mean(triggered.astype(mx.float32)))
-    print(f"achieved trigger rate: {achieved_rate:.3f} (target 0.150)")
-    novelty_triggered = sum(1 for i, pos in enumerate(novelty_positions) if bool(triggered[i, pos])) / NUM_EXAMPLES
-    print(f"fraction of novelty positions that get triggered at this rate: {novelty_triggered:.3f}")
 
 
 if __name__ == "__main__":

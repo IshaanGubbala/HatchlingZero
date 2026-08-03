@@ -38,6 +38,19 @@ scores LOWER than ordinary steady-state positions (wrong direction,
 threshold). Usable as a difficulty/entropy proxy; NOT yet validated
 as a novelty-point trigger signal for C3's simulator without further
 work (a different C2 candidate, or a fix to this one).
+
+**Follow-up (same date, same doc)**: `state_novelty_score()` (below)
+was built specifically to fix this and ALSO fails on the same
+construction (window=4 is worse than delta-norm; window=8 marginally
+less bad but still wrong-direction) despite working correctly on a
+synthetic toy pattern-break test. Two mechanistically different
+signals failing the same way on the same real-model construction
+points toward a TASK-CONSTRUCTION issue (random, semantically
+meaningless token-ID cycles may not form a real "expectation" for a
+language-trained model to violate) rather than two independently bad
+signal choices -- real next step: rebuild the novelty-point test with
+a construction closer to what a language model actually models well,
+before judging either signal as failed for real.
 """
 from __future__ import annotations
 
@@ -56,6 +69,39 @@ def surprise_score(hidden: mx.array) -> mx.array:
     delta_norm = mx.sqrt(mx.sum(delta * delta, axis=-1) + 1e-8)
     first = mx.zeros((batch, 1))
     return mx.concatenate([first, delta_norm], axis=1)
+
+
+def state_novelty_score(hidden: mx.array, *, window: int = 4, eps: float = 1e-6) -> mx.array:
+    """C2's "state novelty" candidate -- built specifically because
+    `surprise_score` (hidden-state delta norm, i.e. novelty relative
+    ONLY to the immediately preceding position) was validated
+    (`docs/restart/hz0c_c2_surprise_validation_results.md`) to FAIL at
+    detecting a single anomalous token in an otherwise-repeating
+    pattern: a recurrent state that integrates gradually may not show
+    a large token-to-token jump even at a genuine anomaly, since the
+    anomaly's effect can be smoothed into the ongoing state rather
+    than spiking it. This measures novelty relative to a RECENT WINDOW
+    instead of just one prior position: cosine distance between the
+    current hidden state and the causal mean of the previous `window`
+    positions (no future leakage) -- directly targets "does this
+    position look different from what's been typical recently," which
+    is what a pattern-breaking anomaly should trigger even when it
+    doesn't move the state much step-to-step.
+
+    hidden: [batch, seq, dim] -> [batch, seq]. The first position has
+    no window to compare against -- scored 0, matching `surprise_score`'s
+    own convention."""
+    batch, seq, dim = hidden.shape
+    scores = [mx.zeros((batch,))]
+    for t in range(1, seq):
+        start = max(0, t - window)
+        recent_mean = mx.mean(hidden[:, start:t, :], axis=1)
+        current = hidden[:, t, :]
+        cos_sim = mx.sum(current * recent_mean, axis=-1) / (
+            mx.sqrt(mx.sum(current * current, axis=-1) + eps) * mx.sqrt(mx.sum(recent_mean * recent_mean, axis=-1) + eps)
+        )
+        scores.append(1.0 - cos_sim)
+    return mx.stack(scores, axis=1)
 
 
 def normalize_score(score: mx.array, *, method: str = "zscore", eps: float = 1e-6) -> mx.array:

@@ -7,7 +7,7 @@ import mlx.core as mx
 from reference.hz0a_mlx_model import HZ0AMlxModel
 from reference.hz0c_surprise_trigger import (
     HZ0CSurpriseTriggeredModel, SurpriseTriggeredBlock, masked_anchor_attention,
-    normalize_score, rate_bounded_threshold, smooth_score, surprise_score, trigger_decision,
+    normalize_score, rate_bounded_threshold, smooth_score, state_novelty_score, surprise_score, trigger_decision,
 )
 
 
@@ -211,3 +211,31 @@ def test_rate_bounded_threshold_deterministic():
     t1 = rate_bounded_threshold(score, target_rate=0.2, min_rate=0.01, max_rate=0.5)
     t2 = rate_bounded_threshold(score, target_rate=0.2, min_rate=0.01, max_rate=0.5)
     assert bool(mx.array_equal(t1, t2))
+
+
+def test_state_novelty_score_first_position_is_zero():
+    hidden = mx.random.normal((2, 5, 8))
+    score = state_novelty_score(hidden)
+    assert bool(mx.all(score[:, 0] == 0.0))
+
+
+def test_state_novelty_score_zero_for_constant_hidden_state():
+    hidden = mx.ones((1, 6, 8))
+    score = state_novelty_score(hidden)
+    assert bool(mx.all(mx.abs(score) < 1e-4))
+
+
+def test_state_novelty_score_high_for_pattern_break():
+    """A repeating 2-position pattern [A, B, A, B, ...] with one
+    anomalous vector C inserted should score C's position much higher
+    than the steady-state A/B positions -- the exact case
+    surprise_score (delta norm) was found to fail on."""
+    a = mx.array([1.0, 0.0, 0.0, 0.0])
+    b = mx.array([0.0, 1.0, 0.0, 0.0])
+    c = mx.array([0.0, 0.0, 0.0, -1.0])  # orthogonal to both a and b
+    seq = mx.stack([a, b, a, b, a, b, c, a, b, a, b], axis=0)[None]
+    score = state_novelty_score(seq, window=4)
+    anomaly_score = float(score[0, 6])
+    steady_scores = [float(score[0, t]) for t in (4, 5, 8, 9, 10)]
+    mean_steady = sum(steady_scores) / len(steady_scores)
+    assert anomaly_score > mean_steady
