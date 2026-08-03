@@ -123,7 +123,7 @@ def run_hzb_memory(model, train_hidden, train_is_greater, held_out_hidden, held_
 
     def loss_fn(pd: dict) -> mx.array:
         p = dict_to_latent_params(pd)
-        logits, _, gates, read_entropy = latent_forward_pass(model, precomputed_hidden=train_hidden, latent_params=p, num_slots=NUM_SLOTS, return_read_entropy=True)
+        logits, _, gates, read_entropy = latent_forward_pass(model, precomputed_hidden=train_hidden, latent_params=p, num_slots=NUM_SLOTS, read_hops=2, return_read_entropy=True)
         task_loss = mx.mean(nn.losses.cross_entropy(logits[:, -1, :], targets))
         write_rate = mx.mean(gates)
         sparsity_loss = (write_rate - TARGET_WRITE_RATE) ** 2
@@ -142,7 +142,7 @@ def run_hzb_memory(model, train_hidden, train_is_greater, held_out_hidden, held_
             print(f"    [memory seed={seed}] step {step:4d}  train loss {float(loss):.5f}")
 
     trained = dict_to_latent_params(params_dict)
-    logits, _, _ = latent_forward_pass(model, precomputed_hidden=held_out_hidden, latent_params=trained, num_slots=NUM_SLOTS)
+    logits, _, _ = latent_forward_pass(model, precomputed_hidden=held_out_hidden, latent_params=trained, num_slots=NUM_SLOTS, read_hops=2)
     predicted = mx.argmax(logits[:, -1, :], axis=-1)
     return float(mx.mean((predicted == targets_for(held_out_is_greater)).astype(mx.float32)))
 
