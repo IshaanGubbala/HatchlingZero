@@ -106,3 +106,54 @@ C7's own job (training the trigger policy against real objectives,
 not just this fixed heuristic) may be exactly what's needed to close
 this gap, rather than expecting C2's raw signal to work unsupervised
 across every scenario type.
+
+## Fix attempt (2026-08-02, same day, in response to "fix it")
+
+Two things were tried. One was a real, principled signal-level fix
+that failed on real data despite passing its own synthetic tests. The
+other was diagnosing and correcting the actual construction bug --
+and it worked.
+
+**Attempt 1: `ema_novelty_score` -- FAILED on real data.** Built
+specifically to fix the windowed-mean dampening explained above:
+replaces the hard window with a slowly-decaying EMA (`decay=0.9`,
+`reference/hz0c_surprise_trigger.py`), so a short burst can't quickly
+drag the reference toward itself. Verified correct on synthetic tests
+first (`test_ema_novelty_score_does_not_decay_within_a_multi_position_anomaly_burst`,
+`test_ema_novelty_score_detects_single_point_anomaly` -- both pass).
+Rerun on the REAL checkpoint with the real 8-scenario construction:
+scenario 7 STILL showed complete failure (recall 0.000, unchanged),
+and scenario 1 (previously the strongest, recall 0.656) got WORSE
+(recall 0.375). Reported honestly rather than declared a fix because
+its own unit tests passed -- passing a synthetic mechanism check is
+not the same as fixing the real problem.
+
+**Attempt 2: fix scenario 7's own construction -- WORKED.** Direct
+investigation (comparing high-ID "rare" tokens against a genuinely
+real, contextually-displaced multi-token span lifted from elsewhere in
+the real corpus) found the ORIGINAL construction was the actual bug,
+not the signal: high token-ID magnitude produced no real elevation in
+EITHER signal (mean score at burst positions indistinguishable from
+elsewhere), while a real out-of-context span produced a clear,
+measurable elevation with both signals (mean 0.31 at burst positions
+vs. -0.025 elsewhere) -- the exact same category of confound C2 had
+already diagnosed once (arbitrary token identity isn't the same as
+contextual surprise to the model). Fixed `scenario_rare_token_burst`
+to use a real displaced span instead of a high-ID proxy, reran the
+full corrected 8-scenario suite with `state_novelty_score`:
+
+| Scenario 7 (rare-token burst) | Before fix | After fix |
+| --- | --- | --- |
+| Precision | 0.000 | **0.094** |
+| Recall | 0.000 | **0.156** |
+| Missed-anchor rate | 1.000 | 0.844 |
+
+**No longer a complete failure**, and now in the same weak-to-moderate
+range as most of the other 6 non-scenario-1 scenarios (0.06-0.34) --
+a real, meaningful fix for the worst outlier, though it does not
+elevate scenario 7 to scenario 1's strength. The underlying, broader
+finding stands: `state_novelty_score` remains strong only on
+scenario 1's exact construction; the other 7 scenarios (now including
+a properly-constructed scenario 7) all sit in a weak recall band,
+which is real signal that C7's trained controller has real work to do
+beyond this fixed heuristic, not evidence of a broken pipeline.

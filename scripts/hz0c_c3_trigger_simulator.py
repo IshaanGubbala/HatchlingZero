@@ -19,13 +19,14 @@ false-trigger rate, missed-anchor rate, and average anchor rate, using
 """
 from __future__ import annotations
 
+import argparse
 import json
 import random
 
 import mlx.core as mx
 
+from reference.hz0c_surprise_trigger import ema_novelty_score, normalize_score, rate_bounded_threshold, state_novelty_score
 from reference.hz0b_b6_hz0a_integration import frozen_hidden_states
-from reference.hz0c_surprise_trigger import normalize_score, rate_bounded_threshold, state_novelty_score
 from scripts.hz0b_b11_baseline_comparison import load_frozen_model
 
 GENERAL_DATA_PATH = "data/packed/repro_1024_val.jsonl"
@@ -155,16 +156,34 @@ def scenario_contradiction(count: int, rng: random.Random, general: list[list[in
 
 
 def scenario_rare_token_burst(count: int, rng: random.Random, general: list[list[int]], vocab_size: int) -> tuple[mx.array, list[list[int]]]:
-    """7. A cluster of RARE (highest-ID, real vocabulary but
-    infrequent) tokens inserted into otherwise-ordinary real content."""
+    """7. A cluster of contextually out-of-place REAL tokens (a real
+    multi-token span lifted from a DIFFERENT real sequence) inserted
+    into otherwise-ordinary real content.
+
+    ORIGINAL construction used the highest-ID token range as a
+    "rareness" proxy -- found (2026-08-02, "fix it" investigation,
+    see `docs/restart/hz0c_c3_trigger_simulator_results.md`'s fix
+    section) to be the SAME category of confound C2 already diagnosed
+    for its own first novelty-point test: token-ID magnitude is an
+    arbitrary tokenizer assignment, not a measure of contextual
+    surprise -- high-ID tokens produced no real elevation in either
+    `state_novelty_score` or `ema_novelty_score`. A real span lifted
+    from elsewhere in the real corpus (in-distribution, just locally
+    out of place) DOES produce a real, measurable elevation (confirmed
+    directly: mean 0.31 at burst positions vs. -0.025 elsewhere,
+    verified with both signals) -- `vocab_size` kept as a parameter
+    for interface stability even though this construction no longer
+    uses it directly."""
     rows, gts = [], []
     burst_len = 3
     for _ in range(count):
         source = rng.choice(general)
         row = list(source[:SEQ_LEN])
         burst_start = rng.randrange(10, SEQ_LEN - burst_len - 5)
-        rare_tokens = [rng.randint(vocab_size - 500, vocab_size - 1) for _ in range(burst_len)]
-        row[burst_start:burst_start + burst_len] = rare_tokens
+        other = rng.choice(general)
+        other_start = rng.randrange(0, len(other) - burst_len)
+        real_burst = other[other_start:other_start + burst_len]
+        row[burst_start:burst_start + burst_len] = real_burst
         rows.append(row)
         gts.append(list(range(burst_start, burst_start + burst_len)))
     return mx.array(rows, dtype=mx.int32), gts
@@ -197,8 +216,13 @@ def scenario_distractor_heavy_retrieval(count: int, rng: random.Random, general:
     return mx.array(rows, dtype=mx.int32), gts
 
 
-def evaluate_scenario(name: str, tokens: mx.array, gts: list[list[int]], hidden: mx.array) -> dict:
-    raw_score = state_novelty_score(hidden, window=4)
+def evaluate_scenario(name: str, tokens: mx.array, gts: list[list[int]], hidden: mx.array, *, signal: str = "state_novelty") -> dict:
+    if signal == "state_novelty":
+        raw_score = state_novelty_score(hidden, window=4)
+    elif signal == "ema_novelty":
+        raw_score = ema_novelty_score(hidden, decay=0.9)
+    else:
+        raise ValueError(f"unknown signal: {signal!r}")
     normed_score = normalize_score(raw_score, method="zscore")
     threshold = rate_bounded_threshold(normed_score, target_rate=TARGET_RATE, min_rate=0.02, max_rate=0.6)
     triggered = normed_score > threshold
@@ -231,8 +255,12 @@ def evaluate_scenario(name: str, tokens: mx.array, gts: list[list[int]], hidden:
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--signal", choices=["state_novelty", "ema_novelty"], default="state_novelty")
+    args = parser.parse_args()
+
     model, payload = load_frozen_model()
-    print(f"loaded frozen checkpoint: step={payload['step']} tokens_seen={payload['tokens_seen']}")
+    print(f"loaded frozen checkpoint: step={payload['step']} tokens_seen={payload['tokens_seen']}  signal={args.signal}")
 
     general = load_real_sequences(GENERAL_DATA_PATH, 200)
     code = load_real_sequences(CODE_DATA_PATH, 100)
@@ -259,7 +287,7 @@ def main():
     for name, (tokens, gts) in scenarios.items():
         hidden, _ = frozen_hidden_states(model, tokens)
         mx.eval(hidden)
-        result = evaluate_scenario(name, tokens, gts, hidden)
+        result = evaluate_scenario(name, tokens, gts, hidden, signal=args.signal)
         all_results[name] = result
         all_rates.append(result["avg_anchor_rate"])
 

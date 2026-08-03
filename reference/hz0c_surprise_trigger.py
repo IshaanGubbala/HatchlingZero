@@ -114,6 +114,48 @@ def state_novelty_score(hidden: mx.array, *, window: int = 4, eps: float = 1e-6)
     return mx.stack(scores, axis=1)
 
 
+def ema_novelty_score(hidden: mx.array, *, decay: float = 0.9, eps: float = 1e-6) -> mx.array:
+    """Fixes the real, root-caused limitation of `state_novelty_score`
+    found in C3 (`docs/restart/hz0c_c3_trigger_simulator_results.md`):
+    a HARD windowed mean gets rapidly "contaminated" by an ongoing
+    multi-position anomaly (with `window=4`, one anomalous token is
+    already 25% of the reference), so consecutive anomalous positions
+    score progressively LOWER instead of staying high -- complete
+    failure on rare-token-burst detection (recall 0.000), confirmed on
+    a controlled synthetic example
+    (`test_state_novelty_score_decays_within_a_multi_position_anomaly_burst`).
+
+    Replaces the windowed mean with a SLOWLY-DECAYING exponential
+    moving average as the "expectation": `expectation_t = decay *
+    expectation_{t-1} + (1-decay) * hidden_t`, updated causally AFTER
+    scoring position `t` (so `t`'s own score is never influenced by
+    itself -- no leakage). With `decay=0.9`, the EMA's effective
+    memory horizon is roughly `1/(1-decay) = 10` positions, so a
+    2-3-token anomaly can only shift the expectation by a small
+    fraction each step, letting EVERY position within a sustained
+    anomaly continue to score high relative to the still-mostly-intact
+    pre-anomaly expectation -- directly targeting the sustained-anomaly
+    case `state_novelty_score`'s hard window fails on, while still
+    detecting single-point anomalies (a decay this high still moves
+    meaningfully in one step, since `1-decay=0.1` is a real, non-tiny
+    per-step update).
+
+    hidden: [batch, seq, dim] -> [batch, seq]. The first position has
+    no expectation yet -- scored 0, matching the other two signals'
+    convention."""
+    batch, seq, dim = hidden.shape
+    expectation = hidden[:, 0, :]
+    scores = [mx.zeros((batch,))]
+    for t in range(1, seq):
+        current = hidden[:, t, :]
+        cos_sim = mx.sum(current * expectation, axis=-1) / (
+            mx.sqrt(mx.sum(current * current, axis=-1) + eps) * mx.sqrt(mx.sum(expectation * expectation, axis=-1) + eps)
+        )
+        scores.append(1.0 - cos_sim)
+        expectation = decay * expectation + (1.0 - decay) * current
+    return mx.stack(scores, axis=1)
+
+
 def normalize_score(score: mx.array, *, method: str = "zscore", eps: float = 1e-6) -> mx.array:
     """C2's own required spec item: "specify normalization." score:
     [batch, seq]. Raw `surprise_score` magnitude depends on `dim` and

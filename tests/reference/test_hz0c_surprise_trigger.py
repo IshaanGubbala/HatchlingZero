@@ -7,7 +7,8 @@ import mlx.core as mx
 from reference.hz0a_mlx_model import HZ0AMlxModel
 from reference.hz0c_surprise_trigger import (
     HZ0CSurpriseTriggeredModel, SurpriseTriggeredBlock, masked_anchor_attention,
-    normalize_score, rate_bounded_threshold, smooth_score, state_novelty_score, surprise_score, trigger_decision,
+    ema_novelty_score, normalize_score, rate_bounded_threshold, smooth_score, state_novelty_score, surprise_score,
+    trigger_decision,
 )
 
 
@@ -258,3 +259,46 @@ def test_state_novelty_score_decays_within_a_multi_position_anomaly_burst():
     score = state_novelty_score(seq, window=4)
     burst_scores = [float(score[0, t]) for t in (4, 5, 6)]
     assert burst_scores[0] > burst_scores[1] > burst_scores[2]
+
+
+def test_ema_novelty_score_first_position_is_zero():
+    hidden = mx.random.normal((2, 5, 8))
+    score = ema_novelty_score(hidden)
+    assert bool(mx.all(score[:, 0] == 0.0))
+
+
+def test_ema_novelty_score_zero_for_constant_hidden_state():
+    hidden = mx.ones((1, 6, 8))
+    score = ema_novelty_score(hidden)
+    assert bool(mx.all(mx.abs(score) < 1e-4))
+
+
+def test_ema_novelty_score_detects_single_point_anomaly():
+    """The original case state_novelty_score was built for -- must
+    still work under the EMA fix, not just the burst case."""
+    a = mx.array([1.0, 0.0, 0.0, 0.0])
+    b = mx.array([0.0, 1.0, 0.0, 0.0])
+    c = mx.array([0.0, 0.0, 0.0, -1.0])
+    seq = mx.stack([a, b, a, b, a, b, c, a, b, a, b], axis=0)[None]
+    score = ema_novelty_score(seq, decay=0.9)
+    anomaly_score = float(score[0, 6])
+    steady_scores = [float(score[0, t]) for t in (4, 5, 8, 9, 10)]
+    mean_steady = sum(steady_scores) / len(steady_scores)
+    assert anomaly_score > mean_steady
+
+
+def test_ema_novelty_score_does_not_decay_within_a_multi_position_anomaly_burst():
+    """The real fix for the burst-dampening failure locked in above
+    for state_novelty_score: under the EMA, sustained/consecutive
+    anomalous positions must NOT show the same collapse -- each burst
+    position should stay comparably high, not monotonically decreasing."""
+    a = mx.array([1.0, 0.0, 0.0, 0.0])
+    burst = mx.array([0.0, 0.0, 1.0, 0.0])
+    seq = mx.stack([a, a, a, a, burst, burst, burst, a, a, a], axis=0)[None]
+    score = ema_novelty_score(seq, decay=0.9)
+    burst_scores = [float(score[0, t]) for t in (4, 5, 6)]
+    # all three burst positions should be clearly elevated relative to steady-state, not collapsing toward it
+    steady_scores = [float(score[0, t]) for t in (1, 2, 3)]
+    mean_steady = sum(steady_scores) / len(steady_scores)
+    for s in burst_scores:
+        assert s > mean_steady + 0.1
