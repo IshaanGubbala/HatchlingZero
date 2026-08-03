@@ -66,12 +66,14 @@ def load_frozen_model():
 def make_prompts(count: int, rng: random.Random) -> tuple[mx.array, mx.array]:
     """Returns (token_ids [count, PROMPT_LEN], is_greater [count])."""
     rows, is_greater = [], []
-    for _ in range(count):
+    # Cycle through every result/threshold combination so the controller sees
+    # the comparison rule itself, not a sparse accidental subset of pairs.
+    combinations = [(result_idx, threshold_idx) for result_idx in range(NUM_LEVELS) for threshold_idx in range(NUM_LEVELS)]
+    for example_idx in range(count):
         row = [rng.randint(100, VOCAB_SIZE - 100) for _ in range(FACT_POS)]
-        result_idx = rng.randrange(NUM_LEVELS)
+        result_idx, threshold_idx = combinations[example_idx % len(combinations)]
         row += [TOOL_MARKER, RESULT_IDS[result_idx]]
         row += [rng.randint(100, VOCAB_SIZE - 100) for _ in range(PAD_LEN)]
-        threshold_idx = rng.randrange(NUM_LEVELS)
         row += [COMPARE_MARKER, THRESHOLD_IDS[threshold_idx]]
         row += [rng.randint(100, VOCAB_SIZE - 100) for _ in range(PAD_LEN)]
         row += [READ_TRIGGER]
@@ -152,7 +154,7 @@ def main():
     parser.add_argument("--steps", type=int, default=1000)
     parser.add_argument("--lr", type=float, default=0.15)
     parser.add_argument("--num-seeds", type=int, default=5)
-    parser.add_argument("--train-count", type=int, default=80)
+    parser.add_argument("--train-count", type=int, default=320, help="Balanced-scale training set; 80 examples under-cover result/threshold combinations")
     parser.add_argument("--held-out-count", type=int, default=80)
     args = parser.parse_args()
 
