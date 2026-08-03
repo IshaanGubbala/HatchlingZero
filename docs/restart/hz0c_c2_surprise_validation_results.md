@@ -159,6 +159,19 @@ random-ID confound is a genuine, useful lesson for C3's own simulator
 construction: synthetic tasks must use in-distribution content, not
 arbitrary token IDs, to fairly test a language-trained model).
 
+**Scope qualifier, added after C3 (2026-08-02, same day, see
+`docs/restart/hz0c_c3_trigger_simulator_results.md`)**: this "exit
+gate met" finding is validated specifically on the single-point-
+anomaly-in-a-repeating-pattern construction tested here. C3's broader
+8-scenario simulator found this same signal does NOT generalize well
+to most of the plan's other named scenario types (topic shifts,
+long-range reappearance, variable rebinding, code/JSON boundaries,
+contradictions all show weak recall 0.06-0.16; rare-token bursts show
+COMPLETE failure, recall 0.000, root-caused to a real structural
+property of windowed-mean scoring). C2's exit gate is met on its own
+narrow terms; it is not evidence the signal is broadly ready for C6
+integration without further work.
+
 ## What this adds to HZ-0C's real progress
 
 A real, checked answer to C2's exit gate, with the negative half

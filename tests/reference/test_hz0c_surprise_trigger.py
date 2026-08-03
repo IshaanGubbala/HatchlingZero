@@ -239,3 +239,22 @@ def test_state_novelty_score_high_for_pattern_break():
     steady_scores = [float(score[0, t]) for t in (4, 5, 8, 9, 10)]
     mean_steady = sum(steady_scores) / len(steady_scores)
     assert anomaly_score > mean_steady
+
+
+def test_state_novelty_score_decays_within_a_multi_position_anomaly_burst():
+    """Real mechanistic finding from C3's rare-token-burst scenario
+    (docs/restart/hz0c_c3_trigger_simulator_results.md): a MULTI-
+    position anomaly (several consecutive unusual vectors, not just
+    one) scores HIGH on its first position but DECREASING on
+    subsequent positions, since the windowed mean itself gets pulled
+    toward the ongoing anomaly -- later burst positions look less
+    novel relative to a window that already contains earlier burst
+    positions. Locked in here as expected behavior, not a bug, so a
+    future change to the window mechanics doesn't silently alter it
+    without notice."""
+    a = mx.array([1.0, 0.0, 0.0, 0.0])
+    burst = mx.array([0.0, 0.0, 1.0, 0.0])  # same anomalous direction repeated
+    seq = mx.stack([a, a, a, a, burst, burst, burst, a, a, a], axis=0)[None]
+    score = state_novelty_score(seq, window=4)
+    burst_scores = [float(score[0, t]) for t in (4, 5, 6)]
+    assert burst_scores[0] > burst_scores[1] > burst_scores[2]
