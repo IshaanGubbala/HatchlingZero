@@ -10,3 +10,9 @@ hz0a-pmetal-kernel = { path = "../hz0a-pmetal-kernel" }
 
 [lib]
 path = "src/lib.rs"
+# cdylib: real C-ABI shared library, loadable from Python via ctypes (the
+# actual "model-level integration" C8 had left open -- no Python<->Rust FFI
+# mechanism existed anywhere in this repo before this crate). rlib: kept so
+# this crate's own Rust unit tests (calling the extern "C" functions directly
+# from Rust) still build and run without a Python process involved.
+crate-type = ["cdylib", "rlib"]
