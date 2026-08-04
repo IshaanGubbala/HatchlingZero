@@ -94,3 +94,34 @@ Applying STE plus shared key/query with one read and no decay produced a small
 seed-555 bump (`0.312` versus `0.300`), but failed the three-seed check at
 `0.221 +/- 0.068`. The capacity-pressure task therefore retains its legacy
 configuration; the multi-hop mechanics are not a drop-in fix here.
+
+## Wider 10-seed retest after runner optimization (2026-08-04)
+
+`docs/restart/hz0b_b11_capacity_pressure_runner_optimization_results.md`
+made the memory arm's per-seed wall time real-2x faster
+(`--compile`, verified bit-exact), making a wider seed sweep practical.
+Reran the balanced protocol (`train_count=160`, `held_out_count=80`,
+`steps=1000`, `lr=0.15`) at **10 seeds (555-564)** instead of 5:
+
+| Configuration | Mean | Std | Range | n |
+| --- | ---: | ---: | ---: | ---: |
+| Equal-parameter adapter | 0.278 | 0.018 | -- | 10 |
+| HZ-0B memory | **0.308** | **0.067** | **0.200-0.412** | 10 |
+
+**The mean barely moved (0.310 -> 0.308) but the true spread is real,
+almost double the 5-seed estimate (std 0.035 -> 0.067), and the range now
+extends BELOW the 0.250 four-way chance floor (min 0.200) -- something
+the 5-seed sample never showed.** This is a genuine, disclosed refinement
+of the earlier finding, not a contradiction of it: the earlier 5-seed
+`0.310 +/- 0.035` understated how unstable the memory arm actually is at
+this scale, and doubling the seed count (made practical by the runner
+optimization, not a change to the task or config) is exactly what
+revealed that. The adapter arm, by contrast, is essentially unchanged and
+tightly consistent (`0.278/0.017` -> `0.278/0.018`) across both seed
+counts -- capacity pressure specifically destabilizes the memory
+mechanism's seed-to-seed reliability, not the comparison's overall
+methodology. Honest status unchanged: capacity pressure remains a
+genuine, disclosed weak point for HZ-0B memory, now with a more reliable
+variance estimate rather than a rounder one.
+
+Reproduce: `PYTHONPATH=. .venv/bin/python scripts/hz0b_b11_real_model_capacity_pressure.py --train-count 160 --held-out-count 80 --steps 1000 --lr 0.15 --num-seeds 10 --compile`

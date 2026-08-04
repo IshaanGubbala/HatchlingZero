@@ -99,7 +99,7 @@ def run_true_floor(model, held_out_hidden, held_out_idx) -> float:
     return float(mx.mean((predicted == targets).astype(mx.float32)))
 
 
-def run_equal_param_adapter(model, train_hidden, train_idx, held_out_hidden, held_out_idx, *, seed: int, steps: int, lr: float) -> float:
+def run_equal_param_adapter(model, train_hidden, train_idx, held_out_hidden, held_out_idx, *, seed: int, steps: int, lr: float, compile_step: bool = False) -> float:
     params = init_equal_param_adapter(D_MODEL, ADAPTER_HIDDEN, seed=seed)
     params_dict = {"w1": params.w1, "b1": params.b1, "w2": params.w2, "b2": params.b2}
     targets = targets_for(train_idx)
@@ -110,6 +110,16 @@ def run_equal_param_adapter(model, train_hidden, train_idx, held_out_hidden, hel
         return mx.mean(nn.losses.cross_entropy(logits[:, -1, :], targets))
 
     grad_fn = mx.value_and_grad(loss_fn)
+    # `train_hidden`/`targets` are closed-over CONSTANTS for this run (no
+    # persistent state like a model KV cache round-trips across steps), so
+    # compiling the pure params_dict -> (loss, grads) function needs no
+    # inputs=/outputs= state threading -- unlike hz0a_native_stage_runner.py's
+    # --compile-step, which does carry model.state across calls. Opt-in and
+    # off by default, matching that same script's own convention; verified
+    # bit-exact against the uncompiled path before being trusted (see
+    # docs/restart/hz0b_b11_capacity_pressure_runner_optimization_results.md).
+    if compile_step:
+        grad_fn = mx.compile(grad_fn)
     for step in range(steps):
         loss, grads = grad_fn(params_dict)
         mx.eval(loss)
@@ -124,7 +134,7 @@ def run_equal_param_adapter(model, train_hidden, train_idx, held_out_hidden, hel
     return float(mx.mean((predicted == targets_for(held_out_idx)).astype(mx.float32)))
 
 
-def run_hzb_memory(model, train_hidden, train_idx, held_out_hidden, held_out_idx, *, seed: int, steps: int, lr: float, target_write_rate: float = TARGET_WRITE_RATE, ste: bool = False, shared_key_query: bool = False, read_hops: int = 1, decay_rate: float = 1.0):
+def run_hzb_memory(model, train_hidden, train_idx, held_out_hidden, held_out_idx, *, seed: int, steps: int, lr: float, target_write_rate: float = TARGET_WRITE_RATE, ste: bool = False, shared_key_query: bool = False, read_hops: int = 1, decay_rate: float = 1.0, compile_step: bool = False):
     init_params = init_latent_write_controller(D_MODEL, KEY_DIM, VALUE_DIM, seed=seed)
     params_dict = latent_params_to_dict(init_params)
     targets = targets_for(train_idx)
@@ -138,6 +148,8 @@ def run_hzb_memory(model, train_hidden, train_idx, held_out_hidden, held_out_idx
         return task_loss + LAMBDA_SPARSE * sparsity_loss
 
     grad_fn = mx.value_and_grad(loss_fn)
+    if compile_step:
+        grad_fn = mx.compile(grad_fn)
     for step in range(steps):
         loss, grads = grad_fn(params_dict)
         mx.eval(loss)
@@ -167,6 +179,7 @@ def main():
     parser.add_argument("--shared-key-query", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--read-hops", type=int, choices=(1, 2), default=1)
     parser.add_argument("--decay-rate", type=float, choices=(0.95, 0.99, 1.0), default=1.0)
+    parser.add_argument("--compile", action="store_true", dest="compile_step", help="mx.compile the per-step grad_fn for both arms; off by default, verified against the uncompiled path in docs/restart/hz0b_b11_capacity_pressure_runner_optimization_results.md")
     args = parser.parse_args()
 
     print(f"num_facts_per_example={NUM_FACTS_PER_EXAMPLE} num_slots={NUM_SLOTS} (capacity pressure: facts > slots) PROMPT_LEN={PROMPT_LEN}")
@@ -190,7 +203,7 @@ def main():
     if not args.memory_only:
         print(f"\n2. Equal-parameter no-memory adapter ({args.num_seeds} seeds):", flush=True)
         for i in range(args.num_seeds):
-            acc = run_equal_param_adapter(model, train_hidden, train_idx, held_out_hidden, held_out_idx, seed=SEED + i, steps=args.steps, lr=args.lr)
+            acc = run_equal_param_adapter(model, train_hidden, train_idx, held_out_hidden, held_out_idx, seed=SEED + i, steps=args.steps, lr=args.lr, compile_step=args.compile_step)
             print(f"  seed {SEED + i}: {acc:.3f}", flush=True)
             adapter_accs.append(acc)
         adapter_mean = sum(adapter_accs) / len(adapter_accs)
@@ -207,7 +220,7 @@ def main():
     memory_accs = []
     last_correct = None
     for i in range(args.num_seeds):
-        acc, correct = run_hzb_memory(model, train_hidden, train_idx, held_out_hidden, held_out_idx, seed=SEED + i, steps=args.steps, lr=args.lr, target_write_rate=args.target_write_rate, ste=args.ste, shared_key_query=args.shared_key_query, read_hops=args.read_hops, decay_rate=args.decay_rate)
+        acc, correct = run_hzb_memory(model, train_hidden, train_idx, held_out_hidden, held_out_idx, seed=SEED + i, steps=args.steps, lr=args.lr, target_write_rate=args.target_write_rate, ste=args.ste, shared_key_query=args.shared_key_query, read_hops=args.read_hops, decay_rate=args.decay_rate, compile_step=args.compile_step)
         print(f"  seed {SEED + i}: {acc:.3f}", flush=True)
         memory_accs.append(acc)
         last_correct = correct

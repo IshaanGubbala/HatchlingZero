@@ -399,6 +399,16 @@ examples, `1000` steps, `lr=0.15`, and five seeds, memory reached **0.310 +/-
 raises the earlier near-null **0.255** result and clears four-way chance on
 average, but remains a partial fix because one seed is still at chance.
 
+Widened to 10 seeds (2026-08-04) after optimizing the runner (opt-in
+`mx.compile`, verified bit-exact, real ~2x speedup on the memory arm --
+`docs/restart/hz0b_b11_capacity_pressure_runner_optimization_results.md`):
+mean barely moved (**0.308**) but true variance nearly doubled (**std
+0.067**, range **0.200-0.412**, now dipping below the chance floor) --
+the 5-seed estimate understated real seed-to-seed instability. The
+adapter arm stayed essentially unchanged (**0.278 +/- 0.018**). See
+`docs/restart/hz0b_b11_real_model_capacity_pressure_results.md` for the
+full comparison.
+
 ### Multi-hop read-hop sweep (2026-08-03)
 
 The multi-hop evaluator now exposes `--read-hops` for controlled iterative
