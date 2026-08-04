@@ -10,6 +10,7 @@ import mlx.core as mx
 import mlx.nn as nn
 
 from reference.hz0b_b6_hz0a_integration import frozen_hidden_states, logits_from_hidden
+from reference.hz0b_b8_latent_write import init_latent_write_controller, sequential_latent_write_and_read
 from reference.hz0c_surprise_trigger import (
     fixed_periodic_trigger, full_attention_trigger, masked_anchor_attention,
     no_anchor_trigger, normalize_score, random_trigger, rate_bounded_threshold,
@@ -44,8 +45,14 @@ def exact_topk_labels(score: mx.array, rate: float) -> np.ndarray:
     return labels
 
 
-def conditional_forward(model, token_ids: mx.array, trigger: mx.array) -> mx.array:
-    """Replay HZ-0A with conditional attention at its six anchor layers."""
+def conditional_hidden(model, token_ids: mx.array, trigger: mx.array) -> mx.array:
+    """Replay HZ-0A with conditional attention at its six anchor layers,
+    stopping BEFORE `final_norm` -- the same injection point
+    `reference/hz0b_b6_hz0a_integration.py`/`hz0b_b8_latent_write.py`
+    already use for HZ-0B memory (backbone residual stream fully formed,
+    LM head not yet applied). Split out of the old inline
+    `conditional_forward` specifically so memory can be inserted here
+    without duplicating the anchor-attention loop."""
     x = model.embedding(token_ids)
     states = [None] * len(model.blocks)
     for index, (block, state) in enumerate(zip(model.blocks, states)):
@@ -62,7 +69,34 @@ def conditional_forward(model, token_ids: mx.array, trigger: mx.array) -> mx.arr
         x = x + anchor
         normed2 = block.norm2(x)
         x = x + block.down(nn.silu(block.gate(normed2)) * block.up(normed2))
-    return logits_from_hidden(model, x)
+    return x
+
+
+def conditional_forward(model, token_ids: mx.array, trigger: mx.array) -> mx.array:
+    """Replay HZ-0A with conditional attention at its six anchor layers.
+    Unchanged behavior from before the `conditional_hidden` split --
+    every existing caller of this function sees identical output."""
+    return logits_from_hidden(model, conditional_hidden(model, token_ids, trigger))
+
+
+def conditional_forward_with_memory(model, token_ids: mx.array, trigger: mx.array, latent_params, *, decay_rate: float = 1.0, ste: bool = False) -> tuple[mx.array, mx.array]:
+    """Wires HZ-0B's session-local write+read memory
+    (`reference/hz0b_b8_latent_write.py::sequential_latent_write_and_read`)
+    through the C6 trigger graph -- the open item the tracker names as
+    "HZ-0B memory has not yet been wired into the trigger graph". Memory
+    is inserted at the SAME point B6/B8 already use (after the
+    conditional-attention backbone's residual stream is fully formed,
+    before `final_norm`), so this is not a new integration convention,
+    just C6's own graph reusing the existing one. Every position gets a
+    real write+read pass (not B6's read-only oracle-populated bank),
+    matching what B8-B11 actually mean by "HZ-0B memory". Returns
+    `(logits, write_gates)` -- `write_gates`: [batch, seq], the same
+    per-position sparsity-relevant quantity B8's own callers inspect."""
+    hidden = conditional_hidden(model, token_ids, trigger)
+    hidden, _, write_gates = sequential_latent_write_and_read(
+        latent_params, hidden, decay_rate=decay_rate, ste=ste,
+    )
+    return logits_from_hidden(model, hidden), write_gates
 
 
 def frozen_hidden_and_demand(model, token_ids: mx.array) -> tuple[mx.array, mx.array]:
@@ -182,7 +216,7 @@ def causal_attention_benefit(model, tokens: mx.array, candidates: int = 32) -> n
     return benefits
 
 
-def main(seed: int = 555, causal_teacher_sequences: int = 0, controller_kind: str = "linear", distill_steps: int = 1200, distill_lr: float = 0.2, positive_weight: float = 4.0, train_seeds: list[int] | None = None, causal_teacher_candidates: int = 32, causal_teacher_blend: float = 1.0) -> None:
+def main(seed: int = 555, causal_teacher_sequences: int = 0, controller_kind: str = "linear", distill_steps: int = 1200, distill_lr: float = 0.2, positive_weight: float = 4.0, train_seeds: list[int] | None = None, causal_teacher_candidates: int = 32, causal_teacher_blend: float = 1.0, with_memory: bool = False, memory_seed: int = 17, memory_decay_rate: float = 1.0) -> None:
     model, _ = load_frozen_model()
     selected_train_seeds = train_seeds or [seed]
     train_hidden_parts, train_demand_parts, train_token_parts = [], [], []
@@ -257,12 +291,33 @@ def main(seed: int = 555, causal_teacher_sequences: int = 0, controller_kind: st
         "learned_controller": controller_trigger,
         "full_attention": full_attention_trigger(*tokens.shape),
     }
+    latent_params = None
+    if with_memory:
+        # Same key_dim/value_dim/num_slots convention already used by
+        # `scripts/hz0c_c6_chunked_memory_audit.py` and B8-B11's own
+        # protocol -- not a new choice, reusing the established default.
+        # Untrained, fixed-seed params: this pass is about verifying the
+        # trigger graph carries memory correctly and re-measuring matched-
+        # cost LM loss with memory PRESENT, not about training a write
+        # policy for general corpus text (a separate, larger undertaking
+        # with no established B11-style protocol for this corpus).
+        latent_params = init_latent_write_controller(model.dim, 32, 32, seed=memory_seed, write_gate_bias_init=-3.0)
     report = {}
     for name, trigger in policies.items():
         logits = conditional_forward(model, tokens, trigger)
         loss, ppl = loss_and_ppl(logits, tokens)
-        report[name] = {"loss": loss, "perplexity": ppl, "anchor_rate": float(mx.mean(trigger))}
-    print(json.dumps({"seed": seed, "train_seeds": selected_train_seeds, "attention_layers": len(ATTENTION_INDICES), "causal_teacher_sequences": causal_teacher_sequences, "controller_kind": controller_kind, "policies": report}, indent=2, sort_keys=True))
+        entry = {"loss": loss, "perplexity": ppl, "anchor_rate": float(mx.mean(trigger))}
+        if with_memory:
+            memory_logits, write_gates = conditional_forward_with_memory(
+                model, tokens, trigger, latent_params, decay_rate=memory_decay_rate,
+            )
+            memory_loss, memory_ppl = loss_and_ppl(memory_logits, tokens)
+            entry["memory_loss"] = memory_loss
+            entry["memory_perplexity"] = memory_ppl
+            entry["memory_loss_delta"] = memory_loss - loss
+            entry["mean_write_gate"] = float(mx.mean(write_gates))
+        report[name] = entry
+    print(json.dumps({"seed": seed, "train_seeds": selected_train_seeds, "attention_layers": len(ATTENTION_INDICES), "causal_teacher_sequences": causal_teacher_sequences, "controller_kind": controller_kind, "with_memory": with_memory, "memory_seed": memory_seed if with_memory else None, "memory_decay_rate": memory_decay_rate if with_memory else None, "policies": report}, indent=2, sort_keys=True))
 
 
 if __name__ == "__main__":
@@ -278,7 +333,12 @@ if __name__ == "__main__":
     parser.add_argument("--distill-lr", type=float, default=0.2)
     parser.add_argument("--positive-weight", type=float, default=4.0)
     parser.add_argument("--train-seeds", type=int, nargs="+", default=None)
+    parser.add_argument("--with-memory", action="store_true",
+                        help="Wire HZ-0B session-local write+read memory through the trigger graph and report matched-cost LM loss with memory present.")
+    parser.add_argument("--memory-seed", type=int, default=17)
+    parser.add_argument("--memory-decay-rate", type=float, default=1.0)
     args = parser.parse_args()
     main(args.seed, args.causal_teacher_sequences, args.controller,
          args.distill_steps, args.distill_lr, args.positive_weight,
-         args.train_seeds, args.causal_teacher_candidates, args.causal_teacher_blend)
+         args.train_seeds, args.causal_teacher_candidates, args.causal_teacher_blend,
+         args.with_memory, args.memory_seed, args.memory_decay_rate)
