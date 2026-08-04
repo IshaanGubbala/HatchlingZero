@@ -81,9 +81,57 @@ def attention_demand_features(model, token_ids: mx.array) -> np.ndarray:
     return np.asarray(demand, dtype=np.float32)
 
 
+def attention_pattern_features(model, token_ids: mx.array) -> np.ndarray:
+    """A genuinely different causal feature FAMILY from
+    `attention_demand_features` (2026-08-04, C9's "different feature
+    family, not more tuning" priority): `attention_demand_features` only
+    proxies Q/K/V MAGNITUDE (`mean(q*q)` etc.), which is direction-blind
+    -- it cannot tell "this position's query strongly matches one
+    specific past key" from "this position's query is large but diffuse
+    against everything." This instead runs the frozen backbone's OWN
+    real causal softmax attention at its 6 anchor layers (identical math
+    to `reference/hz0a_mlx_model.py::CausalAttention`) and reduces the
+    REALIZED per-position attention distribution to entropy (how spread
+    a position's own attention is over its causal history) and peak
+    weight (how much it leans on a single past position) -- a genuinely
+    content-aware, direction-sensitive signal. Fully causal-safe: only
+    each position's OWN attention row (over its own past) is used, never
+    a later position's attention back onto it (which would leak the
+    future). Mean/max/std reduced across heads then across the 6 layers,
+    per-sequence standardized like every other feature group here."""
+    x = model.embedding(token_ids)
+    batch, seq, dim = x.shape
+    entropies, peaks = [], []
+    for index, block in enumerate(model.blocks):
+        normed = block.norm1(x)
+        if index in ATTENTION_INDICES:
+            heads = model.heads
+            head_dim = dim // heads
+            qkv = normed @ block.mixer.qkv.weight.T + block.mixer.qkv.bias
+            q, k, _ = mx.split(qkv.reshape(batch, seq, 3, heads, head_dim), 3, axis=2)
+            q, k = (mx.squeeze(t, axis=2).transpose(0, 2, 1, 3) for t in (q, k))
+            scores = mx.matmul(q, k.transpose(0, 1, 3, 2)) / mx.sqrt(mx.array(head_dim, dtype=mx.float32))
+            causal_mask = mx.triu(mx.full((seq, seq), -1e9), 1)
+            weights = mx.softmax(scores + causal_mask[None, None], axis=-1)
+            entropy = -mx.sum(weights * mx.log(weights + 1e-8), axis=-1)
+            peak = mx.max(weights, axis=-1)
+            entropies.append(mx.mean(entropy, axis=1))
+            peaks.append(mx.mean(peak, axis=1))
+        x, _ = block(x, None)
+    entropy_stack = mx.stack(entropies, axis=0)
+    peak_stack = mx.stack(peaks, axis=0)
+
+    def reduce_stats(stack: mx.array) -> mx.array:
+        stats = mx.stack([mx.mean(stack, axis=0), mx.max(stack, axis=0), mx.std(stack, axis=0)], axis=-1)
+        return (stats - mx.mean(stats, axis=1, keepdims=True)) / (mx.std(stats, axis=1, keepdims=True) + 1e-5)
+
+    return np.asarray(mx.concatenate([reduce_stats(entropy_stack), reduce_stats(peak_stack)], axis=-1), dtype=np.float32)
+
+
 def controller_input(model, hidden: mx.array, token_ids: mx.array) -> np.ndarray:
     base = controller_features(hidden)
     demand = attention_demand_features(model, token_ids)
+    attention_pattern = attention_pattern_features(model, token_ids)
     # These are inference-time-safe confidence signals from the model's
     # current next-token distribution. They use only the prefix represented
     # by `hidden`, unlike token_loss_score, which consumes the future token.
@@ -116,7 +164,7 @@ def controller_input(model, hidden: mx.array, token_ids: mx.array) -> np.ndarray
     )
     return np.concatenate(
         [base, demand, uncertainty, interactions, novelty_uncertainty,
-         history_uncertainty], axis=-1
+         history_uncertainty, attention_pattern], axis=-1
     )
 
 
@@ -287,7 +335,7 @@ def main(seed: int = SEED, rl_steps: int = 200, rl_lr: float = 0.05,
         "causal_teacher_candidates": causal_teacher_candidates,
         "causal_teacher_blend": causal_teacher_blend,
         "backbone_frozen": True,
-        "controller_features": ["state_novelty", "hidden_delta", "state_norm", "relative_time", "causal_history", "polynomial_terms", "anchor_q_energy", "anchor_k_energy", "anchor_v_energy", "anchor_qkv_variance", "next_token_entropy", "next_token_confidence", "next_token_margin", "demand_uncertainty_interactions", "novelty_uncertainty_interactions", "history_uncertainty_interactions"],
+        "controller_features": ["state_novelty", "hidden_delta", "state_norm", "relative_time", "causal_history", "polynomial_terms", "anchor_q_energy", "anchor_k_energy", "anchor_v_energy", "anchor_qkv_variance", "next_token_entropy", "next_token_confidence", "next_token_margin", "demand_uncertainty_interactions", "novelty_uncertainty_interactions", "history_uncertainty_interactions", "realized_attention_entropy", "realized_attention_peak_weight"],
         "hard_rate_bounds": [MIN_RATE, MAX_RATE],
         "distillation_steps": distill_steps,
         "distillation_learning_rate": distill_lr,
