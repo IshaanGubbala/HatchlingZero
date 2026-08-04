@@ -1,0 +1,27 @@
+{
+  "protocol": {
+    "controller": "linear",
+    "causal_teacher_sequences": 8,
+    "causal_teacher_candidates": 4,
+    "causal_teacher_blend": 0.5,
+    "distill_steps": 300,
+    "positive_weight": 4.0,
+    "anchor_rate": 0.15,
+    "train_eval_disjoint": true
+  },
+  "splits": [
+    {"train_seeds": [556, 557], "eval_seed": 555, "fixed_loss": 2.5733764172, "hybrid_loss": 2.5558819771},
+    {"train_seeds": [555, 557], "eval_seed": 556, "fixed_loss": 2.4849240780, "hybrid_loss": 2.4771764278},
+    {"train_seeds": [555, 556], "eval_seed": 557, "fixed_loss": 2.4861376286, "hybrid_loss": 2.4711408615},
+    {"train_seeds": [555, 556, 557], "eval_seed": 558, "fixed_loss": 2.5116326809, "hybrid_loss": 2.5003039837},
+    {"train_seeds": [555, 556, 557], "eval_seed": 559, "fixed_loss": 2.4569311142, "hybrid_loss": 2.4458894730}
+  ],
+  "summary": {
+    "wins": 5,
+    "splits": 5,
+    "mean_improvement": 0.0125218391,
+    "finite": true,
+    "promoted": true,
+    "promotion_note": "Canonical safe aggregate completed: five finite held-out wins at exact 15% anchor rate."
+  }
+}

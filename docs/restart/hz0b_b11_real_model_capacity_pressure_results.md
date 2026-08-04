@@ -61,6 +61,36 @@ per-position breakdown. Honest status: inconclusive, not a positive
 or negative finding for the exit gate -- reported as such rather than
 rounded toward either direction.
 
+## Balanced data-scale rerun (2026-08-03)
+
+The same task was rerun with `train_count=160`, `held_out_count=80`,
+`steps=1000`, `lr=0.15`, and seeds `555-559`. The adapter and memory arms were
+run separately with identical data and optimizer budgets.
+
+| Configuration | Mean | Std | Range |
+| --- | ---: | ---: | ---: |
+| Equal-parameter adapter | 0.278 | 0.017 | 0.250-0.300 |
+| HZ-0B memory | **0.310** | 0.035 | 0.250-0.350 |
+
+Memory beats the matched adapter by **+0.032** and clears the four-way chance
+floor on average. This is a real data-scale improvement, not a claim that
+capacity pressure is solved: one seed remains at chance and the task still
+forces ten facts through eight slots.
+
 Remaining B11 scope: real-model versions of 2 more Stage 5 scenarios
 (contradictory info, near-identical keys) -- both currently tested
 only against the pure B2 simulator.
+
+## Write-rate calibration screen (2026-08-03)
+
+On seed 555 with the balanced 160/80 protocol, 1000 steps, and lr=0.15,
+target write rates `0.05`, `0.1`, `0.2`, and `0.3` produced memory accuracies
+`0.300`, `0.300`, `0.300`, and `0.287`. The validated `0.1` default remains;
+capacity pressure is not fixed by this write-budget adjustment.
+
+## Validated-mechanics transfer check (2026-08-03)
+
+Applying STE plus shared key/query with one read and no decay produced a small
+seed-555 bump (`0.312` versus `0.300`), but failed the three-seed check at
+`0.221 +/- 0.068`. The capacity-pressure task therefore retains its legacy
+configuration; the multi-hop mechanics are not a drop-in fix here.

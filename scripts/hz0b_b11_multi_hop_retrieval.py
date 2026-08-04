@@ -144,17 +144,17 @@ def run_equal_param_adapter(model, train_hidden, train_idx, held_out_hidden, hel
     return float(mx.mean((predicted == targets_for(held_out_idx)).astype(mx.float32)))
 
 
-def run_hzb_memory(model, train_hidden, train_idx, held_out_hidden, held_out_idx, *, seed: int, steps: int, lr: float, ste: bool = False) -> float:
+def run_hzb_memory(model, train_hidden, train_idx, held_out_hidden, held_out_idx, *, seed: int, steps: int, lr: float, ste: bool = False, decay_rate: float = DECAY_RATE, shared_key_query: bool = False, read_hops: int = 2, num_slots: int = NUM_SLOTS, target_write_rate: float = TARGET_WRITE_RATE) -> float:
     init_params = init_latent_write_controller(D_MODEL, KEY_DIM, VALUE_DIM, seed=seed)
     params_dict = latent_params_to_dict(init_params)
     targets = targets_for(train_idx)
 
     def loss_fn(pd: dict) -> mx.array:
         p = dict_to_latent_params(pd)
-        logits, _, gates, read_entropy = latent_forward_pass(model, precomputed_hidden=train_hidden, latent_params=p, num_slots=NUM_SLOTS, read_hops=2, ste=ste, decay_rate=DECAY_RATE, return_read_entropy=True)
+        logits, _, gates, read_entropy = latent_forward_pass(model, precomputed_hidden=train_hidden, latent_params=p, num_slots=num_slots, read_hops=read_hops, ste=ste, shared_key_query=shared_key_query, decay_rate=decay_rate, return_read_entropy=True)
         task_loss = mx.mean(nn.losses.cross_entropy(logits[:, -1, :], targets))
         write_rate = mx.mean(gates)
-        sparsity_loss = (write_rate - TARGET_WRITE_RATE) ** 2
+        sparsity_loss = (write_rate - target_write_rate) ** 2
         value = train_hidden @ p.value_proj_w + p.value_proj_b
         reconstructed = value @ p.write_controller.read_params.value_to_hidden_w + p.write_controller.read_params.value_to_hidden_b
         preserve_loss = mx.mean((reconstructed - train_hidden) ** 2) / (mx.mean(train_hidden ** 2) + 1e-6)
@@ -171,7 +171,7 @@ def run_hzb_memory(model, train_hidden, train_idx, held_out_hidden, held_out_idx
             print(f"    [memory seed={seed}] step {step:4d}  train loss {float(loss):.5f}")
 
     trained = dict_to_latent_params(params_dict)
-    logits, _, _ = latent_forward_pass(model, precomputed_hidden=held_out_hidden, latent_params=trained, num_slots=NUM_SLOTS, read_hops=2, ste=ste, decay_rate=DECAY_RATE)
+    logits, _, _ = latent_forward_pass(model, precomputed_hidden=held_out_hidden, latent_params=trained, num_slots=num_slots, read_hops=read_hops, ste=ste, shared_key_query=shared_key_query, decay_rate=decay_rate)
     predicted = mx.argmax(logits[:, -1, :], axis=-1)
     return float(mx.mean((predicted == targets_for(held_out_idx)).astype(mx.float32)))
 
@@ -181,9 +181,20 @@ def main():
     parser.add_argument("--steps", type=int, default=1000)
     parser.add_argument("--lr", type=float, default=0.15)
     parser.add_argument("--num-seeds", type=int, default=5)
+    parser.add_argument("--seed-start", type=int, default=SEED)
     parser.add_argument("--train-count", type=int, default=80)
     parser.add_argument("--held-out-count", type=int, default=80)
     parser.add_argument("--ste", action="store_true")
+    parser.add_argument("--decay-rate", type=float, default=DECAY_RATE)
+    parser.add_argument(
+        "--shared-key-query", action=argparse.BooleanOptionalAction, default=True,
+        help="use the learned key projection for both hops instead of composing a second query",
+    )
+    parser.add_argument("--read-hops", type=int, choices=(1, 2, 3), default=2,
+                        help="number of sequential memory reads per position")
+    parser.add_argument("--num-slots", type=int, choices=(8, 16, 32), default=NUM_SLOTS)
+    parser.add_argument("--target-write-rate", type=float, choices=(0.05, 0.1, 0.2, 0.3), default=0.2)
+    parser.add_argument("--memory-only", action="store_true", help="skip the matched adapter arm for bounded memory-only sweeps")
     args = parser.parse_args()
 
     print(f"num_pointers={NUM_POINTERS} num_values={NUM_VALUES} (chance={1/NUM_VALUES:.3f}) PROMPT_LEN={PROMPT_LEN}")
@@ -194,7 +205,7 @@ def main():
     rng = random.Random(SEED)
     train_tokens, train_idx = make_prompts(args.train_count, rng)
     held_out_tokens, held_out_idx = make_prompts(args.held_out_count, rng)
-    print(f"train_count={args.train_count} held_out_count={args.held_out_count} lambda_sparse={LAMBDA_SPARSE} target_write_rate={TARGET_WRITE_RATE}")
+    print(f"train_count={args.train_count} held_out_count={args.held_out_count} lambda_sparse={LAMBDA_SPARSE} target_write_rate={args.target_write_rate} decay_rate={args.decay_rate} shared_key_query={args.shared_key_query} read_hops={args.read_hops} num_slots={args.num_slots}")
 
     train_hidden, _ = frozen_hidden_states(model, train_tokens)
     held_out_hidden, _ = frozen_hidden_states(model, held_out_tokens)
@@ -203,21 +214,22 @@ def main():
     floor_acc = run_true_floor(model, held_out_hidden, held_out_idx)
     print(f"\n1. True floor (chance={1/NUM_VALUES:.3f}): {floor_acc:.3f}")
 
-    print(f"\n2. Equal-parameter no-memory adapter ({args.num_seeds} seeds):")
     adapter_accs = []
-    for i in range(args.num_seeds):
-        acc = run_equal_param_adapter(model, train_hidden, train_idx, held_out_hidden, held_out_idx, seed=SEED + i, steps=args.steps, lr=args.lr)
-        print(f"  seed {SEED + i}: {acc:.3f}")
-        adapter_accs.append(acc)
-    adapter_mean = sum(adapter_accs) / len(adapter_accs)
-    adapter_std = (sum((a - adapter_mean) ** 2 for a in adapter_accs) / len(adapter_accs)) ** 0.5
-    print(f"  mean: {adapter_mean:.3f}  std: {adapter_std:.3f}  range: {min(adapter_accs):.3f}-{max(adapter_accs):.3f}")
+    if not args.memory_only:
+        print(f"\n2. Equal-parameter no-memory adapter ({args.num_seeds} seeds):")
+        for i in range(args.num_seeds):
+            acc = run_equal_param_adapter(model, train_hidden, train_idx, held_out_hidden, held_out_idx, seed=args.seed_start + i, steps=args.steps, lr=args.lr)
+            print(f"  seed {args.seed_start + i}: {acc:.3f}")
+            adapter_accs.append(acc)
+        adapter_mean = sum(adapter_accs) / len(adapter_accs)
+        adapter_std = (sum((a - adapter_mean) ** 2 for a in adapter_accs) / len(adapter_accs)) ** 0.5
+        print(f"  mean: {adapter_mean:.3f}  std: {adapter_std:.3f}  range: {min(adapter_accs):.3f}-{max(adapter_accs):.3f}")
 
     print(f"\n3. HZ-0B real memory ({args.num_seeds} seeds):")
     memory_accs = []
     for i in range(args.num_seeds):
-        acc = run_hzb_memory(model, train_hidden, train_idx, held_out_hidden, held_out_idx, seed=SEED + i, steps=args.steps, lr=args.lr, ste=args.ste)
-        print(f"  seed {SEED + i}: {acc:.3f}")
+        acc = run_hzb_memory(model, train_hidden, train_idx, held_out_hidden, held_out_idx, seed=args.seed_start + i, steps=args.steps, lr=args.lr, ste=args.ste, decay_rate=args.decay_rate, shared_key_query=args.shared_key_query, read_hops=args.read_hops, num_slots=args.num_slots, target_write_rate=args.target_write_rate)
+        print(f"  seed {args.seed_start + i}: {acc:.3f}")
         memory_accs.append(acc)
     memory_mean = sum(memory_accs) / len(memory_accs)
     memory_std = (sum((a - memory_mean) ** 2 for a in memory_accs) / len(memory_accs)) ** 0.5
@@ -225,7 +237,8 @@ def main():
 
     print(f"\n--- Summary (multi-hop retrieval, {NUM_VALUES}-way, chance={1/NUM_VALUES:.3f}) ---")
     print(f"floor:  {floor_acc:.3f}")
-    print(f"adapter: mean {adapter_mean:.3f} std {adapter_std:.3f}")
+    if adapter_accs:
+        print(f"adapter: mean {adapter_mean:.3f} std {adapter_std:.3f}")
     print(f"memory:  mean {memory_mean:.3f} std {memory_std:.3f}")
 
 

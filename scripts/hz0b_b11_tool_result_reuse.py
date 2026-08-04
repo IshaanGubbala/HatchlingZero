@@ -134,7 +134,7 @@ def run_equal_param_adapter(model, train_hidden, train_is_greater, held_out_hidd
     return float(mx.mean((predicted == targets_for(held_out_is_greater)).astype(mx.float32)))
 
 
-def run_hzb_memory(model, train_hidden, train_is_greater, held_out_hidden, held_out_is_greater, *, seed: int, steps: int, lr: float, optimizer_name: str) -> float:
+def run_hzb_memory(model, train_hidden, train_is_greater, held_out_hidden, held_out_is_greater, *, seed: int, steps: int, lr: float, optimizer_name: str, read_hops: int, lambda_read_entropy: float, lambda_value_preserve: float, decay_rate: float) -> float:
     init_params = init_latent_write_controller(D_MODEL, KEY_DIM, VALUE_DIM, seed=seed)
     params_dict = latent_params_to_dict(init_params)
     targets = targets_for(train_is_greater)
@@ -142,14 +142,14 @@ def run_hzb_memory(model, train_hidden, train_is_greater, held_out_hidden, held_
 
     def loss_fn(pd: dict) -> mx.array:
         p = dict_to_latent_params(pd)
-        logits, _, gates, read_entropy = latent_forward_pass(model, precomputed_hidden=train_hidden, latent_params=p, num_slots=NUM_SLOTS, read_hops=1, return_read_entropy=True)
+        logits, _, gates, read_entropy = latent_forward_pass(model, precomputed_hidden=train_hidden, latent_params=p, num_slots=NUM_SLOTS, read_hops=read_hops, decay_rate=decay_rate, return_read_entropy=True)
         task_loss = mx.mean(nn.losses.cross_entropy(logits[:, -1, :], targets))
         write_rate = mx.mean(gates)
         sparsity_loss = (write_rate - TARGET_WRITE_RATE) ** 2
         value = train_hidden @ p.value_proj_w + p.value_proj_b
         reconstructed = value @ p.write_controller.read_params.value_to_hidden_w + p.write_controller.read_params.value_to_hidden_b
         preserve_loss = mx.mean((reconstructed - train_hidden) ** 2) / (mx.mean(train_hidden ** 2) + 1e-6)
-        return task_loss + LAMBDA_SPARSE * sparsity_loss + LAMBDA_READ_ENTROPY * mx.mean(read_entropy) + LAMBDA_VALUE_PRESERVE * preserve_loss
+        return task_loss + LAMBDA_SPARSE * sparsity_loss + lambda_read_entropy * mx.mean(read_entropy) + lambda_value_preserve * preserve_loss
 
     grad_fn = mx.value_and_grad(loss_fn)
     for step in range(steps):
@@ -161,7 +161,7 @@ def run_hzb_memory(model, train_hidden, train_is_greater, held_out_hidden, held_
             print(f"    [memory seed={seed}] step {step:4d}  train loss {float(loss):.5f}")
 
     trained = dict_to_latent_params(params_dict)
-    logits, _, _ = latent_forward_pass(model, precomputed_hidden=held_out_hidden, latent_params=trained, num_slots=NUM_SLOTS, read_hops=1)
+    logits, _, _ = latent_forward_pass(model, precomputed_hidden=held_out_hidden, latent_params=trained, num_slots=NUM_SLOTS, read_hops=read_hops, decay_rate=decay_rate)
     predicted = mx.argmax(logits[:, -1, :], axis=-1)
     return float(mx.mean((predicted == targets_for(held_out_is_greater)).astype(mx.float32)))
 
@@ -173,8 +173,14 @@ def main():
     parser.add_argument("--num-seeds", type=int, default=5)
     parser.add_argument("--seed-start", type=int, default=SEED)
     parser.add_argument("--optimizer", choices=("sgd", "adam"), default="sgd")
+    parser.add_argument("--read-hops", type=int, choices=(1, 2), default=1)
+    parser.add_argument("--lambda-read-entropy", type=float, default=LAMBDA_READ_ENTROPY)
+    parser.add_argument("--lambda-value-preserve", type=float, default=LAMBDA_VALUE_PRESERVE)
+    parser.add_argument("--decay-rate", type=float, default=1.0)
     parser.add_argument("--train-count", type=int, default=320, help="Balanced-scale training set; 80 examples under-cover result/threshold combinations")
     parser.add_argument("--held-out-count", type=int, default=80)
+    parser.add_argument("--memory-only", action="store_true", help="Skip the matched adapter arm for bounded memory-only screens")
+    parser.add_argument("--adapter-only", action="store_true", help="Skip the memory arm for a matched adapter-only run")
     args = parser.parse_args()
 
     print(f"num_levels={NUM_LEVELS} PROMPT_LEN={PROMPT_LEN}")
@@ -186,7 +192,7 @@ def main():
     train_tokens, train_is_greater = make_prompts(args.train_count, rng)
     held_out_tokens, held_out_is_greater = make_prompts(args.held_out_count, rng)
     base_rate = float(mx.mean(held_out_is_greater))
-    print(f"train_count={args.train_count} held_out_count={args.held_out_count} held_out_greater_rate={base_rate:.3f} lambda_sparse={LAMBDA_SPARSE} target_write_rate={TARGET_WRITE_RATE} optimizer={args.optimizer}")
+    print(f"train_count={args.train_count} held_out_count={args.held_out_count} held_out_greater_rate={base_rate:.3f} lambda_sparse={LAMBDA_SPARSE} lambda_read_entropy={args.lambda_read_entropy} lambda_value_preserve={args.lambda_value_preserve} read_hops={args.read_hops} decay_rate={args.decay_rate} target_write_rate={TARGET_WRITE_RATE} optimizer={args.optimizer}")
 
     train_hidden, _ = frozen_hidden_states(model, train_tokens)
     held_out_hidden, _ = frozen_hidden_states(model, held_out_tokens)
@@ -195,30 +201,38 @@ def main():
     floor_acc = run_true_floor(model, held_out_hidden, held_out_is_greater)
     print(f"\n1. True floor (majority-class baseline={max(base_rate, 1-base_rate):.3f}): {floor_acc:.3f}")
 
-    print(f"\n2. Equal-parameter no-memory adapter ({args.num_seeds} seeds):")
     adapter_accs = []
-    for i in range(args.num_seeds):
-        acc = run_equal_param_adapter(model, train_hidden, train_is_greater, held_out_hidden, held_out_is_greater, seed=args.seed_start + i, steps=args.steps, lr=args.lr, optimizer_name=args.optimizer)
-        print(f"  seed {args.seed_start + i}: {acc:.3f}")
-        adapter_accs.append(acc)
-    adapter_mean = sum(adapter_accs) / len(adapter_accs)
-    adapter_std = (sum((a - adapter_mean) ** 2 for a in adapter_accs) / len(adapter_accs)) ** 0.5
-    print(f"  mean: {adapter_mean:.3f}  std: {adapter_std:.3f}  range: {min(adapter_accs):.3f}-{max(adapter_accs):.3f}")
+    if not args.memory_only:
+        print(f"\n2. Equal-parameter no-memory adapter ({args.num_seeds} seeds):", flush=True)
+        for i in range(args.num_seeds):
+            acc = run_equal_param_adapter(model, train_hidden, train_is_greater, held_out_hidden, held_out_is_greater, seed=args.seed_start + i, steps=args.steps, lr=args.lr, optimizer_name=args.optimizer)
+            print(f"  seed {args.seed_start + i}: {acc:.3f}", flush=True)
+            adapter_accs.append(acc)
+        adapter_mean = sum(adapter_accs) / len(adapter_accs)
+        adapter_std = (sum((a - adapter_mean) ** 2 for a in adapter_accs) / len(adapter_accs)) ** 0.5
+        print(f"  mean: {adapter_mean:.3f}  std: {adapter_std:.3f}  range: {min(adapter_accs):.3f}-{max(adapter_accs):.3f}", flush=True)
 
-    print(f"\n3. HZ-0B real memory ({args.num_seeds} seeds):")
+    if args.adapter_only:
+        print("\n--- Summary (adapter-only) ---", flush=True)
+        print(f"floor:  {floor_acc:.3f}", flush=True)
+        print(f"adapter: mean {adapter_mean:.3f} std {adapter_std:.3f}", flush=True)
+        return
+
+    print(f"\n3. HZ-0B real memory ({args.num_seeds} seeds):", flush=True)
     memory_accs = []
     for i in range(args.num_seeds):
-        acc = run_hzb_memory(model, train_hidden, train_is_greater, held_out_hidden, held_out_is_greater, seed=args.seed_start + i, steps=args.steps, lr=args.lr, optimizer_name=args.optimizer)
-        print(f"  seed {args.seed_start + i}: {acc:.3f}")
+        acc = run_hzb_memory(model, train_hidden, train_is_greater, held_out_hidden, held_out_is_greater, seed=args.seed_start + i, steps=args.steps, lr=args.lr, optimizer_name=args.optimizer, read_hops=args.read_hops, lambda_read_entropy=args.lambda_read_entropy, lambda_value_preserve=args.lambda_value_preserve, decay_rate=args.decay_rate)
+        print(f"  seed {args.seed_start + i}: {acc:.3f}", flush=True)
         memory_accs.append(acc)
     memory_mean = sum(memory_accs) / len(memory_accs)
     memory_std = (sum((a - memory_mean) ** 2 for a in memory_accs) / len(memory_accs)) ** 0.5
-    print(f"  mean: {memory_mean:.3f}  std: {memory_std:.3f}  range: {min(memory_accs):.3f}-{max(memory_accs):.3f}")
+    print(f"  mean: {memory_mean:.3f}  std: {memory_std:.3f}  range: {min(memory_accs):.3f}-{max(memory_accs):.3f}", flush=True)
 
     print(f"\n--- Summary (tool-result reuse: stored result vs later threshold) ---")
-    print(f"floor:  {floor_acc:.3f}")
-    print(f"adapter: mean {adapter_mean:.3f} std {adapter_std:.3f}")
-    print(f"memory:  mean {memory_mean:.3f} std {memory_std:.3f}")
+    print(f"floor:  {floor_acc:.3f}", flush=True)
+    if adapter_accs:
+        print(f"adapter: mean {adapter_mean:.3f} std {adapter_std:.3f}", flush=True)
+    print(f"memory:  mean {memory_mean:.3f} std {memory_std:.3f}", flush=True)
 
 
 if __name__ == "__main__":

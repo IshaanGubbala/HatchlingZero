@@ -18,6 +18,143 @@ use metal::{Device, MTLResourceOptions, MTLSize};
 mod full_block;
 pub use full_block::{AdamWMoments, BlockParameters, BlockShape, ForwardCache, ForwardOutput, Gdn2FullBlockGpu};
 
+const CONDITIONAL_ATTENTION_SOURCE: &str = r#"
+#include <metal_stdlib>
+using namespace metal;
+
+struct AttentionShape { uint B; uint S; uint D; uint H; };
+
+kernel void conditional_anchor_attention(
+    device const float* x [[buffer(0)]],
+    device const float* qkv_w [[buffer(1)]],
+    device const float* qkv_b [[buffer(2)]],
+    device const float* out_w [[buffer(3)]],
+    device const float* out_b [[buffer(4)]],
+    device const float* trigger [[buffer(5)]],
+    device float* output [[buffer(6)]],
+    constant AttentionShape& shape [[buffer(7)]],
+    uint tid [[thread_position_in_grid]])
+{
+    uint D = shape.D;
+    uint token = tid / D;
+    uint row = tid % D;
+    uint tokens = shape.B * shape.S;
+    if (token >= tokens) return;
+    uint batch = token / shape.S;
+    uint t = token % shape.S;
+    float result = out_b[row];
+    if (trigger[token] > 0.0f) {
+        uint head_dim = D / shape.H;
+        for (uint h = 0; h < shape.H; ++h) {
+            uint offset = h * head_dim;
+            float max_score = -INFINITY;
+            for (uint s = 0; s <= t; ++s) {
+                uint source = batch * shape.S + s;
+                if (trigger[source] <= 0.0f) continue;
+                float score = 0.0f;
+                for (uint k = 0; k < head_dim; ++k) {
+                    float qv = qkv_b[offset + k];
+                    float kv = qkv_b[D + offset + k];
+                    for (uint c = 0; c < D; ++c) {
+                        qv += x[token * D + c] * qkv_w[(offset + k) * D + c];
+                        kv += x[source * D + c] * qkv_w[(D + offset + k) * D + c];
+                    }
+                    score += qv * kv;
+                }
+                max_score = max(max_score, score * rsqrt((float)head_dim));
+            }
+            if (!isfinite(max_score)) continue;
+            float denominator = 0.0f;
+            for (uint s = 0; s <= t; ++s) {
+                uint source = batch * shape.S + s;
+                if (trigger[source] <= 0.0f) continue;
+                float score = 0.0f;
+                for (uint k = 0; k < head_dim; ++k) {
+                    float qv = qkv_b[offset + k];
+                    float kv = qkv_b[D + offset + k];
+                    for (uint c = 0; c < D; ++c) {
+                        qv += x[token * D + c] * qkv_w[(offset + k) * D + c];
+                        kv += x[source * D + c] * qkv_w[(D + offset + k) * D + c];
+                    }
+                    score += qv * kv;
+                }
+                denominator += exp(score * rsqrt((float)head_dim) - max_score);
+            }
+            for (uint component = 0; component < head_dim; ++component) {
+                float attended = 0.0f;
+                for (uint s = 0; s <= t; ++s) {
+                    uint source = batch * shape.S + s;
+                    if (trigger[source] <= 0.0f) continue;
+                    float score = 0.0f;
+                    for (uint k = 0; k < head_dim; ++k) {
+                        float qv = qkv_b[offset + k];
+                        float kv = qkv_b[D + offset + k];
+                        for (uint c = 0; c < D; ++c) {
+                            qv += x[token * D + c] * qkv_w[(offset + k) * D + c];
+                            kv += x[source * D + c] * qkv_w[(D + offset + k) * D + c];
+                        }
+                        score += qv * kv;
+                    }
+                    float weight = exp(score * rsqrt((float)head_dim) - max_score) / denominator;
+                    float vv = qkv_b[2 * D + offset + component];
+                    for (uint c = 0; c < D; ++c)
+                        vv += x[source * D + c] * qkv_w[(2 * D + offset + component) * D + c];
+                    attended += weight * vv;
+                }
+                result += out_w[row * D + offset + component] * attended;
+            }
+        }
+    }
+    output[token * D + row] = result;
+}
+"#;
+
+#[repr(C)]
+struct AttentionShapeUniform { b: u32, s: u32, d: u32, h: u32 }
+
+pub struct MetalConditionalAnchorAttention {
+    device: Device,
+    pipeline: metal::ComputePipelineState,
+    queue: metal::CommandQueue,
+}
+
+impl MetalConditionalAnchorAttention {
+    pub fn new() -> Result<Self, String> {
+        let device = Device::system_default().ok_or("no Metal device available")?;
+        let library = device.new_library_with_source(CONDITIONAL_ATTENTION_SOURCE, &metal::CompileOptions::new())
+            .map_err(|e| format!("conditional attention shader compilation failed: {e}"))?;
+        let function = library.get_function("conditional_anchor_attention", None)
+            .map_err(|e| format!("could not find conditional attention function: {e}"))?;
+        let pipeline = device.new_compute_pipeline_state_with_function(&function)
+            .map_err(|e| format!("could not build conditional attention pipeline: {e}"))?;
+        let queue = device.new_command_queue();
+        Ok(Self { device, pipeline, queue })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn forward(&self, batch: usize, seq: usize, dim: usize, heads: usize, x: &[f32], qkv_weight: &[f32], qkv_bias: &[f32], out_weight: &[f32], out_bias: &[f32], trigger: &[f32]) -> Result<Vec<f32>, String> {
+        if heads == 0 || dim == 0 || dim % heads != 0 || x.len() != batch * seq * dim || trigger.len() != batch * seq {
+            return Err("conditional attention buffer shape mismatch".into());
+        }
+        let opts = MTLResourceOptions::StorageModeShared;
+        let input = |data: &[f32]| self.device.new_buffer_with_data(data.as_ptr() as *const std::ffi::c_void, (data.len() * std::mem::size_of::<f32>()) as u64, opts);
+        let bx = input(x); let bw = input(qkv_weight); let bb = input(qkv_bias);
+        let bow = input(out_weight); let bob = input(out_bias); let bt = input(trigger);
+        let n = batch * seq * dim;
+        let bo = self.device.new_buffer((n * std::mem::size_of::<f32>()) as u64, opts);
+        let shape = AttentionShapeUniform { b: batch as u32, s: seq as u32, d: dim as u32, h: heads as u32 };
+        let bs = self.device.new_buffer_with_data(&shape as *const AttentionShapeUniform as *const std::ffi::c_void, std::mem::size_of::<AttentionShapeUniform>() as u64, opts);
+        let command = self.queue.new_command_buffer();
+        let encoder = command.new_compute_command_encoder();
+        encoder.set_compute_pipeline_state(&self.pipeline);
+        for (i, buffer) in [&bx, &bw, &bb, &bow, &bob, &bt, &bo, &bs].into_iter().enumerate() { encoder.set_buffer(i as u64, Some(buffer), 0); }
+        let threads = (batch * seq * dim) as u64;
+        encoder.dispatch_threads(MTLSize::new(threads, 1, 1), MTLSize::new(threads.min(256).max(1), 1, 1));
+        encoder.end_encoding(); command.commit(); command.wait_until_completed();
+        Ok(unsafe { std::slice::from_raw_parts(bo.contents() as *const f32, n) }.to_vec())
+    }
+}
+
 const FORWARD_SOURCE: &str = r#"
 #include <metal_stdlib>
 using namespace metal;
@@ -530,6 +667,7 @@ pub fn compare_cpu_and_gpu(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use hz0a_pmetal_kernel::conditional_anchor_attention_f32;
 
     fn lcg_f32(state: &mut u64, scale: f32) -> f32 {
         *state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
@@ -587,6 +725,48 @@ mod tests {
             }
             Err(message) => panic!("Metal GPU test failed: {message}"),
         }
+    }
+
+    #[test]
+    fn conditional_attention_gpu_matches_cpu_reference() {
+        let batch = 1;
+        let seq = 4;
+        let dim = 4;
+        let heads = 2;
+        let mut state = 73u64;
+        let make = |n: usize, s: &mut u64| (0..n).map(|_| lcg_f32(s, 0.25)).collect::<Vec<f32>>();
+        let x = make(batch * seq * dim, &mut state);
+        let qkv_w = make(3 * dim * dim, &mut state);
+        let qkv_b = make(3 * dim, &mut state);
+        let out_w = make(dim * dim, &mut state);
+        let out_b = make(dim, &mut state);
+        let trigger = vec![1.0, 0.0, 1.0, 1.0];
+        let cpu = conditional_anchor_attention_f32(batch, seq, dim, heads, &x, &qkv_w, &qkv_b, &out_w, &out_b, &trigger).unwrap();
+        let gpu = MetalConditionalAnchorAttention::new().unwrap()
+            .forward(batch, seq, dim, heads, &x, &qkv_w, &qkv_b, &out_w, &out_b, &trigger).unwrap();
+        let max_diff = cpu.iter().zip(gpu.iter()).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max);
+        assert!(max_diff < 2e-3, "conditional attention diff too large: {max_diff}");
+    }
+
+    #[test]
+    fn conditional_attention_gpu_matches_cpu_for_batched_trigger_patterns() {
+        let batch = 2;
+        let seq = 5;
+        let dim = 8;
+        let heads = 4;
+        let mut state = 91u64;
+        let make = |n: usize, s: &mut u64| (0..n).map(|_| lcg_f32(s, 0.2)).collect::<Vec<f32>>();
+        let x = make(batch * seq * dim, &mut state);
+        let qkv_w = make(3 * dim * dim, &mut state);
+        let qkv_b = make(3 * dim, &mut state);
+        let out_w = make(dim * dim, &mut state);
+        let out_b = make(dim, &mut state);
+        let trigger = vec![1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0];
+        let cpu = conditional_anchor_attention_f32(batch, seq, dim, heads, &x, &qkv_w, &qkv_b, &out_w, &out_b, &trigger).unwrap();
+        let gpu = MetalConditionalAnchorAttention::new().unwrap()
+            .forward(batch, seq, dim, heads, &x, &qkv_w, &qkv_b, &out_w, &out_b, &trigger).unwrap();
+        let max_diff = cpu.iter().zip(gpu.iter()).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max);
+        assert!(max_diff < 2e-3, "batched conditional attention diff too large: {max_diff}");
     }
 
     #[test]

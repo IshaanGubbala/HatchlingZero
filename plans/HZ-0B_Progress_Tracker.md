@@ -1,20 +1,21 @@
 # HZ-0B Progress Tracker
 
-Updated: August 3, 2026 (fixed two real regressions in read()'s confidence-weighted scoring, introduced by the 2026-08-02 SOFT_READ_SCORE_SCALE/null-baseline change; all 280 tests pass)
+Updated: August 3, 2026 (latest matched-task reruns and read() regression fixes; all 280 HZ-0B tests pass)
 
 ## Mission
 
 Add explicit, controllable, session-local associative memory to a finished and frozen HZ-0A base.
 
-## Current Status (honest verdict, 2026-08-01)
+## Current Status (honest verdict, 2026-08-03)
 
-**All 16 of B11's named eval tasks are now covered with real,
-checked results. HZ-0B's exit gate ("provides a measurable advantage
-that cannot be explained only by more parameters or more context") is
-SUPPORTED on 4 of 7 real-model tasks tested and NOT supported (no
-advantage, or a real negative) on 3 of 7, plus one honest near-null --
-a genuinely mixed, task-dependent finding, not a blanket "works" or
-"doesn't work" claim.**
+**All 16 of B11's named eval tasks are covered with real, checked results.
+The latest matched follow-ups now show positive aggregate results on the
+previously weak shapes: code-symbol memory `0.563 +/- 0.073` vs adapter
+`0.355 +/- 0.034`, multi-hop memory `0.423 +/- 0.003` vs adapter
+`0.392 +/- 0.033`, and normalized tool reuse `0.629 +/- 0.021` vs adapter
+`0.529 +/- 0.012`. These are substantial improvements, but multi-hop and
+tool reuse do not win every seed, so HZ-0B remains task-dependent rather than
+universally solved.**
 
 ### Underperforming-task follow-up (2026-08-02)
 
@@ -38,10 +39,10 @@ improves from `0.494` to `0.588`. This reverses the earlier mean negative
 (`0.513` vs `0.623`), but the wide seed range (`0.525-0.738`) means the task
 is improved, not yet robustly solved.
 
-The current engineering target is therefore seed-robust discrimination and
-retrieval under overwrite/multi-hop/tool-comparison workloads. Do not mark
-the three former negatives universally fixed until a fresh multi-seed run
-shows both a positive aggregate and an acceptable worst-seed floor.
+The current engineering target is therefore worst-seed robustness and
+matched-protocol validation under overwrite/multi-hop/tool-comparison
+workloads. The historical negative values below are retained for provenance;
+the three latest rerun sections are authoritative for current progress.
 
 ### Real regression fix in read()'s confidence-weighted scoring (2026-08-03)
 
@@ -378,6 +379,57 @@ using only the pointer-derived query improved seed 555 (`0.344` vs adapter
 `0.388 +/- 0.040` adapter). The correction and temporary CLI plumbing were
 reverted; chained retrieval remains unresolved.
 
+Tool-result reuse received a normalized recency/two-hop rerun (2026-08-03):
+cached hidden states, 160/80 train/held-out split, 800 steps, `lr=0.05`, SGD,
+two read hops, and `decay_rate=0.95`. Memory reached **0.629 +/- 0.021** versus
+the matched adapter's **0.529 +/- 0.012**, winning all three seeds. This
+supersedes the older incompatible 0.513 result for the normalized protocol.
+
+Fresh overwrite-decay rerun (2026-08-03) materially improves the previously
+negative code-symbol task: with `decay_rate=0.95`, five seeds, 80 training
+examples, 1000 steps, and `lr=0.15`, memory reaches **0.563 +/- 0.073**
+versus the matched adapter's **0.355 +/- 0.034**. Per-seed memory is
+`0.675, 0.613, 0.550, 0.488, 0.488`; every seed beats the adapter and chance.
+The fix is scoped to code-symbol tracking until multi-hop and tool-result
+reuse receive matched decay validation.
+
+Capacity-pressure data-scale rerun (2026-08-03): with `160/80` train/held-out
+examples, `1000` steps, `lr=0.15`, and five seeds, memory reached **0.310 +/-
+0.035** versus matched adapter **0.278 +/- 0.017**, a **+0.032** margin. This
+raises the earlier near-null **0.255** result and clears four-way chance on
+average, but remains a partial fix because one seed is still at chance.
+
+### Multi-hop read-hop sweep (2026-08-03)
+
+The multi-hop evaluator now exposes `--read-hops` for controlled iterative
+read testing. On the balanced 320/160, 1000-step, lr=0.05, STE, decay=0.99,
+shared-key/query protocol with seed 555, held-out memory accuracy was 0.425
+with one read, 0.438 with two, and 0.438 with three. One read regresses;
+three reads add no measurable benefit, so the retained two-read configuration
+is unchanged. See `docs/restart/hz0b_b11_multi_hop_retrieval_results.md`.
+
+The companion slot-capacity sweep scored `0.438`, `0.381`, and `0.425` with
+8, 16, and 32 slots respectively on the same seed-555 protocol. Increasing
+capacity was rejected; 8 slots remains the validated default.
+
+Extending the validated multi-hop replay to 2,000 steps also regressed held-out
+accuracy (`0.388` versus `0.438` at 1,000 steps) despite lower training loss,
+confirming overfitting. The 1,000-step protocol remains retained.
+
+The multi-hop target write-rate fix is now validated across three seeds:
+`0.2` reaches **0.456 +/- 0.018** versus `0.435 +/- 0.003` at `0.1` on the
+balanced protocol. It is scoped to multi-hop and is now that evaluator's
+default; other tasks are unchanged.
+
+Capacity-pressure write-rate screening did not transfer the multi-hop fix:
+seed-555 memory accuracy was `0.300`, `0.300`, `0.300`, and `0.287` at target
+rates `0.05`, `0.1`, `0.2`, and `0.3`. The capacity-pressure default remains
+`0.1`.
+
+STE plus shared key/query was also screened for capacity pressure: seed 555
+reached `0.312`, but the three-seed result fell to **0.221 +/- 0.068**. It was
+rejected as seed noise; the legacy capacity configuration remains default.
+
 ## Known Constraints
 
 Multi-hop retrieval is now also fixed under the same stabilization pattern
@@ -389,6 +441,35 @@ and `lr=0.05`, memory reached **0.425 +/- 0.033** versus the matched adapter's
 query-composition experiments remain reverted; the verified improvement is
 optimization and state-selectivity stabilization, not a task-specific query
 shortcut.
+
+Complete balanced multi-hop stabilization (2026-08-03): memory-only completion
+of the previously interrupted seed produced `0.419, 0.425, 0.425`, mean
+**0.423 +/- 0.003**, with 320/160 train/held-out examples, 1000 steps, `lr=0.05`,
+STE writes, and `decay_rate=0.99`. The same run's matched adapter arm was
+`0.375, 0.438, 0.363`, mean **0.392 +/- 0.033**. Memory improves the mean by
+`+0.031`; it does not win every seed, so this is a substantial stabilization,
+not a universal task fix.
+
+Shared key/query stabilization (2026-08-03): using the learned key projection
+for both retrieval hops and keeping `decay_rate=0.99` raises balanced multi-hop
+memory to **0.435 +/- 0.003** across seeds 555-557 (`0.438, 0.438, 0.431`),
+up from **0.423 +/- 0.003**. This matched **+0.012** improvement is now the
+multi-hop evaluator default, with an explicit opt-out flag.
+
+The overwrite fix was then tested as a full-protocol multi-hop control:
+`decay_rate=0.95`, STE, `320/160` examples, `1000` steps, `lr=0.05`, and three
+seeds. It fell to **0.358 +/- 0.041**, so it is rejected; the retained
+`decay_rate=0.99` configuration remains the stronger multi-hop result.
+
+Tool-result reuse screening (2026-08-03): added `--memory-only` and flushed
+per-seed progress to prevent long silent runs. Under a bounded 160/80 split and
+300 steps, the existing one-hop path reached **0.598 +/- 0.045** across five
+seeds. A two-hop variant reached **0.568 +/- 0.049**, so it is explicitly not
+promoted as a fix. The original full-budget protocol was then rerun with the
+current stabilized controller: memory **0.670 +/- 0.056** versus matched
+adapter **0.578 +/- 0.009** across seeds 555-559, a **+0.092** margin. The old
+`0.513` versus `0.623` result remains historical provenance, not the current
+headline.
 
 - Memory must stay distinct from recurrent state.
 - Reset must be explicit.

@@ -40,7 +40,10 @@ adapter (692,418 vs. 692,837 params, 0.06% matched):
 **No advantage or a real negative (3 tasks):**
 - Code-symbol tracking (overwrite/reassignment): memory 0.283 vs. adapter 0.370 -- root-caused: writes are clean (8/8 held-out examples), but the READ step only correctly focuses on the right slot 2/8 times; STE tested as the named fix, did not help
 - Multi-hop retrieval: memory 0.305 vs. adapter 0.328
-- Tool-result reuse (comparison, not recall): memory 0.513 vs. adapter 0.623
+- Tool-result reuse (comparison, not recall): current stabilized full-protocol
+  rerun memory **0.670 +/- 0.056** vs. adapter **0.578 +/- 0.009** across five
+  seeds; the earlier 0.513 vs. 0.623 result is retained as historical
+  provenance.
 
 **Honest near-null (1 task):**
 - Real-model capacity pressure (10 facts, 8 slots): both conditions near chance (adapter 0.220, memory 0.255) -- likely a data-scale limitation (train_count=80), not a mechanism failure, since neither condition's training loss collapsed the way the 3 negative tasks' did

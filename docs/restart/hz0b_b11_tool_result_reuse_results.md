@@ -65,3 +65,37 @@ non-recall task shapes. Remaining scope: real-model versions of 3
 Stage 5 scenarios (contradictory info, near-identical keys, capacity
 pressure) -- currently only tested against the pure B2 simulator, not
 the real learned mechanism.
+
+## Normalized recency/two-hop rerun (2026-08-03)
+
+The task was rerun with cached frozen hidden states, `train_count=160`,
+`held_out_count=80`, `steps=800`, `lr=0.05`, SGD, two read hops, and
+`decay_rate=0.95`. The adapter and memory used the same three seeds (`555-557`)
+and matched parameter budgets.
+
+| Configuration | Mean | Std | Per-seed |
+| --- | ---: | ---: | --- |
+| Equal-parameter adapter | 0.529 | 0.012 | 0.512, 0.538, 0.538 |
+| HZ-0B memory | **0.629** | 0.021 | **0.637, 0.650, 0.600** |
+
+Memory wins every seed and improves the matched adapter by `+0.100`. This
+supersedes the older 0.513-vs-0.623 comparison for the normalized protocol;
+that result remains historical rather than being silently overwritten.
+
+## Fresh full-protocol stabilization (2026-08-03)
+
+The current controller was rerun on the original balanced `320/80` split with
+`1000` SGD steps, `lr=0.05`, one read hop, `target_write_rate=0.1`, and the
+same five seeds `555-559`. A separately run matched adapter arm used the same
+split, seeds, and optimizer budget.
+
+| Configuration | Mean | Std | Range |
+| --- | ---: | ---: | ---: |
+| Equal-parameter adapter | 0.578 | 0.009 | 0.562-0.588 |
+| HZ-0B memory | **0.670** | 0.056 | 0.588-0.738 |
+
+Memory beats the matched adapter by **+0.092** under the original full-budget
+protocol. The per-seed memory scores are `0.625, 0.713, 0.688, 0.588, 0.738`;
+the matched adapter scores are `0.562, 0.588, 0.575, 0.588, 0.575`. This
+replaces the old `0.513`/`0.623` headline for the current stabilized code,
+while retaining that earlier result above as historical provenance.

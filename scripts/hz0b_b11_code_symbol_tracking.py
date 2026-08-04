@@ -131,7 +131,7 @@ def run_equal_param_adapter(model, train_hidden, train_idx, held_out_hidden, hel
     return float(mx.mean((predicted == targets_for(held_out_idx)).astype(mx.float32)))
 
 
-def run_hzb_memory(model, train_hidden, train_idx, held_out_hidden, held_out_idx, *, seed: int, steps: int, lr: float, ste: bool = False) -> float:
+def run_hzb_memory(model, train_hidden, train_idx, held_out_hidden, held_out_idx, *, seed: int, steps: int, lr: float, ste: bool = False, decay_rate: float = DECAY_RATE) -> float:
     """`ste` (2026-08-01): hard/discrete write decisions via a straight-
     through estimator instead of the continuous blend -- tests whether
     this fixes the read-focus failure diagnosed in
@@ -146,7 +146,7 @@ def run_hzb_memory(model, train_hidden, train_idx, held_out_hidden, held_out_idx
 
     def loss_fn(pd: dict) -> mx.array:
         p = dict_to_latent_params(pd)
-        logits, _, gates, read_entropy = latent_forward_pass(model, precomputed_hidden=train_hidden, latent_params=p, num_slots=NUM_SLOTS, ste=ste, decay_rate=DECAY_RATE, return_read_entropy=True)
+        logits, _, gates, read_entropy = latent_forward_pass(model, precomputed_hidden=train_hidden, latent_params=p, num_slots=NUM_SLOTS, ste=ste, decay_rate=decay_rate, return_read_entropy=True)
         task_loss = mx.mean(nn.losses.cross_entropy(logits[:, -1, :], targets))
         write_rate = mx.mean(gates)
         sparsity_loss = (write_rate - TARGET_WRITE_RATE) ** 2
@@ -166,7 +166,7 @@ def run_hzb_memory(model, train_hidden, train_idx, held_out_hidden, held_out_idx
             print(f"    [memory seed={seed} ste={ste}] step {step:4d}  train loss {float(loss):.5f}")
 
     trained = dict_to_latent_params(params_dict)
-    logits, _, _ = latent_forward_pass(model, precomputed_hidden=held_out_hidden, latent_params=trained, num_slots=NUM_SLOTS, ste=ste, decay_rate=DECAY_RATE)
+    logits, _, _ = latent_forward_pass(model, precomputed_hidden=held_out_hidden, latent_params=trained, num_slots=NUM_SLOTS, ste=ste, decay_rate=decay_rate)
     predicted = mx.argmax(logits[:, -1, :], axis=-1)
     return float(mx.mean((predicted == targets_for(held_out_idx)).astype(mx.float32)))
 
@@ -179,6 +179,8 @@ def main():
     parser.add_argument("--train-count", type=int, default=80)
     parser.add_argument("--held-out-count", type=int, default=80)
     parser.add_argument("--ste", action="store_true", help="hard/discrete write decisions via STE -- tests the fix candidate named in the read-focus root-cause diagnosis")
+    parser.add_argument("--decay-rate", type=float, default=DECAY_RATE, help="per-position confidence decay; values below 1 favor recent writes on overwrite tasks")
+    parser.add_argument("--only-seed-offset", type=int, default=None, help="run one seed offset for bounded follow-up experiments")
     args = parser.parse_args()
 
     print(f"num_reassignments={NUM_REASSIGNMENTS} num_values={NUM_VALUES} (chance={1/NUM_VALUES:.3f}) adapter budget={param_count(D_MODEL, ADAPTER_HIDDEN)} memory budget=692,837")
@@ -188,7 +190,7 @@ def main():
     rng = random.Random(SEED)
     train_tokens, train_idx = make_prompts(args.train_count, rng)
     held_out_tokens, held_out_idx = make_prompts(args.held_out_count, rng)
-    print(f"train_count={args.train_count} held_out_count={args.held_out_count} lambda_sparse={LAMBDA_SPARSE} target_write_rate={TARGET_WRITE_RATE}")
+    print(f"train_count={args.train_count} held_out_count={args.held_out_count} lambda_sparse={LAMBDA_SPARSE} target_write_rate={TARGET_WRITE_RATE} decay_rate={args.decay_rate}")
 
     train_hidden, _ = frozen_hidden_states(model, train_tokens)
     held_out_hidden, _ = frozen_hidden_states(model, held_out_tokens)
@@ -198,8 +200,9 @@ def main():
     print(f"\n1. True floor (chance={1/NUM_VALUES:.3f}): {floor_acc:.3f}")
 
     print(f"\n2. Equal-parameter no-memory adapter ({args.num_seeds} seeds):")
+    seed_offsets = [args.only_seed_offset] if args.only_seed_offset is not None else list(range(args.num_seeds))
     adapter_accs = []
-    for i in range(args.num_seeds):
+    for i in seed_offsets:
         acc = run_equal_param_adapter(model, train_hidden, train_idx, held_out_hidden, held_out_idx, seed=SEED + i, steps=args.steps, lr=args.lr)
         print(f"  seed {SEED + i}: {acc:.3f}")
         adapter_accs.append(acc)
@@ -209,8 +212,8 @@ def main():
 
     print(f"\n3. HZ-0B real memory, lambda_sparse={LAMBDA_SPARSE}, target_write_rate={TARGET_WRITE_RATE}, ste={args.ste} ({args.num_seeds} seeds):")
     memory_accs = []
-    for i in range(args.num_seeds):
-        acc = run_hzb_memory(model, train_hidden, train_idx, held_out_hidden, held_out_idx, seed=SEED + i, steps=args.steps, lr=args.lr, ste=args.ste)
+    for i in seed_offsets:
+        acc = run_hzb_memory(model, train_hidden, train_idx, held_out_hidden, held_out_idx, seed=SEED + i, steps=args.steps, lr=args.lr, ste=args.ste, decay_rate=args.decay_rate)
         print(f"  seed {SEED + i}: {acc:.3f}")
         memory_accs.append(acc)
     memory_mean = sum(memory_accs) / len(memory_accs)

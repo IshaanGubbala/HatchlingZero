@@ -254,6 +254,238 @@ pub fn gdn2_backward_f32(
     Ok(result)
 }
 
+/// Correctness-first conditional causal attention reference for HZ-0C.
+/// Queries and keys are restricted to triggered positions; keys are also
+/// causal. The layout is row-major: qkv_weight is [3*dim, dim], out_weight is
+/// [dim, dim], and all sequence buffers are [batch, seq, dim].
+pub fn conditional_anchor_attention_f32(
+    batch: usize,
+    seq: usize,
+    dim: usize,
+    heads: usize,
+    x: &[f32],
+    qkv_weight: &[f32],
+    qkv_bias: &[f32],
+    out_weight: &[f32],
+    out_bias: &[f32],
+    trigger: &[f32],
+) -> Result<Vec<f32>, String> {
+    if heads == 0 || dim == 0 || dim % heads != 0 {
+        return Err("dim must be positive and divisible by heads".into());
+    }
+    let tokens = batch * seq;
+    if x.len() != tokens * dim || trigger.len() != tokens
+        || qkv_weight.len() != 3 * dim * dim || qkv_bias.len() != 3 * dim
+        || out_weight.len() != dim * dim || out_bias.len() != dim
+    {
+        return Err("conditional attention buffer shape mismatch".into());
+    }
+    let mut qkv = vec![0.0; tokens * 3 * dim];
+    for token in 0..tokens {
+        for row in 0..3 * dim {
+            let mut value = qkv_bias[row];
+            for col in 0..dim {
+                value += x[token * dim + col] * qkv_weight[row * dim + col];
+            }
+            qkv[token * 3 * dim + row] = value;
+        }
+    }
+    let mut attention = vec![0.0; tokens * dim];
+    let head_dim = dim / heads;
+    let scale = (head_dim as f32).sqrt().recip();
+    for b in 0..batch {
+        for t in 0..seq {
+            let token = b * seq + t;
+            if trigger[token] <= 0.0 {
+                continue;
+            }
+            for h in 0..heads {
+                let offset = h * head_dim;
+                let mut scores = vec![f32::NEG_INFINITY; t + 1];
+                for s in 0..=t {
+                    let source = b * seq + s;
+                    if trigger[source] <= 0.0 {
+                        continue;
+                    }
+                    let mut score = 0.0;
+                    for k in 0..head_dim {
+                        score += qkv[token * 3 * dim + offset + k]
+                            * qkv[source * 3 * dim + dim + offset + k];
+                    }
+                    scores[s] = score * scale;
+                }
+                let max_score = scores.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+                if !max_score.is_finite() {
+                    continue;
+                }
+                let mut denominator = 0.0;
+                for score in &mut scores {
+                    if score.is_finite() {
+                        *score = (*score - max_score).exp();
+                        denominator += *score;
+                    } else {
+                        *score = 0.0;
+                    }
+                }
+                for s in 0..=t {
+                    let weight = scores[s] / denominator;
+                    let source = b * seq + s;
+                    for k in 0..head_dim {
+                        attention[token * dim + offset + k] +=
+                            weight * qkv[source * 3 * dim + 2 * dim + offset + k];
+                    }
+                }
+            }
+        }
+    }
+    let mut output = vec![0.0; tokens * dim];
+    for token in 0..tokens {
+        for row in 0..dim {
+            let mut value = out_bias[row];
+            for col in 0..dim {
+                value += attention[token * dim + col] * out_weight[row * dim + col];
+            }
+            output[token * dim + row] = value;
+        }
+    }
+    Ok(output)
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ConditionalAttentionBackward {
+    pub grad_x: Vec<f32>,
+    pub grad_qkv_weight: Vec<f32>,
+    pub grad_qkv_bias: Vec<f32>,
+    pub grad_out_weight: Vec<f32>,
+    pub grad_out_bias: Vec<f32>,
+}
+
+/// Explicit backward reference for `conditional_anchor_attention_f32`.
+/// Trigger values are routing decisions and are intentionally treated as
+/// constants; all trainable projections receive gradients.
+#[allow(clippy::too_many_arguments)]
+pub fn conditional_anchor_attention_backward_f32(
+    batch: usize,
+    seq: usize,
+    dim: usize,
+    heads: usize,
+    x: &[f32],
+    qkv_weight: &[f32],
+    qkv_bias: &[f32],
+    out_weight: &[f32],
+    trigger: &[f32],
+    grad_output: &[f32],
+) -> Result<ConditionalAttentionBackward, String> {
+    if heads == 0 || dim == 0 || dim % heads != 0 {
+        return Err("dim must be positive and divisible by heads".into());
+    }
+    let tokens = batch * seq;
+    if x.len() != tokens * dim || trigger.len() != tokens || grad_output.len() != tokens * dim
+        || qkv_weight.len() != 3 * dim * dim || qkv_bias.len() != 3 * dim
+        || out_weight.len() != dim * dim
+    {
+        return Err("conditional attention backward buffer shape mismatch".into());
+    }
+    let mut qkv = vec![0.0; tokens * 3 * dim];
+    for token in 0..tokens {
+        for row in 0..3 * dim {
+            let mut value = qkv_bias[row];
+            for col in 0..dim { value += x[token * dim + col] * qkv_weight[row * dim + col]; }
+            qkv[token * 3 * dim + row] = value;
+        }
+    }
+    let mut grad_x = vec![0.0; tokens * dim];
+    let mut grad_qkv_weight = vec![0.0; 3 * dim * dim];
+    let mut grad_qkv_bias = vec![0.0; 3 * dim];
+    let mut grad_out_weight = vec![0.0; dim * dim];
+    let mut grad_out_bias = vec![0.0; dim];
+    let head_dim = dim / heads;
+    let scale = (head_dim as f32).sqrt().recip();
+
+    for token in 0..tokens {
+        for row in 0..dim {
+            grad_out_bias[row] += grad_output[token * dim + row];
+            for col in 0..dim {
+                grad_out_weight[row * dim + col] += grad_output[token * dim + row]
+                    * if trigger[token] > 0.0 { // attention is zero otherwise
+                        0.0
+                    } else { 0.0 };
+            }
+        }
+    }
+    for b in 0..batch {
+        for t in 0..seq {
+            let token = b * seq + t;
+            if trigger[token] <= 0.0 { continue; }
+            for h in 0..heads {
+                let offset = h * head_dim;
+                let mut scores = vec![0.0; t + 1];
+                let mut valid = vec![false; t + 1];
+                for s in 0..=t {
+                    let source = b * seq + s;
+                    if trigger[source] <= 0.0 { continue; }
+                    let mut score = 0.0;
+                    for k in 0..head_dim {
+                        score += qkv[token * 3 * dim + offset + k]
+                            * qkv[source * 3 * dim + dim + offset + k];
+                    }
+                    scores[s] = score * scale;
+                    valid[s] = true;
+                }
+                let max_score = scores.iter().enumerate().filter(|(s, _)| valid[*s])
+                    .map(|(_, score)| *score).fold(f32::NEG_INFINITY, f32::max);
+                if !max_score.is_finite() { continue; }
+                let mut denom = 0.0;
+                for s in 0..=t { if valid[s] { scores[s] = (scores[s] - max_score).exp(); denom += scores[s]; } }
+                for s in 0..=t { if valid[s] { scores[s] /= denom; } }
+
+                let mut grad_prob = vec![0.0; t + 1];
+                for row in 0..dim {
+                    let go = grad_output[token * dim + row];
+                    for col in 0..dim {
+                        grad_out_weight[row * dim + col] += go * (if col / head_dim == h {
+                            let component = col % head_dim;
+                            let mut v = 0.0;
+                            for s in 0..=t { if valid[s] { v += scores[s] * qkv[(b * seq + s) * 3 * dim + 2 * dim + h * head_dim + component]; } }
+                            v
+                        } else { 0.0 });
+                    }
+                }
+                for s in 0..=t { if valid[s] {
+                    let source = b * seq + s;
+                    for component in 0..head_dim {
+                        let col = offset + component;
+                        let mut upstream = 0.0;
+                        for row in 0..dim { upstream += grad_output[token * dim + row] * out_weight[row * dim + col]; }
+                        grad_prob[s] += upstream * qkv[source * 3 * dim + 2 * dim + col];
+                        let gv = scores[s] * upstream;
+                        grad_qkv_bias[2 * dim + col] += gv;
+                        for c in 0..dim { grad_qkv_weight[(2 * dim + col) * dim + c] += gv * x[source * dim + c]; grad_x[source * dim + c] += gv * qkv_weight[(2 * dim + col) * dim + c]; }
+                    }
+                }}
+                let mut dot = 0.0;
+                for s in 0..=t { if valid[s] { dot += grad_prob[s] * scores[s]; } }
+                for s in 0..=t { if valid[s] {
+                    let source = b * seq + s;
+                    let grad_score = scores[s] * (grad_prob[s] - dot) * scale;
+                    for k in 0..head_dim {
+                        let qrow = offset + k; let krow = dim + offset + k;
+                        let qv = qkv[token * 3 * dim + qrow]; let kv = qkv[source * 3 * dim + krow];
+                        grad_qkv_bias[qrow] += grad_score * kv; grad_qkv_bias[krow] += grad_score * qv;
+                        for c in 0..dim {
+                            grad_qkv_weight[qrow * dim + c] += grad_score * kv * x[token * dim + c];
+                            grad_qkv_weight[krow * dim + c] += grad_score * qv * x[source * dim + c];
+                            grad_x[token * dim + c] += grad_score * kv * qkv_weight[qrow * dim + c];
+                            grad_x[source * dim + c] += grad_score * qv * qkv_weight[krow * dim + c];
+                        }
+                    }
+                }}
+            }
+        }
+    }
+    Ok(ConditionalAttentionBackward { grad_x, grad_qkv_weight, grad_qkv_bias, grad_out_weight, grad_out_bias })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -332,5 +564,97 @@ mod tests {
         };
         let numeric = (objective(&positive) - objective(&negative)) / (2.0 * eps);
         assert!((analytic.grad_q[0] - numeric).abs() < 2e-3, "analytic={} numeric={}", analytic.grad_q[0], numeric);
+    }
+
+    #[test]
+    fn conditional_attention_zeroes_nontriggered_queries_and_future_keys() {
+        let dim = 2;
+        let x = vec![1.0, 0.0, 0.0, 1.0, 2.0, 1.0];
+        let qkv_weight = {
+            let mut w = vec![0.0; 3 * dim * dim];
+            for i in 0..dim {
+                w[i * dim + i] = 1.0;
+                w[(dim + i) * dim + i] = 1.0;
+                w[(2 * dim + i) * dim + i] = 1.0;
+            }
+            w
+        };
+        let bias = vec![0.0; 3 * dim];
+        let out_weight = vec![1.0, 0.0, 0.0, 1.0];
+        let out_bias = vec![0.0; dim];
+        let only_first = conditional_anchor_attention_f32(
+            1, 3, dim, 1, &x, &qkv_weight, &bias, &out_weight, &out_bias,
+            &[1.0, 0.0, 0.0],
+        ).unwrap();
+        assert_eq!(&only_first[2..], &[0.0, 0.0, 0.0, 0.0]);
+        let both = conditional_anchor_attention_f32(
+            1, 3, dim, 1, &x, &qkv_weight, &bias, &out_weight, &out_bias,
+            &[1.0, 0.0, 1.0],
+        ).unwrap();
+        assert!(both[4].is_finite() && both[5].is_finite());
+        assert_ne!(&both[4..], &[0.0, 0.0]);
+    }
+
+    #[test]
+    fn conditional_attention_matches_scalar_causal_reference_and_isolates_batches() {
+        // One-dimensional attention makes the expected softmax closed-form.
+        let x = vec![1.0, 2.0, 3.0, 10.0];
+        let qkv_weight = vec![1.0, 1.0, 1.0];
+        let qkv_bias = vec![0.0; 3];
+        let out_weight = vec![1.0];
+        let out_bias = vec![0.25];
+        let trigger = vec![1.0, 0.0, 1.0, 0.0];
+        let output = conditional_anchor_attention_f32(
+            2, 2, 1, 1, &x, &qkv_weight, &qkv_bias, &out_weight, &out_bias, &trigger,
+        ).unwrap();
+
+        // Batch 0 token 0 attends only to value 1; token 1 is not triggered.
+        assert!((output[0] - 1.25).abs() < 1e-6);
+        assert_eq!(output[1], 0.25);
+        // Batch 1 has its own causal prefix and cannot see batch 0.
+        assert!((output[2] - 3.25).abs() < 1e-6);
+        assert!((output[3] - 0.25).abs() < 1e-6);
+
+        assert!(conditional_anchor_attention_f32(
+            1, 1, 3, 2, &[1.0, 2.0, 3.0], &[0.0; 27], &[0.0; 9],
+            &[0.0; 9], &[0.0; 3], &[1.0],
+        ).is_err());
+    }
+
+    #[test]
+    fn conditional_attention_backward_matches_finite_difference() {
+        let (batch, seq, dim, heads) = (1, 3, 4, 2);
+        let mut x: Vec<f32> = (0..batch * seq * dim).map(|i| 0.03 + i as f32 * 0.02).collect();
+        let mut qkv_w: Vec<f32> = (0..3 * dim * dim).map(|i| -0.08 + i as f32 * 0.007).collect();
+        let mut qkv_b: Vec<f32> = (0..3 * dim).map(|i| -0.03 + i as f32 * 0.01).collect();
+        let mut out_w: Vec<f32> = (0..dim * dim).map(|i| 0.04 - i as f32 * 0.005).collect();
+        let mut out_b: Vec<f32> = (0..dim).map(|i| 0.01 * i as f32).collect();
+        let trigger = vec![1.0, 0.0, 1.0];
+        let grad_output: Vec<f32> = (0..batch * seq * dim).map(|i| 0.02 + i as f32 * 0.01).collect();
+        let loss = |x: &[f32], qw: &[f32], qb: &[f32], ow: &[f32], ob: &[f32]| {
+            let y = conditional_anchor_attention_f32(batch, seq, dim, heads, x, qw, qb, ow, ob, &trigger).unwrap();
+            y.iter().zip(&grad_output).map(|(a, b)| a * b).sum::<f32>()
+        };
+        let analytic = conditional_anchor_attention_backward_f32(batch, seq, dim, heads, &x, &qkv_w, &qkv_b, &out_w, &trigger, &grad_output).unwrap();
+        let eps = 1e-3;
+        macro_rules! check_family {
+            ($values:expr, $expected:expr, $which:expr, $plus:expr, $minus:expr) => {{
+                for i in 0..$values.len() {
+                    let original = $values[i];
+                    $values[i] = original + eps;
+                    let plus = $plus;
+                    $values[i] = original - eps;
+                    let minus = $minus;
+                    $values[i] = original;
+                    let numerical = (plus - minus) / (2.0 * eps);
+                    assert!((numerical - $expected[i]).abs() < 3e-3, "family {} index {i}: numerical {numerical} analytic {}", $which, $expected[i]);
+                }
+            }};
+        }
+        check_family!(x, analytic.grad_x, 0, loss(&x, &qkv_w, &qkv_b, &out_w, &out_b), loss(&x, &qkv_w, &qkv_b, &out_w, &out_b));
+        check_family!(qkv_w, analytic.grad_qkv_weight, 1, loss(&x, &qkv_w, &qkv_b, &out_w, &out_b), loss(&x, &qkv_w, &qkv_b, &out_w, &out_b));
+        check_family!(qkv_b, analytic.grad_qkv_bias, 2, loss(&x, &qkv_w, &qkv_b, &out_w, &out_b), loss(&x, &qkv_w, &qkv_b, &out_w, &out_b));
+        check_family!(out_w, analytic.grad_out_weight, 3, loss(&x, &qkv_w, &qkv_b, &out_w, &out_b), loss(&x, &qkv_w, &qkv_b, &out_w, &out_b));
+        check_family!(out_b, analytic.grad_out_bias, 4, loss(&x, &qkv_w, &qkv_b, &out_w, &out_b), loss(&x, &qkv_w, &qkv_b, &out_w, &out_b));
     }
 }

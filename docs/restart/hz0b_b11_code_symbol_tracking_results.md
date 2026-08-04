@@ -128,3 +128,20 @@ attempted this pass). Remaining scope: 3 more named tasks (multi-hop,
 long-conversation consistency, tool-result reuse), and real-model
 versions of 3 more Stage 5 scenarios (contradictory info,
 near-identical keys, capacity pressure).
+
+## Fresh overwrite-decay result (2026-08-03)
+
+The evaluator was rerun with confidence decay enabled at `decay_rate=0.95`
+(five seeds, `train_count=80`, `steps=1000`, `lr=0.15`, target write rate
+`0.1`, no STE). This directly tests stale-memory pressure without changing
+the task or labels.
+
+| Configuration | Mean | Std | Per-seed |
+| --- | ---: | ---: | --- |
+| Equal-parameter adapter | 0.355 | 0.034 | 0.400, 0.338, 0.300, 0.375, 0.363 |
+| HZ-0B memory, decay `0.95` | **0.563** | 0.073 | **0.675, 0.488, 0.613, 0.550, 0.488** |
+
+Every seed beats the adapter and the 0.25 four-way chance floor. The prior
+same-protocol memory result was `0.283 +/- 0.038`; this is a substantial
+overwrite-tracking improvement, not a claim that all B11 task shapes are
+solved. Reproduce with `PYTHONPATH=. .venv/bin/python scripts/hz0b_b11_code_symbol_tracking.py --steps 1000 --lr 0.15 --num-seeds 5 --decay-rate 0.95`.
