@@ -258,6 +258,27 @@ pub fn gdn2_backward_f32(
 /// Queries and keys are restricted to triggered positions; keys are also
 /// causal. The layout is row-major: qkv_weight is [3*dim, dim], out_weight is
 /// [dim, dim], and all sequence buffers are [batch, seq, dim].
+///
+/// **Contract: `trigger` values must be binary (exactly `0.0` or `1.0`).**
+/// This matches real deployed inference, where this project's own Hard
+/// Constraint ("Inference triggering must be deterministic and
+/// reproducible") means triggers are always discretized before this kernel
+/// would ever run -- and is what makes the sparse "skip non-triggered
+/// keys/queries entirely" optimization below valid at all. The Python
+/// training-time reference
+/// (`reference/hz0c_surprise_trigger.py::masked_anchor_attention`) instead
+/// additively masks with `(1 - trigger) * -1e9` before softmax so gradients
+/// can flow through a SOFT (sigmoid, non-STE) trigger during training --
+/// for a genuinely fractional trigger value, that produces a different
+/// (still heavily-suppressed, but not bit-identical) result than this
+/// kernel's hard skip. Checked empirically (2026-08-04): a fractional
+/// trigger in `tests/fixtures/conditional_attention_parity.json` diverged
+/// from the Python reference by ~0.018, well outside this test suite's
+/// normal `1e-3` tolerance. This is a real, understood, and deliberately
+/// out-of-scope difference (PMetal targets the hard-triggered inference
+/// path, not gradient-preserving soft-trigger training), not a bug -- do
+/// not call this kernel with a non-binary `trigger` and expect Python
+/// parity.
 pub fn conditional_anchor_attention_f32(
     batch: usize,
     seq: usize,
@@ -345,7 +366,20 @@ pub fn conditional_anchor_attention_f32(
             for col in 0..dim {
                 value += attention[token * dim + col] * out_weight[row * dim + col];
             }
-            output[token * dim + row] = value;
+            // Matches the Python reference's `return out * trigger[:, :, None]`
+            // (`reference/hz0c_surprise_trigger.py::masked_anchor_attention`)
+            // EXACTLY -- the whole output (including `out_bias`) is scaled by
+            // the CONTINUOUS trigger value, not gated as a binary on/off.
+            // `trigger` can be soft (sigmoid, non-STE) in the real
+            // `SurpriseTriggeredBlock` forward path, so a non-triggered
+            // (trigger<=0) position must produce EXACT zero (not `out_bias`),
+            // and a partially-triggered position (0<trigger<1) must scale
+            // proportionally, not act as if fully triggered. Caught by
+            // `restart/hz0a_pmetal/crates/hz0a-pmetal-kernel/tests/parity_with_python_reference.rs`
+            // (`scripts/hz0c_generate_pmetal_conditional_attention_fixture.py`):
+            // every prior Rust-only test used either `out_bias=0` or purely
+            // binary triggers, both of which mask this exact divergence.
+            output[token * dim + row] = value * trigger[token];
         }
     }
     Ok(output)
@@ -402,15 +436,23 @@ pub fn conditional_anchor_attention_backward_f32(
     let head_dim = dim / heads;
     let scale = (head_dim as f32).sqrt().recip();
 
+    // The forward pass's output is `trigger[token] * raw_output[token]`
+    // (`trigger` treated as a constant per this function's own docstring),
+    // so every downstream use of `grad_output[token]` in this function must
+    // first be scaled by `trigger[token]` -- computed once here rather than
+    // at each of the several use sites below. Fixes a real bug: the
+    // previous version used raw `grad_output` unconditionally, which was
+    // only ever exercised by tests using purely binary triggers (where
+    // `trigger[token]` is exactly 0 or 1, so the missing scale silently
+    // canceled out) -- caught by `tests/parity_with_python_reference.rs`
+    // once a genuinely nonzero `out_bias` and cross-language check existed.
+    let grad_output: Vec<f32> = grad_output.iter().enumerate()
+        .map(|(i, &g)| g * trigger[i / dim]).collect();
+    let grad_output = grad_output.as_slice();
+
     for token in 0..tokens {
         for row in 0..dim {
             grad_out_bias[row] += grad_output[token * dim + row];
-            for col in 0..dim {
-                grad_out_weight[row * dim + col] += grad_output[token * dim + row]
-                    * if trigger[token] > 0.0 { // attention is zero otherwise
-                        0.0
-                    } else { 0.0 };
-            }
         }
     }
     for b in 0..batch {
@@ -608,12 +650,20 @@ mod tests {
             2, 2, 1, 1, &x, &qkv_weight, &qkv_bias, &out_weight, &out_bias, &trigger,
         ).unwrap();
 
-        // Batch 0 token 0 attends only to value 1; token 1 is not triggered.
+        // Batch 0 token 0 attends only to value 1; token 1 is not triggered,
+        // so its output is EXACT zero -- matching the Python reference's
+        // `out * trigger[:, :, None]` (the whole output, including
+        // `out_bias`, is scaled by trigger; a non-triggered position does
+        // not leak `out_bias` through). Corrected 2026-08-04: this test
+        // previously asserted `0.25` (bare `out_bias`) here, a real bug
+        // this same test was silently encoding as "expected" until the
+        // cross-language fixture (`tests/parity_with_python_reference.rs`)
+        // caught the divergence against the actual Python reference.
         assert!((output[0] - 1.25).abs() < 1e-6);
-        assert_eq!(output[1], 0.25);
+        assert_eq!(output[1], 0.0);
         // Batch 1 has its own causal prefix and cannot see batch 0.
         assert!((output[2] - 3.25).abs() < 1e-6);
-        assert!((output[3] - 0.25).abs() < 1e-6);
+        assert_eq!(output[3], 0.0);
 
         assert!(conditional_anchor_attention_f32(
             1, 1, 3, 2, &[1.0, 2.0, 3.0], &[0.0; 27], &[0.0; 9],

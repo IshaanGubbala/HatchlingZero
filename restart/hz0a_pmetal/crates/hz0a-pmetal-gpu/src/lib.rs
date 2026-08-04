@@ -12,7 +12,7 @@
 //! Apple's Metal API; the CPU tensor crate stays dependency-minimal, this
 //! is a separate crate specifically for real device execution).
 
-use hz0a_pmetal_kernel::{gdn2_backward_f32, gdn2_forward_f32, Gdn2ForwardShape};
+use hz0a_pmetal_kernel::{conditional_anchor_attention_backward_f32, gdn2_backward_f32, gdn2_forward_f32, ConditionalAttentionBackward, Gdn2ForwardShape};
 use metal::{Device, MTLResourceOptions, MTLSize};
 
 mod full_block;
@@ -44,6 +44,12 @@ kernel void conditional_anchor_attention(
     uint t = token % shape.S;
     float result = out_b[row];
     if (trigger[token] > 0.0f) {
+        // Rest of `result`'s attention contribution accumulates here; the
+        // WHOLE result (including out_b) is scaled by the continuous
+        // trigger value below, matching the Python reference and the CPU
+        // kernel's own fix (see hz0a-pmetal-kernel's
+        // conditional_anchor_attention_f32 docstring/comment for why this
+        // must be a continuous scale, not a binary gate).
         uint head_dim = D / shape.H;
         for (uint h = 0; h < shape.H; ++h) {
             uint offset = h * head_dim;
@@ -105,7 +111,7 @@ kernel void conditional_anchor_attention(
             }
         }
     }
-    output[token * D + row] = result;
+    output[token * D + row] = result * trigger[token];
 }
 "#;
 
@@ -153,6 +159,246 @@ impl MetalConditionalAnchorAttention {
         encoder.end_encoding(); command.commit(); command.wait_until_completed();
         Ok(unsafe { std::slice::from_raw_parts(bo.contents() as *const f32, n) }.to_vec())
     }
+}
+
+// C8's "Metal backward dispatch" -- the previously-open item in
+// `docs/restart/hz0c_c8_pmetal_attention_results.md`. Ports
+// `conditional_anchor_attention_backward_f32` (the finite-difference-verified
+// CPU reference) to real Metal dispatch. Deliberately SINGLE-THREADED (one
+// grid thread, looping over batch/token/head internally) rather than
+// parallel-per-batch-with-atomics: the shared weight/bias gradient buffers
+// (grad_qkv_weight, grad_out_weight, etc.) are accumulated across every
+// token, so a parallel version needs float atomics (MSL support for
+// `device atomic<float>` fetch-add varies by GPU family/OS version) or a
+// per-thread-partial-buffer reduction pass -- both real, but explicitly
+// deferred to the SAME "grouped/cache-optimized dispatch" follow-up already
+// named as open for the forward kernel, not attempted here. This is
+// correctness-first, matching this project's own established discipline
+// (the CPU tensor crate was proven before any GPU dispatch was attempted at
+// all) -- a real, dispatched-on-device Metal kernel, not yet the optimized
+// one.
+const CONDITIONAL_ATTENTION_BACKWARD_SOURCE: &str = r#"
+#include <metal_stdlib>
+using namespace metal;
+
+struct AttentionBackwardShape { uint B; uint S; uint D; uint H; };
+
+static inline float qkv_dot(device const float* x, device const float* w, device const float* b, uint token, uint row, uint D) {
+    float value = b[row];
+    for (uint c = 0; c < D; ++c) value += x[token * D + c] * w[row * D + c];
+    return value;
+}
+
+kernel void conditional_anchor_attention_backward(
+    device const float* x [[buffer(0)]],
+    device const float* qkv_w [[buffer(1)]],
+    device const float* qkv_b [[buffer(2)]],
+    device const float* out_w [[buffer(3)]],
+    device const float* trigger [[buffer(4)]],
+    device const float* grad_output [[buffer(5)]],
+    device float* grad_x [[buffer(6)]],
+    device float* grad_qkv_weight [[buffer(7)]],
+    device float* grad_qkv_bias [[buffer(8)]],
+    device float* grad_out_weight [[buffer(9)]],
+    device float* grad_out_bias [[buffer(10)]],
+    constant AttentionBackwardShape& shape [[buffer(11)]],
+    uint tid [[thread_position_in_grid]])
+{
+    if (tid != 0) return;
+    uint B = shape.B, S = shape.S, D = shape.D, H = shape.H;
+    if (S > 128 || H == 0) return;
+    uint head_dim = D / H;
+    float scale = rsqrt((float)head_dim);
+
+    // The forward output is `trigger[token] * raw_output[token]` (trigger
+    // treated as a constant), so every use of grad_output below must be
+    // scaled by trigger[token] first -- matches the CPU kernel's own fix
+    // (hz0a-pmetal-kernel's conditional_anchor_attention_backward_f32).
+    // Accumulated first, for all tokens (out_bias contributes to every
+    // token's pre-trigger raw output).
+    for (uint b = 0; b < B; ++b) {
+        for (uint t = 0; t < S; ++t) {
+            uint token = b * S + t;
+            for (uint row = 0; row < D; ++row)
+                grad_out_bias[row] += grad_output[token * D + row] * trigger[token];
+        }
+    }
+
+    for (uint b = 0; b < B; ++b) {
+        for (uint t = 0; t < S; ++t) {
+            uint token = b * S + t;
+            if (trigger[token] <= 0.0f) continue;
+            for (uint h = 0; h < H; ++h) {
+                uint offset = h * head_dim;
+                thread float scores[128];
+                thread bool valid[128];
+                float max_score = -INFINITY;
+                for (uint s = 0; s <= t; ++s) {
+                    uint source = b * S + s;
+                    if (trigger[source] <= 0.0f) { valid[s] = false; continue; }
+                    valid[s] = true;
+                    float score = 0.0f;
+                    for (uint k = 0; k < head_dim; ++k) {
+                        float qv = qkv_dot(x, qkv_w, qkv_b, token, offset + k, D);
+                        float kv = qkv_dot(x, qkv_w, qkv_b, source, D + offset + k, D);
+                        score += qv * kv;
+                    }
+                    scores[s] = score * scale;
+                    max_score = max(max_score, scores[s]);
+                }
+                if (!isfinite(max_score)) continue;
+                float denom = 0.0f;
+                for (uint s = 0; s <= t; ++s) {
+                    if (!valid[s]) continue;
+                    scores[s] = exp(scores[s] - max_score);
+                    denom += scores[s];
+                }
+                for (uint s = 0; s <= t; ++s) if (valid[s]) scores[s] /= denom;
+
+                thread float attended[64];
+                for (uint component = 0; component < head_dim; ++component) {
+                    float v = 0.0f;
+                    for (uint s = 0; s <= t; ++s) {
+                        if (!valid[s]) continue;
+                        uint source = b * S + s;
+                        v += scores[s] * qkv_dot(x, qkv_w, qkv_b, source, 2 * D + offset + component, D);
+                    }
+                    attended[component] = v;
+                }
+                for (uint row = 0; row < D; ++row) {
+                    float go = grad_output[token * D + row] * trigger[token];
+                    for (uint component = 0; component < head_dim; ++component)
+                        grad_out_weight[row * D + offset + component] += go * attended[component];
+                }
+
+                thread float upstream[64];
+                for (uint component = 0; component < head_dim; ++component) {
+                    float u = 0.0f;
+                    for (uint row = 0; row < D; ++row)
+                        u += grad_output[token * D + row] * trigger[token] * out_w[row * D + offset + component];
+                    upstream[component] = u;
+                }
+
+                thread float grad_prob[128];
+                for (uint s = 0; s <= t; ++s) grad_prob[s] = 0.0f;
+                for (uint s = 0; s <= t; ++s) {
+                    if (!valid[s]) continue;
+                    uint source = b * S + s;
+                    float gp = 0.0f;
+                    for (uint component = 0; component < head_dim; ++component) {
+                        uint col = offset + component;
+                        float vv = qkv_dot(x, qkv_w, qkv_b, source, 2 * D + col, D);
+                        gp += upstream[component] * vv;
+                        float gv = scores[s] * upstream[component];
+                        grad_qkv_bias[2 * D + col] += gv;
+                        for (uint c = 0; c < D; ++c) {
+                            grad_qkv_weight[(2 * D + col) * D + c] += gv * x[source * D + c];
+                            grad_x[source * D + c] += gv * qkv_w[(2 * D + col) * D + c];
+                        }
+                    }
+                    grad_prob[s] = gp;
+                }
+
+                float dot = 0.0f;
+                for (uint s = 0; s <= t; ++s) if (valid[s]) dot += grad_prob[s] * scores[s];
+                for (uint s = 0; s <= t; ++s) {
+                    if (!valid[s]) continue;
+                    uint source = b * S + s;
+                    float grad_score = scores[s] * (grad_prob[s] - dot) * scale;
+                    for (uint k = 0; k < head_dim; ++k) {
+                        uint qrow = offset + k;
+                        uint krow = D + offset + k;
+                        float qv = qkv_dot(x, qkv_w, qkv_b, token, qrow, D);
+                        float kv = qkv_dot(x, qkv_w, qkv_b, source, krow, D);
+                        grad_qkv_bias[qrow] += grad_score * kv;
+                        grad_qkv_bias[krow] += grad_score * qv;
+                        for (uint c = 0; c < D; ++c) {
+                            grad_qkv_weight[qrow * D + c] += grad_score * kv * x[token * D + c];
+                            grad_qkv_weight[krow * D + c] += grad_score * qv * x[source * D + c];
+                            grad_x[token * D + c] += grad_score * kv * qkv_w[qrow * D + c];
+                            grad_x[source * D + c] += grad_score * qv * qkv_w[krow * D + c];
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+"#;
+
+pub struct MetalConditionalAnchorAttentionBackward {
+    device: Device,
+    pipeline: metal::ComputePipelineState,
+    queue: metal::CommandQueue,
+}
+
+impl MetalConditionalAnchorAttentionBackward {
+    pub fn new() -> Result<Self, String> {
+        let device = Device::system_default().ok_or("no Metal device available")?;
+        let library = device.new_library_with_source(CONDITIONAL_ATTENTION_BACKWARD_SOURCE, &metal::CompileOptions::new())
+            .map_err(|e| format!("conditional attention backward shader compilation failed: {e}"))?;
+        let function = library.get_function("conditional_anchor_attention_backward", None)
+            .map_err(|e| format!("could not find conditional attention backward function: {e}"))?;
+        let pipeline = device.new_compute_pipeline_state_with_function(&function)
+            .map_err(|e| format!("could not build conditional attention backward pipeline: {e}"))?;
+        let queue = device.new_command_queue();
+        Ok(Self { device, pipeline, queue })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn backward(&self, batch: usize, seq: usize, dim: usize, heads: usize, x: &[f32], qkv_weight: &[f32], qkv_bias: &[f32], out_weight: &[f32], trigger: &[f32], grad_output: &[f32]) -> Result<ConditionalAttentionBackward, String> {
+        if heads == 0 || dim == 0 || dim % heads != 0 || x.len() != batch * seq * dim || trigger.len() != batch * seq || grad_output.len() != batch * seq * dim {
+            return Err("conditional attention backward buffer shape mismatch".into());
+        }
+        let opts = MTLResourceOptions::StorageModeShared;
+        let input = |data: &[f32]| self.device.new_buffer_with_data(data.as_ptr() as *const std::ffi::c_void, (data.len() * std::mem::size_of::<f32>()) as u64, opts);
+        let bx = input(x); let bw = input(qkv_weight); let bb = input(qkv_bias);
+        let bow = input(out_weight); let bt = input(trigger); let bgo = input(grad_output);
+        let zeroed = |n: usize| input(&vec![0.0f32; n]);
+        let b_grad_x = zeroed(batch * seq * dim);
+        let b_grad_qkv_w = zeroed(3 * dim * dim);
+        let b_grad_qkv_b = zeroed(3 * dim);
+        let b_grad_out_w = zeroed(dim * dim);
+        let b_grad_out_b = zeroed(dim);
+        let shape = AttentionShapeUniform { b: batch as u32, s: seq as u32, d: dim as u32, h: heads as u32 };
+        let bs = self.device.new_buffer_with_data(&shape as *const AttentionShapeUniform as *const std::ffi::c_void, std::mem::size_of::<AttentionShapeUniform>() as u64, opts);
+        let command = self.queue.new_command_buffer();
+        let encoder = command.new_compute_command_encoder();
+        encoder.set_compute_pipeline_state(&self.pipeline);
+        for (i, buffer) in [&bx, &bw, &bb, &bow, &bt, &bgo, &b_grad_x, &b_grad_qkv_w, &b_grad_qkv_b, &b_grad_out_w, &b_grad_out_b, &bs].into_iter().enumerate() {
+            encoder.set_buffer(i as u64, Some(buffer), 0);
+        }
+        encoder.dispatch_threads(MTLSize::new(1, 1, 1), MTLSize::new(1, 1, 1));
+        encoder.end_encoding(); command.commit(); command.wait_until_completed();
+        let read = |buffer: &metal::Buffer, n: usize| unsafe { std::slice::from_raw_parts(buffer.contents() as *const f32, n) }.to_vec();
+        Ok(ConditionalAttentionBackward {
+            grad_x: read(&b_grad_x, batch * seq * dim),
+            grad_qkv_weight: read(&b_grad_qkv_w, 3 * dim * dim),
+            grad_qkv_bias: read(&b_grad_qkv_b, 3 * dim),
+            grad_out_weight: read(&b_grad_out_w, dim * dim),
+            grad_out_bias: read(&b_grad_out_b, dim),
+        })
+    }
+}
+
+/// CPU-vs-GPU parity for the conditional-attention backward, exposed for
+/// tests and callers, matching `compare_cpu_and_gpu`'s own pattern.
+#[allow(clippy::too_many_arguments)]
+pub fn compare_cpu_and_gpu_conditional_attention_backward(
+    batch: usize, seq: usize, dim: usize, heads: usize,
+    x: &[f32], qkv_weight: &[f32], qkv_bias: &[f32], out_weight: &[f32], trigger: &[f32], grad_output: &[f32],
+) -> Result<[f32; 5], String> {
+    let cpu = conditional_anchor_attention_backward_f32(batch, seq, dim, heads, x, qkv_weight, qkv_bias, out_weight, trigger, grad_output)?;
+    let gpu = MetalConditionalAnchorAttentionBackward::new()?
+        .backward(batch, seq, dim, heads, x, qkv_weight, qkv_bias, out_weight, trigger, grad_output)?;
+    let max_diff = |a: &[f32], b: &[f32]| -> f32 { a.iter().zip(b.iter()).map(|(x, y)| (x - y).abs()).fold(0.0f32, f32::max) };
+    Ok([
+        max_diff(&gpu.grad_x, &cpu.grad_x),
+        max_diff(&gpu.grad_qkv_weight, &cpu.grad_qkv_weight),
+        max_diff(&gpu.grad_qkv_bias, &cpu.grad_qkv_bias),
+        max_diff(&gpu.grad_out_weight, &cpu.grad_out_weight),
+        max_diff(&gpu.grad_out_bias, &cpu.grad_out_bias),
+    ])
 }
 
 const FORWARD_SOURCE: &str = r#"
@@ -795,6 +1041,58 @@ mod tests {
                 }
             }
             Err(message) => panic!("Metal GPU backward test failed: {message}"),
+        }
+    }
+
+    #[test]
+    fn conditional_attention_backward_gpu_matches_cpu_reference() {
+        let (batch, seq, dim, heads) = (1, 3, 4, 2);
+        let x: Vec<f32> = (0..batch * seq * dim).map(|i| 0.03 + i as f32 * 0.02).collect();
+        let qkv_w: Vec<f32> = (0..3 * dim * dim).map(|i| -0.08 + i as f32 * 0.007).collect();
+        let qkv_b: Vec<f32> = (0..3 * dim).map(|i| -0.03 + i as f32 * 0.01).collect();
+        let out_w: Vec<f32> = (0..dim * dim).map(|i| 0.04 - i as f32 * 0.005).collect();
+        let trigger = vec![1.0, 0.0, 1.0];
+        let grad_output: Vec<f32> = (0..batch * seq * dim).map(|i| 0.02 + i as f32 * 0.01).collect();
+
+        match compare_cpu_and_gpu_conditional_attention_backward(batch, seq, dim, heads, &x, &qkv_w, &qkv_b, &out_w, &trigger, &grad_output) {
+            Ok(diffs) => {
+                let names = ["grad_x", "grad_qkv_weight", "grad_qkv_bias", "grad_out_weight", "grad_out_bias"];
+                for (name, diff) in names.iter().zip(diffs.iter()) {
+                    assert!(*diff < 1e-3, "{name} diff too large: {diff}");
+                }
+            }
+            Err(message) => panic!("Metal conditional attention backward test failed: {message}"),
+        }
+    }
+
+    #[test]
+    fn conditional_attention_backward_gpu_matches_cpu_for_multi_batch_shared_weights() {
+        // Two batches share the SAME qkv/out weight buffers -- exercises the
+        // real cross-batch accumulation into grad_qkv_weight/grad_out_weight
+        // (the reason this kernel's Rust wrapper zero-inits and sums into
+        // shared output buffers rather than per-batch-disjoint ones).
+        let (batch, seq, dim, heads) = (2, 3, 4, 2);
+        let mut state = 11u64;
+        let lcg = |s: &mut u64, scale: f32| -> f32 {
+            *s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            (((*s >> 40) as f32 / (1u64 << 24) as f32) - 0.5) * 2.0 * scale
+        };
+        let make = |n: usize, s: &mut u64, scale: f32| (0..n).map(|_| lcg(s, scale)).collect::<Vec<f32>>();
+        let x = make(batch * seq * dim, &mut state, 0.3);
+        let qkv_w = make(3 * dim * dim, &mut state, 0.1);
+        let qkv_b = make(3 * dim, &mut state, 0.1);
+        let out_w = make(dim * dim, &mut state, 0.1);
+        let trigger = vec![1.0, 0.0, 1.0, 1.0, 1.0, 0.0];
+        let grad_output = make(batch * seq * dim, &mut state, 0.2);
+
+        match compare_cpu_and_gpu_conditional_attention_backward(batch, seq, dim, heads, &x, &qkv_w, &qkv_b, &out_w, &trigger, &grad_output) {
+            Ok(diffs) => {
+                let names = ["grad_x", "grad_qkv_weight", "grad_qkv_bias", "grad_out_weight", "grad_out_bias"];
+                for (name, diff) in names.iter().zip(diffs.iter()) {
+                    assert!(*diff < 1e-3, "{name} diff too large: {diff}");
+                }
+            }
+            Err(message) => panic!("Metal conditional attention backward multi-batch test failed: {message}"),
         }
     }
 

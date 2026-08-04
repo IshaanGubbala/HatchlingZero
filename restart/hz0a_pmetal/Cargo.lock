@@ -87,6 +87,9 @@ dependencies = [
 [[package]]
 name = "hz0a-pmetal-kernel"
 version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
 
 [[package]]
 name = "hz0a-pmetal-tensor"

@@ -7,3 +7,10 @@ authors.workspace = true
 
 [lib]
 path = "src/lib.rs"
+
+[dev-dependencies]
+# Test-only, does not affect the zero-dependency production crate (`#![forbid(unsafe_code)]`
+# above has no dependency-count constraint, but the crate's own established
+# convention -- see hz0a-pmetal-tensor's identical dev-dependency -- is
+# "no runtime deps"): parses the Python-generated cross-language parity fixture.
+serde_json = "1"
