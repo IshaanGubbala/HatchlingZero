@@ -7,6 +7,7 @@ authors.workspace = true
 
 [dependencies]
 hz0a-pmetal-kernel = { path = "../hz0a-pmetal-kernel" }
+hz0a-pmetal-gpu = { path = "../hz0a-pmetal-gpu" }
 
 [lib]
 path = "src/lib.rs"

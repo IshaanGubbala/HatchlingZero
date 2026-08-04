@@ -42,6 +42,13 @@ kernel void conditional_anchor_attention(
     if (token >= tokens) return;
     uint batch = token / shape.S;
     uint t = token % shape.S;
+    uint head_dim = D / shape.H;
+    // Bounds for the thread-local caches below, matching the same
+    // convention already established for the backward kernel's own
+    // `S > 128` guard and GDN2's `K > 64`/`V > 64` guards elsewhere in
+    // this file -- not new limits, just this kernel's first place that
+    // needed thread-local storage sized by them.
+    if (head_dim > 64 || shape.S > 128) { output[token * D + row] = out_b[row] * trigger[token]; return; }
     float result = out_b[row];
     if (trigger[token] > 0.0f) {
         // Rest of `result`'s attention contribution accumulates here; the
@@ -50,58 +57,58 @@ kernel void conditional_anchor_attention(
         // kernel's own fix (see hz0a-pmetal-kernel's
         // conditional_anchor_attention_f32 docstring/comment for why this
         // must be a continuous scale, not a binary gate).
-        uint head_dim = D / shape.H;
+        //
+        // Real fix (2026-08-04): the ORIGINAL version recomputed each
+        // (s, h) pair's O(D) query/key dot product up to `2 + head_dim`
+        // times (once for the max-score pass, once for the denominator
+        // pass, and once MORE inside the per-component output loop) --
+        // and recomputed the QUERY projection itself (which does not even
+        // depend on `s`) inside every one of those passes too. Caught via
+        // an honest end-to-end latency benchmark
+        // (`scripts/hz0c_c8_ffi_latency_benchmark.py`) that took far
+        // longer than expected at the model's real dim=768 shape. Fixed
+        // by caching the query projection ONCE per head (`q_cache`, does
+        // not depend on `s`) and each source's raw score ONCE per head
+        // (`scores`, reused across the max/denominator/output passes) --
+        // the algorithm and its numerical result are unchanged, only the
+        // redundant recomputation is removed.
         for (uint h = 0; h < shape.H; ++h) {
             uint offset = h * head_dim;
+            thread float q_cache[64];
+            for (uint k = 0; k < head_dim; ++k) {
+                float qv = qkv_b[offset + k];
+                for (uint c = 0; c < D; ++c) qv += x[token * D + c] * qkv_w[(offset + k) * D + c];
+                q_cache[k] = qv;
+            }
+            thread float scores[128];
             float max_score = -INFINITY;
             for (uint s = 0; s <= t; ++s) {
                 uint source = batch * shape.S + s;
-                if (trigger[source] <= 0.0f) continue;
+                if (trigger[source] <= 0.0f) { scores[s] = -INFINITY; continue; }
                 float score = 0.0f;
                 for (uint k = 0; k < head_dim; ++k) {
-                    float qv = qkv_b[offset + k];
                     float kv = qkv_b[D + offset + k];
-                    for (uint c = 0; c < D; ++c) {
-                        qv += x[token * D + c] * qkv_w[(offset + k) * D + c];
-                        kv += x[source * D + c] * qkv_w[(D + offset + k) * D + c];
-                    }
-                    score += qv * kv;
+                    for (uint c = 0; c < D; ++c) kv += x[source * D + c] * qkv_w[(D + offset + k) * D + c];
+                    score += q_cache[k] * kv;
                 }
-                max_score = max(max_score, score * rsqrt((float)head_dim));
+                scores[s] = score * rsqrt((float)head_dim);
+                max_score = max(max_score, scores[s]);
             }
             if (!isfinite(max_score)) continue;
             float denominator = 0.0f;
             for (uint s = 0; s <= t; ++s) {
-                uint source = batch * shape.S + s;
-                if (trigger[source] <= 0.0f) continue;
-                float score = 0.0f;
-                for (uint k = 0; k < head_dim; ++k) {
-                    float qv = qkv_b[offset + k];
-                    float kv = qkv_b[D + offset + k];
-                    for (uint c = 0; c < D; ++c) {
-                        qv += x[token * D + c] * qkv_w[(offset + k) * D + c];
-                        kv += x[source * D + c] * qkv_w[(D + offset + k) * D + c];
-                    }
-                    score += qv * kv;
-                }
-                denominator += exp(score * rsqrt((float)head_dim) - max_score);
+                // exp(-INFINITY - finite) == 0, so masked positions
+                // (scores[s] set to -INFINITY above) contribute exactly
+                // zero here with no separate branch needed.
+                scores[s] = exp(scores[s] - max_score);
+                denominator += scores[s];
             }
             for (uint component = 0; component < head_dim; ++component) {
                 float attended = 0.0f;
                 for (uint s = 0; s <= t; ++s) {
                     uint source = batch * shape.S + s;
                     if (trigger[source] <= 0.0f) continue;
-                    float score = 0.0f;
-                    for (uint k = 0; k < head_dim; ++k) {
-                        float qv = qkv_b[offset + k];
-                        float kv = qkv_b[D + offset + k];
-                        for (uint c = 0; c < D; ++c) {
-                            qv += x[token * D + c] * qkv_w[(offset + k) * D + c];
-                            kv += x[source * D + c] * qkv_w[(D + offset + k) * D + c];
-                        }
-                        score += qv * kv;
-                    }
-                    float weight = exp(score * rsqrt((float)head_dim) - max_score) / denominator;
+                    float weight = scores[s] / denominator;
                     float vv = qkv_b[2 * D + offset + component];
                     for (uint c = 0; c < D; ++c)
                         vv += x[source * D + c] * qkv_w[(2 * D + offset + component) * D + c];

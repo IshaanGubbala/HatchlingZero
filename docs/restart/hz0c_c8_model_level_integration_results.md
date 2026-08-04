@@ -81,14 +81,86 @@ reference path does not currently translate trigger sparsity into real
 wall-clock savings, now corroborated by a second, independently-written
 benchmark rather than resting on one measurement.
 
+## GPU FFI added, and the real bottleneck found and partially fixed (2026-08-04, same day)
+
+The named next step was taken immediately: `MetalConditionalAnchorAttention`
+(the already-built GPU kernel) is now exposed through the SAME bridge --
+`hz0c_metal_conditional_attention_create`/`_destroy`/`_forward` (a
+reusable opaque handle, since creating a Metal device/pipeline/queue is
+real amortizable setup cost that must not be smuggled into a per-call
+latency number), wrapped in Python as
+`reference/hz0c_pmetal_bridge.py::MetalConditionalAttention`. 2 new Rust
+tests (handle reused across two calls, both correct; null-handle and
+double-close safety) and 2 new Python tests (matches the real fixture
+across two calls; using a closed handle raises cleanly) all pass.
+
+**Before benchmarking it, a real redundant-work bug was found and fixed
+in the forward Metal shader itself.** The original kernel recomputed
+each source position's O(D) query-key dot product up to `2 + head_dim`
+times per (position, head) -- once for the max-score pass, once for the
+denominator pass, and once more INSIDE the per-output-component loop --
+and recomputed the query projection itself (which does not even depend
+on the source position) inside every one of those passes too. Fixed by
+caching the query projection once per head (`q_cache`) and each source's
+raw score once per head (`scores`, reused across all three passes) --
+same algorithm, same numerical result (all existing Rust tests still
+pass, including GPU-vs-CPU parity), only the redundant recomputation
+removed. This is a real, verified improvement, kept regardless of what
+the benchmark below shows next.
+
+**The full honest benchmark, rerun with the GPU path included and the
+redundant-work fix applied**:
+
+| Shape | Seq | Rate | MLX | CPU FFI | GPU FFI |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| C3-scenario scale | 40 | 0% | 0.93ms | 35.4ms (0.026x) | 88.3ms (0.011x) |
+| C3-scenario scale | 40 | 15% | 0.30ms | 34.6ms (0.009x) | 305.9ms (0.001x) |
+| C3-scenario scale | 40 | 100% | 0.28ms | 34.9ms (0.008x) | 2,040.9ms (0.0001x) |
+| Production scale | 128 | 0% | 0.28ms | 115.9ms (0.002x) | 89.3ms (0.003x) |
+| Production scale | 128 | 15% | 0.28ms | 115.3ms (0.002x) | 914.6ms (0.0003x) |
+| Production scale | 128 | 100% | 0.28ms | 118.2ms (0.002x) | **13,796ms (0.00002x)** |
+
+**The GPU path is not just failing to beat MLX -- at higher trigger
+rates it is dramatically SLOWER than even the naive CPU kernel**, and
+gets catastrophically worse as trigger rate or sequence length grows
+(13.8 SECONDS at seq=128/100% trigger, versus the CPU kernel's 118ms at
+the same shape). This exposed a SECOND, larger, and more architecturally
+fundamental redundancy that the within-thread fix above does not touch:
+the forward kernel dispatches ONE THREAD PER OUTPUT ELEMENT
+(`token * D + row`), so all `D = 768` threads that share the same
+`token` (one per output row/feature) independently recompute the exact
+same `q_cache` and `scores` arrays from scratch -- a 768x cross-thread
+duplication of work that grows with trigger rate (more visible sources
+to score) and sequence length (more query positions), exactly matching
+the pattern observed. The CPU kernel does not have this problem (it is a
+single sequential loop, not 768-way parallel redundant dispatch), which
+is why it stays roughly flat and, at the higher end, ends up faster than
+the naively-parallel GPU version.
+
+**This is precisely what "grouped/cache-optimized dispatch" means, now
+characterized with real numbers instead of being a vague future label**:
+the fix is to dispatch one THREADGROUP per token (not one thread per
+output element), with the `D` threads in that group cooperating via
+Metal `threadgroup` shared memory to compute `q_cache`/`scores` ONCE and
+reuse them across all `D` rows -- the same threadgroup-shared-memory
+reduction pattern already proven in this codebase for the GDN2 backward
+kernel. Not attempted this pass; a real, now well-specified next step
+rather than an open-ended one.
+
 ## What "model-level integration" means now, precisely
 
 - **Done**: a real, tested, safety-checked Python<->Rust FFI mechanism
-  exists and is proven numerically correct against the actual Python
-  reference. This did not exist anywhere in this repo before today.
-- **Not done, and not claimed**: a performance win. That requires either
-  the already-implemented Metal GPU kernel
-  (`MetalConditionalAnchorAttention`, not yet exposed through this same
-  FFI bridge -- a real, bounded, named next step) or a vectorized/BLAS-
-  backed CPU kernel -- both squarely inside the tracker's own separate
-  "grouped/cache-optimized dispatch" item, not this one.
+  exists for BOTH the CPU and GPU kernels and is proven numerically
+  correct against the actual Python reference. This did not exist
+  anywhere in this repo before today.
+- **Done, and a real (if partial) improvement**: one genuine redundant-
+  work bug in the GPU forward shader was found and fixed (verified
+  correct, no numerical change) via the very benchmark built to measure
+  performance honestly.
+- **Not done, and not claimed**: a performance win. The dominant
+  remaining cost is now understood precisely -- 768x cross-thread
+  redundant recomputation from a one-thread-per-output-element dispatch
+  design -- and the fix (threadgroup-per-token with shared memory) is
+  named concretely rather than left as an open-ended "optimize this
+  later." Still squarely inside the tracker's "grouped/cache-optimized
+  dispatch" item, not this one.

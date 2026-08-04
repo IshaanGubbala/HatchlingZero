@@ -20,7 +20,8 @@ import numpy as np
 import pytest
 
 from reference.hz0c_pmetal_bridge import (
-    PMetalBridgeUnavailable, _library_path, conditional_attention_backward, conditional_attention_forward,
+    MetalConditionalAttention, PMetalBridgeUnavailable, _library_path, conditional_attention_backward,
+    conditional_attention_forward,
 )
 
 FIXTURE = Path("restart/hz0a_pmetal/crates/hz0a-pmetal-kernel/tests/fixtures/conditional_attention_parity.json")
@@ -82,6 +83,39 @@ def test_ffi_backward_matches_real_python_reference():
     for name, actual, expected in checks:
         max_diff = float(np.max(np.abs(actual - expected)))
         assert max_diff < 1e-2, f"{name} FFI diff vs real Python reference too large: {max_diff}"
+
+
+def test_gpu_handle_forward_matches_real_python_reference_and_is_reusable():
+    """The GPU path is handle-based specifically so it can be reused
+    across calls without re-paying Metal device/pipeline setup each time
+    -- checked here directly: two forward calls through the SAME handle
+    both match the real Python reference, not just the first."""
+    data = _fixture()
+    cfg = data["config"]
+    batch, seq, dim, heads = cfg["batch"], cfg["seq"], cfg["dim"], cfg["heads"]
+    x = np.array(data["x"], dtype=np.float32).reshape(batch, seq, dim)
+    qkv_w = np.array(data["qkv_weight"], dtype=np.float32).reshape(3 * dim, dim)
+    qkv_b = np.array(data["qkv_bias"], dtype=np.float32)
+    out_w = np.array(data["out_weight"], dtype=np.float32).reshape(dim, dim)
+    out_b = np.array(data["out_bias"], dtype=np.float32)
+    trigger = np.array(data["trigger"], dtype=np.float32).reshape(batch, seq)
+    expected = np.array(data["output"], dtype=np.float32).reshape(batch, seq, dim)
+
+    with MetalConditionalAttention() as gpu:
+        for _ in range(2):
+            output = gpu.forward(x, trigger, qkv_w=qkv_w, qkv_b=qkv_b, out_w=out_w, out_b=out_b, heads=heads)
+            max_diff = float(np.max(np.abs(output - expected)))
+            assert max_diff < 5e-3, f"GPU FFI diff vs real Python reference too large: {max_diff}"
+
+
+def test_gpu_handle_forward_after_close_raises():
+    gpu = MetalConditionalAttention()
+    gpu.close()
+    gpu.close()  # idempotent, must not raise or double-free
+    x = np.zeros((1, 2, 4), dtype=np.float32)
+    trigger = np.ones((1, 2), dtype=np.float32)
+    with pytest.raises(PMetalBridgeUnavailable):
+        gpu.forward(x, trigger, qkv_w=np.zeros((12, 4), dtype=np.float32), qkv_b=np.zeros(12, dtype=np.float32), out_w=np.zeros((4, 4), dtype=np.float32), out_b=np.zeros(4, dtype=np.float32), heads=2)
 
 
 def test_ffi_forward_rejects_shape_mismatch_before_touching_ffi():
