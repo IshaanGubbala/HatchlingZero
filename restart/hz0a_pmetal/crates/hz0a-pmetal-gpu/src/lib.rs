@@ -18,11 +18,56 @@ use metal::{Device, MTLResourceOptions, MTLSize};
 mod full_block;
 pub use full_block::{AdamWMoments, BlockParameters, BlockShape, ForwardCache, ForwardOutput, Gdn2FullBlockGpu};
 
+// C8's "grouped/cache-optimized dispatch" -- the item
+// `docs/restart/hz0c_c8_model_level_integration_results.md` named
+// concretely after an honest benchmark found the ORIGINAL one-thread-
+// per-output-element dispatch redundantly recomputed the same per-token
+// data 768x over (once per `D`-dimension output row, even though the
+// query projection, per-source scores, and per-(head,component)
+// attended values do not depend on the output row at all -- every row's
+// output is a full mix of ALL of them via `out_w`).
+//
+// Redesigned as ONE THREADGROUP PER TOKEN with `D` threads cooperating
+// via `threadgroup` shared memory, the same cooperative-reduction
+// pattern already proven in this file for the GDN2 backward kernel:
+//   1. `q_cache[D]`: thread `row` computes ITS OWN element of the query
+//      projection (the `(h,k)` index space is exactly the `D` index
+//      space), then barrier.
+//   2. `scores[H*S]`: the `H*(t+1)` needed (head, source) score pairs
+//      are distributed round-robin across the `D` threads (each score
+//      needs its own O(D) key-projection dot product, computed exactly
+//      once now, not once per output row), then barrier.
+//   3. Softmax-normalize each head's scores into weights in place --
+//      cheap (pure shared-memory reads), done by the first `H` threads,
+//      one head each, then barrier.
+//   4. `attended[D]`: the `H*head_dim = D` (head, component) attended
+//      values are a 1:1 match to the `D` threads -- thread `row` owns
+//      exactly one, computing its own O(S*D) weighted V-projection sum,
+//      then barrier.
+//   5. Every thread computes its own output row as the final, INHERENT
+//      `out_w` mix over the now-shared `attended[D]` -- this step alone
+//      is the real O(D^2)-per-token matmul cost every dense linear
+//      output projection pays; nothing before it needed to.
+//
+// Same algorithm, same numerical result as the pre-redesign kernel
+// (checked directly against it via `hz0a-pmetal-kernel`'s CPU reference,
+// which this must still match) -- only the `D`-fold cross-thread
+// redundancy is removed.
 const CONDITIONAL_ATTENTION_SOURCE: &str = r#"
 #include <metal_stdlib>
 using namespace metal;
 
 struct AttentionShape { uint B; uint S; uint D; uint H; };
+
+// Compile-time bounds for the threadgroup shared-memory arrays below --
+// Metal requires a constant array size. 1024 covers this project's real
+// D=768 production shape with headroom; 16*128 covers H*S for the same
+// `S <= 128` bound this file already established for the backward
+// kernel. Shapes outside these bounds fall back to a documented
+// attention-free path below, matching the same "known, disclosed limit"
+// convention as GDN2's own `K > 64`/`V > 64` guards.
+constant uint MAX_D = 1024;
+constant uint MAX_SCORES = 16 * 128;
 
 kernel void conditional_anchor_attention(
     device const float* x [[buffer(0)]],
@@ -33,92 +78,104 @@ kernel void conditional_anchor_attention(
     device const float* trigger [[buffer(5)]],
     device float* output [[buffer(6)]],
     constant AttentionShape& shape [[buffer(7)]],
-    uint tid [[thread_position_in_grid]])
+    uint token [[threadgroup_position_in_grid]],
+    uint row [[thread_position_in_threadgroup]])
 {
     uint D = shape.D;
-    uint token = tid / D;
-    uint row = tid % D;
     uint tokens = shape.B * shape.S;
-    if (token >= tokens) return;
+    if (token >= tokens || row >= D) return;
     uint batch = token / shape.S;
     uint t = token % shape.S;
     uint head_dim = D / shape.H;
-    // Bounds for the thread-local caches below, matching the same
-    // convention already established for the backward kernel's own
-    // `S > 128` guard and GDN2's `K > 64`/`V > 64` guards elsewhere in
-    // this file -- not new limits, just this kernel's first place that
-    // needed thread-local storage sized by them.
-    if (head_dim > 64 || shape.S > 128) { output[token * D + row] = out_b[row] * trigger[token]; return; }
-    float result = out_b[row];
-    if (trigger[token] > 0.0f) {
-        // Rest of `result`'s attention contribution accumulates here; the
-        // WHOLE result (including out_b) is scaled by the continuous
-        // trigger value below, matching the Python reference and the CPU
-        // kernel's own fix (see hz0a-pmetal-kernel's
-        // conditional_anchor_attention_f32 docstring/comment for why this
-        // must be a continuous scale, not a binary gate).
-        //
-        // Real fix (2026-08-04): the ORIGINAL version recomputed each
-        // (s, h) pair's O(D) query/key dot product up to `2 + head_dim`
-        // times (once for the max-score pass, once for the denominator
-        // pass, and once MORE inside the per-component output loop) --
-        // and recomputed the QUERY projection itself (which does not even
-        // depend on `s`) inside every one of those passes too. Caught via
-        // an honest end-to-end latency benchmark
-        // (`scripts/hz0c_c8_ffi_latency_benchmark.py`) that took far
-        // longer than expected at the model's real dim=768 shape. Fixed
-        // by caching the query projection ONCE per head (`q_cache`, does
-        // not depend on `s`) and each source's raw score ONCE per head
-        // (`scores`, reused across the max/denominator/output passes) --
-        // the algorithm and its numerical result are unchanged, only the
-        // redundant recomputation is removed.
-        for (uint h = 0; h < shape.H; ++h) {
-            uint offset = h * head_dim;
-            thread float q_cache[64];
-            for (uint k = 0; k < head_dim; ++k) {
-                float qv = qkv_b[offset + k];
-                for (uint c = 0; c < D; ++c) qv += x[token * D + c] * qkv_w[(offset + k) * D + c];
-                q_cache[k] = qv;
-            }
-            thread float scores[128];
-            float max_score = -INFINITY;
-            for (uint s = 0; s <= t; ++s) {
-                uint source = batch * shape.S + s;
-                if (trigger[source] <= 0.0f) { scores[s] = -INFINITY; continue; }
-                float score = 0.0f;
-                for (uint k = 0; k < head_dim; ++k) {
-                    float kv = qkv_b[D + offset + k];
-                    for (uint c = 0; c < D; ++c) kv += x[source * D + c] * qkv_w[(D + offset + k) * D + c];
-                    score += q_cache[k] * kv;
-                }
-                scores[s] = score * rsqrt((float)head_dim);
-                max_score = max(max_score, scores[s]);
-            }
-            if (!isfinite(max_score)) continue;
+    float trig = trigger[token];
+
+    if (D > MAX_D || shape.H * shape.S > MAX_SCORES || head_dim > 64 || trig <= 0.0f) {
+        output[token * D + row] = out_b[row] * trig;
+        return;
+    }
+
+    threadgroup float q_cache[MAX_D];
+    threadgroup float scores[MAX_SCORES];
+    threadgroup float attended[MAX_D];
+
+    // Step 1: each thread computes ITS OWN query-projection element --
+    // the (head, key) index space is exactly the D index space, so
+    // thread `row` IS q_cache[row], no separate indexing needed.
+    {
+        float qv = qkv_b[row];
+        for (uint c = 0; c < D; ++c) qv += x[token * D + c] * qkv_w[row * D + c];
+        q_cache[row] = qv;
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    // Step 2: distribute the H*(t+1) real (head, source) score pairs
+    // round-robin across the D threads. `scores` is laid out [h * S + s]
+    // (fixed stride S, not t+1, since t is threadgroup-uniform and this
+    // keeps indexing simple); s > t or a non-triggered source both get
+    // -INFINITY, which softmax naturally reduces to a zero weight.
+    for (uint idx = row; idx < shape.H * shape.S; idx += D) {
+        uint h = idx / shape.S;
+        uint s = idx % shape.S;
+        uint slot = h * shape.S + s;
+        uint source = batch * shape.S + s;
+        if (s > t || trigger[source] <= 0.0f) { scores[slot] = -INFINITY; continue; }
+        uint offset = h * head_dim;
+        float score = 0.0f;
+        for (uint k = 0; k < head_dim; ++k) {
+            float kv = qkv_b[D + offset + k];
+            for (uint c = 0; c < D; ++c) kv += x[source * D + c] * qkv_w[(D + offset + k) * D + c];
+            score += q_cache[offset + k] * kv;
+        }
+        scores[slot] = score * rsqrt((float)head_dim);
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    // Step 3: softmax-normalize each head's row of scores into weights,
+    // in place. Cheap (shared-memory reads only), so one thread per
+    // head is enough -- H <= D always holds here.
+    if (row < shape.H) {
+        uint h = row;
+        float max_score = -INFINITY;
+        for (uint s = 0; s <= t; ++s) max_score = max(max_score, scores[h * shape.S + s]);
+        if (isfinite(max_score)) {
             float denominator = 0.0f;
             for (uint s = 0; s <= t; ++s) {
-                // exp(-INFINITY - finite) == 0, so masked positions
-                // (scores[s] set to -INFINITY above) contribute exactly
-                // zero here with no separate branch needed.
-                scores[s] = exp(scores[s] - max_score);
-                denominator += scores[s];
+                float e = exp(scores[h * shape.S + s] - max_score);
+                scores[h * shape.S + s] = e;
+                denominator += e;
             }
-            for (uint component = 0; component < head_dim; ++component) {
-                float attended = 0.0f;
-                for (uint s = 0; s <= t; ++s) {
-                    uint source = batch * shape.S + s;
-                    if (trigger[source] <= 0.0f) continue;
-                    float weight = scores[s] / denominator;
-                    float vv = qkv_b[2 * D + offset + component];
-                    for (uint c = 0; c < D; ++c)
-                        vv += x[source * D + c] * qkv_w[(2 * D + offset + component) * D + c];
-                    attended += weight * vv;
-                }
-                result += out_w[row * D + offset + component] * attended;
-            }
+            for (uint s = 0; s <= t; ++s) scores[h * shape.S + s] /= denominator;
+        } else {
+            for (uint s = 0; s <= t; ++s) scores[h * shape.S + s] = 0.0f;
         }
     }
-    output[token * D + row] = result * trigger[token];
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    // Step 4: the H*head_dim = D (head, component) attended values are a
+    // 1:1 match to the D threads -- thread `row` owns exactly one.
+    {
+        uint h = row / head_dim;
+        uint component = row % head_dim;
+        uint offset = h * head_dim;
+        float att = 0.0f;
+        for (uint s = 0; s <= t; ++s) {
+            uint source = batch * shape.S + s;
+            if (trigger[source] <= 0.0f) continue;
+            float weight = scores[h * shape.S + s];
+            float vv = qkv_b[2 * D + offset + component];
+            for (uint c = 0; c < D; ++c) vv += x[source * D + c] * qkv_w[(2 * D + offset + component) * D + c];
+            att += weight * vv;
+        }
+        attended[row] = att;
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    // Step 5: the final output projection is an inherent full mix over
+    // every (head, component) -- this is the one part of the original
+    // per-row work that was never redundant.
+    float result = out_b[row];
+    for (uint d = 0; d < D; ++d) result += out_w[row * D + d] * attended[d];
+    output[token * D + row] = result * trig;
 }
 "#;
 
@@ -161,8 +218,11 @@ impl MetalConditionalAnchorAttention {
         let encoder = command.new_compute_command_encoder();
         encoder.set_compute_pipeline_state(&self.pipeline);
         for (i, buffer) in [&bx, &bw, &bb, &bow, &bob, &bt, &bo, &bs].into_iter().enumerate() { encoder.set_buffer(i as u64, Some(buffer), 0); }
-        let threads = (batch * seq * dim) as u64;
-        encoder.dispatch_threads(MTLSize::new(threads, 1, 1), MTLSize::new(threads.min(256).max(1), 1, 1));
+        // One THREADGROUP per token, `dim` threads cooperating per group
+        // (see the shader's own module comment for why) -- not a flat
+        // one-thread-per-output-element grid anymore.
+        let tokens = (batch * seq) as u64;
+        encoder.dispatch_thread_groups(MTLSize::new(tokens, 1, 1), MTLSize::new(dim as u64, 1, 1));
         encoder.end_encoding(); command.commit(); command.wait_until_completed();
         Ok(unsafe { std::slice::from_raw_parts(bo.contents() as *const f32, n) }.to_vec())
     }
