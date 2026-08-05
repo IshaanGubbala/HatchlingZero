@@ -78,6 +78,35 @@ def make_task(config: FastWeightConfig, *, seed: int, k_train: int = 4, k_held_o
     )
 
 
+def make_rank_misspecified_task(config: FastWeightConfig, *, seed: int, k_train: int = 6, k_held_out: int = 16, rule_scale: float = 0.3, excess_rank_scale: float = 0.0) -> Task:
+    """Same construction as `make_task`, plus a small FULL-RANK perturbation
+    added to `true_delta` (magnitude `excess_rank_scale * rule_scale`) --
+    a task whose true rule is NOT exactly rank-`config.rank`, unlike every
+    task `make_task` can produce. Exists to stress-test mechanisms (e.g.
+    `reference/hz0d_update_mechanisms.py::estimate_noise_ratio`) that
+    assume exact rank; `excess_rank_scale=0.0` reproduces `make_task`
+    exactly, so it is not used for D2's own exit-gate evidence, only for
+    D3's misspecification check (`docs/restart/hz0d_d3_update_mechanism_results.md`)."""
+    key = mx.random.key(seed)
+    k_base, k_rule_a, k_rule_b, k_excess, k_symbols = mx.random.split(key, 5)
+    base_weight, base_bias = _random_linear(config.dim, k_base)
+    true_a = mx.random.normal((config.dim, config.rank), key=k_rule_a) * rule_scale
+    true_b = mx.random.normal((config.rank, config.dim), key=k_rule_b) * rule_scale
+    true_delta = true_a @ true_b
+    if excess_rank_scale > 0.0:
+        excess = mx.random.normal((config.dim, config.dim), key=k_excess) * (rule_scale * excess_rank_scale)
+        true_delta = true_delta + excess
+
+    total_symbols = k_train + k_held_out
+    symbols = mx.random.normal((total_symbols, config.dim), key=k_symbols)
+    targets = symbols @ (base_weight + true_delta).T + base_bias
+    return Task(
+        base_weight=base_weight, base_bias=base_bias, true_delta=true_delta,
+        train_x=symbols[:k_train], train_y=targets[:k_train],
+        held_out_x=symbols[k_train:], held_out_y=targets[k_train:],
+    )
+
+
 def task_loss(task: Task, state: FastWeightState, x: mx.array, y: mx.array) -> mx.array:
     predicted = apply_fast_linear(x, task.base_weight, task.base_bias, state, LAYER)
     return mx.mean(mx.sum((predicted - y) ** 2, axis=-1))

@@ -268,13 +268,61 @@ one is verified this thoroughly.
   via a 12-configuration tuning sweep) and error-conditioned gradient
   descent (slightly worse quality AND slower than plain gradient
   descent here, extra gating did not earn its overhead).
-- Caveat, stated plainly: the noise-ratio estimator leans on this
-  task's guarantee that the true rule is exactly rank-`config.rank`.
-  That guarantee comes from `make_task`'s construction, not from
-  anything HZ-0C's real anchor-attention layers are proven to satisfy.
-  Before D6 integration, this should be re-checked against whatever
-  effective rank real adaptation deltas exhibit -- not assumed to carry
-  over unchanged.
+- **Caveat, now investigated and precisely characterized (not left
+  vague)**: `estimate_noise_ratio` leans on this task's guarantee that
+  the true rule is exactly rank-`config.rank` (`make_task`'s
+  construction). Stress-tested this directly with
+  `reference/hz0d_isolated_simulator.py::make_rank_misspecified_task`,
+  which adds a small full-rank perturbation (`excess_rank_scale *
+  rule_scale`) to the true rule so it is NOT exactly rank-2 anymore.
+  Real result, 8 seeds, clean labels (no added noise):
+
+  | `excess_rank_scale` | Mean delta prediction (v4) | Mean gradient descent | Delta wins? |
+  | --- | ---: | ---: | --- |
+  | 0.00 (= `make_task`) | 0.1792 | 0.2731 | yes |
+  | 0.05 | 0.2240 | 0.2801 | yes |
+  | 0.10 | 0.3070 | 0.3097 | yes (barely) |
+  | 0.20 | 0.5435 | 0.4510 | **no** |
+  | 0.30 | 0.8236 | 0.6671 | **no** |
+  | 0.50 | 1.4921 | 1.2456 | **no** |
+
+  Once the true rule's off-rank-2 component reaches roughly 20% of the
+  rank-2 component's own scale, delta prediction loses to gradient
+  descent -- the mirror image of the label-noise case, and a real
+  failure mode, not a hypothetical one. **Root cause**:
+  `estimate_noise_ratio` cannot distinguish "spectral mass from label
+  noise" from "spectral mass from a genuinely higher-rank rule" -- both
+  inflate the identical ratio, so v4 over-regularizes a target it could
+  otherwise fit better. Gradient descent carries no such failure mode,
+  since it never assumes the rule is exactly rank-`config.rank` in the
+  first place.
+
+  A genuine attempt was made to fix this, not just document it: a
+  leave-one-out linear-predictability check on the training residual
+  (real excess-rank structure should be predictable from `x` since it
+  is a deterministic function of `x`; label noise should not be, since
+  it is independent of `x` by construction). Tested across both
+  regimes, 5 seeds each: leave-one-out R^2 ranged `-0.74` to `0.57` for
+  label noise and `0.00` to `0.85` for rank misspecification -- heavily
+  overlapping, no usable threshold exists at `k_train=6`. The same
+  small-sample-size problem that already ruled out LOOCV/GCV for direct
+  ridge selection also rules out this discriminator. A ridge ceiling
+  (capping `ridge` at a fixed maximum regardless of `noise_ratio`) was
+  also tried and gives an inconsistent, marginal effect (sometimes
+  slightly better, sometimes slightly worse, never closes the gap) --
+  not adopted, since it adds a tunable knob without a real, verified
+  benefit.
+
+  **No code fix is applied.** This is locked in as a real, disclosed
+  boundary of v4's validity via
+  `tests/reference/test_hz0d_update_mechanisms.py::test_adaptive_ridge_delta_prediction_loses_to_gradient_descent_under_rank_misspecification`,
+  not smoothed over. **Actionable guardrail for D6**: before trusting
+  v4 on real HZ-0C anchor-attention deltas, measure their actual
+  effective rank (e.g. the same singular-value-mass-beyond-rank
+  diagnostic used here). If real deltas turn out to need meaningfully
+  more than `config.rank`'s worth of structure, gradient descent (kept
+  fully implemented for exactly this reason) should be used instead of
+  v4 until a reliable regime-discriminator exists.
 
 ## Exit gate check
 

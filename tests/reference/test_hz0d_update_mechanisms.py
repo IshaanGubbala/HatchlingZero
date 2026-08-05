@@ -9,7 +9,7 @@ from __future__ import annotations
 import mlx.core as mx
 
 from reference.hz0d_fast_weights import FastWeightConfig, FastWeightState, effective_delta, init_fast_weights
-from reference.hz0d_isolated_simulator import make_task, held_out_generalization_loss
+from reference.hz0d_isolated_simulator import make_rank_misspecified_task, make_task, held_out_generalization_loss
 from reference.hz0d_update_mechanisms import (
     delta_prediction_update, error_conditioned_update, estimate_noise_ratio, gradient_descent_update,
     hebbian_delta_rule_update,
@@ -236,3 +236,70 @@ def test_gradient_descent_degrades_gracefully_under_label_noise():
     clean_loss = held_out_generalization_loss(task, clean_state)
     noisy_loss = held_out_generalization_loss(task, noisy_state)
     assert noisy_loss < clean_loss * 5, f"gradient descent degraded too sharply under noise: {clean_loss} -> {noisy_loss}"
+
+
+def test_adaptive_ridge_delta_prediction_loses_to_gradient_descent_under_rank_misspecification():
+    """The real, disclosed limitation found while investigating the "does
+    `estimate_noise_ratio` generalize past this synthetic task's exact-
+    rank guarantee?" caveat: it does NOT, once the true rule has
+    substantial energy outside `config.rank`. `estimate_noise_ratio`
+    cannot tell "spectral mass from label noise" apart from "spectral
+    mass from a genuinely higher-rank rule" -- both inflate the same
+    ratio, so v4 over-regularizes a target it could otherwise fit better,
+    while gradient descent (which never assumes the rule is exactly
+    rank-`config.rank`) does not carry this failure mode. Measured
+    directly, 8 seeds, `excess_rank_scale=0.3` (the true rule's
+    off-rank-2 component is 30% of the rank-2 component's own scale,
+    still modest): mean held-out loss `delta=0.8236` vs `gd=0.6671` --
+    gradient descent wins here, the mirror image of the label-noise
+    case. A leave-one-out linear-predictability check was tried as a
+    way to distinguish "noise" from "real excess-rank structure" (real
+    structure should be predictable from `x`, noise should not) and
+    found too high-variance to discriminate at `k_train=6` (R^2 ranged
+    -0.74 to 0.57 for label noise and 0.00 to 0.85 for misspecification
+    -- heavily overlapping), the same sample-size problem that already
+    ruled out LOOCV/GCV for direct ridge selection. No fix is applied
+    here: this is a genuine, disclosed boundary of v4's validity,
+    locked in as a regression test so it is not lost, not silently
+    patched over with an untested heuristic. Gradient descent staying
+    fully implemented (not deleted) is the direct, real consequence."""
+    d_losses, g_losses = [], []
+    for seed in range(8):
+        task = make_rank_misspecified_task(CONFIG, seed=seed, k_train=6, k_held_out=16, rule_scale=0.3, excess_rank_scale=0.3)
+        delta_state, _ = delta_prediction_update(task, init_fast_weights(CONFIG), CONFIG)
+        gd_state, _ = gradient_descent_update(task, init_fast_weights(CONFIG), CONFIG, steps=400, lr=0.02)
+        d_losses.append(held_out_generalization_loss(task, delta_state))
+        g_losses.append(held_out_generalization_loss(task, gd_state))
+    mean_delta = sum(d_losses) / len(d_losses)
+    mean_gd = sum(g_losses) / len(g_losses)
+    assert mean_gd < mean_delta, (
+        f"expected gradient descent to beat adaptive-ridge delta prediction under rank misspecification "
+        f"(the known failure mode): gd={mean_gd} delta={mean_delta}"
+    )
+
+
+def test_rank_misspecified_task_with_zero_excess_is_exactly_rank_2():
+    """`make_rank_misspecified_task(..., excess_rank_scale=0.0)` derives
+    its keys differently from `make_task` (a 5-way `mx.random.split` vs
+    `make_task`'s own 4-way split, so the two are NOT bit-identical even
+    at the same seed -- an expected property of key-splitting, not a
+    bug), so the real invariant to check is structural, not bitwise:
+    with no excess term, `true_delta` must be EXACTLY rank-2 (matching
+    `config.rank`), same as `make_task`'s own construction guarantees."""
+    task = make_rank_misspecified_task(CONFIG, seed=3, k_train=6, k_held_out=16, rule_scale=0.3, excess_rank_scale=0.0)
+    _, s, _ = mx.linalg.svd(task.true_delta, stream=mx.cpu)
+    assert float(s[2]) < 1e-5, f"expected true_delta rank <= 2 at excess_rank_scale=0.0, got singular values {s.tolist()}"
+
+
+def test_rank_misspecified_task_excess_scale_adds_real_off_rank_energy():
+    """Sanity check on the stress-test helper itself: increasing
+    `excess_rank_scale` should increase the singular-value mass beyond
+    rank 2, monotonically -- confirming the helper actually produces
+    tasks with genuine rank-misspecification, not a no-op parameter."""
+    tail_masses = []
+    for excess_rank_scale in [0.0, 0.2, 0.4]:
+        task = make_rank_misspecified_task(CONFIG, seed=3, k_train=6, k_held_out=16, rule_scale=0.3, excess_rank_scale=excess_rank_scale)
+        _, s, _ = mx.linalg.svd(task.true_delta, stream=mx.cpu)
+        tail_masses.append(float(mx.sum(s[2:])))
+    assert tail_masses == sorted(tail_masses), f"expected tail mass to grow monotonically with excess_rank_scale: {tail_masses}"
+    assert tail_masses[0] < 1e-5
