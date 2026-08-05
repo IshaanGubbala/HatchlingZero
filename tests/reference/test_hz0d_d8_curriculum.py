@@ -12,7 +12,6 @@ from pathlib import Path
 import mlx.core as mx
 import pytest
 
-from reference.hz0d_d6_integration import ATTENTION_INDICES
 from reference.hz0d_d8_curriculum import make_natural_schema_task
 from reference.hz0d_fast_weights import (
     FastWeightConfig, FastWeightState, init_fast_weights, rollback, snapshot,

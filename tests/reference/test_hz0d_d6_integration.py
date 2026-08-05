@@ -13,9 +13,7 @@ import mlx.core as mx
 import mlx.utils
 import pytest
 
-from reference.hz0d_d6_integration import (
-    ATTENTION_INDICES, conditional_hidden_with_fast_weights, d6_fast_weight_config, d6_forward_with_fast_weights,
-)
+from reference.hz0d_d6_integration import ATTENTION_INDICES, d6_fast_weight_config, d6_forward_with_fast_weights
 from reference.hz0d_fast_weights import FastWeightConfig, FastWeightState, init_fast_weights
 from reference.hz0d_isolated_simulator import Task, task_loss, held_out_generalization_loss
 from reference.hz0d_update_mechanisms import delta_prediction_update

@@ -6,8 +6,6 @@ adaptation"), not just "each baseline runs."
 """
 from __future__ import annotations
 
-import mlx.core as mx
-
 from reference.hz0d_fast_weights import FastWeightConfig, init_fast_weights
 from reference.hz0d_isolated_simulator import make_task, held_out_generalization_loss
 from reference.hz0d_update_mechanisms import delta_prediction_update, gradient_descent_update

@@ -35,7 +35,7 @@ import time
 
 import mlx.core as mx
 
-from reference.hz0d_fast_weights import FastWeightConfig, FastWeightState, apply_fast_linear, update_fast_weights
+from reference.hz0d_fast_weights import FastWeightConfig, FastWeightState, update_fast_weights
 from reference.hz0d_isolated_simulator import LAYER, Task, task_loss
 
 
