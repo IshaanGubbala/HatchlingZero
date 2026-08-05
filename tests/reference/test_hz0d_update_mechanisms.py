@@ -11,7 +11,8 @@ import mlx.core as mx
 from reference.hz0d_fast_weights import FastWeightConfig, FastWeightState, effective_delta, init_fast_weights
 from reference.hz0d_isolated_simulator import make_task, held_out_generalization_loss
 from reference.hz0d_update_mechanisms import (
-    delta_prediction_update, error_conditioned_update, gradient_descent_update, hebbian_delta_rule_update,
+    delta_prediction_update, error_conditioned_update, estimate_noise_ratio, gradient_descent_update,
+    hebbian_delta_rule_update,
 )
 
 CONFIG = FastWeightConfig(dim=8, rank=2, num_layers=1, max_delta_norm=10.0)
@@ -70,31 +71,53 @@ def test_delta_prediction_fits_clean_training_data_closely_but_not_exactly():
     assert 1e-4 < diagnostics["final_train_loss"] < 0.1
 
 
-def test_delta_prediction_ridge_strength_trades_off_clean_fit_against_noise_robustness():
-    """Direct confirmation that `ridge` behaves as regularization should:
-    more ridge -> worse clean-data fit, monotonically."""
+def test_delta_prediction_base_ridge_trades_off_clean_fit_against_noise_robustness():
+    """Direct confirmation that the (fixed part of the) ridge strength
+    behaves as regularization should: more `base_ridge` -> worse
+    clean-data fit, monotonically. `ridge_scale=0.0` isolates
+    `base_ridge`'s own effect from the adaptive noise-based term."""
     task = make_task(CONFIG, seed=7, k_train=6, k_held_out=16, rule_scale=0.3)
     train_losses = []
-    for ridge in [0.05, 0.27, 1.0]:
-        _, diagnostics = delta_prediction_update(task, init_fast_weights(CONFIG), CONFIG, ridge=ridge)
+    for base_ridge in [0.05, 0.27, 1.0]:
+        _, diagnostics = delta_prediction_update(task, init_fast_weights(CONFIG), CONFIG, base_ridge=base_ridge, ridge_scale=0.0)
         train_losses.append(diagnostics["final_train_loss"])
-    assert train_losses == sorted(train_losses), f"training loss should increase with more ridge: {train_losses}"
+    assert train_losses == sorted(train_losses), f"training loss should increase with more base_ridge: {train_losses}"
 
 
-def test_als_delta_prediction_matches_gradient_descent_accuracy_on_both_clean_and_noisy_data():
-    """The specific ask this v3 fix was built for: not just "in the same
-    ballpark," but close enough on BOTH clean and noisy held-out loss,
-    simultaneously, on the same seed's data, that either method is a
-    real toss-up on accuracy -- with delta prediction still ~2 orders
-    of magnitude faster (checked separately above)."""
+def test_noise_ratio_separates_clean_from_noisy_data():
+    """The real, structural signal the adaptive ridge is built on:
+    `estimate_noise_ratio` should be near-zero on clean data (the rule
+    is exactly rank-`config.rank`, so almost no singular-value mass sits
+    outside the top `config.rank` directions) and substantially larger
+    on label-noise-corrupted data, across seeds -- not just one lucky
+    draw."""
+    for seed in range(5):
+        task, noisy_task = _clean_and_noisy_tasks(seed=seed)
+        clean_ratio = estimate_noise_ratio(task, CONFIG)
+        noisy_ratio = estimate_noise_ratio(noisy_task, CONFIG)
+        assert clean_ratio < 0.01, f"seed {seed}: expected a near-zero clean-data noise ratio, got {clean_ratio}"
+        assert noisy_ratio > clean_ratio * 20, (
+            f"seed {seed}: expected the noisy-data ratio to clearly separate from clean: {clean_ratio} vs {noisy_ratio}"
+        )
+
+
+def test_adaptive_ridge_delta_prediction_beats_gradient_descent_on_both_clean_and_noisy_data():
+    """The specific ask this v4 fix was built for: not just "close
+    enough," but actually BETTER than gradient descent, on BOTH clean
+    and noisy held-out loss, on the same seed's data -- while delta
+    prediction is still ~2 orders of magnitude faster (checked
+    separately above). A single-seed check, tight (strict `<`, not a
+    tolerance band), backed by the multi-seed means in the function's
+    own docstring (7.4% better clean, 14.8% better noisy, across 8
+    seeds) so this is not resting on one favorable draw."""
     task, noisy_task = _clean_and_noisy_tasks(seed=1)
 
     delta_clean_state, _ = delta_prediction_update(task, init_fast_weights(CONFIG), CONFIG)
     gd_clean_state, _ = gradient_descent_update(task, init_fast_weights(CONFIG), CONFIG, steps=400, lr=0.02)
     delta_clean_loss = held_out_generalization_loss(task, delta_clean_state)
     gd_clean_loss = held_out_generalization_loss(task, gd_clean_state)
-    assert delta_clean_loss < gd_clean_loss * 1.5, (
-        f"expected ALS delta prediction to be within 50% of gradient descent on clean data: "
+    assert delta_clean_loss < gd_clean_loss, (
+        f"expected adaptive-ridge ALS delta prediction to beat gradient descent on clean data: "
         f"{delta_clean_loss} vs {gd_clean_loss}"
     )
 
@@ -102,8 +125,8 @@ def test_als_delta_prediction_matches_gradient_descent_accuracy_on_both_clean_an
     gd_noisy_state, _ = gradient_descent_update(noisy_task, init_fast_weights(CONFIG), CONFIG, steps=400, lr=0.02)
     delta_noisy_loss = held_out_generalization_loss(task, delta_noisy_state)  # vs the CLEAN target
     gd_noisy_loss = held_out_generalization_loss(task, gd_noisy_state)
-    assert delta_noisy_loss < gd_noisy_loss * 1.5, (
-        f"expected ALS delta prediction to be within 50% of gradient descent on noisy data: "
+    assert delta_noisy_loss < gd_noisy_loss, (
+        f"expected adaptive-ridge ALS delta prediction to beat gradient descent on noisy data: "
         f"{delta_noisy_loss} vs {gd_noisy_loss}"
     )
 
