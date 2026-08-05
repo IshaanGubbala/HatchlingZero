@@ -1,6 +1,6 @@
 # HZ-0E Progress Tracker
 
-Updated: July 27, 2026
+Updated: August 5, 2026
 
 ## Mission
 
@@ -9,7 +9,7 @@ Add a conservative four-expert, top-1 micro-MoE FFN with shared dense fallback t
 ## Current Status
 
 - Overall phase: `E0 not started`
-- Dependency status: router design and simulation may begin; full integration is blocked on a frozen HZ-0D with stable HZ-0B/C behavior and lifecycle semantics
+- Dependency status: **HZ-0D is complete and its dependency gate is satisfied** (`plans/HZ-0D_Progress_Tracker.md`, `docs/restart/hz0d_d10_evaluation_results.md`); E0 router-history/recovered-requirements work is still not started, and full integration should wait for a frozen E0-E4 design.
 - Last verified HZ-0E evidence: none
 - Current stopping rule: keep experts out of recurrent-state and memory-write internals initially
 
@@ -22,11 +22,11 @@ Add a conservative four-expert, top-1 micro-MoE FFN with shared dense fallback t
 | E2 | isolated router simulator | Not started | Mixed domains, imbalance, shifts, noise, utilization, overflow, collapse |
 | E3 | routing objectives | Not started | Task loss, load balance, z-loss, overflow, diversity, warm starts |
 | E4 | fair baselines | Not started | Matched active/total dense, wider dense, adapters, static/shared experts |
-| E5 | HZ-0D dependency gate | Blocked | Requires frozen recurrence, memory, trigger, fast-state, PMetal, checkpoint, baselines |
-| E6 | frozen-backbone integration | Blocked | Replace selected upper MLPs only |
+| E5 | HZ-0D dependency gate | Ready after E0-E4 | HZ-0D recurrence, memory, trigger, fast-state, PMetal, checkpoint, and baselines are complete; E0-E4 must define the MoE contract before integration. |
+| E6 | frozen-backbone integration | Pending E0-E5 | Replace selected upper MLPs only after router and interaction rules are frozen. |
 | E7 | interaction rules | Not started | No uncontrolled routing/surprise/memory/fast-weight feedback loop |
 | E8 | specialization curriculum | Not started | Balanced domains through mixed and adversarially imbalanced sequences |
-| E9 | PMetal implementation | Blocked | Dispatch, capacity, fallback, grouped tokens, Apple-Silicon residency |
+| E9 | PMetal implementation | Pending E0-E8 | Dispatch, capacity, fallback, grouped tokens, Apple-Silicon residency |
 | E10 | evaluation | Not started | Quality, utilization, active/total params, overhead, tail latency, interactions |
 
 ## Required Artifacts

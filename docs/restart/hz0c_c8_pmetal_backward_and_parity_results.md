@@ -110,6 +110,24 @@ soft-trigger parity that was checked and found not to hold.
 
 ## What remains open for C8
 
+## Follow-up optimization: fused QKV projection
+
+The scalar per-source projection hotspot was split into a dedicated Metal
+QKV projection pass, so each token's Q/K/V projections are computed once and
+the attention pass reuses them. The change passed all GPU forward/backward,
+decode, full-block, and AdamW tests.
+
+Release benchmark at sequence length 128:
+
+| Trigger rate | Before (ms) | After (ms) |
+|---:|---:|---:|
+| 0% | 5.8760 | 2.0861 |
+| 15% | 6.8956 | 1.8764 |
+| 100% | 33.7290 | 1.8608 |
+
+This is approximately 2.8x, 3.7x, and 18.1x faster respectively. The
+remaining gap to MLX is a separate dispatch/kernel-efficiency question.
+
 - **Grouped/cache-optimized dispatch**: the forward kernel is one thread
   per output element; the backward kernel is fully single-threaded. Real
   parallelization (per-batch/per-head with atomics or a reduction pass)

@@ -1,5 +1,11 @@
 # HZ-0C C8 PMetal Attention Results
 
+Status note (2026-08-04): this initial forward-parity note is superseded by
+`docs/restart/hz0c_c8_pmetal_backward_and_parity_results.md` and
+`docs/restart/hz0c_c8_model_level_integration_results.md`, which record the
+subsequently completed backward, Python parity, CPU/GPU FFI, and grouped
+dispatch work.
+
 Date: 2026-08-03.
 
 The dependency-free PMetal CPU reference for conditional causal attention now

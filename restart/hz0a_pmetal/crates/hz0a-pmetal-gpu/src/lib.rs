@@ -71,13 +71,12 @@ constant uint MAX_SCORES = 16 * 128;
 
 kernel void conditional_anchor_attention(
     device const float* x [[buffer(0)]],
-    device const float* qkv_w [[buffer(1)]],
-    device const float* qkv_b [[buffer(2)]],
-    device const float* out_w [[buffer(3)]],
-    device const float* out_b [[buffer(4)]],
-    device const float* trigger [[buffer(5)]],
-    device float* output [[buffer(6)]],
-    constant AttentionShape& shape [[buffer(7)]],
+    device const float* qkv [[buffer(1)]],
+    device const float* out_w [[buffer(2)]],
+    device const float* out_b [[buffer(3)]],
+    device const float* trigger [[buffer(4)]],
+    device float* output [[buffer(5)]],
+    constant AttentionShape& shape [[buffer(6)]],
     uint token [[threadgroup_position_in_grid]],
     uint row [[thread_position_in_threadgroup]])
 {
@@ -102,9 +101,7 @@ kernel void conditional_anchor_attention(
     // the (head, key) index space is exactly the D index space, so
     // thread `row` IS q_cache[row], no separate indexing needed.
     {
-        float qv = qkv_b[row];
-        for (uint c = 0; c < D; ++c) qv += x[token * D + c] * qkv_w[row * D + c];
-        q_cache[row] = qv;
+        q_cache[row] = qkv[token * 3 * D + row];
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
@@ -122,8 +119,7 @@ kernel void conditional_anchor_attention(
         uint offset = h * head_dim;
         float score = 0.0f;
         for (uint k = 0; k < head_dim; ++k) {
-            float kv = qkv_b[D + offset + k];
-            for (uint c = 0; c < D; ++c) kv += x[source * D + c] * qkv_w[(D + offset + k) * D + c];
+            float kv = qkv[source * 3 * D + D + offset + k];
             score += q_cache[offset + k] * kv;
         }
         scores[slot] = score * rsqrt((float)head_dim);
@@ -162,8 +158,7 @@ kernel void conditional_anchor_attention(
             uint source = batch * shape.S + s;
             if (trigger[source] <= 0.0f) continue;
             float weight = scores[h * shape.S + s];
-            float vv = qkv_b[2 * D + offset + component];
-            for (uint c = 0; c < D; ++c) vv += x[source * D + c] * qkv_w[(2 * D + offset + component) * D + c];
+            float vv = qkv[source * 3 * D + 2 * D + offset + component];
             att += weight * vv;
         }
         attended[row] = att;
@@ -179,11 +174,39 @@ kernel void conditional_anchor_attention(
 }
 "#;
 
+const QKV_PROJECT_SOURCE: &str = r#"
+#include <metal_stdlib>
+using namespace metal;
+
+struct AttentionShape { uint B; uint S; uint D; uint H; };
+
+kernel void project_qkv(
+    device const float* x [[buffer(0)]],
+    device const float* qkv_w [[buffer(1)]],
+    device const float* qkv_b [[buffer(2)]],
+    device float* qkv [[buffer(3)]],
+    constant AttentionShape& shape [[buffer(4)]],
+    uint tid [[thread_position_in_grid]])
+{
+    uint D = shape.D;
+    uint tokens = shape.B * shape.S;
+    uint total = tokens * 3 * D;
+    if (tid >= total) return;
+    uint token = tid / (3 * D);
+    uint row = tid % (3 * D);
+    float value = qkv_b[row];
+    for (uint c = 0; c < D; ++c)
+        value += x[token * D + c] * qkv_w[row * D + c];
+    qkv[tid] = value;
+}
+"#;
+
 #[repr(C)]
 struct AttentionShapeUniform { b: u32, s: u32, d: u32, h: u32 }
 
 pub struct MetalConditionalAnchorAttention {
     device: Device,
+    qkv_pipeline: metal::ComputePipelineState,
     pipeline: metal::ComputePipelineState,
     queue: metal::CommandQueue,
 }
@@ -197,8 +220,14 @@ impl MetalConditionalAnchorAttention {
             .map_err(|e| format!("could not find conditional attention function: {e}"))?;
         let pipeline = device.new_compute_pipeline_state_with_function(&function)
             .map_err(|e| format!("could not build conditional attention pipeline: {e}"))?;
+        let qkv_library = device.new_library_with_source(QKV_PROJECT_SOURCE, &metal::CompileOptions::new())
+            .map_err(|e| format!("QKV projection shader compilation failed: {e}"))?;
+        let qkv_function = qkv_library.get_function("project_qkv", None)
+            .map_err(|e| format!("could not find QKV projection function: {e}"))?;
+        let qkv_pipeline = device.new_compute_pipeline_state_with_function(&qkv_function)
+            .map_err(|e| format!("could not build QKV projection pipeline: {e}"))?;
         let queue = device.new_command_queue();
-        Ok(Self { device, pipeline, queue })
+        Ok(Self { device, qkv_pipeline, pipeline, queue })
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -211,13 +240,21 @@ impl MetalConditionalAnchorAttention {
         let bx = input(x); let bw = input(qkv_weight); let bb = input(qkv_bias);
         let bow = input(out_weight); let bob = input(out_bias); let bt = input(trigger);
         let n = batch * seq * dim;
+        let qkv_len = batch * seq * 3 * dim;
+        let bqkv = self.device.new_buffer((qkv_len * std::mem::size_of::<f32>()) as u64, opts);
         let bo = self.device.new_buffer((n * std::mem::size_of::<f32>()) as u64, opts);
         let shape = AttentionShapeUniform { b: batch as u32, s: seq as u32, d: dim as u32, h: heads as u32 };
         let bs = self.device.new_buffer_with_data(&shape as *const AttentionShapeUniform as *const std::ffi::c_void, std::mem::size_of::<AttentionShapeUniform>() as u64, opts);
         let command = self.queue.new_command_buffer();
+        let qkv_encoder = command.new_compute_command_encoder();
+        qkv_encoder.set_compute_pipeline_state(&self.qkv_pipeline);
+        for (i, buffer) in [&bx, &bw, &bb, &bqkv, &bs].into_iter().enumerate() { qkv_encoder.set_buffer(i as u64, Some(buffer), 0); }
+        let qkv_threads = qkv_len as u64;
+        qkv_encoder.dispatch_threads(MTLSize::new(qkv_threads, 1, 1), MTLSize::new(qkv_threads.min(256).max(1), 1, 1));
+        qkv_encoder.end_encoding();
         let encoder = command.new_compute_command_encoder();
         encoder.set_compute_pipeline_state(&self.pipeline);
-        for (i, buffer) in [&bx, &bw, &bb, &bow, &bob, &bt, &bo, &bs].into_iter().enumerate() { encoder.set_buffer(i as u64, Some(buffer), 0); }
+        for (i, buffer) in [&bx, &bqkv, &bow, &bob, &bt, &bo, &bs].into_iter().enumerate() { encoder.set_buffer(i as u64, Some(buffer), 0); }
         // One THREADGROUP per token, `dim` threads cooperating per group
         // (see the shader's own module comment for why) -- not a flat
         // one-thread-per-output-element grid anymore.
