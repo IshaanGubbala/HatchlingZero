@@ -223,6 +223,62 @@ def fit_controller(features: np.ndarray, labels: np.ndarray, steps: int = 1200,
     return np.concatenate([w, np.asarray([b], dtype=np.float32)])
 
 
+def fit_ranking_controller(features: np.ndarray, labels: np.ndarray, steps: int = 1200, lr: float = 0.2) -> np.ndarray:
+    """A genuinely different OBJECTIVE from `fit_controller` (2026-08-04,
+    after two prior C7 "fix" attempts -- a new feature family
+    (`docs/restart/hz0c_c9_attention_pattern_feature_results.md`) and a
+    new hypothesis space (the MLP controller) -- both confirmed the
+    plateau rather than fixing it, without changing the LOSS FUNCTION
+    itself).
+
+    `fit_controller` minimizes pointwise binary cross-entropy against the
+    teacher's exact-top-15% labels -- a CALIBRATION objective (push each
+    position's probability toward 0 or 1 independently). But every real
+    deployment and evaluation path here (`exact_topk_labels`,
+    `bounded_actions`, `exact_topk` in `hz0c_c9_matched_cost_report.py`)
+    only ever uses the SCORE's RELATIVE ORDER within a sequence to pick
+    the top-k positions -- calibration is never actually consumed.
+    Pointwise BCE with only mild positive-class upweighting
+    (`positive_weight=2.0` against a natural ~5.7:1 negative:positive
+    ratio at a 15% rate) can under-rank a genuinely surprising positive
+    position that looks merely "medium confident," since the loss
+    spends most of its gradient mass driving the many easy negatives
+    further toward 0 rather than sharpening the FEW positive-vs-negative
+    boundaries that top-k selection actually depends on.
+
+    This instead minimizes a pairwise RankNet-style logistic ranking
+    loss: for every (positive, negative) position pair WITHIN THE SAME
+    example, `log(1 + exp(-(score_positive - score_negative)))` --
+    directly rewards the model for ranking every true position above
+    every non-true position in that same sequence, which is exactly what
+    exact-top-k selection needs, and is immune to the class-imbalance
+    weighting question entirely (there is no separate positive/negative
+    loss term to balance; every pair contributes symmetrically).
+
+    `features`: [N, seq, F], `labels`: [N, seq] (the SAME exact-top-k
+    binary labels `fit_controller` already consumes -- same teacher, same
+    ground truth, only the objective on top of them differs)."""
+    n, seq, feature_dim = features.shape
+    w = np.zeros(feature_dim, dtype=np.float32)
+    b = 0.0
+    pos_mask = labels > 0.5
+    neg_mask = ~pos_mask
+    pair_mask = pos_mask[:, :, None] & neg_mask[:, None, :]
+    num_pairs = max(1, int(pair_mask.sum()))
+    flat_x = features.reshape(-1, feature_dim)
+    for _ in range(steps):
+        scores = features @ w + b
+        diff = np.clip(scores[:, :, None] - scores[:, None, :], -30, 30)
+        sig = 1.0 / (1.0 + np.exp(-diff))
+        # d/d(diff) log(1+exp(-diff)) == sig - 1; contributes +to the
+        # positive position's score gradient and -to the negative's.
+        grad_diff = np.where(pair_mask, sig - 1.0, 0.0) / num_pairs
+        grad_score = grad_diff.sum(axis=2) - grad_diff.sum(axis=1)
+        w -= lr * (flat_x.T @ grad_score.reshape(-1))
+        b -= lr * float(grad_score.sum())
+    return np.concatenate([w, np.asarray([b], dtype=np.float32)]).astype(np.float32)
+
+
 def fit_mlp_controller(features: np.ndarray, labels: np.ndarray, steps: int = 1200, hidden: int = 32, lr: float = 0.03) -> dict[str, np.ndarray]:
     """Fit a tiny causal policy to the offline teacher without touching HZ-0B."""
     rng = np.random.default_rng(17)
