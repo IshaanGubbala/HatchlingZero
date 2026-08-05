@@ -1,6 +1,6 @@
 # HZ-0E Progress Tracker
 
-Updated: August 5, 2026
+Updated: August 5, 2026 (E0 complete: real `git log --all` sweep found zero prior MoE/routing work in this project's own code -- a genuine clean slate, unlike HZ-0D's D0 which recovered real reusable prior work under a relocated name. The one real, concrete finding: HZ-0A's existing 31-block architecture gives every layer, attention or recurrent, an identical dense SwiGLU FFN (`gate`/`up`: 768->2304, `down`: 2304->768, 5,313,792 params/block, 164,727,552 total), measured directly from the real frozen checkpoint -- the concrete substrate E1's expert contract will specify against.)
 
 ## Mission
 
@@ -8,16 +8,16 @@ Add a conservative four-expert, top-1 micro-MoE FFN with shared dense fallback t
 
 ## Current Status
 
-- Overall phase: `E0 not started`
-- Dependency status: **HZ-0D is complete and its dependency gate is satisfied** (`plans/HZ-0D_Progress_Tracker.md`, `docs/restart/hz0d_d10_evaluation_results.md`); E0 router-history/recovered-requirements work is still not started, and full integration should wait for a frozen E0-E4 design.
-- Last verified HZ-0E evidence: none
+- Overall phase: `E0 complete; E1 (expert contract) is next`
+- Dependency status: **HZ-0D is complete and its dependency gate is satisfied** (`plans/HZ-0D_Progress_Tracker.md`, `docs/restart/hz0d_d10_evaluation_results.md`), further confirmed by the real joint HZ-0A/B/C/D evaluation (`docs/restart/hz0abcd_joint_evaluation_results.md`); E1-E4 (MoE contract/simulator/objectives/baselines) may proceed, with E2 (isolated router simulator) allowed to start even before E1 fully closes, matching the plan's own text and HZ-0D's own D2-before-D5 precedent.
+- Last verified HZ-0E evidence: `docs/restart/hz0e_history_audit.md`, `docs/restart/hz0e_recovered_requirements.md` (2026-08-05) -- no prior implementation to recover; real substrate found and measured instead (see above)
 - Current stopping rule: keep experts out of recurrent-state and memory-write internals initially
 
 ## Phase Tracker
 
 | Phase | Deliverable | Status | Evidence / Notes |
 | --- | --- | --- | --- |
-| E0 | history audit and recovered requirements | Not started | Create `docs/restart/hz0e_history_audit.md` and `hz0e_recovered_requirements.md` |
+| E0 | history audit and recovered requirements | **Complete** | `docs/restart/hz0e_history_audit.md`, `docs/restart/hz0e_recovered_requirements.md`. Full `git log --all` sweep (grep + filename scan across the project's own source trees, not installed packages) found zero prior MoE/expert/router work -- a genuine clean slate. Real substrate found instead: HZ-0A's 31-block model (6 attention layers at indices 4/9/14/19/24/29, 25 GDN-2 layers) gives every block an identical dense SwiGLU FFN (`gate`/`up`: 768->2304, `down`: 2304->768), measured directly from the real checkpoint at 5,313,792 params/block, 164,727,552 total -- the concrete "upper MLP blocks" substrate E1 will specify its expert-candidate layer set against. |
 | E1 | expert contract | Not started | Four experts, top-1, capacity, fallback, counts, deterministic inference |
 | E2 | isolated router simulator | Not started | Mixed domains, imbalance, shifts, noise, utilization, overflow, collapse |
 | E3 | routing objectives | Not started | Task loss, load balance, z-loss, overflow, diversity, warm starts |
@@ -31,8 +31,8 @@ Add a conservative four-expert, top-1 micro-MoE FFN with shared dense fallback t
 
 ## Required Artifacts
 
-- [ ] `docs/restart/hz0e_history_audit.md`
-- [ ] `docs/restart/hz0e_recovered_requirements.md`
+- [x] `docs/restart/hz0e_history_audit.md`
+- [x] `docs/restart/hz0e_recovered_requirements.md`
 - [ ] Exact expert and active-parameter contract
 - [ ] Deterministic router simulator and utilization report
 - [ ] Routing-objective comparison
@@ -51,7 +51,7 @@ Add a conservative four-expert, top-1 micro-MoE FFN with shared dense fallback t
 
 ## Exit Gates
 
-- E0: routing and expert design is independent of archived code.
+- [x] E0: routing and expert design is independent of archived code. -- `docs/restart/hz0e_history_audit.md`: no archived MoE code exists to depend on; the one real prior-art dependency (HZ-0A's own live, current per-block dense FFN) is current infrastructure, not archived material
 - E1: exact total and active parameter counts are known.
 - E2: multiple experts remain active without collapse.
 - E3: balancing does not overwhelm task learning.
