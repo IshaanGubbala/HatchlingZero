@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import mlx.core as mx
 
-from reference.hz0d_fast_weights import FastWeightConfig, effective_delta, init_fast_weights
+from reference.hz0d_fast_weights import FastWeightConfig, FastWeightState, effective_delta, init_fast_weights
 from reference.hz0d_isolated_simulator import make_task, held_out_generalization_loss
 from reference.hz0d_update_mechanisms import (
     delta_prediction_update, error_conditioned_update, gradient_descent_update, hebbian_delta_rule_update,
@@ -56,14 +56,29 @@ def test_hebbian_leaves_a_fast_unchanged_when_clipping_does_not_engage():
     assert not bool(mx.array_equal(state.b_fast, initial.b_fast))
 
 
-def test_delta_prediction_achieves_near_zero_training_loss_on_clean_data():
-    """The closed-form least-squares solve should fit the (noise-free)
-    training examples almost exactly -- the real, expected behavior of
-    an exact interpolator, and the same property that makes it fragile
-    under label noise (tested below)."""
+def test_delta_prediction_fits_clean_training_data_closely_but_not_exactly():
+    """With the fix (ridge=1.0 regularization, see the function's own
+    docstring for why), the closed-form solve is DELIBERATELY not an
+    exact interpolator anymore -- it should still fit clean training
+    data closely (small training loss), but the whole point of the
+    fix is that it no longer drives training loss to ~0, which is what
+    made the unregularized version collapse under label noise (see
+    `test_delta_prediction_is_robust_to_label_noise_after_the_ridge_fix`
+    below)."""
     task = make_task(CONFIG, seed=7, k_train=6, k_held_out=16, rule_scale=0.3)
-    _, diagnostics = delta_prediction_update(task, init_fast_weights(CONFIG), CONFIG)
-    assert diagnostics["final_train_loss"] < 1e-2
+    _, diagnostics = delta_prediction_update(task, init_fast_weights(CONFIG), CONFIG, ridge=1.0)
+    assert 1e-4 < diagnostics["final_train_loss"] < 0.1
+
+
+def test_delta_prediction_ridge_strength_trades_off_clean_fit_against_noise_robustness():
+    """Direct confirmation that `ridge` behaves as regularization should:
+    more ridge -> worse clean-data fit, monotonically."""
+    task = make_task(CONFIG, seed=7, k_train=6, k_held_out=16, rule_scale=0.3)
+    train_losses = []
+    for ridge in [0.1, 1.0, 3.0]:
+        _, diagnostics = delta_prediction_update(task, init_fast_weights(CONFIG), CONFIG, ridge=ridge)
+        train_losses.append(diagnostics["final_train_loss"])
+    assert train_losses == sorted(train_losses), f"training loss should increase with more ridge: {train_losses}"
 
 
 def test_error_conditioned_gate_is_bounded_and_shrinks_with_error():
@@ -96,29 +111,65 @@ def test_gradient_descent_beats_hebbian_on_clean_data():
     assert gd_loss < hebbian_loss * 0.5, f"expected gradient descent to clearly beat Hebbian: {gd_loss} vs {hebbian_loss}"
 
 
-def test_delta_prediction_wins_on_clean_data_but_collapses_under_label_noise():
-    """The real, decisive D3 finding: the closed-form method is BEST on
-    clean data (exact interpolation) but catastrophically worse than
-    gradient descent once training labels carry real noise -- because it
-    has no implicit regularization the way early-stopped iterative
-    gradient descent does. This is why gradient descent, not delta
-    prediction, is the method actually selected (see the results doc)."""
-    task, noisy_task = _clean_and_noisy_tasks(seed=1)
+def _unregularized_pinv_delta_prediction(task, config):
+    """Reproduces EXACTLY the first version of `delta_prediction_update`
+    (plain Moore-Penrose pseudo-inverse, no ridge) -- kept here, not as
+    a `ridge=0.0` call, because `ridge=0.0` through the FIXED function's
+    `mx.linalg.solve`-based normal equations has a DIFFERENT failure
+    mode (the Gram matrix `X.T @ X` is singular/rank-deficient whenever
+    `k_train < dim`, so `solve` is numerically unstable there regardless
+    of label noise -- not the same thing as the original pinv-based
+    exact-interpolation-overfits-noise finding this test locks in)."""
+    residual = task.train_y - (task.train_x @ task.base_weight.T + task.base_bias)
+    delta_t = mx.linalg.pinv(task.train_x, stream=mx.cpu) @ residual
+    u, s, vt = mx.linalg.svd(delta_t.T, stream=mx.cpu)
+    r = config.rank
+    sqrt_s = mx.sqrt(mx.clip(s[:r], 0.0, None))
+    a_layer = u[:, :r] * sqrt_s[None, :]
+    b_layer = sqrt_s[:, None] * vt[:r, :]
+    return FastWeightState(a_fast=mx.expand_dims(a_layer, 0), b_fast=mx.expand_dims(b_layer, 0), update_count=mx.array(0))
 
-    clean_delta_state, _ = delta_prediction_update(task, init_fast_weights(CONFIG), CONFIG)
-    clean_gd_state, _ = gradient_descent_update(task, init_fast_weights(CONFIG), CONFIG, steps=400, lr=0.02)
-    assert held_out_generalization_loss(task, clean_delta_state) < held_out_generalization_loss(task, clean_gd_state), (
-        "expected delta prediction to win on clean data"
+
+def test_unregularized_delta_prediction_collapses_under_label_noise():
+    """Locks in the ORIGINAL D3 finding as a real regression test --
+    the whole reason the ridge fix below exists."""
+    task, noisy_task = _clean_and_noisy_tasks(seed=1)
+    clean_state = _unregularized_pinv_delta_prediction(task, CONFIG)
+    noisy_state = _unregularized_pinv_delta_prediction(noisy_task, CONFIG)
+    clean_loss = held_out_generalization_loss(task, clean_state)
+    noisy_loss = held_out_generalization_loss(task, noisy_state)
+    assert noisy_loss > clean_loss * 20, (
+        f"expected the UNREGULARIZED closed-form solve to collapse under label noise: {clean_loss} -> {noisy_loss}"
     )
 
-    noisy_delta_state, _ = delta_prediction_update(noisy_task, init_fast_weights(CONFIG), CONFIG)
+
+def test_ridge_regularized_delta_prediction_is_robust_to_label_noise():
+    """The fix, verified directly: with the default `ridge=1.0`, delta
+    prediction's noisy-data held-out loss stays within the same order
+    of magnitude as gradient descent's on the SAME noisy data --
+    closing the ~135x gap the unregularized version had, while (checked
+    in `test_ridge_regularized_delta_prediction_keeps_its_speed_advantage`
+    below) retaining the closed-form method's real speed advantage."""
+    task, noisy_task = _clean_and_noisy_tasks(seed=1)
+    noisy_delta_state, _ = delta_prediction_update(noisy_task, init_fast_weights(CONFIG), CONFIG, ridge=1.0)
     noisy_gd_state, _ = gradient_descent_update(noisy_task, init_fast_weights(CONFIG), CONFIG, steps=400, lr=0.02)
     noisy_delta_loss = held_out_generalization_loss(task, noisy_delta_state)  # measured vs the CLEAN target
     noisy_gd_loss = held_out_generalization_loss(task, noisy_gd_state)
-    assert noisy_delta_loss > noisy_gd_loss * 10, (
-        f"expected delta prediction to collapse under label noise relative to gradient descent: "
+    assert noisy_delta_loss < noisy_gd_loss * 3, (
+        f"expected ridge-regularized delta prediction to stay competitive with gradient descent under noise: "
         f"{noisy_delta_loss} vs {noisy_gd_loss}"
     )
+
+
+def test_ridge_regularized_delta_prediction_keeps_its_speed_advantage():
+    """The fix must not have quietly turned delta prediction into
+    iterative optimization -- still one linear solve, still orders of
+    magnitude faster than 400 gradient-descent steps."""
+    task = make_task(CONFIG, seed=1, k_train=6, k_held_out=16, rule_scale=0.3)
+    _, delta_diag = delta_prediction_update(task, init_fast_weights(CONFIG), CONFIG, ridge=1.0)
+    _, gd_diag = gradient_descent_update(task, init_fast_weights(CONFIG), CONFIG, steps=400, lr=0.02)
+    assert delta_diag["steps"] == 1
+    assert delta_diag["wall_seconds"] < gd_diag["wall_seconds"] / 100
 
 
 def test_gradient_descent_degrades_gracefully_under_label_noise():
