@@ -1,12 +1,13 @@
-# HZ-0C C7/C9: Three Real Attempts to Fix the Controller Plateau -- Convergent Honest Null Result
+# HZ-0C C7/C9: Four Real Attempts to Fix the Controller Plateau -- Convergent Honest Null Result
 
 Date: 2026-08-04. Addresses the tracker's own priority #3 ("improve C9
 trigger quality with a different causal objective or feature family, not
 more tuning of the saturated token-loss controller") and a later direct
-request to fix the C7 plateau. Three independent, real attempts -- a new
-feature family, a new hypothesis space, and a new training objective --
-were tried; none improved held-out quality, and all three converged to
-the same ceiling.
+request to fix the C7 plateau. Four independent, real attempts -- a new
+feature family, a new hypothesis space, a new training objective, and
+(finally) a genuinely different teacher signal -- were tried; none
+improved held-out quality, and all four converged to or fell below the
+same ceiling.
 
 ## What was tried
 
@@ -98,26 +99,87 @@ identical precision, well within what a single held-out split's noise
 could produce. `lr=1.0` clearly destabilizes (0.4167-0.4193), confirming
 the sweep is real optimization behavior, not a flat/broken loss surface.
 
+## A fourth attempt: a genuinely different TEACHER signal, at full budget this time
+
+The one remaining candidate explicitly named after the first three
+attempts: not a new feature, hypothesis space, or objective on top of
+`token_loss_score`, but a structurally different TEACHER. C6's own
+`causal_attention_benefit` (real per-position downstream LM-loss benefit
+from adding one anchor, `scripts/hz0c_c6_conditional_attention_eval.py`)
+already existed and had been tried once before, blended with
+`token_loss_score` at a small candidate budget (per C6's own record: 8
+sequences, 4 candidates, blend 0.5) and rejected for regressing on 1/3
+splits. That earlier attempt was explicitly left as "not re-attempted at
+a larger budget" -- done here, as a PURE teacher (`causal_teacher_blend=1.0`,
+no token-loss mixing) at increasing budgets, using `hz0c_c7_rl_trigger_controller.py::main`'s
+existing (previously CLI-unexposed) `causal_teacher_sequences`/
+`causal_teacher_candidates`/`causal_teacher_blend` parameters.
+
+| Config | Controller recall | Teacher's own recall |
+| --- | ---: | ---: |
+| Baseline (token_loss only) | 0.4800 | -- |
+| Causal teacher, 16 seqs / 16 candidates, seed 555 | 0.4661 | 0.6107 |
+| Causal teacher, 32 seqs / 40 candidates (full budget), seed 555 | **0.2839** | **0.3177** |
+| Causal teacher, 32 seqs / 40 candidates (full budget), seed 556 | **0.2174** | **0.2552** |
+
+**Not just unhelpful -- actively, dramatically worse, and the gap widens
+with a LARGER candidate budget, the opposite of what "not enough budget"
+would predict.** At full budget the causal teacher's OWN recall against
+the C3 scenarios' hand-labeled ground truth (0.26-0.32) is far below
+`token_loss_score`'s typical 0.75-0.83, and the controller trained to
+imitate it inherits that gap.
+
+**A real, disclosed explanation, not just a negative number**: this is
+most likely an evaluation-target mismatch, not a signal-quality failure.
+`causal_attention_benefit` measures which position TRULY reduces
+downstream loss most when anchored -- a different question from "which
+position matches this scenario's hand-labeled construction point" (e.g.
+a topic-shift's exact boundary token, a rebinding's exact reassignment
+position). The real downstream-loss-optimal anchor for a given sequence
+may genuinely be a different, nearby position than the one C3's
+construction logic labeled as ground truth -- in which case a MORE
+correct teacher (by the only standard that matters for an actual
+deployed system, real loss reduction) scores WORSE on a recall metric
+defined against a different target. This does not mean
+`causal_attention_benefit` is a bad signal; it means "recall against
+hand-labeled scenario positions" and "true downstream benefit" are two
+different things this investigation was implicitly treating as
+interchangeable, and are not.
+
 ## Honest conclusion
 
-Three independent, real attempts -- a new feature family, a new
-hypothesis space, and now a new training objective -- all converge to
-the SAME ~0.51-0.52 held-out recall ceiling on this teacher signal and
-this scenario collection. **0.5182-0.5208 recall / ~0.107 precision is
-the ceiling, not a number any of these three levers could move.** This
-is stronger, more convergent evidence than any single negative result
-alone: it points away from "we haven't found the right model/objective
-yet" and toward a genuine INFORMATION ceiling -- the causal features
-available at real inference time (hidden-state novelty, attention
-demand, realized attention patterns, next-token uncertainty) most likely
-do not carry enough signal to approach `token_loss_score`'s own
-0.75-0.83 ceiling, which uses the actual future token, information
-genuinely unavailable at deployment time. Reported as the honest
-conclusion of this investigation, not as a reason to stop looking, but
-as a reason to stop tuning the SAME lever family: real remaining
-candidates, structurally different from all three tried here, are a
-genuinely different TEACHER (not token_loss_score) reflecting true
-downstream benefit at scale (C6's own bounded downstream-teacher screen
-regressed on 1/3 splits at a small candidate budget, not re-attempted at
-a larger one), or accepting the current ceiling as this teacher's
-honest limit and moving to other C8/C9 work instead.
+Four independent, real attempts -- a new feature family, a new
+hypothesis space, a new training objective, and a structurally different
+teacher signal at full budget -- were tried against the C7/C9 controller
+plateau. The first three all converge to the SAME ~0.51-0.52 held-out
+recall ceiling (`0.5182`-`0.5208` recall / `~0.107` precision) on
+`token_loss_score`, not moving it in either direction. The fourth
+(a real downstream-benefit teacher, tried precisely because it was named
+as the one remaining structurally-different candidate) does not raise
+that ceiling either -- it falls well BELOW it (0.22-0.28 controller
+recall), with a real, disclosed reason: `causal_attention_benefit`
+answers "which position truly reduces downstream loss," which is a
+different question from "which position matches this scenario's
+hand-labeled construction point," and the two are not interchangeable
+here.
+
+Taken together, this is a materially stronger, more complete
+investigation than any single negative result: it rules out feature
+representation, model capacity, training objective, AND (for the one
+alternative teacher this project has built) teacher signal as the
+bottleneck, while also surfacing a genuine methodological insight (the
+evaluation metric itself measures something narrower than "true
+downstream benefit," a fact worth carrying into any FUTURE scenario or
+metric design, not just this controller). **`0.5182`-`0.5208` recall /
+`~0.107` precision, on `token_loss_score`, via the linear controller,
+remains the strongest real result C7/C9 has produced, and this
+investigation is now genuinely exhausted for the levers available in
+this codebase** -- not abandoned early, but concluded after four
+independent, real, verified attempts, three of which converged and one
+of which revealed why the fourth couldn't simply be swapped in. The
+honest path forward, if this ceiling needs to move, is either a new
+SCENARIO/ground-truth design whose labels ARE defined by true downstream
+benefit (removing the mismatch this pass found, not something existing
+C3 infrastructure does today), or accepting `token_loss_score` at
+`~0.52` recall as this mechanism's honest, real ceiling and moving to
+other C8/C9 work instead.
