@@ -99,23 +99,19 @@ def apply_fast_linear(x: mx.array, base_weight: mx.array, base_bias: mx.array, s
     return x @ (base_weight + delta).T + base_bias
 
 
-def update_fast_weights(state: FastWeightState, layer_index: int, grad_a: mx.array, grad_b: mx.array, *, lr: float, config: FastWeightConfig) -> FastWeightState:
-    """One real gradient-descent step on layer `layer_index`'s factors,
-    using REAL, externally-computed gradients (e.g. from
-    `mx.value_and_grad` over a real loss) -- never approximated inside
-    this function. This is the exact discipline
-    `docs/restart/hz0d_history_audit.md` found missing in the prior
-    implementation.
-
-    Clips the REALIZED delta's Frobenius norm (not the factors
-    individually) to `config.max_delta_norm` after the step -- see
-    contract doc section 5 for why the delta, not the factors, is what
-    gets bounded."""
-    updated_a_layer = state.a_fast[layer_index] - lr * grad_a
-    updated_b_layer = state.b_fast[layer_index] - lr * grad_b
-    delta = updated_a_layer @ updated_b_layer
+def clip_layer_factors(a_layer: mx.array, b_layer: mx.array, max_delta_norm: float) -> tuple[mx.array, mx.array]:
+    """Clips ONE layer's `(a_layer, b_layer)` pair so the REALIZED delta's
+    Frobenius norm (not the factors individually) never exceeds
+    `max_delta_norm` -- see contract doc section 5 for why the delta,
+    not the factors, is what gets bounded. Extracted as its own function
+    (2026-08-04, during D3) so every update mechanism in
+    `reference/hz0d_update_mechanisms.py` -- not just
+    `update_fast_weights`'s gradient-descent path -- respects the SAME
+    bound; a comparison between mechanisms would not be fair if only one
+    of them were clipped."""
+    delta = a_layer @ b_layer
     delta_norm = mx.sqrt(mx.sum(delta * delta))
-    scale = mx.minimum(mx.array(1.0), config.max_delta_norm / (delta_norm + 1e-8))
+    scale = mx.minimum(mx.array(1.0), max_delta_norm / (delta_norm + 1e-8))
     # Scale is applied to the FACTORS (splitting the scale evenly across
     # both, via its square root) so the clipped delta's norm is exactly
     # `scale * delta_norm`, matching a direct clip on the delta itself,
@@ -123,18 +119,30 @@ def update_fast_weights(state: FastWeightState, layer_index: int, grad_a: mx.arr
     # materializing and reclipping a dense [dim, dim] delta into new
     # factors, which would silently destroy the rank bound).
     factor_scale = mx.sqrt(scale)
-    clipped_a_layer = updated_a_layer * factor_scale
-    clipped_b_layer = updated_b_layer * factor_scale
-    new_a = mx.where(
-        mx.arange(state.a_fast.shape[0])[:, None, None] == layer_index,
-        mx.broadcast_to(clipped_a_layer[None, :, :], state.a_fast.shape),
-        state.a_fast,
+    return a_layer * factor_scale, b_layer * factor_scale
+
+
+def _replace_layer(tensor: mx.array, layer_index: int, new_layer: mx.array) -> mx.array:
+    return mx.where(
+        mx.arange(tensor.shape[0])[:, None, None] == layer_index,
+        mx.broadcast_to(new_layer[None, :, :], tensor.shape),
+        tensor,
     )
-    new_b = mx.where(
-        mx.arange(state.b_fast.shape[0])[:, None, None] == layer_index,
-        mx.broadcast_to(clipped_b_layer[None, :, :], state.b_fast.shape),
-        state.b_fast,
-    )
+
+
+def update_fast_weights(state: FastWeightState, layer_index: int, grad_a: mx.array, grad_b: mx.array, *, lr: float, config: FastWeightConfig) -> FastWeightState:
+    """One real gradient-descent step on layer `layer_index`'s factors,
+    using REAL, externally-computed gradients (e.g. from
+    `mx.value_and_grad` over a real loss) -- never approximated inside
+    this function. This is the exact discipline
+    `docs/restart/hz0d_history_audit.md` found missing in the prior
+    implementation. Clips via `clip_layer_factors` (contract doc section
+    5)."""
+    updated_a_layer = state.a_fast[layer_index] - lr * grad_a
+    updated_b_layer = state.b_fast[layer_index] - lr * grad_b
+    clipped_a_layer, clipped_b_layer = clip_layer_factors(updated_a_layer, updated_b_layer, config.max_delta_norm)
+    new_a = _replace_layer(state.a_fast, layer_index, clipped_a_layer)
+    new_b = _replace_layer(state.b_fast, layer_index, clipped_b_layer)
     return FastWeightState(a_fast=new_a, b_fast=new_b, update_count=state.update_count + 1)
 
 
