@@ -191,19 +191,56 @@ cross-thread redundancy was, as characterized, the dominant cost, and
 removing it changed the GPU/CPU ordering completely, not just the
 absolute numbers.
 
-**Still honestly behind MLX**, by 6x-21x depending on shape/rate (e.g.
-33.4ms GPU-FFI vs 0.28ms MLX at production/100% -- roughly 21x slower for the two clean shapes, "worse" ratios at C3 scale partly because MLX's absolute time there is smaller in the first place). This gap has at least
-two remaining, uninvestigated causes, both real candidates for further
-work: (a) MLX's own attention op is presumably even more aggressively
-tuned (SIMD-group-level reductions, fused/batched dispatch, avoiding a
-naive per-thread scalar inner loop for the O(D) projections this kernel
-still does one multiply-add at a time), and (b) the measured
-`gpu_ffi_mean_seconds` includes real Python/NumPy/`ctypes` marshaling
-overhead on every call (array-shape validation, `ascontiguousarray`,
-pointer construction) that a pure device-side comparison would not
-include -- not isolated or attributed between these two causes here, a
-real next step if closing the remaining gap matters more than having
-already closed the 24x-413x gap that existed a few hours earlier.
+**Still honestly behind MLX -- by 6.3x to 119x depending on shape/rate,
+not the narrower "6x-21x" this doc first reported** (that first summary
+undercounted the worst case; corrected here rather than left standing):
+
+| Shape | Seq | Rate | GPU FFI vs MLX |
+| --- | ---: | ---: | ---: |
+| C3 scale | 40 | 0% | 6.3x slower |
+| C3 scale | 40 | 15% | 12.9x slower |
+| C3 scale | 40 | 100% | 21.4x slower |
+| Production | 128 | 0% | 19.7x slower |
+| Production | 128 | 15% | 23.4x slower |
+| Production | 128 | 100% | **118.8x slower** |
+
+The gap widens sharply with sequence length AND trigger rate together
+(worst at seq=128/100%) -- consistent with the kernel's remaining
+per-source work (still an O(D) scalar loop for each key/value
+projection, not vectorized) scaling with the number of visible sources,
+which is exactly `seq * rate`.
+
+## Attributing the remaining gap: kernel cost, not marshaling overhead (2026-08-04, same day)
+
+The doc originally named two uninvestigated candidate causes for this
+gap -- MLX's own kernel tuning, and Python/NumPy/`ctypes` marshaling
+overhead not yet isolated from device time. Measured directly rather
+than left as speculation:
+`restart/hz0a_pmetal/crates/hz0a-pmetal-gpu/examples/gpu_forward_latency.rs`
+times `MetalConditionalAnchorAttention::forward` directly from Rust --
+no Python process, no `ctypes`, no NumPy involved -- at the identical
+shapes/rates.
+
+| Shape | Seq | Rate | Pure Rust | Python ctypes | Marshaling overhead |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| C3 scale | 40 | 0% | 3.333ms | 3.621ms | 0.288ms (8.6%) |
+| C3 scale | 40 | 15% | 3.482ms | 3.590ms | 0.108ms (3.1%) |
+| C3 scale | 40 | 100% | 5.843ms | 5.888ms | 0.045ms (0.8%) |
+| Production | 128 | 0% | 5.594ms | 5.599ms | 0.005ms (0.1%) |
+| Production | 128 | 15% | 6.477ms | 6.600ms | 0.123ms (1.9%) |
+| Production | 128 | 100% | 33.592ms | 33.362ms | -0.230ms (noise) |
+
+**Marshaling overhead is negligible -- 0-9%, mostly within run-to-run
+noise (one row even came out slightly negative, i.e. the "overhead" is
+smaller than measurement jitter).** The candidate cause named as (b) is
+resolved: it is NOT the explanation. The full 6.3x-119x gap to MLX is
+real Metal kernel dispatch cost -- candidate (a), MLX's own kernel being
+more aggressively tuned (SIMD-group-level reductions, vectorized/fused
+per-source projections instead of this kernel's still-scalar O(D) inner
+loop for each key/value projection), is the actual, now-confirmed
+explanation. A vectorized inner loop (e.g. `float4`/SIMD-group
+reductions for the per-source key/value projections) is the concrete
+next optimization this points to, not attempted this pass.
 
 ## What "model-level integration" AND "grouped/cache-optimized dispatch" mean now, precisely
 
@@ -223,11 +260,14 @@ already closed the 24x-413x gap that existed a few hours earlier.
   shape/rate; now consistently 3.4x-19.8x faster than the CPU kernel too,
   reversing the earlier ordering).
 - **Not done, and not claimed**: beating MLX itself. The GPU-FFI path is
-  now within 6x-21x of MLX (down from up to ~49,000x slower measured
+  now within 6.3x-119x of MLX (down from up to ~49,000x slower measured
   immediately before the threadgroup fix -- the within-thread fix alone
   was already applied by then, so this is specifically what the
-  cross-thread/grouped-dispatch fix closed), with two real,
-  uninvestigated candidate causes for the remaining gap named above
-  (MLX's own kernel tuning, and Python/ctypes marshaling overhead not
-  yet isolated from device time) -- an honest, bounded remaining gap,
-  not an open-ended one.
+  cross-thread/grouped-dispatch fix closed). The gap's cause is no
+  longer speculative: a direct pure-Rust measurement
+  (`hz0a-pmetal-gpu/examples/gpu_forward_latency.rs`) found Python/
+  `ctypes` marshaling overhead negligible (0-9%, mostly noise) -- the
+  full gap is real Metal kernel dispatch cost, pointing at a concrete
+  next step (vectorizing the still-scalar per-source key/value
+  projection loop) rather than an open-ended "something in the FFI path
+  might be slow."
