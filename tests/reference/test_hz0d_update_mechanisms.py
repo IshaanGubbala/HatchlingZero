@@ -57,16 +57,16 @@ def test_hebbian_leaves_a_fast_unchanged_when_clipping_does_not_engage():
 
 
 def test_delta_prediction_fits_clean_training_data_closely_but_not_exactly():
-    """With the fix (ridge=1.0 regularization, see the function's own
-    docstring for why), the closed-form solve is DELIBERATELY not an
-    exact interpolator anymore -- it should still fit clean training
-    data closely (small training loss), but the whole point of the
-    fix is that it no longer drives training loss to ~0, which is what
-    made the unregularized version collapse under label noise (see
-    `test_delta_prediction_is_robust_to_label_noise_after_the_ridge_fix`
+    """With the fix (ridge-regularized ALS -- see the function's own
+    docstring for the v1/v2/v3 history), the fit is DELIBERATELY not an
+    exact interpolator: it should still fit clean training data closely
+    (small training loss), but the whole point of the ridge term is that
+    it doesn't drive training loss to ~0, which is what made the
+    original unregularized version collapse under label noise (see
+    `test_unregularized_delta_prediction_collapses_under_label_noise`
     below)."""
     task = make_task(CONFIG, seed=7, k_train=6, k_held_out=16, rule_scale=0.3)
-    _, diagnostics = delta_prediction_update(task, init_fast_weights(CONFIG), CONFIG, ridge=1.0)
+    _, diagnostics = delta_prediction_update(task, init_fast_weights(CONFIG), CONFIG)
     assert 1e-4 < diagnostics["final_train_loss"] < 0.1
 
 
@@ -75,10 +75,37 @@ def test_delta_prediction_ridge_strength_trades_off_clean_fit_against_noise_robu
     more ridge -> worse clean-data fit, monotonically."""
     task = make_task(CONFIG, seed=7, k_train=6, k_held_out=16, rule_scale=0.3)
     train_losses = []
-    for ridge in [0.1, 1.0, 3.0]:
+    for ridge in [0.05, 0.27, 1.0]:
         _, diagnostics = delta_prediction_update(task, init_fast_weights(CONFIG), CONFIG, ridge=ridge)
         train_losses.append(diagnostics["final_train_loss"])
     assert train_losses == sorted(train_losses), f"training loss should increase with more ridge: {train_losses}"
+
+
+def test_als_delta_prediction_matches_gradient_descent_accuracy_on_both_clean_and_noisy_data():
+    """The specific ask this v3 fix was built for: not just "in the same
+    ballpark," but close enough on BOTH clean and noisy held-out loss,
+    simultaneously, on the same seed's data, that either method is a
+    real toss-up on accuracy -- with delta prediction still ~2 orders
+    of magnitude faster (checked separately above)."""
+    task, noisy_task = _clean_and_noisy_tasks(seed=1)
+
+    delta_clean_state, _ = delta_prediction_update(task, init_fast_weights(CONFIG), CONFIG)
+    gd_clean_state, _ = gradient_descent_update(task, init_fast_weights(CONFIG), CONFIG, steps=400, lr=0.02)
+    delta_clean_loss = held_out_generalization_loss(task, delta_clean_state)
+    gd_clean_loss = held_out_generalization_loss(task, gd_clean_state)
+    assert delta_clean_loss < gd_clean_loss * 1.5, (
+        f"expected ALS delta prediction to be within 50% of gradient descent on clean data: "
+        f"{delta_clean_loss} vs {gd_clean_loss}"
+    )
+
+    delta_noisy_state, _ = delta_prediction_update(noisy_task, init_fast_weights(CONFIG), CONFIG)
+    gd_noisy_state, _ = gradient_descent_update(noisy_task, init_fast_weights(CONFIG), CONFIG, steps=400, lr=0.02)
+    delta_noisy_loss = held_out_generalization_loss(task, delta_noisy_state)  # vs the CLEAN target
+    gd_noisy_loss = held_out_generalization_loss(task, gd_noisy_state)
+    assert delta_noisy_loss < gd_noisy_loss * 1.5, (
+        f"expected ALS delta prediction to be within 50% of gradient descent on noisy data: "
+        f"{delta_noisy_loss} vs {gd_noisy_loss}"
+    )
 
 
 def test_error_conditioned_gate_is_bounded_and_shrinks_with_error():
@@ -144,14 +171,16 @@ def test_unregularized_delta_prediction_collapses_under_label_noise():
 
 
 def test_ridge_regularized_delta_prediction_is_robust_to_label_noise():
-    """The fix, verified directly: with the default `ridge=1.0`, delta
-    prediction's noisy-data held-out loss stays within the same order
-    of magnitude as gradient descent's on the SAME noisy data --
-    closing the ~135x gap the unregularized version had, while (checked
-    in `test_ridge_regularized_delta_prediction_keeps_its_speed_advantage`
+    """The fix, verified directly: with the default (`ridge=0.27`,
+    ALS), delta prediction's noisy-data held-out loss stays close to
+    gradient descent's on the SAME noisy data -- closing the ~135x gap
+    the original unregularized version had down to single-digit
+    percent (see the function's own docstring for the full multi-seed
+    numbers), while (checked in
+    `test_ridge_regularized_delta_prediction_keeps_its_speed_advantage`
     below) retaining the closed-form method's real speed advantage."""
     task, noisy_task = _clean_and_noisy_tasks(seed=1)
-    noisy_delta_state, _ = delta_prediction_update(noisy_task, init_fast_weights(CONFIG), CONFIG, ridge=1.0)
+    noisy_delta_state, _ = delta_prediction_update(noisy_task, init_fast_weights(CONFIG), CONFIG)
     noisy_gd_state, _ = gradient_descent_update(noisy_task, init_fast_weights(CONFIG), CONFIG, steps=400, lr=0.02)
     noisy_delta_loss = held_out_generalization_loss(task, noisy_delta_state)  # measured vs the CLEAN target
     noisy_gd_loss = held_out_generalization_loss(task, noisy_gd_state)
@@ -162,13 +191,15 @@ def test_ridge_regularized_delta_prediction_is_robust_to_label_noise():
 
 
 def test_ridge_regularized_delta_prediction_keeps_its_speed_advantage():
-    """The fix must not have quietly turned delta prediction into
-    iterative optimization -- still one linear solve, still orders of
-    magnitude faster than 400 gradient-descent steps."""
+    """The fix (now ALS, a small fixed number of closed-form solves)
+    must not have quietly turned delta prediction into full iterative
+    optimization -- still a small, bounded step count (`iters=15` by
+    default, not hundreds), still orders of magnitude faster than 400
+    gradient-descent steps."""
     task = make_task(CONFIG, seed=1, k_train=6, k_held_out=16, rule_scale=0.3)
-    _, delta_diag = delta_prediction_update(task, init_fast_weights(CONFIG), CONFIG, ridge=1.0)
+    _, delta_diag = delta_prediction_update(task, init_fast_weights(CONFIG), CONFIG)
     _, gd_diag = gradient_descent_update(task, init_fast_weights(CONFIG), CONFIG, steps=400, lr=0.02)
-    assert delta_diag["steps"] == 1
+    assert delta_diag["steps"] <= 20
     assert delta_diag["wall_seconds"] < gd_diag["wall_seconds"] / 100
 
 
