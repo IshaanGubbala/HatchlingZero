@@ -115,6 +115,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "hz0d-pmetal-fastweights"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
+name = "hz0d-pmetal-fastweights-bridge"
+version = "0.1.0"
+dependencies = [
+ "hz0d-pmetal-fastweights",
+]
+
+[[package]]
 name = "itoa"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"

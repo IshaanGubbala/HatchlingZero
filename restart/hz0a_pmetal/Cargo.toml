@@ -5,7 +5,9 @@ members = [
   "crates/hz0a-pmetal-tensor",
   "crates/hz0a-pmetal-gpu",
   "crates/hz0b-pmetal-memory",
-  "crates/hz0b-pmetal-memory-bridge"
+  "crates/hz0b-pmetal-memory-bridge",
+  "crates/hz0d-pmetal-fastweights",
+  "crates/hz0d-pmetal-fastweights-bridge"
 ]
 
 resolver = "2"
