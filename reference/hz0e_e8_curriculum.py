@@ -37,7 +37,7 @@ import mlx.nn as nn
 from reference.hz0e_e2_router_simulator import DOMAIN_DATA_PATHS, collect_real_ffn_input, route_with_stats
 from reference.hz0e_e3_routing_objectives import params_to_dict, supervised_warm_start, train_moe_layer
 from reference.hz0e_e4_fair_baselines import train_generic, eval_generic
-from reference.hz0e_e6_integration import init_e6_layers
+from reference.hz0e_e6_integration import TARGET_LAYERS, cross_entropy_loss, forward_e6, init_e6_layers
 from reference.hz0e_moe_contract import MoeConfig, MoeLayerParams
 from scripts.hz0c_c3_trigger_simulator import load_real_sequences
 
@@ -326,3 +326,76 @@ def run_warm_dense_baseline(model, *, d_ff: int = 577, layer_index: int = LAYER,
     trained, _losses = train_generic(model, stage1 + stage2 + stage3, lambda: warm_dense_init(model, layer_index, d_ff), loss_fn, learning_rate=learning_rate)
     after = eval_generic(model, general_val, trained, loss_fn)
     return trained, before, after
+
+
+# --- Full 3-layer joint integration: the actually-scoped E1 contract
+# (layers 27, 28, 30 converted SIMULTANEOUSLY), not just one layer in
+# isolation. Every earlier E6/E8 quality measurement -- including the
+# 150-step and 450-step single-layer results this module and its
+# results doc report -- only ever tested layer 27 alone. This checks
+# whether the AGGREGATE effect of all 3 real target layers differs
+# from a single isolated layer, using E6's own `forward_e6` (which
+# already supports simultaneous multi-layer MoE dispatch) rather than
+# building new integration machinery. ---
+
+def _pack_layers(layers: dict[int, MoeLayerParams]) -> dict[str, mx.array]:
+    flat: dict[str, mx.array] = {}
+    for index, params in layers.items():
+        for key, value in params_to_dict(params).items():
+            flat[f"{index}.{key}"] = value
+    return flat
+
+
+def _unpack_layers(flat: dict[str, mx.array], target_layers: tuple[int, ...] = TARGET_LAYERS) -> dict[int, MoeLayerParams]:
+    layers = {}
+    for index in target_layers:
+        prefix = f"{index}."
+        sub = {key[len(prefix):]: value for key, value in flat.items() if key.startswith(prefix)}
+        layers[index] = MoeLayerParams(**sub)
+    return layers
+
+
+def run_joint_multilayer_curriculum(model, config: MoeConfig, *, balanced_steps: int = 50, mixed_steps: int = 50, imbalanced_steps: int = 50, learning_rate: float = 1e-5, seed: int = 0, warm_start_steps: int = 40, target_layers: tuple[int, ...] = TARGET_LAYERS) -> tuple[dict[int, MoeLayerParams], float, float, float]:
+    """Trains ALL of `target_layers` (default: E1's real 3-layer
+    contract, 27/28/30) TOGETHER via one shared gradient step per real
+    batch -- not 3 separate single-layer runs. Returns
+    `(trained_layers, pure_dense_val_loss, warm_start_only_val_loss,
+    after_curriculum_val_loss)`, all on the SAME real held-out prose
+    set every other E4/E8 quality number in this project uses."""
+    train_domains = load_domain_batches(TRAIN_DOMAIN_DATA_PATHS, count=8, seq_len=64, offset=0)
+    general_val = [mx.array([s[:64]]) for s in load_real_sequences("data/packed/repro_1024_val.jsonl", 10)]
+
+    pure_dense_losses = [float(cross_entropy_loss(forward_e6(model, tb, enabled=False).logits, tb)) for tb in general_val]
+    pure_dense_val = sum(pure_dense_losses) / len(pure_dense_losses)
+
+    e6_layers = init_e6_layers(model, seed=seed, target_layers=target_layers)
+    warmed_layers = {
+        index: supervised_warm_start(model, train_domains, DOMAIN_TO_EXPERT, config, layer_index=index, steps=warm_start_steps, learning_rate=1e-3, start_params=e6_layers[index])
+        for index in target_layers
+    }
+    warm_losses = [float(cross_entropy_loss(forward_e6(model, tb, moe_layers=warmed_layers, enabled=True, target_layers=target_layers).logits, tb)) for tb in general_val]
+    warm_val = sum(warm_losses) / len(warm_losses)
+
+    flat_params = _pack_layers(warmed_layers)
+
+    def loss_fn(flat_p: dict[str, mx.array], tokens: mx.array) -> mx.array:
+        layers = _unpack_layers(flat_p, target_layers)
+        result = forward_e6(model, tokens, moe_layers=layers, enabled=True, target_layers=target_layers)
+        return cross_entropy_loss(result.logits, tokens)
+
+    import mlx.optimizers as optim
+    grad_fn = mx.value_and_grad(loss_fn, argnums=0)
+    optimizer = optim.Adam(learning_rate=learning_rate)
+
+    stage1 = balanced_batches(train_domains, balanced_steps)
+    stage2 = mixed_domain_batches(train_domains, mixed_steps, seed=seed)
+    stage3 = imbalanced_batches(train_domains, imbalanced_steps)
+    for tokens in stage1 + stage2 + stage3:
+        _loss, grads = grad_fn(flat_params, tokens)
+        flat_params = optimizer.apply_gradients(grads, flat_params)
+        mx.eval(flat_params)
+
+    trained_layers = _unpack_layers(flat_params, target_layers)
+    after_losses = [float(cross_entropy_loss(forward_e6(model, tb, moe_layers=trained_layers, enabled=True, target_layers=target_layers).logits, tb)) for tb in general_val]
+    after_val = sum(after_losses) / len(after_losses)
+    return trained_layers, pure_dense_val, warm_val, after_val

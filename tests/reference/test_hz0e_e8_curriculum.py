@@ -18,7 +18,7 @@ from reference.hz0e_e4_fair_baselines import no_adaptation_loss
 from reference.hz0e_e6_integration import init_e6_layers
 from reference.hz0e_e8_curriculum import (
     LAYER, TRAIN_DOMAIN_DATA_PATHS, load_domain_batches, mean_pairwise_tv_distance, measure_specialization,
-    mixed_domain_batches, run_curriculum, run_warm_dense_baseline,
+    mixed_domain_batches, run_curriculum, run_joint_multilayer_curriculum, run_warm_dense_baseline,
 )
 from reference.hz0e_moe_contract import MoeConfig
 from scripts.hz0b_b11_baseline_comparison import CHECKPOINT, load_frozen_model
@@ -179,3 +179,27 @@ def test_specialization_measurement_uses_genuinely_held_out_domain_data():
     assert set(util.keys()) == set(DOMAIN_DATA_PATHS)
     tv = mean_pairwise_tv_distance(util)
     assert 0.0 <= tv <= 1.0
+
+
+def test_full_3layer_joint_moe_still_does_not_beat_pure_dense_baseline():
+    """The most exhaustive real check available: E1's ACTUAL scoped
+    contract (layers 27, 28, 30 converted SIMULTANEOUSLY, not one
+    isolated layer) trained jointly via `run_joint_multilayer_curriculum`,
+    compared against the real, untouched, pure frozen dense model
+    (`enabled=False` in `forward_e6`, i.e. `HZ0AMlxModel`'s own
+    original forward pass with no MoE anywhere). Confirms the E4/E8
+    single-layer finding is not an artifact of testing only one of the
+    3 real target layers -- the full, actually-scoped 3-layer
+    integration shows the SAME real result: MoE does not beat the
+    pure dense baseline on held-out general quality, even when given
+    every real advantage (E6 warm-start, router supervision, a
+    properly-tuned learning rate) across its ENTIRE real footprint."""
+    model, _payload = load_frozen_model()
+    config = MoeConfig(dim=model.dim)
+    _trained, pure_dense, _warm, after = run_joint_multilayer_curriculum(
+        model, config, balanced_steps=15, mixed_steps=15, imbalanced_steps=15, warm_start_steps=20, seed=0,
+    )
+    assert after >= pure_dense * 0.99, (
+        f"expected the full 3-layer joint MoE to NOT clearly beat the pure dense baseline: "
+        f"moe={after} pure_dense={pure_dense}"
+    )
