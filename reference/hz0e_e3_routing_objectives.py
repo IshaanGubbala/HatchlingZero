@@ -248,7 +248,7 @@ def train_moe_layer(model, train_batches: list[mx.array], config: MoeConfig, *, 
     return dict_to_params(params_dict), history
 
 
-def supervised_warm_start(model, domain_batches: dict[str, mx.array], target_expert: dict[str, int], config: MoeConfig, *, layer_index: int = 27, steps: int = 20, learning_rate: float = 3e-3, init_seed: int = 0, start_params: MoeLayerParams | None = None, cache_backbone: bool = False) -> MoeLayerParams:
+def supervised_warm_start(model, domain_batches: dict[str, mx.array], target_expert: dict[str, int], config: MoeConfig, *, layer_index: int = 27, steps: int = 20, learning_rate: float = 3e-3, init_seed: int = 0, start_params: MoeLayerParams | None = None, cache_backbone: bool = False, compile_step: bool = False) -> MoeLayerParams:
     """Trains ONLY the router (`router_w`/`router_b`) via real
     cross-entropy classification against `target_expert`'s real
     domain-to-expert label assignment, for `steps` real gradient steps
@@ -287,6 +287,8 @@ def supervised_warm_start(model, domain_batches: dict[str, mx.array], target_exp
         return mx.mean(nn.losses.cross_entropy(router_logits, labels))
 
     grad_fn = mx.value_and_grad(router_loss_fn, argnums=0)
+    if compile_step:
+        grad_fn = mx.compile(grad_fn)
     for step in range(steps):
         domain = domains[step % len(domains)]
         tokens = domain_batches[domain]
