@@ -134,6 +134,14 @@ name = "hz0e-pmetal-moe"
 version = "0.1.0"
 
 [[package]]
+name = "hz0e-pmetal-moe-bridge"
+version = "0.1.0"
+dependencies = [
+ "hz0a-pmetal-gpu",
+ "hz0e-pmetal-moe",
+]
+
+[[package]]
 name = "itoa"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -29,6 +29,7 @@ impl MetalMoeSwiGlu {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn forward(
         &self,
         input: &[f32],
@@ -41,8 +42,9 @@ impl MetalMoeSwiGlu {
         capacity: usize,
         dim: usize,
         expert_d_ff: usize,
+        fallback_d_ff: usize,
     ) -> Result<Vec<f32>, String> {
-        if experts == 0 || capacity == 0 || dim == 0 || expert_d_ff == 0 {
+        if experts == 0 || capacity == 0 || dim == 0 || expert_d_ff == 0 || fallback_d_ff == 0 {
             return Err("MoE SwiGLU dimensions must be positive".into());
         }
         let tokens = dispatch_slot.len();
@@ -63,12 +65,16 @@ impl MetalMoeSwiGlu {
                     .ok_or("expert bias size overflow")?,
             )
             .ok_or("expert bias size overflow")?;
+        // `fallback_d_ff` is a REAL, separate hidden width from
+        // `expert_d_ff` -- see the Metal shader's own module comment for
+        // why this must not be assumed equal to `dim`.
         let fallback_weights_size = 3usize
-            .checked_mul(dim)
+            .checked_mul(fallback_d_ff)
             .and_then(|v| v.checked_mul(dim))
             .ok_or("fallback weight size overflow")?;
-        let fallback_biases_size = 3usize
-            .checked_mul(dim)
+        let fallback_biases_size = 2usize
+            .checked_mul(fallback_d_ff)
+            .and_then(|v| v.checked_add(dim))
             .ok_or("fallback bias size overflow")?;
         if input.len() != input_size
             || expert_weights.len() != expert_weights_size
@@ -126,10 +132,12 @@ impl MetalMoeSwiGlu {
             u32::try_from(expert_d_ff)
                 .map_err(|_| "expert hidden width exceeds Metal u32 range")?,
             u32::try_from(tokens).map_err(|_| "expert token count exceeds Metal u32 range")?,
+            u32::try_from(fallback_d_ff)
+                .map_err(|_| "fallback hidden width exceeds Metal u32 range")?,
         ];
         let uniform = self.device.new_buffer_with_data(
             uniforms.as_ptr() as *const std::ffi::c_void,
-            16,
+            20,
             opts,
         );
         let command = self.queue.new_command_buffer();
@@ -139,7 +147,7 @@ impl MetalMoeSwiGlu {
             encoder.set_buffer(index as u64, Some(buffer), 0);
         }
         encoder.set_buffer(6, Some(&output), 0);
-        for index in 0..4 {
+        for index in 0..5 {
             encoder.set_buffer(7 + index as u64, Some(&uniform), (index * 4) as u64);
         }
         encoder.dispatch_threads(
@@ -173,8 +181,9 @@ impl MetalMoeSwiGlu {
         experts: usize,
         dim: usize,
         expert_d_ff: usize,
+        fallback_d_ff: usize,
     ) -> Result<Vec<f32>, String> {
-        if dim == 0 || expert_d_ff == 0 {
+        if dim == 0 || expert_d_ff == 0 || fallback_d_ff == 0 {
             return Err("expert dimensions must be positive".into());
         }
         plan.validate(experts)?;
@@ -200,6 +209,7 @@ impl MetalMoeSwiGlu {
             plan.capacity,
             dim,
             expert_d_ff,
+            fallback_d_ff,
         )
     }
 
@@ -220,6 +230,7 @@ impl MetalMoeSwiGlu {
         capacity_factor: f32,
         dim: usize,
         expert_d_ff: usize,
+        fallback_d_ff: usize,
     ) -> Result<(DispatchPlan, Vec<f32>), String> {
         let (plan, gates) =
             build_top1_dispatch_plan_f32(router_logits, tokens, experts, capacity_factor)?;
@@ -233,6 +244,7 @@ impl MetalMoeSwiGlu {
             experts,
             dim,
             expert_d_ff,
+            fallback_d_ff,
         )?;
         for (token, gate) in gates.iter().enumerate() {
             if !plan.overflow[token] {
@@ -267,6 +279,7 @@ mod tests {
                 1,
                 1,
                 1,
+                1,
             )
             .unwrap();
         assert!((output[0] - 4.462117).abs() < 1e-5);
@@ -288,6 +301,7 @@ mod tests {
             1,
             1,
             1,
+            1,
         );
         assert!(result.is_err());
     }
@@ -305,6 +319,7 @@ mod tests {
                 &[0.0; 3],
                 &[3.0, 4.0, 5.0],
                 4,
+                1,
                 1,
                 1,
             )
@@ -329,11 +344,41 @@ mod tests {
                 0.5,
                 1,
                 1,
+                1,
             )
             .unwrap();
         assert_eq!(plan.overflow, vec![false, true]);
         let gate = 2.0f32.exp() / (2.0f32.exp() + 1.0);
         assert!((output[0] - 4.462117 * gate).abs() < 1e-5);
         assert!((output[1] - 5.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn metal_swiglu_uses_a_real_fallback_hidden_width_distinct_from_expert_d_ff() {
+        // Locks in the real fix: a prior version of this kernel hardcoded
+        // the fallback's hidden width to `dim`, which does not match
+        // `reference/hz0e_moe_contract.py`'s real contract (the fallback
+        // is full DENSE-FFN width, not `dim`). Here `expert_d_ff=1` but
+        // `fallback_d_ff=2` -- if the fix regressed to the old hardcoded
+        // behavior, this test would read past/short of the real fallback
+        // buffers and either error or produce the wrong value, not
+        // silently pass.
+        let kernel = MetalMoeSwiGlu::new().expect("Metal device required");
+        let output = kernel
+            .forward(
+                &[2.0],  // one token, dim=1
+                &[-1],   // fallback (no expert)
+                &[0.0, 0.0, 0.0], // dummy, unused 1-expert weight buffer (3*expert_d_ff*dim = 3)
+                &[0.0, 0.0, 0.0], // dummy, unused 1-expert bias buffer (2*expert_d_ff+dim = 3)
+                &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0], // gate_w[2], up_w[2], down_w[2] (fallback_d_ff=2, dim=1)
+                &[0.0, 0.0, 0.0, 0.0, 0.0], // gate_b[2], up_b[2], down_b[1]
+                1,
+                1,
+                1,
+                1,
+                2, // fallback_d_ff, distinct from expert_d_ff=1
+            )
+            .unwrap();
+        assert!((output[0] - 7.046_377).abs() < 1e-4, "got {}", output[0]);
     }
 }

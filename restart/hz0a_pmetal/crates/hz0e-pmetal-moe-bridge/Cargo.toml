@@ -1,0 +1,15 @@
+[package]
+name = "hz0e-pmetal-moe-bridge"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lib]
+name = "hz0e_pmetal_moe_bridge"
+path = "src/lib.rs"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+hz0a-pmetal-gpu = { path = "../hz0a-pmetal-gpu" }
+hz0e-pmetal-moe = { path = "../hz0e-pmetal-moe" }
