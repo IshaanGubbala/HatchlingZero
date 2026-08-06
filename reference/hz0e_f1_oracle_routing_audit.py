@@ -37,8 +37,13 @@ Design choices, disclosed directly:
   what the trained gate would have scaled it to.
 - The "dense" / abstain candidate uses the SAME fairly-trained,
   matched-active dense baseline (`run_warm_dense_baseline`) every other
-  comparison in this project uses -- not MoE's own internal (frozen,
-  never independently curriculum-trained) fallback.
+  comparison in this project uses -- not MoE's own internal shared
+  fallback (which is NOT frozen during curriculum training -- it
+  receives real gradient updates from whichever tokens overflow to it
+  each step, a sparser and more incidental signal than the dense
+  baseline's every-token-every-step training; see
+  `reference/hz0e_f2_gate_overflow_audit.py` for a direct test of
+  whether that difference explains the OOD gap).
 """
 from __future__ import annotations
 
@@ -80,14 +85,25 @@ def _run_prefix_suffix(model, layer_index: int, tokens: mx.array, ffn_fn):
     return mx.matmul(model.final_norm(x), model.embedding.weight.T)
 
 
-def per_token_losses_forced_expert(model, moe_params: MoeLayerParams, layer_index: int, tokens: mx.array, expert_index: int) -> mx.array:
-    """Every token forced through `expert_index`'s SwiGLU, unscaled (no
-    router gate applied)."""
+def per_token_losses_forced_expert(model, moe_params: MoeLayerParams, layer_index: int, tokens: mx.array, expert_index: int, *, gate_scaled: bool = False) -> mx.array:
+    """Every token forced through `expert_index`'s SwiGLU. Unscaled by
+    default (no router gate applied). If `gate_scaled=True`, each
+    token's contribution is scaled by that token's REAL softmax
+    probability for `expert_index` specifically (not just the top-1
+    gate weight) -- i.e. "if this token had been routed to expert
+    `expert_index`, using the router's own real confidence in that
+    specific expert." This tests whether F1's unscaled-oracle finding
+    survives once realistic gate amplitudes are reintroduced."""
     def ffn_fn(x_flat: mx.array) -> mx.array:
         gate = nn.silu(x_flat @ moe_params.expert_gate_w[expert_index].T + moe_params.expert_gate_b[expert_index])
         up = x_flat @ moe_params.expert_up_w[expert_index].T + moe_params.expert_up_b[expert_index]
         hidden = gate * up
-        return hidden @ moe_params.expert_down_w[expert_index].T + moe_params.expert_down_b[expert_index]
+        out = hidden @ moe_params.expert_down_w[expert_index].T + moe_params.expert_down_b[expert_index]
+        if gate_scaled:
+            router_logits = x_flat @ moe_params.router_w.T + moe_params.router_b
+            probs = mx.softmax(router_logits, axis=-1)[:, expert_index]
+            out = out * probs[:, None]
+        return out
 
     logits = _run_prefix_suffix(model, layer_index, tokens, ffn_fn)
     return per_token_cross_entropy(logits, tokens)
@@ -124,7 +140,7 @@ class OracleAuditResult:
     candidate_mean_loss: dict[str, float]
 
 
-def oracle_routing_audit(model, moe_params: MoeLayerParams, dense_params: dict[str, mx.array], config: MoeConfig, layer_index: int, tokens: mx.array) -> OracleAuditResult:
+def oracle_routing_audit(model, moe_params: MoeLayerParams, dense_params: dict[str, mx.array], config: MoeConfig, layer_index: int, tokens: mx.array, *, gate_scaled: bool = False) -> OracleAuditResult:
     """The real audit: computes the actual router's per-token loss and
     every forced-route candidate's per-token loss on the SAME held-out
     batch, then compares the actual router's mean loss against the
@@ -141,7 +157,7 @@ def oracle_routing_audit(model, moe_params: MoeLayerParams, dense_params: dict[s
     actual = per_token_losses_actual_router(model, moe_params, layer_index, tokens)
 
     candidates: dict[str, mx.array] = {
-        f"expert_{j}": per_token_losses_forced_expert(model, moe_params, layer_index, tokens, j)
+        f"expert_{j}": per_token_losses_forced_expert(model, moe_params, layer_index, tokens, j, gate_scaled=gate_scaled)
         for j in range(config.num_experts)
     }
     candidates["dense"] = per_token_losses_dense(model, dense_params, layer_index, tokens)

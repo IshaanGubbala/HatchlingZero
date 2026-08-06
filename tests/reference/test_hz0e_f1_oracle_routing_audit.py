@@ -81,3 +81,36 @@ def test_oracle_routing_audit_is_structurally_valid_and_never_worse_than_actual(
         "is lower OOD than in-distribution, not higher -- if this regresses, the finding needs re-examination, "
         "not silent re-assertion"
     )
+
+
+def test_gated_oracle_confirms_the_unscaled_finding_is_not_a_framing_artifact():
+    """F2's follow-up check: does the unscaled-oracle finding above
+    survive once each forced-expert candidate is scaled by its REAL
+    softmax probability for that specific expert (realistic amplitude),
+    not left unscaled? See
+    `docs/restart/hz0e_f2_gate_overflow_fallback_results.md`. Gate
+    scaling mechanically shrinks non-preferred experts' contributions,
+    which inflates the absolute oracle gap and raises dense's absolute
+    win rate compared to the unscaled framing -- but the DIRECTION that
+    matters (gap not OOD-amplified; dense doesn't win MORE OOD) must
+    still hold, or the unscaled finding above would be a framing
+    artifact rather than a real effect."""
+    model, _ = load_frozen_model()
+    config = MoeConfig(dim=model.dim)
+    in_distribution_batch, ood_batch = load_domain_batches(DOMAIN_DATA_PATHS, count=8, seq_len=64, offset=1)["prose"], mx.concatenate([mx.array([s[:64]]) for s in load_real_sequences(GENERAL_DATA_PATH, 8)], axis=0)
+
+    dense_win_rate_lower_ood_count = 0
+    for seed in (0, 1, 2):
+        moe_trained, _report = run_curriculum(model, config, balanced_steps=15, mixed_steps=15, imbalanced_steps=15, seed=seed, warm_start_steps=20)
+        dense_trained, _before, _after = run_warm_dense_baseline(model, balanced_steps=15, mixed_steps=15, imbalanced_steps=15, seed=seed)
+
+        in_dist_result = oracle_routing_audit(model, moe_trained, dense_trained, config, LAYER, in_distribution_batch, gate_scaled=True)
+        ood_result = oracle_routing_audit(model, moe_trained, dense_trained, config, LAYER, ood_batch, gate_scaled=True)
+
+        assert in_dist_result.oracle_gap >= -1e-4 and ood_result.oracle_gap >= -1e-4
+        if ood_result.candidate_win_rate["dense"] < in_dist_result.candidate_win_rate["dense"]:
+            dense_win_rate_lower_ood_count += 1
+
+    assert dense_win_rate_lower_ood_count == 3, (
+        "gated-oracle finding should match the unscaled framing's direction in all 3 seeds"
+    )

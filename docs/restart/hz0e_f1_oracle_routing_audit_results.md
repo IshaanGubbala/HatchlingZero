@@ -110,11 +110,19 @@ audit's forced/unscaled framing does not directly test: the learned
 GATE's confidence scaling itself (bypassed here -- forced candidates are
 unscaled) may behave differently on OOD tokens than in-distribution ones,
 or real capacity contention (also not modeled by this per-candidate-forced
-audit) may route more OOD tokens to MoE's own internal, never-independently
--trained frozen fallback rather than to their oracle-preferred expert.
-Neither is tested by this document; both are real, concrete, cheaper next
-diagnostics than committing to any of the 13 candidate architectures
-before knowing which failure mode is actually occurring.
+audit) may route more OOD tokens to MoE's internal shared fallback rather
+than to their oracle-preferred expert. **Correction, checked directly
+while building the F2 follow-up**: the internal fallback is NOT frozen --
+`train_moe_layer`'s gradient (`reference/hz0e_e3_routing_objectives.py`)
+flows through the entire `MoeLayerParams` dict via `asdict`/
+`dict_to_params`, fallback fields included, so it DOES receive real
+Adam updates during curriculum training, proportional to how often
+tokens overflow to it (a real, substantial fraction -- see F2). It is
+better described as sparsely, incidentally trained (gradient only from
+whichever tokens happen to overflow each step) rather than never trained
+at all. Both open questions (gate calibration, fallback quality) are
+answered directly in
+`docs/restart/hz0e_f2_gate_overflow_fallback_results.md`.
 
 ## Honest scope note
 
