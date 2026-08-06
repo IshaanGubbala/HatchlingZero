@@ -375,3 +375,46 @@ then an architecture change). PMetal/the MLX-native kernel are not
 recommended as the deployment path for E10's evaluation; the plain MLX
 reference path (or dense, where MoE's per-domain quality advantage does
 not apply) remains the faster option today.
+
+## SIMD-group-optimized kernel: a real, decisive negative result (2026-08-06)
+
+Tested the hypothesis that the remaining ~5-6% gap is a compute-throughput
+problem -- the naive kernel uses one thread per (token, dff-index) or
+(token, output-dim) doing a fully serial O(dim) or O(dff) dot product, with
+no use of the GPU's SIMD hardware. Rewrote both stages to use real
+SIMD-group cooperative reduction (`simd_sum`): 32 lanes each handle
+`dim/32` (or `dff/32`) elements of the same dot product in parallel, then
+`simd_sum` combines the 32 partial sums in hardware -- a genuine, real
+parallel-reduction optimization, not a cosmetic change.
+
+**Correctness**: verified bit-exact against the same toy fixtures as every
+other kernel iteration in this document (`4.46212`/`16.4309`/`9.28478`
+matching `4.462117`/`16.430889`/`9.284782`), including the degenerate
+`dim=1` case (31 of 32 lanes correctly idle, contributing zero to the
+reduction).
+
+**Latency, real full-model forward pass, 4 repeated trials**:
+
+```text
+naive per-thread kernel (prior section):     20.6-20.7 ms
+SIMD-group cooperative-reduction kernel:     20.8-21.2 ms
+```
+
+The SIMD-group version is NOT faster -- if anything, marginally slower
+(within measurement noise of being the same, but never better across 4
+independent trials). This is a real, decisive negative result: the
+remaining gap is NOT compute-throughput-bound. Making the per-dispatch
+math faster via real hardware parallelism did not move the number. This
+redirects the diagnosis: the ~1ms remaining gap most likely comes from the
+FIXED cost of 6 separate Metal kernel dispatches per forward pass (2
+stages x 3 MoE layers) -- command buffer/encoder setup and submission
+overhead that is roughly constant per dispatch regardless of how fast the
+dispatch's own math runs -- not from insufficient parallelism within each
+dispatch. A further attempt at `simdgroup_matrix`/tiled-GEMM-style compute
+(a much larger undertaking than the `simd_sum` reduction already tried)
+would very likely hit the same wall for substantially more implementation
+risk, since this result shows the ceiling is not compute-bound. Reducing
+dispatch COUNT (fusing the two stages into one kernel per layer via
+threadgroup-shared memory, previously flagged as the "not attempted"
+option) is the evidence-supported next lever, not further compute
+optimization -- not attempted this session.
