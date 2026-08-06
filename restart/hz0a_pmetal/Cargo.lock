@@ -82,6 +82,7 @@ version = "0.1.0"
 dependencies = [
  "hz0a-pmetal-kernel",
  "hz0a-pmetal-tensor",
+ "hz0e-pmetal-moe",
  "metal",
 ]
 
@@ -127,6 +128,10 @@ version = "0.1.0"
 dependencies = [
  "hz0d-pmetal-fastweights",
 ]
+
+[[package]]
+name = "hz0e-pmetal-moe"
+version = "0.1.0"
 
 [[package]]
 name = "itoa"

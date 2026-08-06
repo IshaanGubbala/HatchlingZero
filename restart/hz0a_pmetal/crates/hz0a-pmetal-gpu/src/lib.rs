@@ -12,11 +12,20 @@
 //! Apple's Metal API; the CPU tensor crate stays dependency-minimal, this
 //! is a separate crate specifically for real device execution).
 
-use hz0a_pmetal_kernel::{conditional_anchor_attention_backward_f32, gdn2_backward_f32, gdn2_forward_f32, ConditionalAttentionBackward, Gdn2ForwardShape};
+use hz0a_pmetal_kernel::{
+    conditional_anchor_attention_backward_f32, gdn2_backward_f32, gdn2_forward_f32,
+    ConditionalAttentionBackward, Gdn2ForwardShape,
+};
 use metal::{Device, MTLResourceOptions, MTLSize};
 
 mod full_block;
-pub use full_block::{AdamWMoments, BlockParameters, BlockShape, ForwardCache, ForwardOutput, Gdn2FullBlockGpu};
+mod moe_dispatch;
+mod moe_swiglu;
+pub use full_block::{
+    AdamWMoments, BlockParameters, BlockShape, ForwardCache, ForwardOutput, Gdn2FullBlockGpu,
+};
+pub use moe_dispatch::MetalMoeScatter;
+pub use moe_swiglu::MetalMoeSwiGlu;
 
 // C8's "grouped/cache-optimized dispatch" -- the item
 // `docs/restart/hz0c_c8_model_level_integration_results.md` named
@@ -202,7 +211,12 @@ kernel void project_qkv(
 "#;
 
 #[repr(C)]
-struct AttentionShapeUniform { b: u32, s: u32, d: u32, h: u32 }
+struct AttentionShapeUniform {
+    b: u32,
+    s: u32,
+    d: u32,
+    h: u32,
+}
 
 pub struct MetalConditionalAnchorAttention {
     device: Device,
@@ -214,53 +228,116 @@ pub struct MetalConditionalAnchorAttention {
 impl MetalConditionalAnchorAttention {
     pub fn new() -> Result<Self, String> {
         let device = Device::system_default().ok_or("no Metal device available")?;
-        let library = device.new_library_with_source(CONDITIONAL_ATTENTION_SOURCE, &metal::CompileOptions::new())
+        let library = device
+            .new_library_with_source(CONDITIONAL_ATTENTION_SOURCE, &metal::CompileOptions::new())
             .map_err(|e| format!("conditional attention shader compilation failed: {e}"))?;
-        let function = library.get_function("conditional_anchor_attention", None)
+        let function = library
+            .get_function("conditional_anchor_attention", None)
             .map_err(|e| format!("could not find conditional attention function: {e}"))?;
-        let pipeline = device.new_compute_pipeline_state_with_function(&function)
+        let pipeline = device
+            .new_compute_pipeline_state_with_function(&function)
             .map_err(|e| format!("could not build conditional attention pipeline: {e}"))?;
-        let qkv_library = device.new_library_with_source(QKV_PROJECT_SOURCE, &metal::CompileOptions::new())
+        let qkv_library = device
+            .new_library_with_source(QKV_PROJECT_SOURCE, &metal::CompileOptions::new())
             .map_err(|e| format!("QKV projection shader compilation failed: {e}"))?;
-        let qkv_function = qkv_library.get_function("project_qkv", None)
+        let qkv_function = qkv_library
+            .get_function("project_qkv", None)
             .map_err(|e| format!("could not find QKV projection function: {e}"))?;
-        let qkv_pipeline = device.new_compute_pipeline_state_with_function(&qkv_function)
+        let qkv_pipeline = device
+            .new_compute_pipeline_state_with_function(&qkv_function)
             .map_err(|e| format!("could not build QKV projection pipeline: {e}"))?;
         let queue = device.new_command_queue();
-        Ok(Self { device, qkv_pipeline, pipeline, queue })
+        Ok(Self {
+            device,
+            qkv_pipeline,
+            pipeline,
+            queue,
+        })
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn forward(&self, batch: usize, seq: usize, dim: usize, heads: usize, x: &[f32], qkv_weight: &[f32], qkv_bias: &[f32], out_weight: &[f32], out_bias: &[f32], trigger: &[f32]) -> Result<Vec<f32>, String> {
-        if heads == 0 || dim == 0 || dim % heads != 0 || x.len() != batch * seq * dim || trigger.len() != batch * seq {
+    pub fn forward(
+        &self,
+        batch: usize,
+        seq: usize,
+        dim: usize,
+        heads: usize,
+        x: &[f32],
+        qkv_weight: &[f32],
+        qkv_bias: &[f32],
+        out_weight: &[f32],
+        out_bias: &[f32],
+        trigger: &[f32],
+    ) -> Result<Vec<f32>, String> {
+        if heads == 0
+            || dim == 0
+            || dim % heads != 0
+            || x.len() != batch * seq * dim
+            || trigger.len() != batch * seq
+        {
             return Err("conditional attention buffer shape mismatch".into());
         }
         let opts = MTLResourceOptions::StorageModeShared;
-        let input = |data: &[f32]| self.device.new_buffer_with_data(data.as_ptr() as *const std::ffi::c_void, (data.len() * std::mem::size_of::<f32>()) as u64, opts);
-        let bx = input(x); let bw = input(qkv_weight); let bb = input(qkv_bias);
-        let bow = input(out_weight); let bob = input(out_bias); let bt = input(trigger);
+        let input = |data: &[f32]| {
+            self.device.new_buffer_with_data(
+                data.as_ptr() as *const std::ffi::c_void,
+                (data.len() * std::mem::size_of::<f32>()) as u64,
+                opts,
+            )
+        };
+        let bx = input(x);
+        let bw = input(qkv_weight);
+        let bb = input(qkv_bias);
+        let bow = input(out_weight);
+        let bob = input(out_bias);
+        let bt = input(trigger);
         let n = batch * seq * dim;
         let qkv_len = batch * seq * 3 * dim;
-        let bqkv = self.device.new_buffer((qkv_len * std::mem::size_of::<f32>()) as u64, opts);
-        let bo = self.device.new_buffer((n * std::mem::size_of::<f32>()) as u64, opts);
-        let shape = AttentionShapeUniform { b: batch as u32, s: seq as u32, d: dim as u32, h: heads as u32 };
-        let bs = self.device.new_buffer_with_data(&shape as *const AttentionShapeUniform as *const std::ffi::c_void, std::mem::size_of::<AttentionShapeUniform>() as u64, opts);
+        let bqkv = self
+            .device
+            .new_buffer((qkv_len * std::mem::size_of::<f32>()) as u64, opts);
+        let bo = self
+            .device
+            .new_buffer((n * std::mem::size_of::<f32>()) as u64, opts);
+        let shape = AttentionShapeUniform {
+            b: batch as u32,
+            s: seq as u32,
+            d: dim as u32,
+            h: heads as u32,
+        };
+        let bs = self.device.new_buffer_with_data(
+            &shape as *const AttentionShapeUniform as *const std::ffi::c_void,
+            std::mem::size_of::<AttentionShapeUniform>() as u64,
+            opts,
+        );
         let command = self.queue.new_command_buffer();
         let qkv_encoder = command.new_compute_command_encoder();
         qkv_encoder.set_compute_pipeline_state(&self.qkv_pipeline);
-        for (i, buffer) in [&bx, &bw, &bb, &bqkv, &bs].into_iter().enumerate() { qkv_encoder.set_buffer(i as u64, Some(buffer), 0); }
+        for (i, buffer) in [&bx, &bw, &bb, &bqkv, &bs].into_iter().enumerate() {
+            qkv_encoder.set_buffer(i as u64, Some(buffer), 0);
+        }
         let qkv_threads = qkv_len as u64;
-        qkv_encoder.dispatch_threads(MTLSize::new(qkv_threads, 1, 1), MTLSize::new(qkv_threads.min(256).max(1), 1, 1));
+        qkv_encoder.dispatch_threads(
+            MTLSize::new(qkv_threads, 1, 1),
+            MTLSize::new(qkv_threads.min(256).max(1), 1, 1),
+        );
         qkv_encoder.end_encoding();
         let encoder = command.new_compute_command_encoder();
         encoder.set_compute_pipeline_state(&self.pipeline);
-        for (i, buffer) in [&bx, &bqkv, &bow, &bob, &bt, &bo, &bs].into_iter().enumerate() { encoder.set_buffer(i as u64, Some(buffer), 0); }
+        for (i, buffer) in [&bx, &bqkv, &bow, &bob, &bt, &bo, &bs]
+            .into_iter()
+            .enumerate()
+        {
+            encoder.set_buffer(i as u64, Some(buffer), 0);
+        }
         // One THREADGROUP per token, `dim` threads cooperating per group
         // (see the shader's own module comment for why) -- not a flat
         // one-thread-per-output-element grid anymore.
         let tokens = (batch * seq) as u64;
         encoder.dispatch_thread_groups(MTLSize::new(tokens, 1, 1), MTLSize::new(dim as u64, 1, 1));
-        encoder.end_encoding(); command.commit(); command.wait_until_completed();
+        encoder.end_encoding();
+        command.commit();
+        command.wait_until_completed();
         Ok(unsafe { std::slice::from_raw_parts(bo.contents() as *const f32, n) }.to_vec())
     }
 }
@@ -439,42 +516,111 @@ pub struct MetalConditionalAnchorAttentionBackward {
 impl MetalConditionalAnchorAttentionBackward {
     pub fn new() -> Result<Self, String> {
         let device = Device::system_default().ok_or("no Metal device available")?;
-        let library = device.new_library_with_source(CONDITIONAL_ATTENTION_BACKWARD_SOURCE, &metal::CompileOptions::new())
-            .map_err(|e| format!("conditional attention backward shader compilation failed: {e}"))?;
-        let function = library.get_function("conditional_anchor_attention_backward", None)
+        let library = device
+            .new_library_with_source(
+                CONDITIONAL_ATTENTION_BACKWARD_SOURCE,
+                &metal::CompileOptions::new(),
+            )
+            .map_err(|e| {
+                format!("conditional attention backward shader compilation failed: {e}")
+            })?;
+        let function = library
+            .get_function("conditional_anchor_attention_backward", None)
             .map_err(|e| format!("could not find conditional attention backward function: {e}"))?;
-        let pipeline = device.new_compute_pipeline_state_with_function(&function)
+        let pipeline = device
+            .new_compute_pipeline_state_with_function(&function)
             .map_err(|e| format!("could not build conditional attention backward pipeline: {e}"))?;
         let queue = device.new_command_queue();
-        Ok(Self { device, pipeline, queue })
+        Ok(Self {
+            device,
+            pipeline,
+            queue,
+        })
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn backward(&self, batch: usize, seq: usize, dim: usize, heads: usize, x: &[f32], qkv_weight: &[f32], qkv_bias: &[f32], out_weight: &[f32], trigger: &[f32], grad_output: &[f32]) -> Result<ConditionalAttentionBackward, String> {
-        if heads == 0 || dim == 0 || dim % heads != 0 || x.len() != batch * seq * dim || trigger.len() != batch * seq || grad_output.len() != batch * seq * dim {
+    pub fn backward(
+        &self,
+        batch: usize,
+        seq: usize,
+        dim: usize,
+        heads: usize,
+        x: &[f32],
+        qkv_weight: &[f32],
+        qkv_bias: &[f32],
+        out_weight: &[f32],
+        trigger: &[f32],
+        grad_output: &[f32],
+    ) -> Result<ConditionalAttentionBackward, String> {
+        if heads == 0
+            || dim == 0
+            || dim % heads != 0
+            || x.len() != batch * seq * dim
+            || trigger.len() != batch * seq
+            || grad_output.len() != batch * seq * dim
+        {
             return Err("conditional attention backward buffer shape mismatch".into());
         }
         let opts = MTLResourceOptions::StorageModeShared;
-        let input = |data: &[f32]| self.device.new_buffer_with_data(data.as_ptr() as *const std::ffi::c_void, (data.len() * std::mem::size_of::<f32>()) as u64, opts);
-        let bx = input(x); let bw = input(qkv_weight); let bb = input(qkv_bias);
-        let bow = input(out_weight); let bt = input(trigger); let bgo = input(grad_output);
+        let input = |data: &[f32]| {
+            self.device.new_buffer_with_data(
+                data.as_ptr() as *const std::ffi::c_void,
+                (data.len() * std::mem::size_of::<f32>()) as u64,
+                opts,
+            )
+        };
+        let bx = input(x);
+        let bw = input(qkv_weight);
+        let bb = input(qkv_bias);
+        let bow = input(out_weight);
+        let bt = input(trigger);
+        let bgo = input(grad_output);
         let zeroed = |n: usize| input(&vec![0.0f32; n]);
         let b_grad_x = zeroed(batch * seq * dim);
         let b_grad_qkv_w = zeroed(3 * dim * dim);
         let b_grad_qkv_b = zeroed(3 * dim);
         let b_grad_out_w = zeroed(dim * dim);
         let b_grad_out_b = zeroed(dim);
-        let shape = AttentionShapeUniform { b: batch as u32, s: seq as u32, d: dim as u32, h: heads as u32 };
-        let bs = self.device.new_buffer_with_data(&shape as *const AttentionShapeUniform as *const std::ffi::c_void, std::mem::size_of::<AttentionShapeUniform>() as u64, opts);
+        let shape = AttentionShapeUniform {
+            b: batch as u32,
+            s: seq as u32,
+            d: dim as u32,
+            h: heads as u32,
+        };
+        let bs = self.device.new_buffer_with_data(
+            &shape as *const AttentionShapeUniform as *const std::ffi::c_void,
+            std::mem::size_of::<AttentionShapeUniform>() as u64,
+            opts,
+        );
         let command = self.queue.new_command_buffer();
         let encoder = command.new_compute_command_encoder();
         encoder.set_compute_pipeline_state(&self.pipeline);
-        for (i, buffer) in [&bx, &bw, &bb, &bow, &bt, &bgo, &b_grad_x, &b_grad_qkv_w, &b_grad_qkv_b, &b_grad_out_w, &b_grad_out_b, &bs].into_iter().enumerate() {
+        for (i, buffer) in [
+            &bx,
+            &bw,
+            &bb,
+            &bow,
+            &bt,
+            &bgo,
+            &b_grad_x,
+            &b_grad_qkv_w,
+            &b_grad_qkv_b,
+            &b_grad_out_w,
+            &b_grad_out_b,
+            &bs,
+        ]
+        .into_iter()
+        .enumerate()
+        {
             encoder.set_buffer(i as u64, Some(buffer), 0);
         }
         encoder.dispatch_threads(MTLSize::new(1, 1, 1), MTLSize::new(1, 1, 1));
-        encoder.end_encoding(); command.commit(); command.wait_until_completed();
-        let read = |buffer: &metal::Buffer, n: usize| unsafe { std::slice::from_raw_parts(buffer.contents() as *const f32, n) }.to_vec();
+        encoder.end_encoding();
+        command.commit();
+        command.wait_until_completed();
+        let read = |buffer: &metal::Buffer, n: usize| {
+            unsafe { std::slice::from_raw_parts(buffer.contents() as *const f32, n) }.to_vec()
+        };
         Ok(ConditionalAttentionBackward {
             grad_x: read(&b_grad_x, batch * seq * dim),
             grad_qkv_weight: read(&b_grad_qkv_w, 3 * dim * dim),
@@ -489,13 +635,47 @@ impl MetalConditionalAnchorAttentionBackward {
 /// tests and callers, matching `compare_cpu_and_gpu`'s own pattern.
 #[allow(clippy::too_many_arguments)]
 pub fn compare_cpu_and_gpu_conditional_attention_backward(
-    batch: usize, seq: usize, dim: usize, heads: usize,
-    x: &[f32], qkv_weight: &[f32], qkv_bias: &[f32], out_weight: &[f32], trigger: &[f32], grad_output: &[f32],
+    batch: usize,
+    seq: usize,
+    dim: usize,
+    heads: usize,
+    x: &[f32],
+    qkv_weight: &[f32],
+    qkv_bias: &[f32],
+    out_weight: &[f32],
+    trigger: &[f32],
+    grad_output: &[f32],
 ) -> Result<[f32; 5], String> {
-    let cpu = conditional_anchor_attention_backward_f32(batch, seq, dim, heads, x, qkv_weight, qkv_bias, out_weight, trigger, grad_output)?;
-    let gpu = MetalConditionalAnchorAttentionBackward::new()?
-        .backward(batch, seq, dim, heads, x, qkv_weight, qkv_bias, out_weight, trigger, grad_output)?;
-    let max_diff = |a: &[f32], b: &[f32]| -> f32 { a.iter().zip(b.iter()).map(|(x, y)| (x - y).abs()).fold(0.0f32, f32::max) };
+    let cpu = conditional_anchor_attention_backward_f32(
+        batch,
+        seq,
+        dim,
+        heads,
+        x,
+        qkv_weight,
+        qkv_bias,
+        out_weight,
+        trigger,
+        grad_output,
+    )?;
+    let gpu = MetalConditionalAnchorAttentionBackward::new()?.backward(
+        batch,
+        seq,
+        dim,
+        heads,
+        x,
+        qkv_weight,
+        qkv_bias,
+        out_weight,
+        trigger,
+        grad_output,
+    )?;
+    let max_diff = |a: &[f32], b: &[f32]| -> f32 {
+        a.iter()
+            .zip(b.iter())
+            .map(|(x, y)| (x - y).abs())
+            .fold(0.0f32, f32::max)
+    };
     Ok([
         max_diff(&gpu.grad_x, &cpu.grad_x),
         max_diff(&gpu.grad_qkv_weight, &cpu.grad_qkv_weight),
@@ -736,7 +916,11 @@ impl MetalGdn2Forward {
             .new_compute_pipeline_state_with_function(&function)
             .map_err(|e| format!("could not build compute pipeline: {e}"))?;
         let queue = device.new_command_queue();
-        Ok(Self { device, pipeline, queue })
+        Ok(Self {
+            device,
+            pipeline,
+            queue,
+        })
     }
 
     pub fn forward(
@@ -752,7 +936,11 @@ impl MetalGdn2Forward {
     ) -> Gdn2ForwardOutput {
         let opts = MTLResourceOptions::StorageModeShared;
         let make_input = |data: &[f32]| {
-            self.device.new_buffer_with_data(data.as_ptr() as *const std::ffi::c_void, (data.len() * std::mem::size_of::<f32>()) as u64, opts)
+            self.device.new_buffer_with_data(
+                data.as_ptr() as *const std::ffi::c_void,
+                (data.len() * std::mem::size_of::<f32>()) as u64,
+                opts,
+            )
         };
         let buf_q = make_input(q);
         let buf_k = make_input(k);
@@ -764,8 +952,12 @@ impl MetalGdn2Forward {
 
         let output_len = shape.batch * shape.seq * shape.heads * shape.value_dim;
         let state_len = shape.batch * shape.heads * shape.value_dim * shape.key_dim;
-        let buf_y = self.device.new_buffer((output_len * std::mem::size_of::<f32>()) as u64, opts);
-        let buf_final_state = self.device.new_buffer((state_len * std::mem::size_of::<f32>()) as u64, opts);
+        let buf_y = self
+            .device
+            .new_buffer((output_len * std::mem::size_of::<f32>()) as u64, opts);
+        let buf_final_state = self
+            .device
+            .new_buffer((state_len * std::mem::size_of::<f32>()) as u64, opts);
 
         let shape_uniform = Gdn2ShapeUniform {
             b: shape.batch as u32,
@@ -796,14 +988,25 @@ impl MetalGdn2Forward {
 
         let total_threads = (shape.batch * shape.heads * shape.value_dim) as u64;
         let threadgroup_size = total_threads.min(256);
-        encoder.dispatch_threads(MTLSize::new(total_threads, 1, 1), MTLSize::new(threadgroup_size.max(1), 1, 1));
+        encoder.dispatch_threads(
+            MTLSize::new(total_threads, 1, 1),
+            MTLSize::new(threadgroup_size.max(1), 1, 1),
+        );
         encoder.end_encoding();
         command_buffer.commit();
         command_buffer.wait_until_completed();
 
-        let outputs = unsafe { std::slice::from_raw_parts(buf_y.contents() as *const f32, output_len) }.to_vec();
-        let final_state = unsafe { std::slice::from_raw_parts(buf_final_state.contents() as *const f32, state_len) }.to_vec();
-        Gdn2ForwardOutput { outputs, final_state }
+        let outputs =
+            unsafe { std::slice::from_raw_parts(buf_y.contents() as *const f32, output_len) }
+                .to_vec();
+        let final_state = unsafe {
+            std::slice::from_raw_parts(buf_final_state.contents() as *const f32, state_len)
+        }
+        .to_vec();
+        Gdn2ForwardOutput {
+            outputs,
+            final_state,
+        }
     }
 }
 
@@ -842,7 +1045,11 @@ impl MetalGdn2Backward {
             .new_compute_pipeline_state_with_function(&function)
             .map_err(|e| format!("could not build backward compute pipeline: {e}"))?;
         let queue = device.new_command_queue();
-        Ok(Self { device, pipeline, queue })
+        Ok(Self {
+            device,
+            pipeline,
+            queue,
+        })
     }
 
     /// `decay_activated`/`erase_activated`/`write_activated` must already be
@@ -863,7 +1070,11 @@ impl MetalGdn2Backward {
     ) -> Gdn2BackwardOutput {
         let opts = MTLResourceOptions::StorageModeShared;
         let make_input = |data: &[f32]| {
-            self.device.new_buffer_with_data(data.as_ptr() as *const std::ffi::c_void, (data.len() * std::mem::size_of::<f32>()) as u64, opts)
+            self.device.new_buffer_with_data(
+                data.as_ptr() as *const std::ffi::c_void,
+                (data.len() * std::mem::size_of::<f32>()) as u64,
+                opts,
+            )
         };
         let buf_q = make_input(q);
         let buf_k = make_input(k);
@@ -878,7 +1089,10 @@ impl MetalGdn2Backward {
         let qk_len = shape.batch * shape.seq * shape.heads * shape.key_dim;
         let v_len = shape.batch * shape.seq * shape.heads * shape.value_dim;
         let state_len = shape.batch * shape.heads * shape.value_dim * shape.key_dim;
-        let make_output = |n: usize| self.device.new_buffer((n * std::mem::size_of::<f32>()) as u64, opts);
+        let make_output = |n: usize| {
+            self.device
+                .new_buffer((n * std::mem::size_of::<f32>()) as u64, opts)
+        };
         let buf_grad_q = make_output(qk_len);
         let buf_grad_k = make_output(qk_len);
         let buf_grad_v = make_output(v_len);
@@ -904,8 +1118,22 @@ impl MetalGdn2Backward {
         let encoder = command_buffer.new_compute_command_encoder();
         encoder.set_compute_pipeline_state(&self.pipeline);
         for (index, buffer) in [
-            &buf_q, &buf_k, &buf_v, &buf_d, &buf_e, &buf_w, &buf_initial, &buf_grad_output, &buf_grad_final, &buf_grad_q, &buf_grad_k, &buf_grad_v, &buf_grad_d,
-            &buf_grad_e, &buf_grad_w, &buf_grad_initial,
+            &buf_q,
+            &buf_k,
+            &buf_v,
+            &buf_d,
+            &buf_e,
+            &buf_w,
+            &buf_initial,
+            &buf_grad_output,
+            &buf_grad_final,
+            &buf_grad_q,
+            &buf_grad_k,
+            &buf_grad_v,
+            &buf_grad_d,
+            &buf_grad_e,
+            &buf_grad_w,
+            &buf_grad_initial,
         ]
         .into_iter()
         .enumerate()
@@ -916,12 +1144,17 @@ impl MetalGdn2Backward {
 
         let groups = (shape.batch * shape.heads) as u64;
         let threadgroup_size = shape.value_dim as u64;
-        encoder.dispatch_thread_groups(MTLSize::new(groups, 1, 1), MTLSize::new(threadgroup_size, 1, 1));
+        encoder.dispatch_thread_groups(
+            MTLSize::new(groups, 1, 1),
+            MTLSize::new(threadgroup_size, 1, 1),
+        );
         encoder.end_encoding();
         command_buffer.commit();
         command_buffer.wait_until_completed();
 
-        let read = |buffer: &metal::Buffer, n: usize| unsafe { std::slice::from_raw_parts(buffer.contents() as *const f32, n) }.to_vec();
+        let read = |buffer: &metal::Buffer, n: usize| {
+            unsafe { std::slice::from_raw_parts(buffer.contents() as *const f32, n) }.to_vec()
+        };
         Gdn2BackwardOutput {
             grad_q: read(&buf_grad_q, qk_len),
             grad_k: read(&buf_grad_k, qk_len),
@@ -956,7 +1189,18 @@ pub fn compare_cpu_and_gpu_backward(
     grad_output: &[f32],
     grad_final: &[f32],
 ) -> Result<[f32; 7], String> {
-    let cpu = gdn2_backward_f32(shape, q, k, v, decay_logits, erase_logits, write_logits, initial_state, grad_output, grad_final)?;
+    let cpu = gdn2_backward_f32(
+        shape,
+        q,
+        k,
+        v,
+        decay_logits,
+        erase_logits,
+        write_logits,
+        initial_state,
+        grad_output,
+        grad_final,
+    )?;
 
     let activated = |logits: &[f32]| logits.iter().map(|&x| sigmoid(x)).collect::<Vec<f32>>();
     let decay_activated = activated(decay_logits);
@@ -964,14 +1208,36 @@ pub fn compare_cpu_and_gpu_backward(
     let write_activated = activated(write_logits);
 
     let gpu = MetalGdn2Backward::new()?;
-    let gpu_result = gpu.backward(shape, q, k, v, &decay_activated, &erase_activated, &write_activated, initial_state, grad_output, grad_final);
+    let gpu_result = gpu.backward(
+        shape,
+        q,
+        k,
+        v,
+        &decay_activated,
+        &erase_activated,
+        &write_activated,
+        initial_state,
+        grad_output,
+        grad_final,
+    );
 
-    let chain_rule = |gradient: &[f32], gate: &[f32]| -> Vec<f32> { gradient.iter().zip(gate.iter()).map(|(g, a)| g * a * (1.0 - a)).collect() };
+    let chain_rule = |gradient: &[f32], gate: &[f32]| -> Vec<f32> {
+        gradient
+            .iter()
+            .zip(gate.iter())
+            .map(|(g, a)| g * a * (1.0 - a))
+            .collect()
+    };
     let gpu_grad_decay_logits = chain_rule(&gpu_result.grad_decay_activated, &decay_activated);
     let gpu_grad_erase_logits = chain_rule(&gpu_result.grad_erase_activated, &erase_activated);
     let gpu_grad_write_logits = chain_rule(&gpu_result.grad_write_activated, &write_activated);
 
-    let max_diff = |a: &[f32], b: &[f32]| -> f32 { a.iter().zip(b.iter()).map(|(x, y)| (x - y).abs()).fold(0.0f32, f32::max) };
+    let max_diff = |a: &[f32], b: &[f32]| -> f32 {
+        a.iter()
+            .zip(b.iter())
+            .map(|(x, y)| (x - y).abs())
+            .fold(0.0f32, f32::max)
+    };
     Ok([
         max_diff(&gpu_result.grad_q, &cpu.grad_q),
         max_diff(&gpu_result.grad_k, &cpu.grad_k),
@@ -997,8 +1263,26 @@ pub fn compare_cpu_and_gpu(
     initial_state: &[f32],
 ) -> Result<(f32, f32), String> {
     let gpu = MetalGdn2Forward::new()?;
-    let gpu_result = gpu.forward(shape, q, k, v, decay_logits, erase_logits, write_logits, initial_state);
-    let cpu_result = gdn2_forward_f32(shape, q, k, v, decay_logits, erase_logits, write_logits, initial_state)?;
+    let gpu_result = gpu.forward(
+        shape,
+        q,
+        k,
+        v,
+        decay_logits,
+        erase_logits,
+        write_logits,
+        initial_state,
+    );
+    let cpu_result = gdn2_forward_f32(
+        shape,
+        q,
+        k,
+        v,
+        decay_logits,
+        erase_logits,
+        write_logits,
+        initial_state,
+    )?;
     let max_output_diff = gpu_result
         .outputs
         .iter()
@@ -1020,14 +1304,22 @@ mod tests {
     use hz0a_pmetal_kernel::conditional_anchor_attention_f32;
 
     fn lcg_f32(state: &mut u64, scale: f32) -> f32 {
-        *state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        *state = state
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         let u = ((*state >> 40) as f32 / (1u64 << 24) as f32) - 0.5;
         u * 2.0 * scale
     }
 
     #[test]
     fn gpu_forward_matches_cpu_reference_small_shape() {
-        let shape = Gdn2ForwardShape { batch: 2, seq: 5, heads: 3, key_dim: 4, value_dim: 4 };
+        let shape = Gdn2ForwardShape {
+            batch: 2,
+            seq: 5,
+            heads: 3,
+            key_dim: 4,
+            value_dim: 4,
+        };
         let mut state = 7u64;
         let qk_len = shape.batch * shape.seq * shape.heads * shape.key_dim;
         let v_len = shape.batch * shape.seq * shape.heads * shape.value_dim;
@@ -1043,8 +1335,14 @@ mod tests {
 
         match compare_cpu_and_gpu(&shape, &q, &k, &v, &d, &e, &w, &initial) {
             Ok((max_output_diff, max_state_diff)) => {
-                assert!(max_output_diff < 1e-3, "output diff too large: {max_output_diff}");
-                assert!(max_state_diff < 1e-3, "state diff too large: {max_state_diff}");
+                assert!(
+                    max_output_diff < 1e-3,
+                    "output diff too large: {max_output_diff}"
+                );
+                assert!(
+                    max_state_diff < 1e-3,
+                    "state diff too large: {max_state_diff}"
+                );
             }
             Err(message) => panic!("Metal GPU test failed: {message}"),
         }
@@ -1054,7 +1352,13 @@ mod tests {
     fn gpu_forward_matches_cpu_reference_locked_a1_shape() {
         // The real locked A1 shape (dim=768, 12 heads, key/value_dim=64),
         // but small batch/sequence to keep the test fast.
-        let shape = Gdn2ForwardShape { batch: 1, seq: 8, heads: 12, key_dim: 64, value_dim: 64 };
+        let shape = Gdn2ForwardShape {
+            batch: 1,
+            seq: 8,
+            heads: 12,
+            key_dim: 64,
+            value_dim: 64,
+        };
         let mut state = 23u64;
         let qk_len = shape.batch * shape.seq * shape.heads * shape.key_dim;
         let v_len = shape.batch * shape.seq * shape.heads * shape.value_dim;
@@ -1070,8 +1374,14 @@ mod tests {
 
         match compare_cpu_and_gpu(&shape, &q, &k, &v, &d, &e, &w, &initial) {
             Ok((max_output_diff, max_state_diff)) => {
-                assert!(max_output_diff < 1e-2, "output diff too large at locked shape: {max_output_diff}");
-                assert!(max_state_diff < 1e-2, "state diff too large at locked shape: {max_state_diff}");
+                assert!(
+                    max_output_diff < 1e-2,
+                    "output diff too large at locked shape: {max_output_diff}"
+                );
+                assert!(
+                    max_state_diff < 1e-2,
+                    "state diff too large at locked shape: {max_state_diff}"
+                );
             }
             Err(message) => panic!("Metal GPU test failed: {message}"),
         }
@@ -1091,11 +1401,25 @@ mod tests {
         let out_w = make(dim * dim, &mut state);
         let out_b = make(dim, &mut state);
         let trigger = vec![1.0, 0.0, 1.0, 1.0];
-        let cpu = conditional_anchor_attention_f32(batch, seq, dim, heads, &x, &qkv_w, &qkv_b, &out_w, &out_b, &trigger).unwrap();
-        let gpu = MetalConditionalAnchorAttention::new().unwrap()
-            .forward(batch, seq, dim, heads, &x, &qkv_w, &qkv_b, &out_w, &out_b, &trigger).unwrap();
-        let max_diff = cpu.iter().zip(gpu.iter()).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max);
-        assert!(max_diff < 2e-3, "conditional attention diff too large: {max_diff}");
+        let cpu = conditional_anchor_attention_f32(
+            batch, seq, dim, heads, &x, &qkv_w, &qkv_b, &out_w, &out_b, &trigger,
+        )
+        .unwrap();
+        let gpu = MetalConditionalAnchorAttention::new()
+            .unwrap()
+            .forward(
+                batch, seq, dim, heads, &x, &qkv_w, &qkv_b, &out_w, &out_b, &trigger,
+            )
+            .unwrap();
+        let max_diff = cpu
+            .iter()
+            .zip(gpu.iter())
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0f32, f32::max);
+        assert!(
+            max_diff < 2e-3,
+            "conditional attention diff too large: {max_diff}"
+        );
     }
 
     #[test]
@@ -1112,16 +1436,36 @@ mod tests {
         let out_w = make(dim * dim, &mut state);
         let out_b = make(dim, &mut state);
         let trigger = vec![1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0];
-        let cpu = conditional_anchor_attention_f32(batch, seq, dim, heads, &x, &qkv_w, &qkv_b, &out_w, &out_b, &trigger).unwrap();
-        let gpu = MetalConditionalAnchorAttention::new().unwrap()
-            .forward(batch, seq, dim, heads, &x, &qkv_w, &qkv_b, &out_w, &out_b, &trigger).unwrap();
-        let max_diff = cpu.iter().zip(gpu.iter()).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max);
-        assert!(max_diff < 2e-3, "batched conditional attention diff too large: {max_diff}");
+        let cpu = conditional_anchor_attention_f32(
+            batch, seq, dim, heads, &x, &qkv_w, &qkv_b, &out_w, &out_b, &trigger,
+        )
+        .unwrap();
+        let gpu = MetalConditionalAnchorAttention::new()
+            .unwrap()
+            .forward(
+                batch, seq, dim, heads, &x, &qkv_w, &qkv_b, &out_w, &out_b, &trigger,
+            )
+            .unwrap();
+        let max_diff = cpu
+            .iter()
+            .zip(gpu.iter())
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0f32, f32::max);
+        assert!(
+            max_diff < 2e-3,
+            "batched conditional attention diff too large: {max_diff}"
+        );
     }
 
     #[test]
     fn gpu_backward_matches_cpu_reference_small_shape() {
-        let shape = Gdn2ForwardShape { batch: 2, seq: 6, heads: 3, key_dim: 4, value_dim: 4 };
+        let shape = Gdn2ForwardShape {
+            batch: 2,
+            seq: 6,
+            heads: 3,
+            key_dim: 4,
+            value_dim: 4,
+        };
         let mut state = 41u64;
         let qk_len = shape.batch * shape.seq * shape.heads * shape.key_dim;
         let v_len = shape.batch * shape.seq * shape.heads * shape.value_dim;
@@ -1137,9 +1481,28 @@ mod tests {
         let grad_output = make(v_len, &mut state);
         let grad_final = make(state_len, &mut state);
 
-        match compare_cpu_and_gpu_backward(&shape, &q, &k, &v, &d, &e, &w, &initial, &grad_output, &grad_final) {
+        match compare_cpu_and_gpu_backward(
+            &shape,
+            &q,
+            &k,
+            &v,
+            &d,
+            &e,
+            &w,
+            &initial,
+            &grad_output,
+            &grad_final,
+        ) {
             Ok(diffs) => {
-                let names = ["grad_q", "grad_k", "grad_v", "grad_decay_logits", "grad_erase_logits", "grad_write_logits", "grad_initial_state"];
+                let names = [
+                    "grad_q",
+                    "grad_k",
+                    "grad_v",
+                    "grad_decay_logits",
+                    "grad_erase_logits",
+                    "grad_write_logits",
+                    "grad_initial_state",
+                ];
                 for (name, diff) in names.iter().zip(diffs.iter()) {
                     assert!(*diff < 1e-3, "{name} diff too large: {diff}");
                 }
@@ -1151,16 +1514,39 @@ mod tests {
     #[test]
     fn conditional_attention_backward_gpu_matches_cpu_reference() {
         let (batch, seq, dim, heads) = (1, 3, 4, 2);
-        let x: Vec<f32> = (0..batch * seq * dim).map(|i| 0.03 + i as f32 * 0.02).collect();
-        let qkv_w: Vec<f32> = (0..3 * dim * dim).map(|i| -0.08 + i as f32 * 0.007).collect();
+        let x: Vec<f32> = (0..batch * seq * dim)
+            .map(|i| 0.03 + i as f32 * 0.02)
+            .collect();
+        let qkv_w: Vec<f32> = (0..3 * dim * dim)
+            .map(|i| -0.08 + i as f32 * 0.007)
+            .collect();
         let qkv_b: Vec<f32> = (0..3 * dim).map(|i| -0.03 + i as f32 * 0.01).collect();
         let out_w: Vec<f32> = (0..dim * dim).map(|i| 0.04 - i as f32 * 0.005).collect();
         let trigger = vec![1.0, 0.0, 1.0];
-        let grad_output: Vec<f32> = (0..batch * seq * dim).map(|i| 0.02 + i as f32 * 0.01).collect();
+        let grad_output: Vec<f32> = (0..batch * seq * dim)
+            .map(|i| 0.02 + i as f32 * 0.01)
+            .collect();
 
-        match compare_cpu_and_gpu_conditional_attention_backward(batch, seq, dim, heads, &x, &qkv_w, &qkv_b, &out_w, &trigger, &grad_output) {
+        match compare_cpu_and_gpu_conditional_attention_backward(
+            batch,
+            seq,
+            dim,
+            heads,
+            &x,
+            &qkv_w,
+            &qkv_b,
+            &out_w,
+            &trigger,
+            &grad_output,
+        ) {
             Ok(diffs) => {
-                let names = ["grad_x", "grad_qkv_weight", "grad_qkv_bias", "grad_out_weight", "grad_out_bias"];
+                let names = [
+                    "grad_x",
+                    "grad_qkv_weight",
+                    "grad_qkv_bias",
+                    "grad_out_weight",
+                    "grad_out_bias",
+                ];
                 for (name, diff) in names.iter().zip(diffs.iter()) {
                     assert!(*diff < 1e-3, "{name} diff too large: {diff}");
                 }
@@ -1178,10 +1564,13 @@ mod tests {
         let (batch, seq, dim, heads) = (2, 3, 4, 2);
         let mut state = 11u64;
         let lcg = |s: &mut u64, scale: f32| -> f32 {
-            *s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            *s = s
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             (((*s >> 40) as f32 / (1u64 << 24) as f32) - 0.5) * 2.0 * scale
         };
-        let make = |n: usize, s: &mut u64, scale: f32| (0..n).map(|_| lcg(s, scale)).collect::<Vec<f32>>();
+        let make =
+            |n: usize, s: &mut u64, scale: f32| (0..n).map(|_| lcg(s, scale)).collect::<Vec<f32>>();
         let x = make(batch * seq * dim, &mut state, 0.3);
         let qkv_w = make(3 * dim * dim, &mut state, 0.1);
         let qkv_b = make(3 * dim, &mut state, 0.1);
@@ -1189,20 +1578,45 @@ mod tests {
         let trigger = vec![1.0, 0.0, 1.0, 1.0, 1.0, 0.0];
         let grad_output = make(batch * seq * dim, &mut state, 0.2);
 
-        match compare_cpu_and_gpu_conditional_attention_backward(batch, seq, dim, heads, &x, &qkv_w, &qkv_b, &out_w, &trigger, &grad_output) {
+        match compare_cpu_and_gpu_conditional_attention_backward(
+            batch,
+            seq,
+            dim,
+            heads,
+            &x,
+            &qkv_w,
+            &qkv_b,
+            &out_w,
+            &trigger,
+            &grad_output,
+        ) {
             Ok(diffs) => {
-                let names = ["grad_x", "grad_qkv_weight", "grad_qkv_bias", "grad_out_weight", "grad_out_bias"];
+                let names = [
+                    "grad_x",
+                    "grad_qkv_weight",
+                    "grad_qkv_bias",
+                    "grad_out_weight",
+                    "grad_out_bias",
+                ];
                 for (name, diff) in names.iter().zip(diffs.iter()) {
                     assert!(*diff < 1e-3, "{name} diff too large: {diff}");
                 }
             }
-            Err(message) => panic!("Metal conditional attention backward multi-batch test failed: {message}"),
+            Err(message) => {
+                panic!("Metal conditional attention backward multi-batch test failed: {message}")
+            }
         }
     }
 
     #[test]
     fn gpu_backward_matches_cpu_reference_locked_a1_shape() {
-        let shape = Gdn2ForwardShape { batch: 1, seq: 8, heads: 12, key_dim: 64, value_dim: 64 };
+        let shape = Gdn2ForwardShape {
+            batch: 1,
+            seq: 8,
+            heads: 12,
+            key_dim: 64,
+            value_dim: 64,
+        };
         let mut state = 59u64;
         let qk_len = shape.batch * shape.seq * shape.heads * shape.key_dim;
         let v_len = shape.batch * shape.seq * shape.heads * shape.value_dim;
@@ -1218,11 +1632,33 @@ mod tests {
         let grad_output = make(v_len, &mut state);
         let grad_final = make(state_len, &mut state);
 
-        match compare_cpu_and_gpu_backward(&shape, &q, &k, &v, &d, &e, &w, &initial, &grad_output, &grad_final) {
+        match compare_cpu_and_gpu_backward(
+            &shape,
+            &q,
+            &k,
+            &v,
+            &d,
+            &e,
+            &w,
+            &initial,
+            &grad_output,
+            &grad_final,
+        ) {
             Ok(diffs) => {
-                let names = ["grad_q", "grad_k", "grad_v", "grad_decay_logits", "grad_erase_logits", "grad_write_logits", "grad_initial_state"];
+                let names = [
+                    "grad_q",
+                    "grad_k",
+                    "grad_v",
+                    "grad_decay_logits",
+                    "grad_erase_logits",
+                    "grad_write_logits",
+                    "grad_initial_state",
+                ];
                 for (name, diff) in names.iter().zip(diffs.iter()) {
-                    assert!(*diff < 1e-2, "{name} diff too large at locked shape: {diff}");
+                    assert!(
+                        *diff < 1e-2,
+                        "{name} diff too large at locked shape: {diff}"
+                    );
                 }
             }
             Err(message) => panic!("Metal GPU backward test failed: {message}"),

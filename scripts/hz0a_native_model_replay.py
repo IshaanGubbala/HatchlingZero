@@ -21,10 +21,11 @@ def fingerprint(model: NativeTinyHZ0AModel) -> str:
     return hashlib.sha256(model.flat_parameters().tobytes()).hexdigest()
 
 
-def run_replay(steps: int, checkpoint: Path | None) -> dict:
+def run_replay(steps: int, checkpoint: Path | None, *, moe: bool = False) -> dict:
     rng = np.random.default_rng(17)
     batches = [(rng.integers(0, 32, (2, 4), dtype=np.int64), rng.integers(0, 32, (2, 4), dtype=np.int64)) for _ in range(steps)]
-    model = NativeTinyHZ0AModel(32, 16, 3, 2, 8, 8, 32, [1], seed=99)
+    model_kwargs = dict(moe_layers=[1], moe_num_experts=2, moe_expert_d_ff=8, moe_capacity_factor=1.5) if moe else {}
+    model = NativeTinyHZ0AModel(32, 16, 3, 2, 8, 8, 32, [1], seed=99, **model_kwargs)
     optimizer = PmetalOptimizerPath(model.flat_parameters(), total_steps=steps)
     started = time.perf_counter()
     for tokens, targets in batches:
@@ -33,7 +34,7 @@ def run_replay(steps: int, checkpoint: Path | None) -> dict:
         optimizer.add_microbatch(np.concatenate([p.grad.reshape(-1) for p in model.parameters()]), tokens=tokens.size)
         model.load_flat_parameters(optimizer.state.parameters)
     full_fingerprint = fingerprint(model)
-    resumed = NativeTinyHZ0AModel(32, 16, 3, 2, 8, 8, 32, [1], seed=99)
+    resumed = NativeTinyHZ0AModel(32, 16, 3, 2, 8, 8, 32, [1], seed=99, **model_kwargs)
     resumed_optimizer = PmetalOptimizerPath(resumed.flat_parameters(), total_steps=steps)
     for index, (tokens, targets) in enumerate(batches):
         resumed.zero_grad(); resumed.loss_and_backward(tokens, targets)
@@ -49,12 +50,13 @@ def run_replay(steps: int, checkpoint: Path | None) -> dict:
             resumed.zero_grad(); resumed.loss_and_backward(tokens, targets)
             resumed_optimizer.add_microbatch(np.concatenate([p.grad.reshape(-1) for p in resumed.parameters()]), tokens=tokens.size)
             resumed.load_flat_parameters(resumed_optimizer.state.parameters)
-    return {"steps": steps, "tokens": optimizer.state.tokens_seen, "native_fingerprint": full_fingerprint, "resumed_fingerprint": fingerprint(resumed), "exact_resume": full_fingerprint == fingerprint(resumed), "finite": bool(np.isfinite(model.flat_parameters()).all()), "execution_seconds": time.perf_counter() - started}
+    return {"steps": steps, "tokens": optimizer.state.tokens_seen, "moe": moe, "native_fingerprint": full_fingerprint, "resumed_fingerprint": fingerprint(resumed), "exact_resume": full_fingerprint == fingerprint(resumed), "finite": bool(np.isfinite(model.flat_parameters()).all()), "execution_seconds": time.perf_counter() - started}
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--steps", type=int, default=100)
     parser.add_argument("--checkpoint", type=Path, default=Path("/tmp/hz0a_native_replay.json"))
+    parser.add_argument("--moe", action="store_true", help="enable a trainable MoE block at layer 1")
     args = parser.parse_args()
-    print(json.dumps(run_replay(args.steps, args.checkpoint), indent=2, sort_keys=True))
+    print(json.dumps(run_replay(args.steps, args.checkpoint, moe=args.moe), indent=2, sort_keys=True))

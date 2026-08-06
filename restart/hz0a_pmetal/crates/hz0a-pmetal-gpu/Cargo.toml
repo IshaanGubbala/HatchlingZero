@@ -7,6 +7,7 @@ authors.workspace = true
 
 [dependencies]
 hz0a-pmetal-kernel = { path = "../hz0a-pmetal-kernel" }
+hz0e-pmetal-moe = { path = "../hz0e-pmetal-moe" }
 metal = "0.33"
 
 [dev-dependencies]

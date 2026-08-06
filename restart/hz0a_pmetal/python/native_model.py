@@ -2,21 +2,24 @@
 
 from __future__ import annotations
 
+import hashlib
+
 import numpy as np
 
 from restart.hz0a_pmetal.python.native_attention import NativeCausalAttention
-from restart.hz0a_pmetal.python.native_blocks import NativeRMSNorm, NativeSwiGLU
+from restart.hz0a_pmetal.python.native_blocks import NativeRMSNorm, NativeSwiGLU, NativeTop1MoE
 from restart.hz0a_pmetal.python.native_gdn_block import NativeGDN2Block
 from restart.hz0a_pmetal.python.native_layers import NativeEmbedding, NativeTiedLMHead, cross_entropy_backward, cross_entropy_forward
 
 
 class NativeBlock:
-    def __init__(self, name, dim, heads, d_k, d_v, d_ff, attention, rng):
+    def __init__(self, name, dim, heads, d_k, d_v, d_ff, attention, rng, moe_config=None):
         self.attention = attention
         self.norm1 = NativeRMSNorm(name + ".norm1", dim)
         self.mixer = NativeCausalAttention(name + ".attention", dim, heads, rng) if attention else NativeGDN2Block(name + ".gdn2", dim, heads, d_k, d_v, rng)
         self.norm2 = NativeRMSNorm(name + ".norm2", dim)
-        self.mlp = NativeSwiGLU(name + ".mlp", dim, d_ff, rng)
+        self.mlp = (NativeTop1MoE(name + ".moe", dim, moe_config[0], moe_config[1], moe_config[2], rng, moe_config[3])
+                    if moe_config is not None else NativeSwiGLU(name + ".mlp", dim, d_ff, rng))
         self._cache = None
 
     def parameters(self):
@@ -45,10 +48,16 @@ class NativeBlock:
 
 
 class NativeTinyHZ0AModel:
-    def __init__(self, vocab_size, dim, layers, heads, d_k, d_v, d_ff, attention_indices, seed=0):
+    def __init__(self, vocab_size, dim, layers, heads, d_k, d_v, d_ff, attention_indices, seed=0,
+                 moe_layers=(), moe_num_experts=4, moe_expert_d_ff=None, moe_capacity_factor=1.5):
         rng = np.random.default_rng(seed)
         self.embedding = NativeEmbedding("embedding", vocab_size, dim, rng)
-        self.blocks = [NativeBlock(f"blocks.{index}", dim, heads, d_k, d_v, d_ff, index in set(attention_indices), rng) for index in range(layers)]
+        moe_layers = set(moe_layers)
+        expert_d_ff = moe_expert_d_ff if moe_expert_d_ff is not None else max(1, d_ff // moe_num_experts)
+        self.blocks = [NativeBlock(
+            f"blocks.{index}", dim, heads, d_k, d_v, d_ff, index in set(attention_indices), rng,
+            (moe_num_experts, expert_d_ff, moe_capacity_factor, d_ff) if index in moe_layers else None,
+        ) for index in range(layers)]
         self.final_norm = NativeRMSNorm("final_norm", dim)
         self.lm_head = NativeTiedLMHead(self.embedding)
         self._states = None
@@ -72,6 +81,31 @@ class NativeTinyHZ0AModel:
             offset += size
         if offset != values.size:
             raise ValueError("flat parameter size does not match model")
+
+    def state_dict(self) -> dict[str, np.ndarray]:
+        return {parameter.name: parameter.data.copy() for parameter in self.parameters()}
+
+    def load_state_dict(self, state: dict[str, np.ndarray]) -> None:
+        expected = {parameter.name for parameter in self.parameters()}
+        received = set(state)
+        if received != expected:
+            missing = sorted(expected - received)
+            unexpected = sorted(received - expected)
+            raise ValueError(f"parameter names do not match (missing={missing}, unexpected={unexpected})")
+        for parameter in self.parameters():
+            value = np.asarray(state[parameter.name], dtype=np.float32)
+            if value.shape != parameter.data.shape:
+                raise ValueError(f"shape mismatch for {parameter.name}: {value.shape} != {parameter.data.shape}")
+            if not np.isfinite(value).all():
+                raise ValueError(f"non-finite checkpoint value for {parameter.name}")
+            parameter.data[...] = value
+
+    def parameter_fingerprint(self) -> str:
+        digest = hashlib.sha256()
+        for parameter in self.parameters():
+            digest.update(parameter.name.encode("utf-8"))
+            digest.update(np.ascontiguousarray(parameter.data).tobytes())
+        return digest.hexdigest()
 
     def init_states(self, batch_size, heads, d_v, d_k):
         return [None if block.attention else np.zeros((batch_size, heads, d_v, d_k), dtype=np.float32) for block in self.blocks]

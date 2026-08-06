@@ -7,7 +7,8 @@ members = [
   "crates/hz0b-pmetal-memory",
   "crates/hz0b-pmetal-memory-bridge",
   "crates/hz0d-pmetal-fastweights",
-  "crates/hz0d-pmetal-fastweights-bridge"
+  "crates/hz0d-pmetal-fastweights-bridge",
+  "crates/hz0e-pmetal-moe"
 ]
 
 resolver = "2"
