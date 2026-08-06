@@ -417,4 +417,50 @@ risk, since this result shows the ceiling is not compute-bound. Reducing
 dispatch COUNT (fusing the two stages into one kernel per layer via
 threadgroup-shared memory, previously flagged as the "not attempted"
 option) is the evidence-supported next lever, not further compute
-optimization -- not attempted this session.
+optimization.
+
+## Dispatch fusion: tested, also a real negative result (2026-08-06)
+
+Tested the dispatch-count hypothesis directly: fused both stages into ONE
+Metal kernel dispatch per layer -- one threadgroup per token, phase 1
+computes the token's hidden activation into `threadgroup`-shared memory
+(compile-time-sized via Python string-templating the kernel source with
+the real `max_d_ff`), a `threadgroup_barrier`, then phase 2 reduces that
+shared hidden vector down to the token's output. This cuts dispatch count
+from 6 (2 stages x 3 layers) to 3 (1 x 3 layers).
+
+**Correctness**: verified bit-exact against the same toy fixtures used
+throughout (`4.46212`/`16.4309`/`9.28478` and `7.04638`), including
+`threadgroup_position_in_grid`/`thread_position_in_threadgroup`/shared
+memory/barrier all confirmed working correctly via a small standalone
+test before building the real kernel.
+
+**Latency, real full-model forward pass, threadgroup size 256**:
+
+```text
+two-stage kernel (2 dispatches/layer):    20.6-20.7 ms
+fused kernel (1 dispatch/layer, tg=256):  22.5-22.7 ms   -- WORSE
+```
+
+Apple GPUs cap threadgroup size at 1024 threads, and this model's real
+`max_d_ff` is 2304 -- more than double that cap -- so a "one threadgroup
+per token" fusion design cannot avoid grid-striding within each thread
+(each thread computes multiple hidden entries serially: `ceil(2304/256) =
+9` iterations at threadgroup size 256). Retried at threadgroup size 1024
+(Apple's hardware maximum, striding reduced to `ceil(2304/1024) = 3`):
+
+```text
+fused kernel (1 dispatch/layer, tg=1024): 22.1-22.2 ms   -- still WORSE
+```
+
+Still clearly worse than the two-stage kernel, across 3 repeated trials at
+each threadgroup size. **This is a second decisive negative result**: the
+per-token thread-level parallelism lost to fusion (at most 1024 concurrent
+threads per token, vs up to `max_d_ff`=2304 threads per token in the
+two-stage design, where the hidden-stage dispatch launches enough threads
+to cover every `(token, dff-index)` pair directly with no striding at all)
+costs more than the one dispatch it saves. Both routes explored to close
+the remaining ~5-6% gap -- SIMD-group compute optimization, and dispatch
+fusion -- made things worse, not better, when actually measured. The
+two-stage, non-fused, non-SIMD MLX-native kernel (20.6-20.7ms) remains the
+best real, verified result found across every approach tried this session.
