@@ -285,3 +285,22 @@ command-buffer encoder's dispatch overhead, or eliminating the per-call
 Python/ctypes/numpy round trip entirely by keeping the whole model's forward
 pass on one execution backend instead of crossing the FFI boundary per MoE
 layer.
+
+**Remaining gap, diagnosed precisely**: an isolated single-layer
+`pmetal_moe_forward_cached` call (real weight size, weights already
+resident, real checkpoint activations) costs ~1.09ms
+(numpy conversion + FFI call + Metal kernel + `mx.array` conversion back,
+all included). Three MoE layers per forward pass -> ~3.3ms, which
+accounts for essentially the entire observed ~2.4ms gap between PMetal
+cached (~22.1ms) and MLX reference (~19.7ms). The Metal kernel itself is
+no longer the bottleneck (confirmed above); what remains is the
+structural cost of crossing the Python/ctypes/numpy boundary once per
+MoE layer, which forces an `mx.eval` at each of those 3 points and
+prevents MLX from fusing/scheduling the whole forward pass as one lazy
+graph the way the pure-MLX reference path does. Closing this further
+would require a fundamentally different architecture -- an MLX custom
+Metal primitive/op that runs inside MLX's own execution graph without
+ever leaving GPU-resident MLX arrays -- not a ctypes bridge at all. That
+is out of E9's scoped design (a Python<->Rust<->Metal ctypes bridge,
+matching this project's established `hz0b`/`hz0d` bridge pattern) and is
+not attempted or claimed here.
