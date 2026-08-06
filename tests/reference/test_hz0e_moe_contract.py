@@ -119,7 +119,11 @@ def test_non_overflow_token_output_matches_its_routed_expert_scaled_by_gate_weig
     )
     expected = expected_expert_out_all[token_index:token_index + 1] * diag.gate_weight[token_index]
     actual = out.reshape(-1, 8)[token_index:token_index + 1]
-    assert bool(mx.allclose(actual, expected, atol=1e-6))
+    # Capacity dispatch can use a different MLX matmul kernel than the old
+    # all-token reference batch. Compare routing math within the resulting
+    # float32 reduction-order tolerance rather than requiring bitwise batch
+    # shape behavior.
+    assert bool(mx.allclose(actual, expected, atol=3e-5))
 
 
 def test_overflow_token_output_matches_unscaled_fallback_not_its_routed_expert():

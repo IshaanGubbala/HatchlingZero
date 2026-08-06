@@ -182,7 +182,7 @@ def mean_pairwise_tv_distance(per_domain_utilization: dict[str, list[float]]) ->
     return sum(distances) / len(distances)
 
 
-def run_curriculum(model, config: MoeConfig, *, balanced_steps: int = 50, mixed_steps: int = 50, imbalanced_steps: int = 50, learning_rate: float = 1e-5, seed: int = 0, warm_start_steps: int = 40) -> tuple[MoeLayerParams, SpecializationReport]:
+def run_curriculum(model, config: MoeConfig, *, balanced_steps: int = 50, mixed_steps: int = 50, imbalanced_steps: int = 50, learning_rate: float = 1e-5, seed: int = 0, warm_start_steps: int = 40, aux_weights: dict[str, float] | None = None, weight_decay: float | None = None) -> tuple[MoeLayerParams, SpecializationReport]:
     """The full real 3-stage curriculum, built on E6's warm-started
     init and E3's proven trainer. Returns the final trained
     `MoeLayerParams` and a `SpecializationReport` comparing
@@ -236,8 +236,10 @@ def run_curriculum(model, config: MoeConfig, *, balanced_steps: int = 50, mixed_
     all_batches = stage1 + stage2 + stage3
 
     trained, _history = train_moe_layer(
-        model, all_batches, config, layer_index=LAYER, aux_weights={},
-        learning_rate=learning_rate, start_params=warm,
+        model, all_batches, config, layer_index=LAYER, aux_weights=aux_weights or {},
+        learning_rate=learning_rate, start_params=warm, cache_backbone=True, compile_step=True,
+        record_history=False, eval_interval=8,
+        weight_decay=weight_decay,
     )
 
     trained_dict = params_to_dict(trained)

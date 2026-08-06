@@ -16,7 +16,7 @@ import pytest
 
 from reference.hz0e_e2_router_simulator import DOMAIN_DATA_PATHS
 from reference.hz0e_e3_routing_objectives import (
-    diversity_loss, lm_forward_with_moe, load_balance_loss, overflow_penalty_loss, params_to_dict,
+    combined_loss, diversity_loss, lm_forward_with_moe, load_balance_loss, overflow_penalty_loss, params_to_dict,
     router_z_loss, supervised_warm_start, train_moe_layer,
 )
 from reference.hz0e_moe_contract import MoeConfig, init_moe_layer
@@ -92,6 +92,41 @@ def test_lm_loss_training_genuinely_improves_over_fresh_untrained_baseline():
         trained, _history = train_moe_layer(model, train_batches, CONFIG, aux_weights={}, learning_rate=LR, init_seed=seed)
         trained_val = _eval_lm_loss(model, trained, val_batches)
         assert trained_val < fresh_val, f"seed={seed}: expected real improvement, fresh={fresh_val} trained={trained_val}"
+
+
+def test_fast_cached_training_is_parameter_exact():
+    """Deferred synchronization and skipped Python logging must not
+    change the optimizer update sequence for a frozen-backbone run."""
+    model, _payload = load_frozen_model()
+    batches = _real_batches(TRAIN_PATH, 24)
+    detailed, _ = train_moe_layer(
+        model, batches, CONFIG, learning_rate=LR, init_seed=11,
+        cache_backbone=True, compile_step=True,
+    )
+    fast, _ = train_moe_layer(
+        model, batches, CONFIG, learning_rate=LR, init_seed=11,
+        cache_backbone=True, compile_step=True,
+        record_history=False, eval_interval=8,
+    )
+    detailed_dict = params_to_dict(detailed)
+    fast_dict = params_to_dict(fast)
+    mx.eval(*detailed_dict.values(), *fast_dict.values())
+    max_error = max(float(mx.max(mx.abs(detailed_dict[name] - fast_dict[name]))) for name in detailed_dict)
+    assert max_error == 0.0, f"fast mode changed parameters: max_error={max_error}"
+
+
+def test_compiled_scalar_loss_keeps_auxiliary_objectives():
+    """Disabling Python breakdown logging must not remove an auxiliary
+    objective from the scalar loss used by the compiled gradient path."""
+    model, _payload = load_frozen_model()
+    tokens = _real_batches(TRAIN_PATH, 1)[0]
+    params = params_to_dict(init_moe_layer(CONFIG))
+    plain, _ = combined_loss(params, model, tokens, CONFIG, 27, {})
+    logged, _ = combined_loss(params, model, tokens, CONFIG, 27, {"z_loss": 0.01})
+    scalar, _ = combined_loss(params, model, tokens, CONFIG, 27, {"z_loss": 0.01}, emit_breakdown=False)
+    mx.eval(plain, logged, scalar)
+    assert float(mx.abs(logged - scalar)) == 0.0
+    assert float(mx.abs(logged - plain)) > 0.0
 
 
 def test_load_balance_auxiliary_loss_reduces_max_expert_share_without_hurting_lm_loss():

@@ -156,17 +156,33 @@ def moe_ffn_forward(x: mx.array, params: MoeLayerParams, config: MoeConfig) -> t
     rank_in_expert = mx.sum(running_count * one_hot, axis=-1) - 1  # [N], 0-indexed rank within chosen expert's queue
 
     capacity = int(mx.ceil(mx.array(config.capacity_factor * n / config.num_experts)).item())
+    # No expert can receive more than N real rows; bounding the static
+    # gather also keeps generous test capacities from creating dummy slots.
+    capacity = min(capacity, n)
     overflow = rank_in_expert >= capacity  # [N] bool
 
-    output = mx.zeros((n, dim))
+    # Keep dispatch shapes static for MLX autodiff. Sorting token ranks lets
+    # us gather at most `capacity` rows per expert without dynamic compaction.
+    # Stack the expert work so MLX launches batched projections rather than
+    # four independent Python-loop SwiGLUs.
+    expert_orders = []
+    expert_masks = []
     for e in range(config.num_experts):
-        expert_out = _swiglu(
-            x_flat, params.expert_gate_w[e], params.expert_gate_b[e],
-            params.expert_up_w[e], params.expert_up_b[e], params.expert_down_w[e], params.expert_down_b[e],
-        )
-        selected = (expert_idx == e) & (~overflow)
-        weight = mx.where(selected, gate_weight, mx.zeros_like(gate_weight))
-        output = output + expert_out * weight[:, None]
+        expert_mask = expert_idx == e
+        sort_key = mx.where(expert_mask, rank_in_expert, mx.full((n,), n, dtype=mx.int32))
+        expert_orders.append(mx.argsort(sort_key)[:capacity])
+        expert_masks.append(expert_mask)
+    token_orders = mx.stack(expert_orders)
+    expert_x = mx.take(x_flat, token_orders, axis=0)
+    gate = mx.matmul(expert_x, params.expert_gate_w.transpose(0, 2, 1)) + params.expert_gate_b[:, None, :]
+    up = mx.matmul(expert_x, params.expert_up_w.transpose(0, 2, 1)) + params.expert_up_b[:, None, :]
+    expert_hidden = mx.multiply(nn.silu(gate), up)
+    expert_out = mx.matmul(expert_hidden, params.expert_down_w.transpose(0, 2, 1)) + params.expert_down_b[:, None, :]
+    selected = mx.stack([mask & (~overflow) for mask in expert_masks])
+    slots = mx.arange(capacity)[None, None, :]
+    assignment = (rank_in_expert[None, :, None] == slots) & selected[:, :, None]
+    output = mx.sum(mx.matmul(assignment.astype(expert_out.dtype), expert_out), axis=0)
+    output = output * gate_weight[:, None]
 
     fallback_out = _swiglu(
         x_flat, params.fallback_gate_w, params.fallback_gate_b,
