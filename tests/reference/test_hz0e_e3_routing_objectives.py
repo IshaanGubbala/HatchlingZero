@@ -129,6 +129,28 @@ def test_compiled_scalar_loss_keeps_auxiliary_objectives():
     assert float(mx.abs(logged - plain)) > 0.0
 
 
+def test_cached_router_warm_start_stays_within_numerical_tolerance():
+    """Caching the frozen prefix must preserve supervised router updates
+    within the small MLX materialization/kernel-selection tolerance."""
+    model, _payload = load_frozen_model()
+    domains = {
+        "prose": _real_batches(TRAIN_PATH, 2)[0],
+        "code": _real_batches(TRAIN_PATH, 2, offset=2)[0],
+    }
+    labels = {"prose": 0, "code": 1}
+    from reference.hz0e_e3_routing_objectives import supervised_warm_start
+    initial = init_moe_layer(CONFIG)
+    uncached = supervised_warm_start(model, domains, labels, CONFIG, steps=4,
+                                     learning_rate=1e-3, start_params=initial)
+    cached = supervised_warm_start(model, domains, labels, CONFIG, steps=4,
+                                   learning_rate=1e-3, start_params=initial,
+                                   cache_backbone=True)
+    left, right = params_to_dict(uncached), params_to_dict(cached)
+    mx.eval(*left.values(), *right.values())
+    max_error = max(float(mx.max(mx.abs(left[name] - right[name]))) for name in left)
+    assert max_error <= 2e-4, f"cached warm-start drifted beyond tolerance: max_error={max_error}"
+
+
 def test_load_balance_auxiliary_loss_reduces_max_expert_share_without_hurting_lm_loss():
     """Load balancing: training WITH the balance loss (weight 0.01,
     the calibrated default) must genuinely reduce the maximum expert
