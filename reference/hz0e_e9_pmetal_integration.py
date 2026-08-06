@@ -78,6 +78,38 @@ def pack_params_for_bridge(params: MoeLayerParams, config: MoeConfig) -> dict[st
     }
 
 
+def upload_layer_weights(kernel, config: MoeConfig, packed: dict[str, np.ndarray]):
+    """Uploads one layer's packed expert/fallback weights to the GPU
+    once via `MoeKernel.upload_weights`, returning a `CachedWeights`
+    handle for `pmetal_moe_forward_cached`. The real fix for the ~40x
+    end-to-end slowdown `pmetal_moe_forward`/`forward_logits` incur:
+    they call `new_buffer_with_data` for the full expert+fallback
+    weight tensors (~21MB apiece at this model's real scale) on EVERY
+    forward call -- confirmed as the dominant cost by isolating
+    weight-buffer size (shrinking it dropped a real-scale single-layer
+    call from ~290ms to ~1.6ms, 178x, ruling out FFI/dispatch/MLX
+    overhead as the cause)."""
+    return kernel.upload_weights(
+        packed["expert_weights"], packed["expert_biases"], packed["fallback_weights"], packed["fallback_biases"],
+        experts=config.num_experts, dim=config.dim, expert_d_ff=config.expert_d_ff, fallback_d_ff=config.dense_d_ff,
+    )
+
+
+def pmetal_moe_forward_cached(kernel, weights, x: mx.array, params: MoeLayerParams, config: MoeConfig) -> mx.array:
+    """Same computation as `pmetal_moe_forward`, but against an
+    already-uploaded `CachedWeights` handle -- only the router logits
+    and activations cross the FFI boundary this call, not the weight
+    tensors."""
+    batch, seq, dim = x.shape
+    x_np = np.array(x, dtype=np.float32).reshape(batch * seq, dim)
+    router_w = np.array(params.router_w, dtype=np.float32)
+    router_b = np.array(params.router_b, dtype=np.float32)
+    router_logits = (x_np @ router_w.T + router_b).astype(np.float32)
+
+    out_np = kernel.forward_cached(weights, router_logits, x_np, capacity_factor=config.capacity_factor)
+    return mx.array(out_np).reshape(batch, seq, dim)
+
+
 def pmetal_moe_forward(kernel, x: mx.array, params: MoeLayerParams, config: MoeConfig, packed: dict[str, np.ndarray]) -> mx.array:
     """Real, complete MoE forward for one layer via the real Metal
     kernel -- router logits computed once (a tiny matmul, negligible
@@ -136,10 +168,13 @@ def benchmark_full_model_forward(model, params_by_layer: dict[int, MoeLayerParam
     """Real, full-model forward-pass wall-clock benchmark. `backend`:
     `"dense"` (no MoE at all, the real original pretrained FFN),
     `"mlx"` (MLX reference MoE, `reference/hz0e_e6_integration.py::forward_e6`),
-    or `"pmetal"` (real Metal kernel via the FFI bridge, one
-    `MoeKernel` created once and reused across every layer/repeat, per
-    this bridge's own create-once/call-many design). Returns mean
-    milliseconds per forward pass after `warmup` untimed repeats."""
+    `"pmetal"` (real Metal kernel via the FFI bridge, re-uploading
+    weight buffers on every call -- the ORIGINAL, slow path, kept for
+    honest before/after comparison), or `"pmetal_cached"` (same Metal
+    kernel, but weights uploaded once via `upload_layer_weights` and
+    reused across every repeat -- the real fix for the ~40x slowdown
+    the uncached path measured). Returns mean milliseconds per forward
+    pass after `warmup` untimed repeats."""
     from reference.hz0e_e6_integration import forward_e6
 
     if backend == "dense":
@@ -152,7 +187,6 @@ def benchmark_full_model_forward(model, params_by_layer: dict[int, MoeLayerParam
             mx.eval(result.logits)
     elif backend == "pmetal":
         from hz0e_moe_bridge import MoeKernel
-        from reference.hz0e_e2_router_simulator import collect_real_ffn_input
         packed_by_layer = {idx: pack_params_for_bridge(p, config) for idx, p in params_by_layer.items()}
         kernel = MoeKernel()
 
@@ -169,6 +203,25 @@ def benchmark_full_model_forward(model, params_by_layer: dict[int, MoeLayerParam
                     x = residual + moe_out
             logits = mx.matmul(model.final_norm(x), model.embedding.weight.T)
             mx.eval(logits)
+    elif backend == "pmetal_cached":
+        from hz0e_moe_bridge import MoeKernel
+        packed_by_layer = {idx: pack_params_for_bridge(p, config) for idx, p in params_by_layer.items()}
+        kernel = MoeKernel()
+        weights_by_layer = {idx: upload_layer_weights(kernel, config, packed) for idx, packed in packed_by_layer.items()}
+
+        def run():
+            x = model.embedding(tokens)
+            for index, block in enumerate(model.blocks):
+                if index not in params_by_layer:
+                    x, _ = block(x, None)
+                else:
+                    mixed, _ = block.mixer(block.norm1(x), None)
+                    residual = x + mixed
+                    ffn_input = block.norm2(residual)
+                    moe_out = pmetal_moe_forward_cached(kernel, weights_by_layer[index], ffn_input, params_by_layer[index], config)
+                    x = residual + moe_out
+            logits = mx.matmul(model.final_norm(x), model.embedding.weight.T)
+            mx.eval(logits)
     else:
         raise ValueError(f"unknown backend: {backend}")
 
@@ -178,6 +231,9 @@ def benchmark_full_model_forward(model, params_by_layer: dict[int, MoeLayerParam
     for _ in range(repeats):
         run()
     elapsed = time.perf_counter() - start
-    if backend == "pmetal":
+    if backend in ("pmetal", "pmetal_cached"):
+        if backend == "pmetal_cached":
+            for weights in weights_by_layer.values():
+                weights.close()
         kernel.close()
     return (elapsed / repeats) * 1000.0

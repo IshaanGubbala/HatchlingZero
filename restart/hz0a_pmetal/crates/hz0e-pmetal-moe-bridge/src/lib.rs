@@ -20,7 +20,7 @@
 //! managing the opaque handle's lifetime; every actual MoE computation
 //! still runs inside `hz0a-pmetal-gpu`/`hz0e-pmetal-moe`.
 
-use hz0a_pmetal_gpu::MetalMoeSwiGlu;
+use hz0a_pmetal_gpu::{CachedMoeWeights, MetalMoeSwiGlu};
 
 /// Opaque handle -- Python holds this as a raw pointer and passes it
 /// back into `hz0e_moe_forward_logits`/`hz0e_moe_free`, never
@@ -104,6 +104,102 @@ pub unsafe extern "C" fn hz0e_moe_forward_logits(
         router_logits, input, expert_weights, expert_biases, fallback_weights, fallback_biases,
         tokens, experts, capacity_factor, dim, expert_d_ff, fallback_d_ff,
     ) {
+        Ok((_plan, output)) => {
+            std::slice::from_raw_parts_mut(out_output, tokens * dim).copy_from_slice(&output);
+            0
+        }
+        Err(message) => {
+            set_error(out_error, &message);
+            1
+        }
+    }
+}
+
+/// Opaque handle wrapping device-resident weight buffers
+/// (`hz0a_pmetal_gpu::CachedMoeWeights`), produced once by
+/// `hz0e_moe_upload_weights` and reused across many
+/// `hz0e_moe_forward_cached` calls -- the fix for the ~40x end-to-end
+/// slowdown `hz0e_moe_forward_logits` incurs by re-uploading the same
+/// expert/fallback weight buffers on every call.
+pub struct Hz0eMoeWeightsHandle {
+    weights: CachedMoeWeights,
+}
+
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn hz0e_moe_upload_weights(
+    handle: *mut Hz0eMoeHandle,
+    expert_weights: *const f32,
+    expert_biases: *const f32,
+    fallback_weights: *const f32,
+    fallback_biases: *const f32,
+    experts: usize,
+    dim: usize,
+    expert_d_ff: usize,
+    fallback_d_ff: usize,
+    out_error: *mut *mut std::os::raw::c_char,
+) -> *mut Hz0eMoeWeightsHandle {
+    if handle.is_null() {
+        set_error(out_error, "hz0e_moe_upload_weights: null handle");
+        return std::ptr::null_mut();
+    }
+    let handle_ref = &*handle;
+    let expert_weights = std::slice::from_raw_parts(expert_weights, experts * 3 * expert_d_ff * dim);
+    let expert_biases = std::slice::from_raw_parts(expert_biases, experts * (2 * expert_d_ff + dim));
+    let fallback_weights = std::slice::from_raw_parts(fallback_weights, 3 * fallback_d_ff * dim);
+    let fallback_biases = std::slice::from_raw_parts(fallback_biases, 2 * fallback_d_ff + dim);
+    match handle_ref.kernel.upload_weights(
+        expert_weights, expert_biases, fallback_weights, fallback_biases,
+        experts, dim, expert_d_ff, fallback_d_ff,
+    ) {
+        Ok(weights) => Box::into_raw(Box::new(Hz0eMoeWeightsHandle { weights })),
+        Err(message) => {
+            set_error(out_error, &message);
+            std::ptr::null_mut()
+        }
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn hz0e_moe_free_weights(handle: *mut Hz0eMoeWeightsHandle) {
+    if !handle.is_null() {
+        drop(Box::from_raw(handle));
+    }
+}
+
+/// Real forward pass against already-resident weight buffers -- only
+/// `router_logits`/`input`/`output` (all tokens-sized, small) cross the
+/// FFI boundary per call; `expert_weights`/`fallback_weights` do not.
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn hz0e_moe_forward_cached(
+    handle: *mut Hz0eMoeHandle,
+    weights_handle: *mut Hz0eMoeWeightsHandle,
+    router_logits: *const f32,
+    input: *const f32,
+    tokens: usize,
+    experts: usize,
+    capacity_factor: f32,
+    dim: usize,
+    out_output: *mut f32,
+    out_error: *mut *mut std::os::raw::c_char,
+) -> i32 {
+    if handle.is_null() || weights_handle.is_null() {
+        set_error(out_error, "hz0e_moe_forward_cached: null handle");
+        return 1;
+    }
+    let handle_ref = &*handle;
+    let weights_ref = &(*weights_handle).weights;
+    if weights_ref.experts() != experts || weights_ref.dim() != dim {
+        set_error(out_error, "hz0e_moe_forward_cached: experts/dim mismatch with cached weights");
+        return 1;
+    }
+    let router_logits = std::slice::from_raw_parts(router_logits, tokens * experts);
+    let input = std::slice::from_raw_parts(input, tokens * dim);
+    match handle_ref
+        .kernel
+        .forward_logits_cached(router_logits, input, tokens, capacity_factor, weights_ref)
+    {
         Ok((_plan, output)) => {
             std::slice::from_raw_parts_mut(out_output, tokens * dim).copy_from_slice(&output);
             0

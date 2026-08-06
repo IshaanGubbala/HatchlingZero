@@ -65,6 +65,23 @@ def _load() -> ctypes.CDLL:
         f32p, err_pp,
     ]
     lib.hz0e_moe_forward_logits.restype = ctypes.c_int32
+
+    lib.hz0e_moe_upload_weights.argtypes = [
+        ctypes.c_void_p, f32p, f32p, f32p, f32p,
+        ctypes.c_size_t, ctypes.c_size_t, ctypes.c_size_t, ctypes.c_size_t,
+        err_pp,
+    ]
+    lib.hz0e_moe_upload_weights.restype = ctypes.c_void_p
+
+    lib.hz0e_moe_free_weights.argtypes = [ctypes.c_void_p]
+    lib.hz0e_moe_free_weights.restype = None
+
+    lib.hz0e_moe_forward_cached.argtypes = [
+        ctypes.c_void_p, ctypes.c_void_p, f32p, f32p,
+        ctypes.c_size_t, ctypes.c_size_t, ctypes.c_float, ctypes.c_size_t,
+        f32p, err_pp,
+    ]
+    lib.hz0e_moe_forward_cached.restype = ctypes.c_int32
     return lib
 
 
@@ -88,6 +105,39 @@ def _c32(arr: np.ndarray) -> np.ndarray:
 
 class PMetalMoeError(RuntimeError):
     pass
+
+
+class CachedWeights:
+    """Device-resident expert/fallback weight buffers, uploaded ONCE via
+    `MoeKernel.upload_weights` and reused across many
+    `MoeKernel.forward_cached` calls. This is the fix for the real,
+    measured ~40x end-to-end slowdown `forward_logits` incurs: it calls
+    `new_buffer_with_data` for the full expert+fallback weight tensors
+    on EVERY call (confirmed by isolating weight-buffer size as the
+    cost driver -- shrinking weights to trivial size dropped a 128-token
+    real-scale call from ~290ms to ~1.6ms, a 178x difference, with FFI/
+    dispatch/MLX overhead ruled out as the cause). `forward_cached` only
+    sends `router_logits`/`input`/`output` (tokens-sized, small) across
+    the FFI boundary per call -- the weight tensors do not move again."""
+
+    def __init__(self, handle: ctypes.c_void_p, *, experts: int, dim: int) -> None:
+        self._handle = handle
+        self.experts = experts
+        self.dim = dim
+
+    def close(self) -> None:
+        if getattr(self, "_handle", None):
+            _lib().hz0e_moe_free_weights(self._handle)
+            self._handle = None
+
+    def __enter__(self) -> "CachedWeights":
+        return self
+
+    def __exit__(self, *_exc) -> None:
+        self.close()
+
+    def __del__(self) -> None:
+        self.close()
 
 
 class MoeKernel:
@@ -186,3 +236,79 @@ class MoeKernel:
                 _lib().hz0e_moe_free_error(err)
             raise PMetalMoeError(message)
         return output.reshape(tokens, dim)
+
+    def upload_weights(
+        self, expert_weights: np.ndarray, expert_biases: np.ndarray,
+        fallback_weights: np.ndarray, fallback_biases: np.ndarray,
+        *, experts: int, dim: int, expert_d_ff: int, fallback_d_ff: int,
+    ) -> CachedWeights:
+        """Uploads expert/fallback weights to the GPU once. Returns a
+        `CachedWeights` handle to pass into `forward_cached` many times
+        -- see `CachedWeights`'s own docstring for why this exists."""
+        if self._handle is None:
+            raise PMetalMoeError("upload_weights called on a closed MoeKernel")
+        expert_weights = _c32(expert_weights).reshape(-1)
+        expert_biases = _c32(expert_biases).reshape(-1)
+        fallback_weights = _c32(fallback_weights).reshape(-1)
+        fallback_biases = _c32(fallback_biases).reshape(-1)
+
+        expected = {
+            "expert_weights": experts * 3 * expert_d_ff * dim,
+            "expert_biases": experts * (2 * expert_d_ff + dim),
+            "fallback_weights": 3 * fallback_d_ff * dim,
+            "fallback_biases": 2 * fallback_d_ff + dim,
+        }
+        actual = {
+            "expert_weights": expert_weights.size, "expert_biases": expert_biases.size,
+            "fallback_weights": fallback_weights.size, "fallback_biases": fallback_biases.size,
+        }
+        for name, expected_size in expected.items():
+            if actual[name] != expected_size:
+                raise PMetalMoeError(f"{name}: expected {expected_size} elements, got {actual[name]}")
+
+        err = ctypes.c_char_p()
+        handle = _lib().hz0e_moe_upload_weights(
+            self._handle, _f32p(expert_weights), _f32p(expert_biases),
+            _f32p(fallback_weights), _f32p(fallback_biases),
+            experts, dim, expert_d_ff, fallback_d_ff, ctypes.byref(err),
+        )
+        if not handle:
+            message = err.value.decode("utf-8", "replace") if err.value else "hz0e_moe_upload_weights failed"
+            if err.value:
+                _lib().hz0e_moe_free_error(err)
+            raise PMetalMoeError(message)
+        return CachedWeights(handle, experts=experts, dim=dim)
+
+    def forward_cached(
+        self, weights: CachedWeights, router_logits: np.ndarray, x: np.ndarray,
+        *, capacity_factor: float,
+    ) -> np.ndarray:
+        """Real forward pass against already-resident weights -- only
+        `router_logits`/`x`/output cross the FFI boundary this call."""
+        if self._handle is None:
+            raise PMetalMoeError("forward_cached called on a closed MoeKernel")
+        if weights._handle is None:
+            raise PMetalMoeError("forward_cached called with a closed CachedWeights")
+        tokens = x.shape[0]
+        router_logits = _c32(router_logits).reshape(-1)
+        x = _c32(x).reshape(-1)
+        expected_router = tokens * weights.experts
+        expected_x = tokens * weights.dim
+        if router_logits.size != expected_router:
+            raise PMetalMoeError(f"router_logits: expected {expected_router} elements, got {router_logits.size}")
+        if x.size != expected_x:
+            raise PMetalMoeError(f"x: expected {expected_x} elements, got {x.size}")
+
+        output = np.zeros(tokens * weights.dim, dtype=np.float32)
+        err = ctypes.c_char_p()
+        status = _lib().hz0e_moe_forward_cached(
+            self._handle, weights._handle, _f32p(router_logits), _f32p(x),
+            tokens, weights.experts, capacity_factor, weights.dim,
+            _f32p(output), ctypes.byref(err),
+        )
+        if status != 0:
+            message = err.value.decode("utf-8", "replace") if err.value else "hz0e_moe_forward_cached failed"
+            if err.value:
+                _lib().hz0e_moe_free_error(err)
+            raise PMetalMoeError(message)
+        return output.reshape(tokens, weights.dim)

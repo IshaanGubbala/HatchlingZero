@@ -25,7 +25,7 @@ pub use full_block::{
     AdamWMoments, BlockParameters, BlockShape, ForwardCache, ForwardOutput, Gdn2FullBlockGpu,
 };
 pub use moe_dispatch::MetalMoeScatter;
-pub use moe_swiglu::MetalMoeSwiGlu;
+pub use moe_swiglu::{CachedMoeWeights, MetalMoeSwiGlu};
 
 // C8's "grouped/cache-optimized dispatch" -- the item
 // `docs/restart/hz0c_c8_model_level_integration_results.md` named

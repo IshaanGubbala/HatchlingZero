@@ -193,9 +193,15 @@ expert path, not the fallback path, and both paths were independently
 correctness-tested against hand-computed values in the bridge's own unit
 tests).
 
-**Net end-to-end benefit: NOT met. PMetal is dramatically slower, not
-faster.** One real full-model forward pass (2 sequences x 64 tokens, 3 real
-MoE layers, mean of 10 timed repeats after 3 warmup repeats,
+**Net end-to-end benefit: originally NOT met (PMetal ~40x slower); after two
+real, verified fixes, the gap is closed from ~40x to ~12%, but PMetal still
+does not win.** This section originally reported a first root-cause
+hypothesis that turned out to be WRONG once tested further -- the corrected
+account, including that correction, is below, because getting the causal
+story right mattered more than getting a fast-looking number quickly.
+
+*First measurement* (2 sequences x 64 tokens, 3 real MoE layers, mean of 10
+timed repeats after 3 warmup repeats,
 `test_pmetal_end_to_end_full_model_forward_latency_vs_mlx_and_dense`):
 
 ```text
@@ -204,32 +210,78 @@ MLX reference MoE:  19.7 ms
 PMetal MoE:         761.7 ms   (~38-41x slower than either)
 ```
 
-Root cause identified and confirmed, not assumed: `MetalMoeSwiGlu::forward`
-(`hz0a-pmetal-gpu/src/moe_swiglu.rs`) calls `device.new_buffer_with_data` for
-every weight/bias buffer -- including the full expert and fallback weight
-tensors (~5.3M f32 elements each, ~21MB apiece at this model's real
-`expert_d_ff=576`/`dense_d_ff=2304`/`dim=768`/`num_experts=4`) -- on **every
-single call**, with no caching or device-resident buffer reuse across calls.
-Isolating the cost confirms this directly: the same 128-token call shape
-with real-scale weights costs ~290ms per layer; with the weight buffers
-shrunk to `expert_d_ff=fallback_d_ff=1` (everything else unchanged) the same
-call costs 1.6ms -- a 178x difference driven purely by weight-buffer size,
-not by FFI marshaling, dispatch overhead, or MLX/numpy conversion (a pure
-FFI-only isolation, bypassing MLX entirely, measured the identical ~290ms/294ms,
-ruling out MLX round-trip cost as the cause). The kernel re-uploads and
-re-copies the same, unchanged weights on every forward call instead of
-caching them GPU-resident across calls -- which directly contradicts the
-plan's own "Apple-Silicon weight residency" framing for E9. This is a real,
-disclosed architecture gap in the current `forward`/`forward_logits` API
-(no persistent-buffer/handle-scoped weight cache), not a tuning parameter,
-and not fixed by this session's work.
+*First (WRONG) hypothesis*: `MetalMoeSwiGlu::forward` calls
+`device.new_buffer_with_data` for the full expert/fallback weight tensors on
+every call, with no caching; shrinking those buffers to trivial size dropped
+an isolated single-layer call from ~290ms to ~1.6ms (178x), which looked like
+confirmation that weight re-upload was the dominant cost. **This was a
+confounded experiment**: shrinking the weight buffers to `expert_d_ff =
+fallback_d_ff = 1` also shrank the Metal kernel's own per-thread inner-loop
+length (the kernel loops `dff` times internally), so the "tiny weights" test
+could not distinguish "upload cost" from "compute cost" -- it changed both
+variables at once.
 
-**Honest verdict:** E9's two-part exit gate is half met. PMetal's numerical
-output is a real, verified match for the MLX reference at real model scale.
-It does not currently provide a net end-to-end benefit -- it is ~40x slower
-than the existing MLX/dense path, for a clearly identified, structural
-reason (no weight residency across calls). A weight-resident redesign
-(caching persistent `MTLBuffer`s for expert/fallback weights keyed by layer,
-re-uploading only per-call activations) is a plausible fix but is out of
-scope for what was verified this session, and is not claimed to work until
-it is built and measured.
+A weight-residency fix (`MetalMoeSwiGlu::upload_weights` /
+`forward_logits_cached`, uploading expert/fallback buffers once and reusing
+the device-resident `MTLBuffer`s across calls) was built and tested properly
+in isolation, at real weight size, with weights already resident: the call
+still cost ~290ms -- statistically identical to the uncached path. This
+DISPROVED the buffer-re-upload hypothesis directly, not by assumption.
+
+**Real, confirmed root cause**: the single-stage Metal kernel used one
+thread per (token, output-dimension) pair, with each of those `dim`=768
+threads per token independently RECOMPUTING the entire per-token SwiGLU
+hidden activation (gate/up projections, an O(`dff`  x `dim`) reduction) from
+scratch. Since there are `dim` such threads per token, the same hidden
+activation was redundantly recomputed `dim` times per token -- an O(dim)
+algorithmic blowup on top of the correct compute budget. Confirmed by
+inspecting the shader directly (`restart/hz0a_pmetal/metal/moe_swiglu.metal`,
+prior version): the `for (uint j = 0; j < dff; ++j)` loop recomputed `gate`/
+`up` via a nested `for (uint i = 0; i < dim; ++i)` loop inside a kernel
+where `out` (one of `dim` values) was part of the thread's identity but not
+used anywhere in that recomputation -- i.e. `dim` threads per token were each
+doing the identical O(dff x dim) work for no reason.
+
+**Fix**: split the kernel into two stages, each its own Metal compute
+pipeline, dispatched as two compute-command-encoders within one command
+buffer (one `commit`/`wait_until_completed`, not two): stage 1
+(`hz0e_moe_swiglu_hidden`) computes each token's hidden activation ONCE per
+(token, dff-index) into a scratch buffer; stage 2 (`hz0e_moe_swiglu_down`)
+reduces that hidden activation down to each (token, output-dim) scalar. Both
+stages preserve the EXACT same accumulation order as the original
+single-stage kernel (this is a factoring of the same arithmetic, not a
+different algorithm), which is why the existing exact-value tests
+(`metal_swiglu_matches_expert_fallback_reference`, etc.) pass unmodified
+with bit-identical expected outputs.
+
+*Real, reproducible effect of both fixes together* (3 independent repeated
+runs, same real checkpoint/tokens):
+
+```text
+                          run 1     run 2     run 3
+dense (no MoE):           18.8      18.9      18.6   ms
+MLX reference MoE:        19.6      19.7      19.6   ms
+PMetal MoE (uncached):    37.5      37.5      38.0   ms   (was 761.7 ms before the kernel fix)
+PMetal MoE (cached):      22.0      22.2      22.1   ms   (was ~290 ms/layer before either fix)
+```
+
+The two-stage kernel rewrite alone took the uncached path from ~761.7ms to
+~37.5-38.0ms (~20x). Weight residency on top of that (no longer confounded --
+now tested with the SAME, correct compute kernel on both sides) took it from
+~37.5ms to ~22.0-22.2ms (~1.7x further). Combined: ~35x faster than the
+original measurement, and PMetal cached is now consistently ~12-13% slower
+than the MLX reference (not ~40x), and ~17-19% slower than dense.
+
+**Honest verdict:** E9's two-part exit gate is half met, cleanly. PMetal's
+numerical output is a real, verified match for the MLX reference at real
+model scale (correctness: met). Net end-to-end benefit is still NOT met --
+PMetal, even after two real, verified, substantial fixes, remains slower
+than the existing MLX/dense path (~12-19%), not faster. The gap closed from
+catastrophic (~40x) to modest (~12-13%), which is a real result worth
+recording, but "smaller loss" is not "net benefit," and is reported as such.
+Plausible further avenues (not built or measured this session): fusing the
+two stages into one kernel with threadgroup-shared memory to avoid a second
+command-buffer encoder's dispatch overhead, or eliminating the per-call
+Python/ctypes/numpy round trip entirely by keeping the whole model's forward
+pass on one execution backend instead of crossing the FFI boundary per MoE
+layer.

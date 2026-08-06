@@ -74,7 +74,12 @@ def test_pmetal_end_to_end_full_model_forward_latency_vs_mlx_and_dense():
     real target layers through the real Metal kernel change real
     full-model forward-pass wall-clock time, relative to (a) no MoE at
     all and (b) the MLX reference MoE path? Reports whichever way the
-    numbers land -- this is a measurement, not a target to hit."""
+    numbers land -- this is a measurement, not a target to hit.
+
+    Includes BOTH the original uncached PMetal path (re-uploads weight
+    buffers every call) and the weight-resident cached path (uploads
+    once via `upload_layer_weights`/`forward_cached`), so the fix's
+    real effect is measured directly, not assumed."""
     model, _ = load_frozen_model()
     tokens = _tokens()
     config = MoeConfig(dim=model.dim)
@@ -83,10 +88,13 @@ def test_pmetal_end_to_end_full_model_forward_latency_vs_mlx_and_dense():
     dense_ms = benchmark_full_model_forward(model, params_by_layer, config, tokens, backend="dense")
     mlx_ms = benchmark_full_model_forward(model, params_by_layer, config, tokens, backend="mlx")
     pmetal_ms = benchmark_full_model_forward(model, params_by_layer, config, tokens, backend="pmetal")
+    pmetal_cached_ms = benchmark_full_model_forward(model, params_by_layer, config, tokens, backend="pmetal_cached")
 
     print(f"\nE9 end-to-end full-model forward latency (mean ms, real checkpoint, real tokens):")
-    print(f"  dense (no MoE):  {dense_ms:.3f}")
-    print(f"  MLX reference MoE: {mlx_ms:.3f}")
-    print(f"  PMetal MoE:      {pmetal_ms:.3f}")
+    print(f"  dense (no MoE):        {dense_ms:.3f}")
+    print(f"  MLX reference MoE:     {mlx_ms:.3f}")
+    print(f"  PMetal MoE (uncached): {pmetal_ms:.3f}")
+    print(f"  PMetal MoE (cached):   {pmetal_cached_ms:.3f}")
 
-    assert dense_ms > 0 and mlx_ms > 0 and pmetal_ms > 0
+    assert dense_ms > 0 and mlx_ms > 0 and pmetal_ms > 0 and pmetal_cached_ms > 0
+    assert pmetal_cached_ms < pmetal_ms, "weight-resident caching should be faster than re-uploading every call"

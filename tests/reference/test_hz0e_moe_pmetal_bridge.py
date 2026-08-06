@@ -94,6 +94,36 @@ def test_forward_logits_rejects_shape_mismatch_with_a_real_error_message():
             )
 
 
+def test_forward_cached_matches_forward_logits_and_reuses_uploaded_weights():
+    """Real fix for the measured ~40x end-to-end slowdown: `forward_logits`
+    re-uploads the full expert/fallback weight buffers on every call
+    (`new_buffer_with_data`); `forward_cached` uploads them ONCE via
+    `upload_weights` and reuses the same device-resident buffers across
+    calls. Must produce IDENTICAL output to the uncached path on the
+    same fixture, and must work correctly across repeated calls against
+    the same uploaded weights."""
+    with MoeKernel() as kernel:
+        router_logits = np.array([[2.0, 0.0], [2.0, 0.0]], dtype=np.float32)
+        x = np.array([[0.0], [0.0]], dtype=np.float32)
+        expert_weights = np.array([[0.0, 0.0, 1.0], [0.0, 0.0, 1.0]], dtype=np.float32)
+        expert_biases = np.array([[1.0, 2.0, 3.0], [2.0, 3.0, 4.0]], dtype=np.float32)
+        fallback_weights = np.array([0.0, 0.0, 1.0], dtype=np.float32)
+        fallback_biases = np.array([0.0, 0.0, 5.0], dtype=np.float32)
+
+        uncached = kernel.forward_logits(
+            router_logits, x, expert_weights, expert_biases, fallback_weights, fallback_biases,
+            experts=2, capacity_factor=0.5, dim=1, expert_d_ff=1, fallback_d_ff=1,
+        )
+
+        with kernel.upload_weights(
+            expert_weights, expert_biases, fallback_weights, fallback_biases,
+            experts=2, dim=1, expert_d_ff=1, fallback_d_ff=1,
+        ) as weights:
+            for _ in range(2):
+                cached = kernel.forward_cached(weights, router_logits, x, capacity_factor=0.5)
+                assert np.allclose(cached, uncached)
+
+
 def test_kernel_handle_is_reusable_across_multiple_forward_calls():
     """The whole reason this bridge exposes a create-once/call-many
     handle instead of a stateless per-call function: the SAME kernel
