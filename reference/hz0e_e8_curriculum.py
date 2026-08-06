@@ -217,7 +217,7 @@ def run_curriculum(model, config: MoeConfig, *, balanced_steps: int = 50, mixed_
     start = e6_layers[LAYER]
     warm = supervised_warm_start(
         model, train_domains, DOMAIN_TO_EXPERT, config, layer_index=LAYER,
-        steps=warm_start_steps, learning_rate=1e-3, start_params=start,
+        steps=warm_start_steps, learning_rate=1e-3, start_params=start, cache_backbone=True,
     )
 
     general_val = [mx.array([s[:64]]) for s in load_real_sequences("data/packed/repro_1024_val.jsonl", 10)]

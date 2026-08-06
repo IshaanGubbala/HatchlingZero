@@ -248,7 +248,7 @@ def train_moe_layer(model, train_batches: list[mx.array], config: MoeConfig, *, 
     return dict_to_params(params_dict), history
 
 
-def supervised_warm_start(model, domain_batches: dict[str, mx.array], target_expert: dict[str, int], config: MoeConfig, *, layer_index: int = 27, steps: int = 20, learning_rate: float = 3e-3, init_seed: int = 0, start_params: MoeLayerParams | None = None) -> MoeLayerParams:
+def supervised_warm_start(model, domain_batches: dict[str, mx.array], target_expert: dict[str, int], config: MoeConfig, *, layer_index: int = 27, steps: int = 20, learning_rate: float = 3e-3, init_seed: int = 0, start_params: MoeLayerParams | None = None, cache_backbone: bool = False) -> MoeLayerParams:
     """Trains ONLY the router (`router_w`/`router_b`) via real
     cross-entropy classification against `target_expert`'s real
     domain-to-expert label assignment, for `steps` real gradient steps
@@ -268,15 +268,18 @@ def supervised_warm_start(model, domain_batches: dict[str, mx.array], target_exp
         raise ValueError(f"target_expert labels must be in [0, {config.num_experts}), got {target_expert}")
     optimizer = optim.Adam(learning_rate=learning_rate)
     domains = list(domain_batches.keys())
+    cached_prefixes = {}
+    if cache_backbone:
+        for domain in domains:
+            prefix = _moe_prefix(model, domain_batches[domain], layer_index)
+            mx.eval(*prefix)
+            cached_prefixes[domain] = prefix
 
-    def router_loss_fn(p, tokens, label):
-        x = model.embedding(tokens)
-        for i in range(layer_index):
-            x, _ = model.blocks[i](x, None)
-        block = model.blocks[layer_index]
-        mixed, _ = block.mixer(block.norm1(x), None)
-        x = x + mixed
-        ffn_input = block.norm2(x)
+    def router_loss_fn(p, tokens, label, cached_prefix=None):
+        if cached_prefix is None:
+            _x, ffn_input = _moe_prefix(model, tokens, layer_index)
+        else:
+            _x, ffn_input = cached_prefix
         batch, seq, dim = ffn_input.shape
         ffn_input_flat = ffn_input.reshape(batch * seq, dim)
         router_logits = ffn_input_flat @ p["router_w"].T + p["router_b"]
@@ -288,7 +291,8 @@ def supervised_warm_start(model, domain_batches: dict[str, mx.array], target_exp
         domain = domains[step % len(domains)]
         tokens = domain_batches[domain]
         label = target_expert[domain]
-        _loss, grads = grad_fn(params_dict, tokens, label)
+        cached = cached_prefixes.get(domain)
+        _loss, grads = grad_fn(params_dict, tokens, label, cached)
         # only router_w/router_b receive real gradients here since only
         # they appear in router_loss_fn's forward graph; the optimizer
         # applies zero-valued updates to any params with implicit zero
