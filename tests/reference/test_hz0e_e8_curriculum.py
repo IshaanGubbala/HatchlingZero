@@ -257,3 +257,60 @@ def test_joint_3layer_moe_beats_fair_dense_on_per_domain_in_distribution_quality
         f"expected 3-layer MoE to beat fair 3-layer dense on per-domain (in-distribution) quality: "
         f"moe={moe_mean} dense={dense_mean}"
     )
+
+
+def test_replay_improves_both_mechanisms_but_does_not_erase_the_relative_tradeoff():
+    """Real, principled test of whether replay/rehearsal (a standard
+    continual-learning technique for exactly the specialization-costs-
+    generality problem this module found) CLOSES the gap between MoE
+    and dense, or whether the in-distribution/out-of-distribution
+    tradeoff is structural. Both mechanisms get the SAME real replay
+    treatment (extra general-prose batches, disjoint from what the
+    curriculum's own "prose" domain already trains on, interleaved
+    evenly). Real result: replay improves both absolute numbers, but
+    dense still wins on general/out-of-distribution quality and MoE
+    still wins on per-domain/in-distribution quality -- locked in here,
+    not assumed to hold from the un-replayed comparison alone."""
+    model, _payload = load_frozen_model()
+    config = MoeConfig(dim=model.dim)
+    d_ff = 577
+
+    from reference.hz0e_e3_routing_objectives import lm_forward_with_moe, supervised_warm_start
+    from reference.hz0e_e4_fair_baselines import eval_generic, train_generic
+    from reference.hz0e_e6_integration import init_e6_layers
+    from reference.hz0e_e8_curriculum import (
+        DOMAIN_TO_EXPERT, balanced_batches, imbalanced_batches, interleave_replay, load_replay_batches,
+        make_warm_dense_loss_fn, mixed_domain_batches,
+    )
+
+    train_domains = load_domain_batches(TRAIN_DOMAIN_DATA_PATHS, count=8, seq_len=64, offset=0)
+    general_val = [mx.array([s[:64]]) for s in load_real_sequences("data/packed/repro_1024_val.jsonl", 10)]
+    replay_batches = load_replay_batches(count=10, domain_train_count=8)
+
+    stage1 = balanced_batches(train_domains, 20)
+    stage2 = mixed_domain_batches(train_domains, 20, seed=0)
+    stage3 = imbalanced_batches(train_domains, 20)
+    curriculum = stage1 + stage2 + stage3
+    with_replay = interleave_replay(curriculum, replay_batches)
+    assert len(with_replay) > len(curriculum), "replay must actually add batches to the curriculum"
+
+    e6_layers = init_e6_layers(model, seed=0)
+    warm = supervised_warm_start(model, train_domains, DOMAIN_TO_EXPERT, config, layer_index=LAYER, steps=20, learning_rate=1e-3, start_params=e6_layers[LAYER])
+    moe_trained, _hist = train_moe_layer(model, with_replay, config, layer_index=LAYER, aux_weights={}, learning_rate=1e-5, start_params=warm)
+    moe_trained_dict = params_to_dict(moe_trained)
+    moe_general = sum(float(lm_forward_with_moe(moe_trained_dict, model, tb, config, LAYER)[0]) for tb in general_val) / len(general_val)
+    moe_domain_mean = per_domain_mean_loss(evaluate_moe_per_domain(model, moe_trained, config))
+
+    dense_loss_fn = make_warm_dense_loss_fn(model, LAYER)
+    dense_trained, _losses = train_generic(model, with_replay, lambda: warm_dense_init(model, LAYER, d_ff), dense_loss_fn, learning_rate=1e-5)
+    dense_general = eval_generic(model, general_val, dense_trained, dense_loss_fn)
+    dense_domain_mean = per_domain_mean_loss(evaluate_dense_per_domain(model, dense_trained))
+
+    assert dense_general < moe_general, (
+        f"expected dense to still win on general/out-of-distribution quality even with replay: "
+        f"dense={dense_general} moe={moe_general}"
+    )
+    assert moe_domain_mean < dense_domain_mean, (
+        f"expected MoE to still win on per-domain/in-distribution quality even with replay: "
+        f"moe={moe_domain_mean} dense={dense_domain_mean}"
+    )

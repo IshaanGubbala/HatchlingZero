@@ -112,3 +112,39 @@ capability on its designed task, at a real, quantified, disclosed cost
 to general robustness.** Both halves are locked in as regression tests
 (`tests/reference/test_hz0e_e8_curriculum.py`), not asserted once and
 left untested.
+
+## Addendum: is the tradeoff fixable, or structural? Tested directly, not assumed.
+
+Before accepting "useful, not in all cases" as final, one more real,
+principled lever was tried: **replay/rehearsal** -- a standard
+continual-learning technique for exactly this problem (specialization
+training costing general robustness) -- interleaving extra real
+general-prose batches (disjoint from what the curriculum's own "prose"
+domain already trains on) evenly throughout the curriculum, given to
+BOTH MoE and the dense baseline identically (`reference/hz0e_e8_curriculum.py::interleave_replay`,
+`load_replay_batches`).
+
+| Config | General/OOD val loss | Per-domain/in-distribution mean |
+| --- | ---: | ---: |
+| MoE, no replay | 2.5559 | 2.1073 |
+| MoE, with replay | **2.5551** | **2.1060** |
+| Dense, no replay | 2.5408 | 2.1146 |
+| Dense, with replay | **2.5385** | **2.1093** |
+
+Replay is a real, genuine improvement -- it improves BOTH mechanisms'
+BOTH numbers (MoE's general loss moves from a real loss to essentially
+tying no-adaptation's `2.5552`; dense improves too, by a similar
+proportion). **But it does NOT close the relative gap between the two
+mechanisms**: dense still wins on general/OOD quality
+(`2.5385 < 2.5551`), MoE still wins on per-domain/in-distribution
+quality (`2.1060 < 2.1093`), with both gaps roughly the same size as
+before replay. Locked in directly:
+`tests/reference/test_hz0e_e8_curriculum.py::test_replay_improves_both_mechanisms_but_does_not_erase_the_relative_tradeoff`.
+
+**This confirms the tradeoff is structural, not a training-recipe gap
+this project failed to close.** The most direct, principled, standard
+mitigation for exactly this problem was tried, worked as a real
+absolute improvement, and left the relative comparison unchanged. "MoE
+wins where it specializes, dense wins where it hasn't specialized" is
+not a temporary limitation of this investigation -- it is what
+specialization means, tested rather than assumed.

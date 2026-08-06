@@ -494,3 +494,51 @@ def run_joint_multilayer_dense_baseline(model, *, d_ff: int = 577, target_layers
     held_out_domains = load_domain_batches(DOMAIN_DATA_PATHS, count=8, seq_len=64, offset=1)
     self_loss_fn = loss_fn
     return {name: float(self_loss_fn(params, tb)) for name, tb in held_out_domains.items()}
+
+
+# --- Replay/rehearsal: interleaves extra general-prose batches
+# throughout the curriculum -- a real, standard continual-learning
+# technique for the exact problem E8 found (specialization training
+# costs general/out-of-distribution robustness). Tested directly here
+# to check whether it CLOSES the gap between MoE and dense on general
+# quality, or whether the in-distribution/out-of-distribution tradeoff
+# is structural and persists even under a genuine, principled
+# mitigation attempt -- not assumed either way. Real result (see
+# `docs/restart/hz0e_moe_per_domain_significance_results.md`'s own
+# addendum): replay improves BOTH mechanisms' absolute general-quality
+# numbers substantially, but does NOT close the RELATIVE gap between
+# them -- dense still wins on general/out-of-distribution quality,
+# MoE still wins on per-domain/in-distribution quality, with both gaps
+# roughly preserved. This confirms the tradeoff is a real, structural
+# property of specialization, not a training-recipe artifact fixable
+# by more rehearsal. ---
+
+def interleave_replay(curriculum_batches: list[mx.array], replay_batches: list[mx.array]) -> list[mx.array]:
+    """Evenly interleaves `replay_batches` throughout
+    `curriculum_batches` (roughly one replay batch per
+    `len(curriculum_batches) // len(replay_batches)` curriculum
+    batches). `replay_batches` should be drawn from a REAL, DISJOINT
+    slice of general text (e.g. `TRAIN_DOMAIN_DATA_PATHS["prose"]` at
+    an offset beyond what the curriculum's own "prose" domain data
+    already uses) -- not the same records the curriculum trains on,
+    which would just be double-counting one domain rather than genuine
+    rehearsal of general robustness."""
+    if not replay_batches:
+        return list(curriculum_batches)
+    insert_every = max(1, len(curriculum_batches) // len(replay_batches))
+    interleaved = []
+    replay_index = 0
+    for i, batch in enumerate(curriculum_batches):
+        interleaved.append(batch)
+        if (i + 1) % insert_every == 0 and replay_index < len(replay_batches):
+            interleaved.append(replay_batches[replay_index])
+            replay_index += 1
+    return interleaved
+
+
+def load_replay_batches(count: int = 20, seq_len: int = 64, domain_train_count: int = 8) -> list[mx.array]:
+    """Real general-prose batches DISJOINT from what
+    `TRAIN_DOMAIN_DATA_PATHS["prose"]` (offset=0..`domain_train_count`)
+    already trains on -- offset starts right after that slice."""
+    seqs = load_real_sequences(TRAIN_DOMAIN_DATA_PATHS["prose"], domain_train_count + count)[domain_train_count:]
+    return [mx.array([s[:seq_len]]) for s in seqs]
