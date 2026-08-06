@@ -297,10 +297,81 @@ no longer the bottleneck (confirmed above); what remains is the
 structural cost of crossing the Python/ctypes/numpy boundary once per
 MoE layer, which forces an `mx.eval` at each of those 3 points and
 prevents MLX from fusing/scheduling the whole forward pass as one lazy
-graph the way the pure-MLX reference path does. Closing this further
-would require a fundamentally different architecture -- an MLX custom
-Metal primitive/op that runs inside MLX's own execution graph without
-ever leaving GPU-resident MLX arrays -- not a ctypes bridge at all. That
-is out of E9's scoped design (a Python<->Rust<->Metal ctypes bridge,
-matching this project's established `hz0b`/`hz0d` bridge pattern) and is
-not attempted or claimed here.
+graph the way the pure-MLX reference path does.
+
+## MLX-native custom kernel: closing the gap further (2026-08-06)
+
+Closing the ctypes-boundary gap requires a different architecture: an MLX
+custom Metal primitive that runs inside MLX's own execution graph without
+ever leaving GPU-resident MLX arrays. MLX exposes exactly this via
+`mx.fast.metal_kernel` (Python API, no C++ extension required) -- built and
+verified in `reference/hz0e_e9_mlx_native_kernel.py` /
+`tests/reference/test_hz0e_e9_mlx_native_kernel.py`.
+
+The expert-compute kernel is the SAME two-stage design as the fixed
+Rust/Metal kernel (hidden stage, then down-projection stage), ported to
+`mx.fast.metal_kernel` source strings. Routing (top-1 selection, capacity
+overflow, gate weight) reuses the EXACT same MLX ops as
+`moe_ffn_forward` (`argmax`/`cumsum`/`softmax`), not a reimplementation --
+this module's only new correctness surface is the expert-compute kernel.
+Both weight packing (`pack_params_for_mlx_kernel`) and the kernel itself
+use pure MLX arrays throughout; nothing crosses into numpy or ctypes, and
+weight "residency" is automatic (MLX arrays built once outside the call
+loop are simply reused, no explicit upload/cache API needed).
+
+**Correctness**: verified against the toy Rust fixtures first (bit-exact,
+e.g. `4.46212`/`16.4309`/`9.28478` matching the Rust kernel's
+`4.462117`/`16.430889`/`9.284782` to displayed float32 precision, and
+`7.04638` matching the distinct-`fallback_d_ff` fixture's `7.046377`), then
+against `moe_ffn_forward` on synthetic data with capacity forced low enough
+to exercise the overflow/fallback path (28/40 tokens overflowed; max abs
+diff `3.6e-6`), then on real checkpoint activations (max abs diff is at
+most 5% of the reference output's mean magnitude -- same float32
+accumulation-noise class as every other cross-implementation comparison in
+this project).
+
+**Latency**, real full-model forward pass, one `mx.eval` for the whole
+31-layer graph (matching the dense/MLX reference pattern exactly, no
+per-layer host round trip), 5 repeated trials on the real checkpoint:
+
+```text
+trial   dense    MLX ref   MLX-native-kernel
+  1     18.93     20.00       20.70
+  2     18.57     19.48       20.63
+  3     18.57     19.65       20.67
+  4     18.57     19.62       20.62
+  5     18.68     19.57       20.59
+```
+
+The MLX-native-kernel path is consistently ~1.0-1.2ms (~5-6%) slower than
+the MLX reference -- real, stable, reproducible, and NOT a net win, but a
+substantially smaller gap than the ctypes bridge achieved (~12-13%), which
+was itself already a ~35x improvement over the original buggy kernel
+(~40x slower). The three approaches, in order tried:
+
+```text
+original single-stage kernel, ctypes bridge:    761.7 ms  (~40x slower than MLX)
+two-stage kernel (real fix), ctypes bridge:       22.1 ms  (~12-13% slower than MLX)
+two-stage kernel, native MLX custom op:           20.6 ms  (~5-6% slower than MLX)
+```
+
+Remaining gap is plausibly the fixed dispatch overhead of 6 separate Metal
+kernel launches per forward pass (2 stages x 3 MoE layers) versus however
+MLX's own built-in matmul-based routing/expert-compute path schedules and
+fuses its operations -- not confirmed further, not fixed this session.
+Fusing the two stages into a single kernel dispatch (one threadgroup per
+token, hidden activation held in `threadgroup`-shared memory, avoiding a
+second kernel launch) is a plausible next step but requires real
+`threadgroup_barrier` synchronization and materially more Metal complexity
+for a ~1ms remaining gap -- not attempted this session; the risk/complexity
+tradeoff did not look worth it for the remaining margin.
+
+**Final, honest verdict**: E9's two-part exit gate -- correctness is met
+(both the ctypes bridge and the MLX-native kernel independently verified
+against the MLX reference). Net end-to-end benefit is NOT met by either
+approach, though the gap was closed from ~40x slower to ~5-6% slower
+through two real, verified engineering iterations (a kernel-algorithm fix,
+then an architecture change). PMetal/the MLX-native kernel are not
+recommended as the deployment path for E10's evaluation; the plain MLX
+reference path (or dense, where MoE's per-domain quality advantage does
+not apply) remains the faster option today.
