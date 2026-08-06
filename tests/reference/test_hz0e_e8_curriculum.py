@@ -17,8 +17,10 @@ from reference.hz0e_e3_routing_objectives import lm_forward_with_moe, params_to_
 from reference.hz0e_e4_fair_baselines import no_adaptation_loss
 from reference.hz0e_e6_integration import init_e6_layers
 from reference.hz0e_e8_curriculum import (
-    LAYER, TRAIN_DOMAIN_DATA_PATHS, load_domain_batches, mean_pairwise_tv_distance, measure_specialization,
-    mixed_domain_batches, run_curriculum, run_joint_multilayer_curriculum, run_warm_dense_baseline,
+    LAYER, TRAIN_DOMAIN_DATA_PATHS, evaluate_dense_per_domain, evaluate_joint_moe_per_domain,
+    evaluate_moe_per_domain, load_domain_batches, mean_pairwise_tv_distance, measure_specialization,
+    mixed_domain_batches, per_domain_mean_loss, run_curriculum, run_joint_multilayer_curriculum,
+    run_joint_multilayer_dense_baseline, run_warm_dense_baseline, warm_dense_init,
 )
 from reference.hz0e_moe_contract import MoeConfig
 from scripts.hz0b_b11_baseline_comparison import CHECKPOINT, load_frozen_model
@@ -202,4 +204,56 @@ def test_full_3layer_joint_moe_still_does_not_beat_pure_dense_baseline():
     assert after >= pure_dense * 0.99, (
         f"expected the full 3-layer joint MoE to NOT clearly beat the pure dense baseline: "
         f"moe={after} pure_dense={pure_dense}"
+    )
+
+
+def test_single_layer_moe_beats_fair_dense_on_per_domain_in_distribution_quality():
+    """A real, reproducible, previously-unreported POSITIVE finding for
+    MoE: on mean held-out loss across the 5 real domains the curriculum
+    actually trains on (in-distribution quality -- the direct test of
+    whether specialization helps, as opposed to the general-prose
+    out-of-distribution robustness check every other test in this
+    module and E4 used as the sole metric), single-layer MoE beats a
+    FAIRLY warm-started dense baseline of the same active-parameter
+    budget. Confirmed across 3 seeds in
+    `docs/restart/hz0e_moe_per_domain_significance_results.md`; this
+    test locks in the direction at reduced scale for CI speed."""
+    model, _payload = load_frozen_model()
+    config = MoeConfig(dim=model.dim)
+    d_ff = 577
+
+    moe_trained, _report = run_curriculum(model, config, balanced_steps=15, mixed_steps=15, imbalanced_steps=15, seed=0, warm_start_steps=20)
+    moe_domain_losses = evaluate_moe_per_domain(model, moe_trained, config)
+    moe_mean = per_domain_mean_loss(moe_domain_losses)
+
+    from reference.hz0e_e4_fair_baselines import train_generic
+    from reference.hz0e_e8_curriculum import balanced_batches, imbalanced_batches, make_warm_dense_loss_fn, mixed_domain_batches
+    train_domains = load_domain_batches(TRAIN_DOMAIN_DATA_PATHS, count=8, seq_len=64, offset=0)
+    loss_fn = make_warm_dense_loss_fn(model, LAYER)
+    stage1 = balanced_batches(train_domains, 15); stage2 = mixed_domain_batches(train_domains, 15, seed=0); stage3 = imbalanced_batches(train_domains, 15)
+    dense_params, _losses = train_generic(model, stage1 + stage2 + stage3, lambda: warm_dense_init(model, LAYER, d_ff), loss_fn, learning_rate=1e-5)
+    dense_domain_losses = evaluate_dense_per_domain(model, dense_params)
+    dense_mean = per_domain_mean_loss(dense_domain_losses)
+
+    assert moe_mean < dense_mean, (
+        f"expected MoE to beat fair dense on per-domain (in-distribution) quality: moe={moe_mean} dense={dense_mean}"
+    )
+
+
+def test_joint_3layer_moe_beats_fair_dense_on_per_domain_in_distribution_quality():
+    """The same real finding, confirmed at E1's actual full 3-layer
+    scope, not just one isolated layer -- reproduced across all 3
+    seeds tested in the results doc."""
+    model, _payload = load_frozen_model()
+    config = MoeConfig(dim=model.dim)
+
+    trained_layers, _pd, _w, _a = run_joint_multilayer_curriculum(model, config, balanced_steps=15, mixed_steps=15, imbalanced_steps=15, warm_start_steps=20, seed=0)
+    moe_mean = per_domain_mean_loss(evaluate_joint_moe_per_domain(model, trained_layers))
+
+    dense_domain_losses = run_joint_multilayer_dense_baseline(model, balanced_steps=15, mixed_steps=15, imbalanced_steps=15, seed=0)
+    dense_mean = per_domain_mean_loss(dense_domain_losses)
+
+    assert moe_mean < dense_mean, (
+        f"expected 3-layer MoE to beat fair 3-layer dense on per-domain (in-distribution) quality: "
+        f"moe={moe_mean} dense={dense_mean}"
     )

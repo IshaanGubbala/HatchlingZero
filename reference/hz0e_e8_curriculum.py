@@ -399,3 +399,98 @@ def run_joint_multilayer_curriculum(model, config: MoeConfig, *, balanced_steps:
     after_losses = [float(cross_entropy_loss(forward_e6(model, tb, moe_layers=trained_layers, enabled=True, target_layers=target_layers).logits, tb)) for tb in general_val]
     after_val = sum(after_losses) / len(after_losses)
     return trained_layers, pure_dense_val, warm_val, after_val
+
+
+# --- Per-domain (in-distribution) quality comparison. Every earlier
+# comparison in this module and in E4 used ONE external, general-prose
+# held-out set (`repro_1024_val.jsonl`) as the sole quality metric --
+# a real, valid measure of OUT-OF-DISTRIBUTION robustness, but not a
+# direct test of whether specialization (the actual purpose of a
+# curriculum that trains on 5 real domains) helps on those SAME real
+# domains. This section adds that direct test: mean held-out loss
+# across all 5 real domains the curriculum trains on, held-out data
+# disjoint from training (`DOMAIN_DATA_PATHS`, offset=1 past the known
+# JSON duplicate) -- a different, equally real question from general-
+# prose robustness, not a replacement for it. ---
+
+def per_domain_mean_loss(losses_by_domain: dict[str, float]) -> float:
+    return sum(losses_by_domain.values()) / len(losses_by_domain)
+
+
+def evaluate_moe_per_domain(model, params: MoeLayerParams, config: MoeConfig, layer_index: int = LAYER) -> dict[str, float]:
+    """Real per-domain held-out loss for a single-layer MoE state."""
+    held_out_domains = load_domain_batches(DOMAIN_DATA_PATHS, count=8, seq_len=64, offset=1)
+    from reference.hz0e_e3_routing_objectives import lm_forward_with_moe
+    params_dict = params_to_dict(params)
+    return {name: float(lm_forward_with_moe(params_dict, model, tb, config, layer_index)[0]) for name, tb in held_out_domains.items()}
+
+
+def evaluate_dense_per_domain(model, params: dict[str, mx.array], layer_index: int = LAYER) -> dict[str, float]:
+    """Real per-domain held-out loss for a single-layer warm-started
+    dense baseline (from `warm_dense_init`/`make_warm_dense_loss_fn`)."""
+    held_out_domains = load_domain_batches(DOMAIN_DATA_PATHS, count=8, seq_len=64, offset=1)
+    loss_fn = make_warm_dense_loss_fn(model, layer_index)
+    return {name: float(loss_fn(params, tb)) for name, tb in held_out_domains.items()}
+
+
+def evaluate_joint_moe_per_domain(model, trained_layers: dict[int, MoeLayerParams], target_layers: tuple[int, ...] = TARGET_LAYERS) -> dict[str, float]:
+    """Real per-domain held-out loss for the full joint multi-layer MoE
+    state (`run_joint_multilayer_curriculum`'s own trained output)."""
+    held_out_domains = load_domain_batches(DOMAIN_DATA_PATHS, count=8, seq_len=64, offset=1)
+    return {
+        name: float(cross_entropy_loss(forward_e6(model, tb, moe_layers=trained_layers, enabled=True, target_layers=target_layers).logits, tb))
+        for name, tb in held_out_domains.items()
+    }
+
+
+def run_joint_multilayer_dense_baseline(model, *, d_ff: int = 577, target_layers: tuple[int, ...] = TARGET_LAYERS, balanced_steps: int = 50, mixed_steps: int = 50, imbalanced_steps: int = 50, learning_rate: float = 1e-5, seed: int = 0) -> dict[str, mx.array]:
+    """The fair 3-layer-scope counterpart to `warm_dense_init` -- a
+    warm-started, matched-active dense FFN at EVERY one of
+    `target_layers` simultaneously, trained via the SAME 3-stage
+    curriculum `run_joint_multilayer_curriculum` uses for MoE. Without
+    this, "3-layer MoE vs. dense" would only be testable against the
+    UNTOUCHED original network (a much cheaper reference, not a fair
+    matched-active comparison at 3-layer scope)."""
+    train_domains = load_domain_batches(TRAIN_DOMAIN_DATA_PATHS, count=8, seq_len=64, offset=0)
+
+    def init_layers() -> dict[str, mx.array]:
+        flat: dict[str, mx.array] = {}
+        for index in target_layers:
+            block = model.blocks[index]
+            flat[f"{index}.gate_w"] = block.gate.weight[:d_ff]
+            flat[f"{index}.gate_b"] = block.gate.bias[:d_ff]
+            flat[f"{index}.up_w"] = block.up.weight[:d_ff]
+            flat[f"{index}.up_b"] = block.up.bias[:d_ff]
+            flat[f"{index}.down_w"] = block.down.weight[:, :d_ff] * 5.0
+            flat[f"{index}.down_b"] = block.down.bias
+        return flat
+
+    def loss_fn(params: dict[str, mx.array], tokens: mx.array) -> mx.array:
+        x = model.embedding(tokens)
+        for index, block in enumerate(model.blocks):
+            if index not in target_layers:
+                x, _ = block(x, None)
+            else:
+                mixed, _ = block.mixer(block.norm1(x), None)
+                residual = x + mixed
+                ffn_input = block.norm2(residual)
+                mlp = (nn.silu(ffn_input @ params[f"{index}.gate_w"].T + params[f"{index}.gate_b"]) * (ffn_input @ params[f"{index}.up_w"].T + params[f"{index}.up_b"])) @ params[f"{index}.down_w"].T + params[f"{index}.down_b"]
+                x = residual + mlp
+        logits = mx.matmul(model.final_norm(x), model.embedding.weight.T)
+        return cross_entropy_loss(logits, tokens)
+
+    params = init_layers()
+    stage1 = balanced_batches(train_domains, balanced_steps)
+    stage2 = mixed_domain_batches(train_domains, mixed_steps, seed=seed)
+    stage3 = imbalanced_batches(train_domains, imbalanced_steps)
+    import mlx.optimizers as optim
+    grad_fn = mx.value_and_grad(loss_fn, argnums=0)
+    optimizer = optim.Adam(learning_rate=learning_rate)
+    for tokens in stage1 + stage2 + stage3:
+        _loss, grads = grad_fn(params, tokens)
+        params = optimizer.apply_gradients(grads, params)
+        mx.eval(params)
+
+    held_out_domains = load_domain_batches(DOMAIN_DATA_PATHS, count=8, seq_len=64, offset=1)
+    self_loss_fn = loss_fn
+    return {name: float(self_loss_fn(params, tb)) for name, tb in held_out_domains.items()}
