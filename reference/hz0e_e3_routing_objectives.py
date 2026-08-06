@@ -271,15 +271,17 @@ def supervised_warm_start(model, domain_batches: dict[str, mx.array], target_exp
     cached_prefixes = {}
     if cache_backbone:
         for domain in domains:
-            prefix = _moe_prefix(model, domain_batches[domain], layer_index)
-            mx.eval(*prefix)
-            cached_prefixes[domain] = prefix
+            _residual, ffn_input = _moe_prefix(model, domain_batches[domain], layer_index)
+            mx.eval(ffn_input)
+            # Router supervision only consumes the normalized FFN input;
+            # do not retain the unused residual stream in the cache.
+            cached_prefixes[domain] = ffn_input
 
     def router_loss_fn(p, tokens, label, cached_prefix=None):
         if cached_prefix is None:
             _x, ffn_input = _moe_prefix(model, tokens, layer_index)
         else:
-            _x, ffn_input = cached_prefix
+            ffn_input = cached_prefix
         batch, seq, dim = ffn_input.shape
         ffn_input_flat = ffn_input.reshape(batch * seq, dim)
         router_logits = ffn_input_flat @ p["router_w"].T + p["router_b"]
