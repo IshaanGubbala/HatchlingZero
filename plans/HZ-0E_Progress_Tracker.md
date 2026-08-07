@@ -52,7 +52,6 @@ Add a conservative four-expert, top-1 micro-MoE FFN with shared dense fallback t
 - [x] E5 dependency gate report (`docs/restart/hz0e_e5_dependency_gate_results.md`)
 - [x] Frozen-backbone integration and stability tests (`docs/restart/hz0e_e6_integration_results.md`)
 - [x] Structural interaction guards (`docs/restart/hz0e_e7_interaction_results.md`)
-- [ ] Frozen-backbone interaction and stability tests
 - [x] PMetal dispatch/capacity parity and isolated overhead report (`docs/restart/hz0e_e9_pmetal_dispatch_results.md`)
 - [x] Backend-neutral dispatch/capacity/fallback contract and tests (`reference/hz0e_e9_dispatch.py`, `tests/reference/test_hz0e_e9_dispatch.py`)
 - [x] Rust/PMetal-facing fixed-shape dispatch contract and unit tests (`restart/hz0a_pmetal/crates/hz0e-pmetal-moe`)
@@ -62,7 +61,8 @@ Add a conservative four-expert, top-1 micro-MoE FFN with shared dense fallback t
 - [x] Isolated Metal scatter timing harness and finite-output report (`metal/moe_dispatch_benchmark.swift`)
 - [x] E9 PMetal dispatch audit report (`docs/restart/hz0e_e9_pmetal_dispatch_results.md`)
 - [x] Reproducible E9 Metal compile/smoke/benchmark runner (`scripts/run_hz0e_e9_pmetal_dispatch.sh`)
-- [x] Specialization report (`docs/restart/hz0e_e8_specialization_curriculum_results.md`) -- [ ] end-to-end E10 evaluation report still open
+- [x] Specialization report (`docs/restart/hz0e_e8_specialization_curriculum_results.md`)
+- [x] End-to-end E10 evaluation report (`docs/restart/hz0e_e10_evaluation_results.md`)
 
 ## Contract Checklist
 
@@ -70,7 +70,7 @@ Add a conservative four-expert, top-1 micro-MoE FFN with shared dense fallback t
 - [x] Define expert placement, size, top-k, capacity factor, overflow behavior, and shared fallback. -- `docs/restart/hz0e_e1_contract.md` sections 1-4
 - [x] Keep routing deterministic at inference. -- `argmax` routing + fixed-token-order capacity ranking, verified by `test_forward_is_deterministic_given_identical_inputs`
 - [x] Keep experts out of GDN-2, HZ-0B writes, HZ-0C surprise, and HZ-0D update controllers initially. -- E1's placement (layers 27/28/30) touches none of HZ-0B/C/D's own mechanisms; HZ-0D fast weights explicitly excluded from modifying expert/router/fallback weights (contract doc section 7)
-- [ ] Bound dispatch overhead, overflow, memory, and tail latency. -- overflow is bounded by construction (capacity-based, verified never exceeded); dispatch overhead/tail latency measurement is E9/E10's job, not E1's static contract
+- [x] Bound dispatch overhead, overflow, memory, and tail latency. -- overflow is bounded by construction (capacity-based, verified never exceeded); dispatch overhead/tail latency measured and reported in `docs/restart/hz0e_e9_pmetal_dispatch_results.md` and `docs/restart/hz0e_e10_evaluation_results.md` section 4
 
 ## Exit Gates
 
