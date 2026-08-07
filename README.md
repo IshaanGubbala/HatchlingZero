@@ -13,8 +13,10 @@ We do not claim to reproduce any single paper faithfully. We claim something nar
 - [Philosophy](#philosophy)
 - [Where the project stands](#where-the-project-stands)
 - [Research stages](#research-stages)
+- [Systems notes](#systems-notes)
 - [Repository layout](#repository-layout)
 - [Getting started](#getting-started)
+- [Branching model](#branching-model)
 - [Documentation](#documentation)
 - [License](#license)
 
@@ -48,7 +50,9 @@ This shows up directly in the evidence trail: `docs/restart/` holds dozens of re
 
 **HZ-0F, in one paragraph:** a follow-up investigation into *why* that tradeoff exists. It found a real, reproducible single-layer fix (retraining the MoE fallback path on general data instead of curriculum-domain overflow gradients reverses the deficit outright), then found — by testing it, not assuming it — that the fix does **not** survive at the full multi-layer scope. Two further techniques (a native MLX kernel and a router-training change) were tested on their own merits; one was adopted, one was not. See [`docs/restart/hz0e_f_investigation_summary.md`](docs/restart/hz0e_f_investigation_summary.md) for the full account.
 
-**HZ-0G, right now:** the corrected exact-GDN-2 backbone's only prior training evidence at 301M-parameter scale was a 10M-token run. `HZ-0G`'s first gate (`G1`) is a live continuation ladder toward 100M → 500M → 2B → 6B tokens, validating whether that backbone's early advantage survives against a matched Transformer control at real scale. See [`plans/HZ-0G_Integration_Plan.md`](plans/HZ-0G_Integration_Plan.md).
+**HZ-0G, right now:** the corrected exact-GDN-2 backbone's only prior training evidence at 301M-parameter scale was a 10M-token run. `HZ-0G`'s first gate (`G1`) is a live continuation ladder toward 100M → 500M → 2B → 6B tokens, validating whether that backbone's early advantage survives against a matched Transformer control at real scale. The `G1` run trains on a real, diverse, ~112M-token corpus (general text, code, documentation, math, JSON, terminal transcripts) at a throughput independently re-measured on this hardware after each real optimization was applied and verified, not assumed from an earlier, different configuration. See [`plans/HZ-0G_Integration_Plan.md`](plans/HZ-0G_Integration_Plan.md).
+
+A recurring theme worth naming directly: `HZ-0G`'s own `G0` audit found that the checkpoint used throughout most of `HZ-0E`/`HZ-0F`'s evaluation work was running the backbone's *original*, uncorrected recurrence — not the corrected `gdn2_fix` math `HZ-0A` shipped. That is exactly the kind of lineage drift `HZ-0G` exists to catch and repair, and it is reported here rather than quietly patched over.
 
 ---
 
@@ -81,6 +85,18 @@ A diagnostic sequence, not a new architecture stage: six independent experiments
 ### `HZ-0G` — Architecture freeze + integration
 
 Deliberately introduces **no new mechanism**. Its job is lineage repair: every earlier stage was developed against a different generation of the backbone, and `HZ-0G` is where that gets reconciled — a real scaling validation of the corrected backbone (`G1`), followed by revalidating `HZ-0B`/`HZ-0C`/`HZ-0D` against it incrementally (`G2`–`G4`), and a real Dense-vs-MoE-vs-adapter decision made on the fully integrated checkpoint (`G5`), not carried over from `HZ-0E`'s isolated result.
+
+---
+
+## Systems notes
+
+HatchlingZero trains and evaluates on Apple Silicon (Metal, unified memory) as its primary target, with a secondary CUDA/Triton path for the upstream `GatedDeltaNet-2` kernel on Linux. A few real, measured findings from that work are worth knowing before you go looking for a specific optimization:
+
+- **Native custom Metal kernels are not automatically faster than MLX's own ops.** `HZ-0E`'s PMetal track built a hand-written `mx.fast.metal_kernel` two-stage MoE expert kernel across five real engineering iterations — fixing two genuine correctness bugs and testing (and rejecting) two further optimization hypotheses — and it still did not beat MLX's own native `mx.gather_mm` grouped-matmul primitive at real model scale. `gather_mm` is the current best MoE-kernel result in this repo.
+- **Batch size was re-measured for the corrected backbone, not assumed from the old one.** A batch-size sweep (`B=8/12/16/20/24`) was previously documented against the *original* GDN-2 mixer, finding a non-monotonic peak around `B=12`. Re-run independently against `gdn2_fix`, the result held up under a longer, cleaner measurement window after a shorter one initially suggested otherwise — a reminder that short throughput windows on this hardware are genuinely noisy, not just imprecise. Activation checkpointing was previously confirmed as a real regression (not a memory/speed tradeoff win) against the original mixer; disabling it was applied to `gdn2_fix` training directly rather than re-isolated on its own, so that specific number is carried over, not independently re-verified.
+- **A backward-kernel fusion that gave a 1.93x isolated speedup on the original mixer gives a real but much smaller (~9%) speedup on the corrected one**, because the corrected recurrence's backward pass does substantially more per-element math (softplus, exponential decay, an extra learned-rate gradient term) and is comparatively more compute-bound, less memory-bound, than the mechanism the original fusion targeted. Both numbers are real; neither transfers to the other kernel by default.
+
+The throughline: every systems claim in this repo is re-measured against the exact configuration it will actually run under, not carried over from a superficially similar prior result.
 
 ---
 
@@ -135,6 +151,14 @@ cargo test --release
 ```
 
 The legacy PyTorch package under `archive/` has its own environment and test suite (`cd archive && pip install -e . && pytest`) — see `archive/pyproject.toml`. It is kept for lineage and is not where active development happens.
+
+---
+
+## Branching model
+
+This repository develops on a single branch: **`main`**. There are no long-lived feature or experiment branches — every stage's work, including exploratory investigations like `HZ-0F` that turned up real negative results, lands on `main` as a sequence of real, individually-tested, honestly-described commits rather than being staged on a branch that may or may not get merged. If an experiment doesn't pan out, that is recorded in `docs/restart/` and the commit history, not hidden by never merging a branch.
+
+`main` is the default branch and the only one you need to check out. Older experimental branches that predate this policy have been consolidated into `main`'s history and removed — nothing on them was unique; every commit they contained is already reachable from `main`.
 
 ---
 
