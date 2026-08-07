@@ -68,6 +68,25 @@ Dense FFNs become tiny MoE experts with a learned router. Conditional compute
 moves into the foreground, with the systems implications — expert scheduling,
 load balancing, kernel shape on Mac — measured alongside quality.
 
+**Status: complete, real evidence disclosed both ways** — full writeup in
+[`docs/restart/hz0e_e10_evaluation_results.md`](docs/restart/hz0e_e10_evaluation_results.md).
+MoE beats a fairly warm-started, active-compute-matched dense baseline on
+per-domain quality (6/6 real trials), at a real, structural cost to
+general/out-of-distribution quality — not a universal win, reported as a
+tradeoff rather than smoothed into one number. The PMetal Metal-kernel path
+never achieved a net latency benefit over the plain MLX execution path
+despite five real engineering iterations (two genuine bugs fixed, two
+optimization hypotheses tested and disproven).
+
+A follow-up investigation (`HZ-0F`, not a numbered plan stage — a diagnostic
+sequence run after HZ-0E closed) dug into the OOD tradeoff's root cause; see
+[`docs/restart/hz0e_f_investigation_summary.md`](docs/restart/hz0e_f_investigation_summary.md).
+It found a real, reproducible single-layer fix (training the MoE fallback
+path on general data instead of curriculum-domain overflow gradients
+reverses the OOD deficit), then found that fix does **not** survive when
+validated at the full 3-layer scope — reported as a genuine open question,
+not forced into a "solved" narrative.
+
 ### Cross-cutting phases
 
 These run alongside the lettered stages:
