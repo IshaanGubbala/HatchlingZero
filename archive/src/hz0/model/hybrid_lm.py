@@ -3,6 +3,7 @@ from __future__ import annotations
 import torch
 from torch import nn
 
+from .attn_residual import AttentionResidual
 from .backends import BackendUnavailableError, UpstreamGDN2Mixer, gdn2_is_available
 from .blocks import AnchorAttentionBlock, FeedForward, GDN2ReferenceMixerBlock, RMSNorm, RecurrentMixerBlock
 from .session_scratchpad import ScratchpadLogEntry, SessionScratchpad
@@ -44,8 +45,14 @@ class HybridLM(nn.Module):
         max_seq_len: int,
         scratchpad_slots: int = 0,
         scratchpad_momentum: float = 0.9,
+        residual_mode: str = "standard",
+        attn_res_rank: int | None = None,
+        attn_res_heads: int = 1,
     ) -> None:
         super().__init__()
+        if residual_mode not in {"standard", "attn_res"}:
+            raise ValueError(f"Unknown residual_mode: {residual_mode}")
+        self.residual_mode = residual_mode
         self.token_emb = nn.Embedding(vocab_size, d_model)
         self.pos_emb = nn.Embedding(max_seq_len, d_model)
         self.d_model = d_model
@@ -61,6 +68,15 @@ class HybridLM(nn.Module):
                 )
                 for idx in range(n_layers)
             ]
+        )
+        # One AttentionResidual module PER LAYER (not shared) -- matches
+        # the layer-indexed alpha_{l,i} in the depth-attention formula:
+        # each depth l learns its own preference over prior depths i<l,
+        # not a single global depth-preference reused everywhere.
+        self.attn_res_layers = (
+            nn.ModuleList([AttentionResidual(d_model, rank=attn_res_rank, n_heads=attn_res_heads) for _ in range(n_layers)])
+            if residual_mode == "attn_res"
+            else None
         )
         self.norm = RMSNorm(d_model)
         self.scratchpad = SessionScratchpad(scratchpad_slots, d_model, momentum=scratchpad_momentum) if scratchpad_slots > 0 else None
@@ -99,8 +115,18 @@ class HybridLM(nn.Module):
         batch, seq = tokens.shape
         positions = torch.arange(seq, device=tokens.device)
         x = self.token_emb(tokens) + self.pos_emb(positions)[None, :, :]
-        for layer in self.layers:
-            x = layer(x)
+        if self.residual_mode == "attn_res":
+            assert self.attn_res_layers is not None
+            history = [x]
+            for layer, attn_res in zip(self.layers, self.attn_res_layers):
+                stacked = torch.stack(history, dim=2)  # [batch, seq, depth, d_model]
+                layer_input = attn_res(stacked)
+                x = layer(layer_input)
+                history.append(x)
+            x = history[-1]
+        else:
+            for layer in self.layers:
+                x = layer(x)
         x = self.norm(x)
         logs: list[ScratchpadLogEntry] = []
         if self.scratchpad is not None:
