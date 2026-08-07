@@ -36,6 +36,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import json
+import os
 import random
 from pathlib import Path
 
@@ -53,7 +54,18 @@ from reference.hz0b_write_integration import WriteControllerParams
 
 VOCAB_SIZE, D_MODEL, LAYERS, HEADS, D_FF = 24576, 768, 31, 12, 2304
 ATTENTION_INDICES = (4, 9, 14, 19, 24, 29)
-CHECKPOINT = Path("outputs/hz0a_stage2_100m_hybrid_seed7/native_metal_checkpoint_best_full_holdout")
+# Overridable via env vars so HZ-0G's G2-G4 can repoint all 50+ dependent
+# eval scripts at a corrected gdn2_fix checkpoint without editing any of
+# them. The checkpoint itself stores no mixer identity (no metadata field
+# distinguishes gdn2 from gdn2_fix, and array counts differ: 374 vs 399
+# model arrays in the two checkpoints seen so far, from gdn2_fix's extra
+# per-layer decay_a scalars) -- CHECKPOINT and MIXER must be set together
+# or loading silently applies the wrong recurrence topology.
+CHECKPOINT = Path(os.environ.get(
+    "HZ0_EVAL_CHECKPOINT",
+    "outputs/hz0a_stage2_100m_hybrid_seed7/native_metal_checkpoint_best_full_holdout",
+))
+MIXER = os.environ.get("HZ0_EVAL_MIXER", "gdn2")
 
 # Copied verbatim from scripts/hz0b_b8_stage3_latent_write_probe.py for
 # byte-identical task construction -- NOT re-derived, so this comparison
@@ -100,10 +112,10 @@ def dict_to_latent_params(d: dict) -> LatentWriteControllerParams:
     )
 
 
-def load_frozen_model():
-    payload = json.loads((CHECKPOINT / "state.json").read_text())
-    model = HZ0AMlxModel(VOCAB_SIZE, D_MODEL, LAYERS, HEADS, D_FF, ATTENTION_INDICES, native_metal=True)
-    model_arrays = [(item["key"], mx.load(str(CHECKPOINT / item["file"]))) for item in payload["arrays"] if item["group"] == "model"]
+def load_frozen_model(checkpoint: Path = CHECKPOINT, mixer: str = MIXER):
+    payload = json.loads((checkpoint / "state.json").read_text())
+    model = HZ0AMlxModel(VOCAB_SIZE, D_MODEL, LAYERS, HEADS, D_FF, ATTENTION_INDICES, native_metal=True, mixer=mixer)
+    model_arrays = [(item["key"], mx.load(str(checkpoint / item["file"]))) for item in payload["arrays"] if item["group"] == "model"]
     model.update(tree_unflatten(model_arrays))
     mx.eval(model.parameters())
     return model, payload
