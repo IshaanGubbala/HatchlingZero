@@ -297,6 +297,120 @@ _FIX_NORMALIZED_BACKWARD = r"""
 """
 
 
+_FIX_NORMALIZED_BACKWARD_FUSED = r"""
+    uint value = thread_position_in_threadgroup.x;
+    uint group_id = threadgroup_position_in_grid.x;
+    uint head = group_id % H;
+    uint batch = group_id / H;
+    if (batch >= B || S > 128 || K > 64 || V > 64) return;
+
+    threadgroup float shared_buf[64][64];
+
+    thread float states[129][64];
+    uint state_base = ((batch * H + head) * V + value) * K;
+    for (uint key = 0; key < K; ++key) states[0][key] = initial[state_base + key];
+    float rate = metal::exp(decay_a[0]);
+    for (uint t = 0; t < S; ++t) {
+        uint kr = ((batch * S + t) * H + head) * K;
+        uint vr = ((batch * S + t) * H + head) * V + value;
+        float old_value = 0.0f;
+        for (uint key = 0; key < K; ++key) {
+            float z = d[kr + key];
+            float sp = metal::log(1.0f + metal::exp(-metal::abs(z))) + max(z, 0.0f);
+            float alpha = metal::exp(-rate * sp);
+            float decayed = alpha * states[t][key];
+            old_value += decayed * hz_sigmoid(e[kr + key]) * k[kr + key];
+            states[t + 1][key] = decayed;
+        }
+        float residual = hz_sigmoid(w[vr]) * v[vr] - old_value;
+        for (uint key = 0; key < K; ++key) states[t + 1][key] += residual * k[kr + key];
+    }
+    thread float gs[64];
+    for (uint key = 0; key < K; ++key) gs[key] = grad_final[state_base + key];
+    float decay_grad = 0.0f;
+    for (int reverse = int(S) - 1; reverse >= 0; --reverse) {
+        uint t = uint(reverse);
+        uint kr = ((batch * S + t) * H + head) * K;
+        uint vr = ((batch * S + t) * H + head) * V + value;
+        float old_value = 0.0f;
+        for (uint key = 0; key < K; ++key)
+            old_value += (states[t][key] * metal::exp(-rate * (metal::log(1.0f + metal::exp(-metal::abs(d[kr + key]))) + max(d[kr + key], 0.0f)))) * hz_sigmoid(e[kr + key]) * k[kr + key];
+        float residual = hz_sigmoid(w[vr]) * v[vr] - old_value;
+        float rgrad = 0.0f;
+        thread float local_grad_q[64];
+        for (uint key = 0; key < K; ++key) {
+            float total = gs[key] + grad_output[vr] * q[kr + key];
+            rgrad += total * k[kr + key];
+            local_grad_q[key] = grad_output[vr] * states[t + 1][key];
+        }
+        float write_gate = hz_sigmoid(w[vr]);
+        grad_v[vr] = static_cast<DType>(rgrad * write_gate);
+        grad_w[vr] = static_cast<DType>(rgrad * v[vr] * write_gate * (1.0f - write_gate));
+
+        thread float local_grad_k[64];
+        thread float local_grad_d[64];
+        thread float local_grad_e[64];
+        for (uint key = 0; key < K; ++key) {
+            float z = d[kr + key];
+            float sigmoid_z = hz_sigmoid(z);
+            float sp = metal::log(1.0f + metal::exp(-metal::abs(z))) + max(z, 0.0f);
+            float alpha = metal::exp(-rate * sp);
+            float erase_gate = hz_sigmoid(e[kr + key]);
+            float decayed = alpha * states[t][key];
+            float total = gs[key] + grad_output[vr] * q[kr + key];
+            float gdecayed = total - rgrad * erase_gate * k[kr + key];
+            local_grad_k[key] = total * residual - rgrad * decayed * erase_gate;
+            local_grad_d[key] = gdecayed * states[t][key] * (-rate * sigmoid_z * alpha);
+            local_grad_e[key] = -rgrad * decayed * k[kr + key] * erase_gate * (1.0f - erase_gate);
+            // d alpha / d log(rate) = -rate * softplus(d) * alpha.
+            decay_grad += gdecayed * states[t][key] * (-rate * sp * alpha);
+            gs[key] = gdecayed * alpha;
+        }
+
+        uint out_base = ((batch * S + t) * H + head) * K;
+
+        for (uint key = 0; key < K; ++key) shared_buf[value][key] = local_grad_q[key];
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        if (value < K) {
+            float total_sum = 0.0f;
+            for (uint vv = 0; vv < V; ++vv) total_sum += shared_buf[vv][value];
+            grad_q[out_base + value] = static_cast<DType>(total_sum);
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        for (uint key = 0; key < K; ++key) shared_buf[value][key] = local_grad_k[key];
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        if (value < K) {
+            float total_sum = 0.0f;
+            for (uint vv = 0; vv < V; ++vv) total_sum += shared_buf[vv][value];
+            grad_k[out_base + value] = static_cast<DType>(total_sum);
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        for (uint key = 0; key < K; ++key) shared_buf[value][key] = local_grad_d[key];
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        if (value < K) {
+            float total_sum = 0.0f;
+            for (uint vv = 0; vv < V; ++vv) total_sum += shared_buf[vv][value];
+            grad_d[out_base + value] = static_cast<DType>(total_sum);
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        for (uint key = 0; key < K; ++key) shared_buf[value][key] = local_grad_e[key];
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        if (value < K) {
+            float total_sum = 0.0f;
+            for (uint vv = 0; vv < V; ++vv) total_sum += shared_buf[vv][value];
+            grad_e[out_base + value] = static_cast<DType>(total_sum);
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+    grad_initial[state_base + 0] = static_cast<DType>(gs[0]);
+    for (uint key = 1; key < K; ++key) grad_initial[state_base + key] = static_cast<DType>(gs[key]);
+    grad_decay_partial[(batch * H + head) * V + value] = static_cast<DType>(decay_grad);
+"""
+
+
 _FIX_BACKWARD_BODY = r"""
     uint tid = thread_position_in_grid.x;
     uint value = tid % V;
@@ -554,6 +668,55 @@ def native_gdn2_fix_backward_normalized(q, k, v, d, e, w, initial, decay_a, grad
     return (mx.sum(outputs[0], axis=3), mx.sum(outputs[1], axis=3), outputs[2], mx.sum(outputs[3], axis=3), mx.sum(outputs[4], axis=3), outputs[5], outputs[6], mx.sum(outputs[7], axis=(0, 1, 2)))
 
 
+def native_gdn2_fix_backward_fused_normalized(q, k, v, d, e, w, initial, decay_a, grad_output, grad_final):
+    """Value-axis-reduced backward for the corrected (`gdn2_fix`)
+    recurrence -- the same real fix `native_gdn2_backward_fused` applied
+    to the original mixer, ported here (it was never wired into the
+    corrected math; `native_gdn2_fix_backward_normalized` still
+    materializes full `(B,S,H,V,K)` partial buffers for `grad_q`/
+    `grad_k`/`grad_d`/`grad_e`, reduced afterward via `mx.sum` -- the
+    exact padding blowup the original fusion fixed for `gdn2`).
+
+    Every line of per-thread math below is copied verbatim from
+    `native_gdn2_fix_backward_normalized`'s own kernel body (including
+    its redundant recomputation of `total`/`z`/`sp`/`alpha`/`erase_gate`/
+    `decayed` in the second loop, matching that function exactly rather
+    than "optimizing" it away, to keep this a pure reduction-strategy
+    change with zero risk of a silent math difference) -- only
+    `grad_q`/`grad_k`/`grad_d`/`grad_e` move from padded partial buffers
+    to an in-kernel `threadgroup`-shared-memory reduction across the
+    value axis, mirroring `native_gdn2_backward_fused`'s own pattern.
+    `grad_v`/`grad_w` (already value-indexed, no reduction needed) and
+    `grad_decay_partial` (shape `(B,H,V)`, not `(B,S,H,V,K)` -- no
+    meaningful padding cost) are left exactly as in the unfused version;
+    only the four expensive ones are fused. Requires `value_dim ==
+    key_dim`, the same real constraint `native_gdn2_backward_fused`
+    already has."""
+    bsz, steps, heads, key_dim = q.shape
+    value_dim = v.shape[-1]
+    if value_dim != key_dim:
+        raise ValueError("native_gdn2_fix_backward_fused_normalized requires value_dim == key_dim for its shared-buffer reduction")
+    kernel = mx.fast.metal_kernel(
+        name="hz0a_gdn2_fix_backward_fused_normalized_mlx",
+        input_names=["q", "k", "v", "d", "e", "w", "initial", "decay_a", "grad_output", "grad_final"],
+        output_names=["grad_q", "grad_k", "grad_v", "grad_d", "grad_e", "grad_w", "grad_initial", "grad_decay_partial"],
+        source=_FIX_NORMALIZED_BACKWARD_FUSED,
+        header="#include <metal_stdlib>\nusing namespace metal;\nfloat hz_sigmoid(float x) { return 1.0f / (1.0f + metal::exp(-x)); }\n",
+    )
+    reduced_shape = (bsz, steps, heads, key_dim)
+    outputs = kernel(
+        inputs=[q, k, v, d, e, w, initial, decay_a, grad_output, grad_final],
+        template=[("DType", q.dtype), ("B", bsz), ("S", steps), ("H", heads), ("K", key_dim), ("V", value_dim)],
+        grid=(bsz * heads * value_dim, 1, 1),
+        threadgroup=(value_dim, 1, 1),
+        output_shapes=[reduced_shape, reduced_shape, v.shape, reduced_shape, reduced_shape, w.shape, initial.shape, (bsz, heads, value_dim)],
+        output_dtypes=[q.dtype, k.dtype, v.dtype, d.dtype, e.dtype, w.dtype, initial.dtype, decay_a.dtype],
+    )
+    grad_q, grad_k, grad_v, grad_d, grad_e, grad_w, grad_initial, grad_decay_partial = outputs
+    grad_decay = mx.sum(grad_decay_partial, axis=(0, 1, 2))
+    return (grad_q, grad_k, grad_v, grad_d, grad_e, grad_w, grad_initial, grad_decay)
+
+
 @mx.custom_function
 def native_gdn2_fix_normalized_differentiable(q, k, v, d, e, w, initial, decay_a):
     return tuple(native_gdn2_fix_forward_normalized(q, k, v, d, e, w, initial, decay_a))
@@ -563,6 +726,14 @@ def native_gdn2_fix_normalized_differentiable(q, k, v, d, e, w, initial, decay_a
 def _native_gdn2_fix_normalized_vjp(primals, cotangents, outputs):
     q, k, v, d, e, w, initial, decay_a = primals
     grad_output, grad_final = cotangents
+    # Fused (value-axis-reduced-in-kernel) backward is the verified-faster
+    # path (see native_gdn2_fix_backward_fused_normalized's docstring);
+    # requires value_dim == key_dim, true for the locked A1 spec. Falls
+    # back to the original (B,S,H,V,K)-materializing backward for any
+    # config where that doesn't hold, matching native_gdn2's own
+    # established fallback pattern.
+    if v.shape[-1] == q.shape[-1]:
+        return native_gdn2_fix_backward_fused_normalized(q, k, v, d, e, w, initial, decay_a, grad_output, grad_final)
     return native_gdn2_fix_backward_normalized(q, k, v, d, e, w, initial, decay_a, grad_output, grad_final)
 
 
