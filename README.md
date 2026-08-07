@@ -14,6 +14,7 @@ We do not claim to reproduce any single paper faithfully. We claim something nar
 - [Where the project stands](#where-the-project-stands)
 - [Research stages](#research-stages)
 - [Systems notes](#systems-notes)
+- [Performance](#performance)
 - [Repository layout](#repository-layout)
 - [Getting started](#getting-started)
 - [Branching model](#branching-model)
@@ -97,6 +98,61 @@ HatchlingZero trains and evaluates on Apple Silicon (Metal, unified memory) as i
 - **A backward-kernel fusion that gave a 1.93x isolated speedup on the original mixer gives a real but much smaller (~9%) speedup on the corrected one**, because the corrected recurrence's backward pass does substantially more per-element math (softplus, exponential decay, an extra learned-rate gradient term) and is comparatively more compute-bound, less memory-bound, than the mechanism the original fusion targeted. Both numbers are real; neither transfers to the other kernel by default.
 
 The throughline: every systems claim in this repo is re-measured against the exact configuration it will actually run under, not carried over from a superficially similar prior result.
+
+---
+
+## Performance
+
+Real, measured numbers — every row below is cited to a live run or a dated evidence document, not estimated.
+
+### Training throughput (Apple Silicon, `gdn2_fix` backbone, 301M params, `G1`)
+
+| Metric | Value |
+| --- | --- |
+| Throughput (2,000-step clean window, no supervisor restarts) | ~2,164 tok/s |
+| Peak memory at that throughput | 10.56 GB |
+| Batch size | `12` — re-verified for `gdn2_fix` specifically after a short window initially suggested `B=16`; a longer, cleaner window reversed that |
+| Backward-kernel fusion speedup on `gdn2_fix` | ~9% (much smaller than the ~1.93x seen fusing the *original* mixer's backward pass — the corrected recurrence is more compute-bound, less memory-bound) |
+
+Measured live from `outputs/hz0g_g1_gdn2_fix_301m/native_metal_memory.jsonl`, the in-progress `G1` run.
+
+### Inference throughput (`HZ-0A` backbone)
+
+| Path | Throughput | Conditions |
+| --- | --- | --- |
+| Prefill | ~27,876.6 tok/s | batch=2, seq_len=16 |
+| Tokenwise decode | ~9,735.3 tok/s | batch=2, seq_len=16 |
+
+Source: [`docs/restart/hz0a_a12_inference_audit.md`](docs/restart/hz0a_a12_inference_audit.md).
+
+### Frozen-backbone forward cost (`HZ-0B`)
+
+| Metric | Value |
+| --- | --- |
+| Full 301M-param frozen backbone forward | 116.7 ms/call (18,103 tok/s), batch=64, seq_len=33 |
+
+Source: [`docs/restart/hz0b_b11_throughput_cost_results.md`](docs/restart/hz0b_b11_throughput_cost_results.md).
+
+### MoE kernel benchmarks (single forward pass, 3 MoE layers, `d_model=768`)
+
+| Kernel path | Latency | vs MLX reference |
+| --- | --- | --- |
+| MLX reference (no custom kernel) | ~19.6–19.7 ms | baseline |
+| PMetal, original single-stage kernel | 761.7 ms | ~40x slower |
+| PMetal, two-stage kernel, ctypes bridge | ~22.0–22.2 ms | ~12–13% slower |
+| PMetal, two-stage kernel, native MLX custom op | ~20.6–20.7 ms | ~5–6% slower |
+| `mx.gather_mm` — **adopted, current best** | ~19.7–19.9 ms | ~0.5–1% slower |
+
+Five real engineering iterations, in order tried. Source: [`docs/restart/hz0e_e9_pmetal_dispatch_results.md`](docs/restart/hz0e_e9_pmetal_dispatch_results.md), [`docs/restart/hz0f_gather_mm_benchmark_results.md`](docs/restart/hz0f_gather_mm_benchmark_results.md).
+
+### Model quality effect sizes (not speed)
+
+| Result | Effect size | Verdict |
+| --- | --- | --- |
+| Micro-MoE per-domain specialization gain | 6/6 real trials win (2 scopes × 3 seeds), ~0.024 nats | Real, reproducible — adopted, with a disclosed OOD cost (see above) |
+| Attention Residuals vs. standard residual, 5M-param scale | Standard wins 3/3 seeds by ~0.05–0.07 nats | AttnRes rejected at this scale; unresolved at 100M+ |
+
+Source: [`docs/restart/hz0e_moe_per_domain_significance_results.md`](docs/restart/hz0e_moe_per_domain_significance_results.md), [`docs/restart/hz0f_attnres_ablation_results.md`](docs/restart/hz0f_attnres_ablation_results.md).
 
 ---
 
