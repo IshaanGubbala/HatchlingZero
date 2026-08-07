@@ -424,9 +424,17 @@ kernel void adamw_update(
 }
 "#;
 
-fn make_pipeline(device: &Device, library: &metal::Library, name: &str) -> metal::ComputePipelineState {
-    let function = library.get_function(name, None).unwrap_or_else(|e| panic!("missing kernel {name}: {e}"));
-    device.new_compute_pipeline_state_with_function(&function).unwrap_or_else(|e| panic!("failed to build pipeline {name}: {e}"))
+fn make_pipeline(
+    device: &Device,
+    library: &metal::Library,
+    name: &str,
+) -> metal::ComputePipelineState {
+    let function = library
+        .get_function(name, None)
+        .unwrap_or_else(|e| panic!("missing kernel {name}: {e}"));
+    device
+        .new_compute_pipeline_state_with_function(&function)
+        .unwrap_or_else(|e| panic!("failed to build pipeline {name}: {e}"))
 }
 
 pub struct Gdn2FullBlockGpu {
@@ -519,7 +527,9 @@ pub struct ForwardOutput {
 impl Gdn2FullBlockGpu {
     pub fn new() -> Result<Self, String> {
         let device = Device::system_default().ok_or("no Metal device available")?;
-        let library = device.new_library_with_source(KERNELS_SOURCE, &metal::CompileOptions::new()).map_err(|e| format!("Metal shader compilation failed: {e}"))?;
+        let library = device
+            .new_library_with_source(KERNELS_SOURCE, &metal::CompileOptions::new())
+            .map_err(|e| format!("Metal shader compilation failed: {e}"))?;
         let queue = device.new_command_queue();
         Ok(Self {
             rmsnorm_forward: make_pipeline(&device, &library, "rmsnorm_forward"),
@@ -540,10 +550,17 @@ impl Gdn2FullBlockGpu {
     }
 
     fn buf_in(&self, data: &[f32]) -> metal::Buffer {
-        self.device.new_buffer_with_data(data.as_ptr() as *const std::ffi::c_void, (data.len() * 4).max(4) as u64, MTLResourceOptions::StorageModeShared)
+        self.device.new_buffer_with_data(
+            data.as_ptr() as *const std::ffi::c_void,
+            (data.len() * 4).max(4) as u64,
+            MTLResourceOptions::StorageModeShared,
+        )
     }
     fn buf_out(&self, len: usize) -> metal::Buffer {
-        self.device.new_buffer((len * 4).max(4) as u64, MTLResourceOptions::StorageModeShared)
+        self.device.new_buffer(
+            (len * 4).max(4) as u64,
+            MTLResourceOptions::StorageModeShared,
+        )
     }
     fn read(buffer: &metal::Buffer, len: usize) -> Vec<f32> {
         unsafe { std::slice::from_raw_parts(buffer.contents() as *const f32, len) }.to_vec()
@@ -556,7 +573,13 @@ impl Gdn2FullBlockGpu {
     /// in between (normed, projected, q/k/v/gates, mixed) stays as
     /// `metal::Buffer` handles in the returned cache for backward to
     /// reuse without re-deriving or re-uploading them.
-    pub fn forward(&self, shape: &BlockShape, x: &[f32], initial_state: &[f32], params: &BlockParameters) -> (ForwardOutput, ForwardCache) {
+    pub fn forward(
+        &self,
+        shape: &BlockShape,
+        x: &[f32],
+        initial_state: &[f32],
+        params: &BlockParameters,
+    ) -> (ForwardOutput, ForwardCache) {
         assert_eq!(x.len(), shape.steps * shape.dim);
         assert_eq!(initial_state.len(), shape.state_len());
         let width = shape.width();
@@ -596,12 +619,24 @@ impl Gdn2FullBlockGpu {
             encoder.set_buffer(3, Some(&inv_rms_buf), 0);
             encoder.set_bytes(4, 4, [shape.dim as u32].as_ptr() as *const std::ffi::c_void);
             let threads = 256usize.min(shape.dim.next_power_of_two().max(1));
-            encoder.dispatch_thread_groups(MTLSize::new(shape.steps as u64, 1, 1), MTLSize::new(threads as u64, 1, 1));
+            encoder.dispatch_thread_groups(
+                MTLSize::new(shape.steps as u64, 1, 1),
+                MTLSize::new(threads as u64, 1, 1),
+            );
             encoder.end_encoding();
             drop(dim_buf);
         }
         // in_proj linear
-        self.encode_linear_forward(command_buffer, &normed_buf, &in_w_buf, &in_b_buf, &projected_buf, shape.steps, shape.dim, width);
+        self.encode_linear_forward(
+            command_buffer,
+            &normed_buf,
+            &in_w_buf,
+            &in_b_buf,
+            &projected_buf,
+            shape.steps,
+            shape.dim,
+            width,
+        );
         // unpack
         {
             let encoder = command_buffer.new_compute_command_encoder();
@@ -613,18 +648,37 @@ impl Gdn2FullBlockGpu {
             encoder.set_buffer(4, Some(&decay_buf), 0);
             encoder.set_buffer(5, Some(&erase_buf), 0);
             encoder.set_buffer(6, Some(&write_buf), 0);
-            encoder.set_bytes(7, 4, [shape.heads as u32].as_ptr() as *const std::ffi::c_void);
+            encoder.set_bytes(
+                7,
+                4,
+                [shape.heads as u32].as_ptr() as *const std::ffi::c_void,
+            );
             encoder.set_bytes(8, 4, [shape.d_k as u32].as_ptr() as *const std::ffi::c_void);
             encoder.set_bytes(9, 4, [shape.d_v as u32].as_ptr() as *const std::ffi::c_void);
             let total = (shape.steps * shape.heads) as u64;
-            encoder.dispatch_threads(MTLSize::new(total, 1, 1), MTLSize::new(total.min(256).max(1), 1, 1));
+            encoder.dispatch_threads(
+                MTLSize::new(total, 1, 1),
+                MTLSize::new(total.min(256).max(1), 1, 1),
+            );
             encoder.end_encoding();
         }
         // GDN-2 forward
         {
             #[repr(C)]
-            struct Gdn2ShapeUniform { b: u32, s: u32, h: u32, k: u32, v: u32 }
-            let shape_uniform = Gdn2ShapeUniform { b: 1, s: shape.steps as u32, h: shape.heads as u32, k: shape.d_k as u32, v: shape.d_v as u32 };
+            struct Gdn2ShapeUniform {
+                b: u32,
+                s: u32,
+                h: u32,
+                k: u32,
+                v: u32,
+            }
+            let shape_uniform = Gdn2ShapeUniform {
+                b: 1,
+                s: shape.steps as u32,
+                h: shape.heads as u32,
+                k: shape.d_k as u32,
+                v: shape.d_v as u32,
+            };
             let encoder = command_buffer.new_compute_command_encoder();
             encoder.set_compute_pipeline_state(&self.gdn2_forward_block);
             encoder.set_buffer(0, Some(&q_buf), 0);
@@ -636,13 +690,29 @@ impl Gdn2FullBlockGpu {
             encoder.set_buffer(6, Some(&initial_buf), 0);
             encoder.set_buffer(7, Some(&mixed_buf), 0);
             encoder.set_buffer(8, Some(&final_state_buf), 0);
-            encoder.set_bytes(9, std::mem::size_of::<Gdn2ShapeUniform>() as u64, &shape_uniform as *const _ as *const std::ffi::c_void);
+            encoder.set_bytes(
+                9,
+                std::mem::size_of::<Gdn2ShapeUniform>() as u64,
+                &shape_uniform as *const _ as *const std::ffi::c_void,
+            );
             let total = (shape.heads * shape.d_v) as u64;
-            encoder.dispatch_threads(MTLSize::new(total, 1, 1), MTLSize::new(total.min(256).max(1), 1, 1));
+            encoder.dispatch_threads(
+                MTLSize::new(total, 1, 1),
+                MTLSize::new(total.min(256).max(1), 1, 1),
+            );
             encoder.end_encoding();
         }
         // out_proj linear
-        self.encode_linear_forward(command_buffer, &mixed_buf, &out_w_buf, &out_b_buf, &block_out_buf, shape.steps, shape.heads * shape.d_v, shape.dim);
+        self.encode_linear_forward(
+            command_buffer,
+            &mixed_buf,
+            &out_w_buf,
+            &out_b_buf,
+            &block_out_buf,
+            shape.steps,
+            shape.heads * shape.d_v,
+            shape.dim,
+        );
         // residual add
         {
             let encoder = command_buffer.new_compute_command_encoder();
@@ -651,7 +721,10 @@ impl Gdn2FullBlockGpu {
             encoder.set_buffer(1, Some(&block_out_buf), 0);
             encoder.set_buffer(2, Some(&y_buf), 0);
             let total = (shape.steps * shape.dim) as u64;
-            encoder.dispatch_threads(MTLSize::new(total, 1, 1), MTLSize::new(total.min(256).max(1), 1, 1));
+            encoder.dispatch_threads(
+                MTLSize::new(total, 1, 1),
+                MTLSize::new(total.min(256).max(1), 1, 1),
+            );
             encoder.end_encoding();
         }
 
@@ -663,12 +736,37 @@ impl Gdn2FullBlockGpu {
 
         (
             ForwardOutput { y, final_state },
-            ForwardCache { x_buf, rmsnorm_w_buf, normed_buf, inv_rms_buf, in_w_buf, q_buf, k_buf, v_buf, decay_buf, erase_buf, write_buf, initial_buf, mixed_buf, out_w_buf },
+            ForwardCache {
+                x_buf,
+                rmsnorm_w_buf,
+                normed_buf,
+                inv_rms_buf,
+                in_w_buf,
+                q_buf,
+                k_buf,
+                v_buf,
+                decay_buf,
+                erase_buf,
+                write_buf,
+                initial_buf,
+                mixed_buf,
+                out_w_buf,
+            },
         )
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn encode_linear_forward(&self, command_buffer: &metal::CommandBufferRef, x: &metal::Buffer, w: &metal::Buffer, b: &metal::Buffer, out: &metal::Buffer, rows: usize, in_features: usize, out_features: usize) {
+    fn encode_linear_forward(
+        &self,
+        command_buffer: &metal::CommandBufferRef,
+        x: &metal::Buffer,
+        w: &metal::Buffer,
+        b: &metal::Buffer,
+        out: &metal::Buffer,
+        rows: usize,
+        in_features: usize,
+        out_features: usize,
+    ) {
         let encoder = command_buffer.new_compute_command_encoder();
         encoder.set_compute_pipeline_state(&self.linear_forward);
         encoder.set_buffer(0, Some(x), 0);
@@ -676,10 +774,21 @@ impl Gdn2FullBlockGpu {
         encoder.set_buffer(2, Some(b), 0);
         encoder.set_buffer(3, Some(out), 0);
         encoder.set_bytes(4, 4, [rows as u32].as_ptr() as *const std::ffi::c_void);
-        encoder.set_bytes(5, 4, [in_features as u32].as_ptr() as *const std::ffi::c_void);
-        encoder.set_bytes(6, 4, [out_features as u32].as_ptr() as *const std::ffi::c_void);
+        encoder.set_bytes(
+            5,
+            4,
+            [in_features as u32].as_ptr() as *const std::ffi::c_void,
+        );
+        encoder.set_bytes(
+            6,
+            4,
+            [out_features as u32].as_ptr() as *const std::ffi::c_void,
+        );
         let total = (rows * out_features) as u64;
-        encoder.dispatch_threads(MTLSize::new(total, 1, 1), MTLSize::new(total.min(256).max(1), 1, 1));
+        encoder.dispatch_threads(
+            MTLSize::new(total, 1, 1),
+            MTLSize::new(total.min(256).max(1), 1, 1),
+        );
         encoder.end_encoding();
     }
 
@@ -688,7 +797,16 @@ impl Gdn2FullBlockGpu {
     /// by the caller (the block's I/O boundary -- not an intermediate).
     /// Mutates `params` and `moments` in place with the updated values.
     #[allow(clippy::too_many_arguments)]
-    pub fn backward_and_update(&self, shape: &BlockShape, cache: &ForwardCache, grad_y: &[f32], grad_final_state: &[f32], params: &mut BlockParameters, moments: &mut AdamWMoments, lr: f32) {
+    pub fn backward_and_update(
+        &self,
+        shape: &BlockShape,
+        cache: &ForwardCache,
+        grad_y: &[f32],
+        grad_final_state: &[f32],
+        params: &mut BlockParameters,
+        moments: &mut AdamWMoments,
+        lr: f32,
+    ) {
         assert_eq!(grad_y.len(), shape.steps * shape.dim);
         assert_eq!(grad_final_state.len(), shape.state_len());
         let width = shape.width();
@@ -716,29 +834,78 @@ impl Gdn2FullBlockGpu {
         let command_buffer = self.queue.new_command_buffer();
 
         // out_proj backward: dx (-> grad_mixed), dW
-        self.encode_linear_backward_dx(command_buffer, &grad_y_buf, &cache.out_w_buf, &grad_mixed_buf, shape.steps, shape.heads * shape.d_v, shape.dim);
-        self.encode_linear_backward_dw(command_buffer, &grad_y_buf, &cache.mixed_buf, &grad_out_w_buf, shape.steps, shape.heads * shape.d_v, shape.dim);
+        self.encode_linear_backward_dx(
+            command_buffer,
+            &grad_y_buf,
+            &cache.out_w_buf,
+            &grad_mixed_buf,
+            shape.steps,
+            shape.heads * shape.d_v,
+            shape.dim,
+        );
+        self.encode_linear_backward_dw(
+            command_buffer,
+            &grad_y_buf,
+            &cache.mixed_buf,
+            &grad_out_w_buf,
+            shape.steps,
+            shape.heads * shape.d_v,
+            shape.dim,
+        );
         let _ = &grad_out_b_partial_buf; // grad_out_bias reduction reads grad_y_buf directly, see below
 
         // GDN-2 backward (raw-logit, self-contained)
         {
             #[repr(C)]
-            struct Gdn2ShapeUniform { b: u32, s: u32, h: u32, k: u32, v: u32 }
-            let shape_uniform = Gdn2ShapeUniform { b: 1, s: shape.steps as u32, h: shape.heads as u32, k: shape.d_k as u32, v: shape.d_v as u32 };
+            struct Gdn2ShapeUniform {
+                b: u32,
+                s: u32,
+                h: u32,
+                k: u32,
+                v: u32,
+            }
+            let shape_uniform = Gdn2ShapeUniform {
+                b: 1,
+                s: shape.steps as u32,
+                h: shape.heads as u32,
+                k: shape.d_k as u32,
+                v: shape.d_v as u32,
+            };
             let encoder = command_buffer.new_compute_command_encoder();
             encoder.set_compute_pipeline_state(&self.gdn2_backward_raw);
             for (index, buffer) in [
-                &cache.q_buf, &cache.k_buf, &cache.v_buf, &cache.decay_buf, &cache.erase_buf, &cache.write_buf, &cache.initial_buf, &grad_mixed_buf, &grad_final_buf,
-                &grad_q_buf, &grad_k_buf, &grad_v_buf, &grad_decay_buf, &grad_erase_buf, &grad_write_buf, &grad_initial_buf,
+                &cache.q_buf,
+                &cache.k_buf,
+                &cache.v_buf,
+                &cache.decay_buf,
+                &cache.erase_buf,
+                &cache.write_buf,
+                &cache.initial_buf,
+                &grad_mixed_buf,
+                &grad_final_buf,
+                &grad_q_buf,
+                &grad_k_buf,
+                &grad_v_buf,
+                &grad_decay_buf,
+                &grad_erase_buf,
+                &grad_write_buf,
+                &grad_initial_buf,
             ]
             .into_iter()
             .enumerate()
             {
                 encoder.set_buffer(index as u64, Some(buffer), 0);
             }
-            encoder.set_bytes(16, std::mem::size_of::<Gdn2ShapeUniform>() as u64, &shape_uniform as *const _ as *const std::ffi::c_void);
+            encoder.set_bytes(
+                16,
+                std::mem::size_of::<Gdn2ShapeUniform>() as u64,
+                &shape_uniform as *const _ as *const std::ffi::c_void,
+            );
             let groups = shape.heads as u64;
-            encoder.dispatch_thread_groups(MTLSize::new(groups, 1, 1), MTLSize::new(shape.d_v as u64, 1, 1));
+            encoder.dispatch_thread_groups(
+                MTLSize::new(groups, 1, 1),
+                MTLSize::new(shape.d_v as u64, 1, 1),
+            );
             encoder.end_encoding();
         }
         // repack grads back into (steps, width)
@@ -752,16 +919,39 @@ impl Gdn2FullBlockGpu {
             encoder.set_buffer(4, Some(&grad_erase_buf), 0);
             encoder.set_buffer(5, Some(&grad_write_buf), 0);
             encoder.set_buffer(6, Some(&grad_projected_buf), 0);
-            encoder.set_bytes(7, 4, [shape.heads as u32].as_ptr() as *const std::ffi::c_void);
+            encoder.set_bytes(
+                7,
+                4,
+                [shape.heads as u32].as_ptr() as *const std::ffi::c_void,
+            );
             encoder.set_bytes(8, 4, [shape.d_k as u32].as_ptr() as *const std::ffi::c_void);
             encoder.set_bytes(9, 4, [shape.d_v as u32].as_ptr() as *const std::ffi::c_void);
             let total = (shape.steps * shape.heads) as u64;
-            encoder.dispatch_threads(MTLSize::new(total, 1, 1), MTLSize::new(total.min(256).max(1), 1, 1));
+            encoder.dispatch_threads(
+                MTLSize::new(total, 1, 1),
+                MTLSize::new(total.min(256).max(1), 1, 1),
+            );
             encoder.end_encoding();
         }
         // in_proj backward: dx (-> grad_normed), dW
-        self.encode_linear_backward_dx(command_buffer, &grad_projected_buf, &cache.in_w_buf, &grad_normed_buf, shape.steps, shape.dim, width);
-        self.encode_linear_backward_dw(command_buffer, &grad_projected_buf, &cache.normed_buf, &grad_in_w_buf, shape.steps, shape.dim, width);
+        self.encode_linear_backward_dx(
+            command_buffer,
+            &grad_projected_buf,
+            &cache.in_w_buf,
+            &grad_normed_buf,
+            shape.steps,
+            shape.dim,
+            width,
+        );
+        self.encode_linear_backward_dw(
+            command_buffer,
+            &grad_projected_buf,
+            &cache.normed_buf,
+            &grad_in_w_buf,
+            shape.steps,
+            shape.dim,
+            width,
+        );
 
         // RMSNorm backward
         {
@@ -775,7 +965,10 @@ impl Gdn2FullBlockGpu {
             encoder.set_buffer(5, Some(&grad_rmsnorm_w_partial_buf), 0);
             encoder.set_bytes(6, 4, [shape.dim as u32].as_ptr() as *const std::ffi::c_void);
             let threads = 256usize.min(shape.dim.next_power_of_two().max(1));
-            encoder.dispatch_thread_groups(MTLSize::new(shape.steps as u64, 1, 1), MTLSize::new(threads as u64, 1, 1));
+            encoder.dispatch_thread_groups(
+                MTLSize::new(shape.steps as u64, 1, 1),
+                MTLSize::new(threads as u64, 1, 1),
+            );
             encoder.end_encoding();
         }
         // residual: grad_x_total = grad_x_from_norm + grad_y (the skip connection)
@@ -786,17 +979,38 @@ impl Gdn2FullBlockGpu {
             encoder.set_buffer(1, Some(&grad_y_buf), 0);
             encoder.set_buffer(2, Some(&grad_x_total_buf), 0);
             let total = (shape.steps * shape.dim) as u64;
-            encoder.dispatch_threads(MTLSize::new(total, 1, 1), MTLSize::new(total.min(256).max(1), 1, 1));
+            encoder.dispatch_threads(
+                MTLSize::new(total, 1, 1),
+                MTLSize::new(total.min(256).max(1), 1, 1),
+            );
             encoder.end_encoding();
         }
 
         // reductions: grad_rmsnorm_weight, grad_in_bias, grad_out_bias
         let grad_rmsnorm_w_buf = self.buf_out(shape.dim);
-        self.encode_reduce_rows_sum(command_buffer, &grad_rmsnorm_w_partial_buf, &grad_rmsnorm_w_buf, shape.steps, shape.dim);
+        self.encode_reduce_rows_sum(
+            command_buffer,
+            &grad_rmsnorm_w_partial_buf,
+            &grad_rmsnorm_w_buf,
+            shape.steps,
+            shape.dim,
+        );
         let grad_in_b_buf = self.buf_out(width);
-        self.encode_reduce_rows_sum(command_buffer, &grad_projected_buf, &grad_in_b_buf, shape.steps, width);
+        self.encode_reduce_rows_sum(
+            command_buffer,
+            &grad_projected_buf,
+            &grad_in_b_buf,
+            shape.steps,
+            width,
+        );
         let grad_out_b_buf = self.buf_out(shape.dim);
-        self.encode_reduce_rows_sum(command_buffer, &grad_y_buf, &grad_out_b_buf, shape.steps, shape.dim);
+        self.encode_reduce_rows_sum(
+            command_buffer,
+            &grad_y_buf,
+            &grad_out_b_buf,
+            shape.steps,
+            shape.dim,
+        );
 
         // AdamW updates, all five parameter tensors, entirely on-device
         moments.step += 1;
@@ -805,27 +1019,77 @@ impl Gdn2FullBlockGpu {
         let rmsnorm_w_param_buf = self.buf_in(&params.rmsnorm_weight);
         let rmsnorm_w_m_buf = self.buf_in(&moments.m.rmsnorm_weight);
         let rmsnorm_w_v_buf = self.buf_in(&moments.v.rmsnorm_weight);
-        self.encode_adamw(command_buffer, &rmsnorm_w_param_buf, &grad_rmsnorm_w_buf, &rmsnorm_w_m_buf, &rmsnorm_w_v_buf, shape.dim, lr, bc1, bc2);
+        self.encode_adamw(
+            command_buffer,
+            &rmsnorm_w_param_buf,
+            &grad_rmsnorm_w_buf,
+            &rmsnorm_w_m_buf,
+            &rmsnorm_w_v_buf,
+            shape.dim,
+            lr,
+            bc1,
+            bc2,
+        );
 
         let in_w_param_buf = self.buf_in(&params.in_proj_weight);
         let in_w_m_buf = self.buf_in(&moments.m.in_proj_weight);
         let in_w_v_buf = self.buf_in(&moments.v.in_proj_weight);
-        self.encode_adamw(command_buffer, &in_w_param_buf, &grad_in_w_buf, &in_w_m_buf, &in_w_v_buf, width * shape.dim, lr, bc1, bc2);
+        self.encode_adamw(
+            command_buffer,
+            &in_w_param_buf,
+            &grad_in_w_buf,
+            &in_w_m_buf,
+            &in_w_v_buf,
+            width * shape.dim,
+            lr,
+            bc1,
+            bc2,
+        );
 
         let in_b_param_buf = self.buf_in(&params.in_proj_bias);
         let in_b_m_buf = self.buf_in(&moments.m.in_proj_bias);
         let in_b_v_buf = self.buf_in(&moments.v.in_proj_bias);
-        self.encode_adamw(command_buffer, &in_b_param_buf, &grad_in_b_buf, &in_b_m_buf, &in_b_v_buf, width, lr, bc1, bc2);
+        self.encode_adamw(
+            command_buffer,
+            &in_b_param_buf,
+            &grad_in_b_buf,
+            &in_b_m_buf,
+            &in_b_v_buf,
+            width,
+            lr,
+            bc1,
+            bc2,
+        );
 
         let out_w_param_buf = self.buf_in(&params.out_proj_weight);
         let out_w_m_buf = self.buf_in(&moments.m.out_proj_weight);
         let out_w_v_buf = self.buf_in(&moments.v.out_proj_weight);
-        self.encode_adamw(command_buffer, &out_w_param_buf, &grad_out_w_buf, &out_w_m_buf, &out_w_v_buf, shape.dim * shape.heads * shape.d_v, lr, bc1, bc2);
+        self.encode_adamw(
+            command_buffer,
+            &out_w_param_buf,
+            &grad_out_w_buf,
+            &out_w_m_buf,
+            &out_w_v_buf,
+            shape.dim * shape.heads * shape.d_v,
+            lr,
+            bc1,
+            bc2,
+        );
 
         let out_b_param_buf = self.buf_in(&params.out_proj_bias);
         let out_b_m_buf = self.buf_in(&moments.m.out_proj_bias);
         let out_b_v_buf = self.buf_in(&moments.v.out_proj_bias);
-        self.encode_adamw(command_buffer, &out_b_param_buf, &grad_out_b_buf, &out_b_m_buf, &out_b_v_buf, shape.dim, lr, bc1, bc2);
+        self.encode_adamw(
+            command_buffer,
+            &out_b_param_buf,
+            &grad_out_b_buf,
+            &out_b_m_buf,
+            &out_b_v_buf,
+            shape.dim,
+            lr,
+            bc1,
+            bc2,
+        );
 
         command_buffer.commit();
         command_buffer.wait_until_completed();
@@ -850,48 +1114,109 @@ impl Gdn2FullBlockGpu {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn encode_linear_backward_dx(&self, command_buffer: &metal::CommandBufferRef, grad_out: &metal::Buffer, weight: &metal::Buffer, grad_x: &metal::Buffer, rows: usize, in_features: usize, out_features: usize) {
+    fn encode_linear_backward_dx(
+        &self,
+        command_buffer: &metal::CommandBufferRef,
+        grad_out: &metal::Buffer,
+        weight: &metal::Buffer,
+        grad_x: &metal::Buffer,
+        rows: usize,
+        in_features: usize,
+        out_features: usize,
+    ) {
         let encoder = command_buffer.new_compute_command_encoder();
         encoder.set_compute_pipeline_state(&self.linear_backward_dx);
         encoder.set_buffer(0, Some(grad_out), 0);
         encoder.set_buffer(1, Some(weight), 0);
         encoder.set_buffer(2, Some(grad_x), 0);
         encoder.set_bytes(3, 4, [rows as u32].as_ptr() as *const std::ffi::c_void);
-        encoder.set_bytes(4, 4, [in_features as u32].as_ptr() as *const std::ffi::c_void);
-        encoder.set_bytes(5, 4, [out_features as u32].as_ptr() as *const std::ffi::c_void);
+        encoder.set_bytes(
+            4,
+            4,
+            [in_features as u32].as_ptr() as *const std::ffi::c_void,
+        );
+        encoder.set_bytes(
+            5,
+            4,
+            [out_features as u32].as_ptr() as *const std::ffi::c_void,
+        );
         let total = (rows * in_features) as u64;
-        encoder.dispatch_threads(MTLSize::new(total, 1, 1), MTLSize::new(total.min(256).max(1), 1, 1));
+        encoder.dispatch_threads(
+            MTLSize::new(total, 1, 1),
+            MTLSize::new(total.min(256).max(1), 1, 1),
+        );
         encoder.end_encoding();
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn encode_linear_backward_dw(&self, command_buffer: &metal::CommandBufferRef, grad_out: &metal::Buffer, x: &metal::Buffer, grad_w: &metal::Buffer, rows: usize, in_features: usize, out_features: usize) {
+    fn encode_linear_backward_dw(
+        &self,
+        command_buffer: &metal::CommandBufferRef,
+        grad_out: &metal::Buffer,
+        x: &metal::Buffer,
+        grad_w: &metal::Buffer,
+        rows: usize,
+        in_features: usize,
+        out_features: usize,
+    ) {
         let encoder = command_buffer.new_compute_command_encoder();
         encoder.set_compute_pipeline_state(&self.linear_backward_dw);
         encoder.set_buffer(0, Some(grad_out), 0);
         encoder.set_buffer(1, Some(x), 0);
         encoder.set_buffer(2, Some(grad_w), 0);
         encoder.set_bytes(3, 4, [rows as u32].as_ptr() as *const std::ffi::c_void);
-        encoder.set_bytes(4, 4, [in_features as u32].as_ptr() as *const std::ffi::c_void);
-        encoder.set_bytes(5, 4, [out_features as u32].as_ptr() as *const std::ffi::c_void);
+        encoder.set_bytes(
+            4,
+            4,
+            [in_features as u32].as_ptr() as *const std::ffi::c_void,
+        );
+        encoder.set_bytes(
+            5,
+            4,
+            [out_features as u32].as_ptr() as *const std::ffi::c_void,
+        );
         let total = (out_features * in_features) as u64;
-        encoder.dispatch_threads(MTLSize::new(total, 1, 1), MTLSize::new(total.min(256).max(1), 1, 1));
+        encoder.dispatch_threads(
+            MTLSize::new(total, 1, 1),
+            MTLSize::new(total.min(256).max(1), 1, 1),
+        );
         encoder.end_encoding();
     }
 
-    fn encode_reduce_rows_sum(&self, command_buffer: &metal::CommandBufferRef, input: &metal::Buffer, output: &metal::Buffer, rows: usize, dim: usize) {
+    fn encode_reduce_rows_sum(
+        &self,
+        command_buffer: &metal::CommandBufferRef,
+        input: &metal::Buffer,
+        output: &metal::Buffer,
+        rows: usize,
+        dim: usize,
+    ) {
         let encoder = command_buffer.new_compute_command_encoder();
         encoder.set_compute_pipeline_state(&self.reduce_rows_sum);
         encoder.set_buffer(0, Some(input), 0);
         encoder.set_buffer(1, Some(output), 0);
         encoder.set_bytes(2, 4, [rows as u32].as_ptr() as *const std::ffi::c_void);
         encoder.set_bytes(3, 4, [dim as u32].as_ptr() as *const std::ffi::c_void);
-        encoder.dispatch_threads(MTLSize::new(dim as u64, 1, 1), MTLSize::new((dim as u64).min(256).max(1), 1, 1));
+        encoder.dispatch_threads(
+            MTLSize::new(dim as u64, 1, 1),
+            MTLSize::new((dim as u64).min(256).max(1), 1, 1),
+        );
         encoder.end_encoding();
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn encode_adamw(&self, command_buffer: &metal::CommandBufferRef, param: &metal::Buffer, grad: &metal::Buffer, m: &metal::Buffer, v: &metal::Buffer, n: usize, lr: f32, bc1: f32, bc2: f32) {
+    fn encode_adamw(
+        &self,
+        command_buffer: &metal::CommandBufferRef,
+        param: &metal::Buffer,
+        grad: &metal::Buffer,
+        m: &metal::Buffer,
+        v: &metal::Buffer,
+        n: usize,
+        lr: f32,
+        bc1: f32,
+        bc2: f32,
+    ) {
         let encoder = command_buffer.new_compute_command_encoder();
         encoder.set_compute_pipeline_state(&self.adamw_update);
         encoder.set_buffer(0, Some(param), 0);
@@ -905,7 +1230,10 @@ impl Gdn2FullBlockGpu {
         encoder.set_bytes(8, 4, [0.01f32].as_ptr() as *const std::ffi::c_void);
         encoder.set_bytes(9, 4, [bc1].as_ptr() as *const std::ffi::c_void);
         encoder.set_bytes(10, 4, [bc2].as_ptr() as *const std::ffi::c_void);
-        encoder.dispatch_threads(MTLSize::new(n as u64, 1, 1), MTLSize::new((n as u64).min(256).max(1), 1, 1));
+        encoder.dispatch_threads(
+            MTLSize::new(n as u64, 1, 1),
+            MTLSize::new((n as u64).min(256).max(1), 1, 1),
+        );
         encoder.end_encoding();
     }
 }

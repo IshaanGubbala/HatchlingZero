@@ -73,7 +73,15 @@ pub unsafe extern "C" fn hz0c_conditional_attention_forward(
     let out_b_slice = std::slice::from_raw_parts(out_bias, dim);
     let trigger_slice = std::slice::from_raw_parts(trigger, tokens);
     match conditional_anchor_attention_f32(
-        batch, seq, dim, heads, x_slice, qkv_w_slice, qkv_b_slice, out_w_slice, out_b_slice,
+        batch,
+        seq,
+        dim,
+        heads,
+        x_slice,
+        qkv_w_slice,
+        qkv_b_slice,
+        out_w_slice,
+        out_b_slice,
         trigger_slice,
     ) {
         Ok(result) => {
@@ -131,7 +139,15 @@ pub unsafe extern "C" fn hz0c_conditional_attention_backward(
     let trigger_slice = std::slice::from_raw_parts(trigger, tokens);
     let grad_output_slice = std::slice::from_raw_parts(grad_output, tokens * dim);
     match conditional_anchor_attention_backward_f32(
-        batch, seq, dim, heads, x_slice, qkv_w_slice, qkv_b_slice, out_w_slice, trigger_slice,
+        batch,
+        seq,
+        dim,
+        heads,
+        x_slice,
+        qkv_w_slice,
+        qkv_b_slice,
+        out_w_slice,
+        trigger_slice,
         grad_output_slice,
     ) {
         Ok(result) => {
@@ -167,7 +183,8 @@ pub unsafe extern "C" fn hz0c_conditional_attention_backward(
 /// `hz0c_metal_conditional_attention_destroy` exactly once when done with
 /// it, and must not use it after destroying it.
 #[no_mangle]
-pub extern "C" fn hz0c_metal_conditional_attention_create() -> *mut MetalConditionalAnchorAttention {
+pub extern "C" fn hz0c_metal_conditional_attention_create() -> *mut MetalConditionalAnchorAttention
+{
     match MetalConditionalAnchorAttention::new() {
         Ok(instance) => Box::into_raw(Box::new(instance)),
         Err(_) => std::ptr::null_mut(),
@@ -185,7 +202,9 @@ pub extern "C" fn hz0c_metal_conditional_attention_create() -> *mut MetalConditi
 /// destroyed. Using the handle again after this call is undefined
 /// behavior -- the caller (Python) is responsible for not doing so.
 #[no_mangle]
-pub unsafe extern "C" fn hz0c_metal_conditional_attention_destroy(handle: *mut MetalConditionalAnchorAttention) {
+pub unsafe extern "C" fn hz0c_metal_conditional_attention_destroy(
+    handle: *mut MetalConditionalAnchorAttention,
+) {
     if !handle.is_null() {
         drop(Box::from_raw(handle));
     }
@@ -230,7 +249,15 @@ pub unsafe extern "C" fn hz0c_metal_conditional_attention_forward(
     let out_b_slice = std::slice::from_raw_parts(out_bias, dim);
     let trigger_slice = std::slice::from_raw_parts(trigger, tokens);
     match instance.forward(
-        batch, seq, dim, heads, x_slice, qkv_w_slice, qkv_b_slice, out_w_slice, out_b_slice,
+        batch,
+        seq,
+        dim,
+        heads,
+        x_slice,
+        qkv_w_slice,
+        qkv_b_slice,
+        out_w_slice,
+        out_b_slice,
         trigger_slice,
     ) {
         Ok(result) => {
@@ -272,7 +299,9 @@ mod tests {
         let (batch, seq, dim, heads) = (2, 4, 4, 2);
         let mut state = 5u64;
         let lcg = |s: &mut u64, scale: f32| -> f32 {
-            *s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            *s = s
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             (((*s >> 40) as f32 / (1u64 << 24) as f32) - 0.5) * 2.0 * scale
         };
         let make = |n: usize, s: &mut u64| (0..n).map(|_| lcg(s, 0.3)).collect::<Vec<f32>>();
@@ -283,12 +312,23 @@ mod tests {
         let out_b = make(dim, &mut state);
         let trigger = vec![1.0, 0.0, 1.0, 1.0, 1.0, 0.0, 1.0, 0.0];
 
-        let expected = conditional_anchor_attention_f32(batch, seq, dim, heads, &x, &qkv_w, &qkv_b, &out_w, &out_b, &trigger).unwrap();
+        let expected = conditional_anchor_attention_f32(
+            batch, seq, dim, heads, &x, &qkv_w, &qkv_b, &out_w, &out_b, &trigger,
+        )
+        .unwrap();
         let mut ffi_out = vec![0.0f32; batch * seq * dim];
         let status = unsafe {
             hz0c_conditional_attention_forward(
-                batch as i64, seq as i64, dim as i64, heads as i64,
-                x.as_ptr(), qkv_w.as_ptr(), qkv_b.as_ptr(), out_w.as_ptr(), out_b.as_ptr(), trigger.as_ptr(),
+                batch as i64,
+                seq as i64,
+                dim as i64,
+                heads as i64,
+                x.as_ptr(),
+                qkv_w.as_ptr(),
+                qkv_b.as_ptr(),
+                out_w.as_ptr(),
+                out_b.as_ptr(),
+                trigger.as_ptr(),
                 ffi_out.as_mut_ptr(),
             )
         };
@@ -301,7 +341,9 @@ mod tests {
         let (batch, seq, dim, heads) = (2, 4, 4, 2);
         let mut state = 5u64;
         let lcg = |s: &mut u64, scale: f32| -> f32 {
-            *s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            *s = s
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             (((*s >> 40) as f32 / (1u64 << 24) as f32) - 0.5) * 2.0 * scale
         };
         let make = |n: usize, s: &mut u64| (0..n).map(|_| lcg(s, 0.3)).collect::<Vec<f32>>();
@@ -312,7 +354,10 @@ mod tests {
         let out_b = make(dim, &mut state);
         let trigger = vec![1.0, 0.0, 1.0, 1.0, 1.0, 0.0, 1.0, 0.0];
 
-        let expected = conditional_anchor_attention_f32(batch, seq, dim, heads, &x, &qkv_w, &qkv_b, &out_w, &out_b, &trigger).unwrap();
+        let expected = conditional_anchor_attention_f32(
+            batch, seq, dim, heads, &x, &qkv_w, &qkv_b, &out_w, &out_b, &trigger,
+        )
+        .unwrap();
         let handle = hz0c_metal_conditional_attention_create();
         assert!(!handle.is_null(), "no Metal device available for this test");
         let mut ffi_out = vec![0.0f32; batch * seq * dim];
@@ -322,13 +367,26 @@ mod tests {
         for _ in 0..2 {
             let status = unsafe {
                 hz0c_metal_conditional_attention_forward(
-                    handle, batch as i64, seq as i64, dim as i64, heads as i64,
-                    x.as_ptr(), qkv_w.as_ptr(), qkv_b.as_ptr(), out_w.as_ptr(), out_b.as_ptr(), trigger.as_ptr(),
+                    handle,
+                    batch as i64,
+                    seq as i64,
+                    dim as i64,
+                    heads as i64,
+                    x.as_ptr(),
+                    qkv_w.as_ptr(),
+                    qkv_b.as_ptr(),
+                    out_w.as_ptr(),
+                    out_b.as_ptr(),
+                    trigger.as_ptr(),
                     ffi_out.as_mut_ptr(),
                 )
             };
             assert_eq!(status, 0);
-            let max_diff = ffi_out.iter().zip(expected.iter()).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max);
+            let max_diff = ffi_out
+                .iter()
+                .zip(expected.iter())
+                .map(|(a, b)| (a - b).abs())
+                .fold(0.0f32, f32::max);
             assert!(max_diff < 2e-3, "GPU FFI diff too large: {max_diff}");
         }
         unsafe { hz0c_metal_conditional_attention_destroy(handle) };
@@ -340,7 +398,17 @@ mod tests {
         let buf = vec![0.0f32; 1];
         let status = unsafe {
             hz0c_metal_conditional_attention_forward(
-                std::ptr::null(), 1, 1, 1, 1, buf.as_ptr(), buf.as_ptr(), buf.as_ptr(), buf.as_ptr(), buf.as_ptr(), buf.as_ptr(),
+                std::ptr::null(),
+                1,
+                1,
+                1,
+                1,
+                buf.as_ptr(),
+                buf.as_ptr(),
+                buf.as_ptr(),
+                buf.as_ptr(),
+                buf.as_ptr(),
+                buf.as_ptr(),
                 out.as_mut_ptr(),
             )
         };
@@ -354,7 +422,16 @@ mod tests {
         let buf = vec![0.0f32; 1];
         let status = unsafe {
             hz0c_conditional_attention_forward(
-                0, 1, 1, 1, buf.as_ptr(), buf.as_ptr(), buf.as_ptr(), buf.as_ptr(), buf.as_ptr(), buf.as_ptr(),
+                0,
+                1,
+                1,
+                1,
+                buf.as_ptr(),
+                buf.as_ptr(),
+                buf.as_ptr(),
+                buf.as_ptr(),
+                buf.as_ptr(),
+                buf.as_ptr(),
                 out.as_mut_ptr(),
             )
         };
@@ -364,14 +441,32 @@ mod tests {
     #[test]
     fn ffi_backward_matches_safe_reference_directly() {
         let (batch, seq, dim, heads) = (1, 3, 4, 2);
-        let x: Vec<f32> = (0..batch * seq * dim).map(|i| 0.03 + i as f32 * 0.02).collect();
-        let qkv_w: Vec<f32> = (0..3 * dim * dim).map(|i| -0.08 + i as f32 * 0.007).collect();
+        let x: Vec<f32> = (0..batch * seq * dim)
+            .map(|i| 0.03 + i as f32 * 0.02)
+            .collect();
+        let qkv_w: Vec<f32> = (0..3 * dim * dim)
+            .map(|i| -0.08 + i as f32 * 0.007)
+            .collect();
         let qkv_b: Vec<f32> = (0..3 * dim).map(|i| -0.03 + i as f32 * 0.01).collect();
         let out_w: Vec<f32> = (0..dim * dim).map(|i| 0.04 - i as f32 * 0.005).collect();
         let trigger = vec![1.0, 0.0, 1.0];
-        let grad_output: Vec<f32> = (0..batch * seq * dim).map(|i| 0.02 + i as f32 * 0.01).collect();
+        let grad_output: Vec<f32> = (0..batch * seq * dim)
+            .map(|i| 0.02 + i as f32 * 0.01)
+            .collect();
 
-        let expected = conditional_anchor_attention_backward_f32(batch, seq, dim, heads, &x, &qkv_w, &qkv_b, &out_w, &trigger, &grad_output).unwrap();
+        let expected = conditional_anchor_attention_backward_f32(
+            batch,
+            seq,
+            dim,
+            heads,
+            &x,
+            &qkv_w,
+            &qkv_b,
+            &out_w,
+            &trigger,
+            &grad_output,
+        )
+        .unwrap();
         let mut grad_x = vec![0.0f32; batch * seq * dim];
         let mut grad_qkv_weight = vec![0.0f32; 3 * dim * dim];
         let mut grad_qkv_bias = vec![0.0f32; 3 * dim];
@@ -379,10 +474,21 @@ mod tests {
         let mut grad_out_bias = vec![0.0f32; dim];
         let status = unsafe {
             hz0c_conditional_attention_backward(
-                batch as i64, seq as i64, dim as i64, heads as i64,
-                x.as_ptr(), qkv_w.as_ptr(), qkv_b.as_ptr(), out_w.as_ptr(), trigger.as_ptr(), grad_output.as_ptr(),
-                grad_x.as_mut_ptr(), grad_qkv_weight.as_mut_ptr(), grad_qkv_bias.as_mut_ptr(),
-                grad_out_weight.as_mut_ptr(), grad_out_bias.as_mut_ptr(),
+                batch as i64,
+                seq as i64,
+                dim as i64,
+                heads as i64,
+                x.as_ptr(),
+                qkv_w.as_ptr(),
+                qkv_b.as_ptr(),
+                out_w.as_ptr(),
+                trigger.as_ptr(),
+                grad_output.as_ptr(),
+                grad_x.as_mut_ptr(),
+                grad_qkv_weight.as_mut_ptr(),
+                grad_qkv_bias.as_mut_ptr(),
+                grad_out_weight.as_mut_ptr(),
+                grad_out_bias.as_mut_ptr(),
             )
         };
         assert_eq!(status, 0);

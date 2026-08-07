@@ -9,17 +9,31 @@ use hz0a_pmetal_tensor::{AdamW, TinyModel};
 use serde_json::Value;
 
 fn fixture() -> Value {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/tiny_model_parity.json");
-    let text = std::fs::read_to_string(path).expect("run scripts/hz0a_generate_rust_parity_fixture.py first");
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/tiny_model_parity.json"
+    );
+    let text = std::fs::read_to_string(path)
+        .expect("run scripts/hz0a_generate_rust_parity_fixture.py first");
     serde_json::from_str(&text).expect("fixture must be valid JSON")
 }
 
 fn f64_vec(value: &Value) -> Vec<f64> {
-    value.as_array().unwrap().iter().map(|v| v.as_f64().unwrap()).collect()
+    value
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_f64().unwrap())
+        .collect()
 }
 
 fn usize_vec(value: &Value) -> Vec<usize> {
-    value.as_array().unwrap().iter().map(|v| v.as_u64().unwrap() as usize).collect()
+    value
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_u64().unwrap() as usize)
+        .collect()
 }
 
 #[test]
@@ -35,7 +49,17 @@ fn tiny_model_matches_python_reference_forward_and_backward() {
     let layers = config["layers"].as_u64().unwrap() as usize;
     let attention_indices = usize_vec(&config["attention_indices"]);
 
-    let mut model = TinyModel::new(vocab, dim, heads, d_k, d_v, d_ff, &attention_indices, layers, 0);
+    let mut model = TinyModel::new(
+        vocab,
+        dim,
+        heads,
+        d_k,
+        d_v,
+        d_ff,
+        &attention_indices,
+        layers,
+        0,
+    );
 
     let flat_parameters = f64_vec(&data["flat_parameters"]);
     model.load_flat_parameters(&flat_parameters);
@@ -50,39 +74,57 @@ fn tiny_model_matches_python_reference_forward_and_backward() {
     for (rust_val, python_val) in logits.iter().zip(expected_logits.iter()) {
         max_logit_error = max_logit_error.max((*rust_val as f64 - python_val).abs());
     }
-    assert!(max_logit_error < 1e-3, "max logit error {max_logit_error} too large");
+    assert!(
+        max_logit_error < 1e-3,
+        "max logit error {max_logit_error} too large"
+    );
 
     // Recurrent states: explicitly in A6's validation checklist alongside
     // block outputs/logits/loss/gradients. `None` for attention blocks.
     let expected_states = data["block_final_states"].as_array().unwrap();
     assert_eq!(states.len(), expected_states.len());
-    for (index, (rust_state, python_state)) in states.iter().zip(expected_states.iter()).enumerate() {
+    for (index, (rust_state, python_state)) in states.iter().zip(expected_states.iter()).enumerate()
+    {
         match (rust_state, python_state) {
             (Some(rust_values), Value::Array(_)) => {
                 let expected_values = f64_vec(python_state);
-                assert_eq!(rust_values.len(), expected_values.len(), "block {index} state length mismatch");
+                assert_eq!(
+                    rust_values.len(),
+                    expected_values.len(),
+                    "block {index} state length mismatch"
+                );
                 let mut max_state_error = 0.0f64;
                 for (r, p) in rust_values.iter().zip(expected_values.iter()) {
                     max_state_error = max_state_error.max((*r as f64 - p).abs());
                 }
-                assert!(max_state_error < 1e-3, "block {index} recurrent-state error {max_state_error} too large");
+                assert!(
+                    max_state_error < 1e-3,
+                    "block {index} recurrent-state error {max_state_error} too large"
+                );
             }
             (None, Value::Null) => {}
-            _ => panic!("block {index}: Rust/Python disagree on whether this block has recurrent state"),
+            _ => panic!(
+                "block {index}: Rust/Python disagree on whether this block has recurrent state"
+            ),
         }
     }
 
     model.zero_grad();
     let loss = model.loss_and_backward(&token_ids, &targets);
     let expected_loss = data["loss"].as_f64().unwrap();
-    assert!((loss as f64 - expected_loss).abs() < 1e-3, "loss mismatch: rust={loss} python={expected_loss}");
+    assert!(
+        (loss as f64 - expected_loss).abs() < 1e-3,
+        "loss mismatch: rust={loss} python={expected_loss}"
+    );
 
     let gradients = model.flat_gradients();
     let expected_gradients = f64_vec(&data["flat_gradients"]);
     assert_eq!(gradients.len(), expected_gradients.len());
     let mut max_grad_error = 0.0f64;
     let mut max_grad_index = 0usize;
-    for (index, (rust_val, python_val)) in gradients.iter().zip(expected_gradients.iter()).enumerate() {
+    for (index, (rust_val, python_val)) in
+        gradients.iter().zip(expected_gradients.iter()).enumerate()
+    {
         let error = (rust_val - python_val).abs();
         if error > max_grad_error {
             max_grad_error = error;
@@ -105,12 +147,19 @@ fn tiny_model_matches_python_reference_forward_and_backward() {
     let weight_decay = adamw_config["weight_decay"].as_f64().unwrap() as f32;
     let mut optimizer = AdamW::new_with_weight_decay(lr, weight_decay);
     optimizer.update(&mut model.parameters_mut());
-    let updated: Vec<f64> = model.parameters_mut().iter().flat_map(|p| p.data.iter().map(|&v| v as f64)).collect();
+    let updated: Vec<f64> = model
+        .parameters_mut()
+        .iter()
+        .flat_map(|p| p.data.iter().map(|&v| v as f64))
+        .collect();
     let expected_updated = f64_vec(&data["updated_parameters_after_one_adamw_step"]);
     assert_eq!(updated.len(), expected_updated.len());
     let mut max_param_error = 0.0f64;
     for (rust_val, python_val) in updated.iter().zip(expected_updated.iter()) {
         max_param_error = max_param_error.max((rust_val - python_val).abs());
     }
-    assert!(max_param_error < 1e-3, "max post-AdamW parameter error {max_param_error} too large");
+    assert!(
+        max_param_error < 1e-3,
+        "max post-AdamW parameter error {max_param_error} too large"
+    );
 }

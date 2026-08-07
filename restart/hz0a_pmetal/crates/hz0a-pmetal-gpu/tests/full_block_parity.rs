@@ -17,7 +17,9 @@ use hz0a_pmetal_gpu::{AdamWMoments, BlockParameters, BlockShape, Gdn2FullBlockGp
 use hz0a_pmetal_tensor::{Gdn2Block, RmsNorm};
 
 fn lcg_f32(state: &mut u64, scale: f32) -> f32 {
-    *state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+    *state = state
+        .wrapping_mul(6364136223846793005)
+        .wrapping_add(1442695040888963407);
     let u = ((*state >> 40) as f32 / (1u64 << 24) as f32) - 0.5;
     u * 2.0 * scale
 }
@@ -32,9 +34,16 @@ struct Fixture {
 }
 
 fn build_fixture() -> Fixture {
-    let shape = BlockShape { steps: 6, dim: 8, heads: 2, d_k: 4, d_v: 4 };
+    let shape = BlockShape {
+        steps: 6,
+        dim: 8,
+        heads: 2,
+        d_k: 4,
+        d_v: 4,
+    };
     let mut state = 11u64;
-    let make = |n: usize, s: &mut u64, scale: f32| (0..n).map(|_| lcg_f32(s, scale)).collect::<Vec<f32>>();
+    let make =
+        |n: usize, s: &mut u64, scale: f32| (0..n).map(|_| lcg_f32(s, scale)).collect::<Vec<f32>>();
 
     let x = make(shape.steps * shape.dim, &mut state, 1.0);
     let initial_state = make(shape.heads * shape.d_v * shape.d_k, &mut state, 0.3);
@@ -44,7 +53,14 @@ fn build_fixture() -> Fixture {
     // this is not incidental, `Gdn2Block::new` bakes in real initialization
     // behavior the plan's spec depends on.
     let rmsnorm = RmsNorm::new("block.norm", shape.dim);
-    let mut cpu_block = Gdn2Block::new("block.mixer", shape.dim, shape.heads, shape.d_k, shape.d_v, 91);
+    let mut cpu_block = Gdn2Block::new(
+        "block.mixer",
+        shape.dim,
+        shape.heads,
+        shape.d_k,
+        shape.d_v,
+        91,
+    );
     // Perturb weights off their zero-grad-friendly defaults so forward
     // isn't degenerate (RmsNorm inits to all-ones weight; nudge slightly).
     for w in cpu_block.in_proj.weight.data.iter_mut() {
@@ -65,14 +81,28 @@ fn build_fixture() -> Fixture {
     let grad_y = make(shape.steps * shape.dim, &mut state, 1.0);
     let grad_final_state = make(shape.heads * shape.d_v * shape.d_k, &mut state, 0.1);
 
-    Fixture { shape, x, initial_state, params, grad_y, grad_final_state }
+    Fixture {
+        shape,
+        x,
+        initial_state,
+        params,
+        grad_y,
+        grad_final_state,
+    }
 }
 
 fn cpu_forward_backward(fixture: &Fixture) -> (Vec<f32>, Vec<f32>, BlockParameters) {
     let shape = &fixture.shape;
     let mut rmsnorm = RmsNorm::new("block.norm", shape.dim);
     rmsnorm.weight.data = fixture.params.rmsnorm_weight.clone();
-    let mut block = Gdn2Block::new("block.mixer", shape.dim, shape.heads, shape.d_k, shape.d_v, 1);
+    let mut block = Gdn2Block::new(
+        "block.mixer",
+        shape.dim,
+        shape.heads,
+        shape.d_k,
+        shape.d_v,
+        1,
+    );
     block.in_proj.weight.data = fixture.params.in_proj_weight.clone();
     block.in_proj.bias.as_mut().unwrap().data = fixture.params.in_proj_bias.clone();
     block.out_proj.weight.data = fixture.params.out_proj_weight.clone();
@@ -80,10 +110,16 @@ fn cpu_forward_backward(fixture: &Fixture) -> (Vec<f32>, Vec<f32>, BlockParamete
 
     let normed = rmsnorm.forward(&fixture.x, shape.steps);
     let mixed_output = block.forward(&normed, shape.steps, &fixture.initial_state);
-    let y: Vec<f32> = fixture.x.iter().zip(mixed_output.iter()).map(|(a, b)| a + b).collect();
+    let y: Vec<f32> = fixture
+        .x
+        .iter()
+        .zip(mixed_output.iter())
+        .map(|(a, b)| a + b)
+        .collect();
     let final_state = block.final_state().unwrap().to_vec();
 
-    let (grad_normed, grad_initial_state) = block.backward(&fixture.grad_y, &fixture.grad_final_state);
+    let (grad_normed, grad_initial_state) =
+        block.backward(&fixture.grad_y, &fixture.grad_final_state);
     let grad_x_from_norm = rmsnorm.backward(&grad_normed);
 
     let grads = BlockParameters {
@@ -100,27 +136,43 @@ fn cpu_forward_backward(fixture: &Fixture) -> (Vec<f32>, Vec<f32>, BlockParamete
 
 fn max_diff(a: &[f32], b: &[f32]) -> f32 {
     assert_eq!(a.len(), b.len());
-    a.iter().zip(b.iter()).map(|(x, y)| (x - y).abs()).fold(0.0f32, f32::max)
+    a.iter()
+        .zip(b.iter())
+        .map(|(x, y)| (x - y).abs())
+        .fold(0.0f32, f32::max)
 }
 
 #[test]
 fn gpu_full_block_forward_matches_cpu_reference() {
     let fixture = build_fixture();
     let gpu = Gdn2FullBlockGpu::new().expect("Metal device required");
-    let (gpu_out, _cache) = gpu.forward(&fixture.shape, &fixture.x, &fixture.initial_state, &fixture.params);
+    let (gpu_out, _cache) = gpu.forward(
+        &fixture.shape,
+        &fixture.x,
+        &fixture.initial_state,
+        &fixture.params,
+    );
     let (cpu_y, cpu_final_state, _grads) = cpu_forward_backward(&fixture);
 
     let y_diff = max_diff(&gpu_out.y, &cpu_y);
     let state_diff = max_diff(&gpu_out.final_state, &cpu_final_state);
     assert!(y_diff < 1e-3, "block output diff too large: {y_diff}");
-    assert!(state_diff < 1e-3, "final state diff too large: {state_diff}");
+    assert!(
+        state_diff < 1e-3,
+        "final state diff too large: {state_diff}"
+    );
 }
 
 #[test]
 fn gpu_full_block_backward_gradients_match_cpu_reference() {
     let fixture = build_fixture();
     let gpu = Gdn2FullBlockGpu::new().expect("Metal device required");
-    let (_gpu_out, cache) = gpu.forward(&fixture.shape, &fixture.x, &fixture.initial_state, &fixture.params);
+    let (_gpu_out, cache) = gpu.forward(
+        &fixture.shape,
+        &fixture.x,
+        &fixture.initial_state,
+        &fixture.params,
+    );
 
     let mut params = BlockParameters {
         rmsnorm_weight: fixture.params.rmsnorm_weight.clone(),
@@ -130,7 +182,15 @@ fn gpu_full_block_backward_gradients_match_cpu_reference() {
         out_proj_bias: fixture.params.out_proj_bias.clone(),
     };
     let mut moments = AdamWMoments::zeros_like(&params);
-    gpu.backward_and_update(&fixture.shape, &cache, &fixture.grad_y, &fixture.grad_final_state, &mut params, &mut moments, 0.0);
+    gpu.backward_and_update(
+        &fixture.shape,
+        &cache,
+        &fixture.grad_y,
+        &fixture.grad_final_state,
+        &mut params,
+        &mut moments,
+        0.0,
+    );
 
     // Params must be exactly unchanged at lr=0.0.
     assert_eq!(params.rmsnorm_weight, fixture.params.rmsnorm_weight);
@@ -146,11 +206,26 @@ fn gpu_full_block_backward_gradients_match_cpu_reference() {
     let (_cpu_y, _cpu_final_state, cpu_grads) = cpu_forward_backward(&fixture);
 
     let names_and_diffs = [
-        ("rmsnorm_weight", max_diff(&gpu_grad_rmsnorm_weight, &cpu_grads.rmsnorm_weight)),
-        ("in_proj_weight", max_diff(&gpu_grad_in_proj_weight, &cpu_grads.in_proj_weight)),
-        ("in_proj_bias", max_diff(&gpu_grad_in_proj_bias, &cpu_grads.in_proj_bias)),
-        ("out_proj_weight", max_diff(&gpu_grad_out_proj_weight, &cpu_grads.out_proj_weight)),
-        ("out_proj_bias", max_diff(&gpu_grad_out_proj_bias, &cpu_grads.out_proj_bias)),
+        (
+            "rmsnorm_weight",
+            max_diff(&gpu_grad_rmsnorm_weight, &cpu_grads.rmsnorm_weight),
+        ),
+        (
+            "in_proj_weight",
+            max_diff(&gpu_grad_in_proj_weight, &cpu_grads.in_proj_weight),
+        ),
+        (
+            "in_proj_bias",
+            max_diff(&gpu_grad_in_proj_bias, &cpu_grads.in_proj_bias),
+        ),
+        (
+            "out_proj_weight",
+            max_diff(&gpu_grad_out_proj_weight, &cpu_grads.out_proj_weight),
+        ),
+        (
+            "out_proj_bias",
+            max_diff(&gpu_grad_out_proj_bias, &cpu_grads.out_proj_bias),
+        ),
     ];
     for (name, diff) in names_and_diffs {
         assert!(diff < 1e-2, "grad_{name} diff too large: {diff}");
@@ -177,13 +252,30 @@ fn gpu_full_block_adamw_update_reduces_loss_proxy() {
 
     let mut last_output_norm = f32::INFINITY;
     for _ in 0..5 {
-        let (output, cache) = gpu.forward(&fixture.shape, &fixture.x, &fixture.initial_state, &params);
+        let (output, cache) =
+            gpu.forward(&fixture.shape, &fixture.x, &fixture.initial_state, &params);
         for value in output.y.iter().chain(output.final_state.iter()) {
             assert!(value.is_finite(), "non-finite forward output: {value}");
         }
-        gpu.backward_and_update(&fixture.shape, &cache, &fixture.grad_y, &fixture.grad_final_state, &mut params, &mut moments, 1e-3);
-        for value in params.in_proj_weight.iter().chain(params.out_proj_weight.iter()).chain(params.rmsnorm_weight.iter()) {
-            assert!(value.is_finite(), "non-finite parameter after update: {value}");
+        gpu.backward_and_update(
+            &fixture.shape,
+            &cache,
+            &fixture.grad_y,
+            &fixture.grad_final_state,
+            &mut params,
+            &mut moments,
+            1e-3,
+        );
+        for value in params
+            .in_proj_weight
+            .iter()
+            .chain(params.out_proj_weight.iter())
+            .chain(params.rmsnorm_weight.iter())
+        {
+            assert!(
+                value.is_finite(),
+                "non-finite parameter after update: {value}"
+            );
         }
         let output_norm: f32 = output.y.iter().map(|v| v * v).sum::<f32>().sqrt();
         last_output_norm = output_norm;

@@ -22,7 +22,11 @@ fn flatten(v: &Value) -> Vec<f32> {
 }
 
 fn flatten_i32(v: &Value) -> Vec<i32> {
-    v.as_array().unwrap().iter().map(|x| x.as_i64().unwrap() as i32).collect()
+    v.as_array()
+        .unwrap()
+        .iter()
+        .map(|x| x.as_i64().unwrap() as i32)
+        .collect()
 }
 
 fn assert_close(name: &str, a: &[f32], b: &[f32]) {
@@ -34,7 +38,8 @@ fn assert_close(name: &str, a: &[f32], b: &[f32]) {
 
 #[test]
 fn replays_the_python_reference_fixture_exactly() {
-    let fixture: Value = serde_json::from_str(include_str!("fixture.json")).expect("fixture.json must parse");
+    let fixture: Value =
+        serde_json::from_str(include_str!("fixture.json")).expect("fixture.json must parse");
     let num_slots = fixture["num_slots"].as_u64().unwrap() as usize;
     let key_dim = fixture["key_dim"].as_u64().unwrap() as usize;
     let value_dim = fixture["value_dim"].as_u64().unwrap() as usize;
@@ -49,11 +54,32 @@ fn replays_the_python_reference_fixture_exactly() {
                 let strength = step["strength"].as_f64().unwrap() as f32;
                 let step_num = step["step"].as_i64().unwrap() as i32;
                 let source = step["source"].as_i64().unwrap() as i32;
-                let slot_idx = if step["slot_idx"].is_null() { None } else { Some(flatten_i32(&step["slot_idx"])) };
-                let (new_state, result_slot, rejected) = write(&state, &key, &value, &[strength], step_num, source, slot_idx.as_deref());
+                let slot_idx = if step["slot_idx"].is_null() {
+                    None
+                } else {
+                    Some(flatten_i32(&step["slot_idx"]))
+                };
+                let (new_state, result_slot, rejected) = write(
+                    &state,
+                    &key,
+                    &value,
+                    &[strength],
+                    step_num,
+                    source,
+                    slot_idx.as_deref(),
+                );
                 state = new_state;
-                assert_eq!(result_slot, flatten_i32(&step["result_slot"]), "write result_slot mismatch");
-                let expected_rejected: Vec<bool> = step["rejected"].as_array().unwrap().iter().map(|v| v.as_bool().unwrap()).collect();
+                assert_eq!(
+                    result_slot,
+                    flatten_i32(&step["result_slot"]),
+                    "write result_slot mismatch"
+                );
+                let expected_rejected: Vec<bool> = step["rejected"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|v| v.as_bool().unwrap())
+                    .collect();
                 assert_eq!(rejected, expected_rejected, "write rejected mismatch");
             }
             "read" => {
@@ -84,16 +110,40 @@ fn replays_the_python_reference_fixture_exactly() {
 
     let final_state = &fixture["final_state"];
     assert_close("final keys", &state.keys, &flatten(&final_state["keys"]));
-    assert_close("final values", &state.values, &flatten(&final_state["values"]));
-    assert_close("final confidence", &state.confidence, &flatten(&final_state["confidence"]));
-    assert_close("final protection", &state.protection, &flatten(&final_state["protection"]));
+    assert_close(
+        "final values",
+        &state.values,
+        &flatten(&final_state["values"]),
+    );
+    assert_close(
+        "final confidence",
+        &state.confidence,
+        &flatten(&final_state["confidence"]),
+    );
+    assert_close(
+        "final protection",
+        &state.protection,
+        &flatten(&final_state["protection"]),
+    );
 
     // key_a is index 0 in the fixture's key space (onehot(KEY_DIM, 0)),
     // key_b is index 1.
-    let key_a: Vec<f32> = (0..key_dim).map(|i| if i == 0 { 1.0 } else { 0.0 }).collect();
-    let key_b: Vec<f32> = (0..key_dim).map(|i| if i == 1 { 1.0 } else { 0.0 }).collect();
+    let key_a: Vec<f32> = (0..key_dim)
+        .map(|i| if i == 0 { 1.0 } else { 0.0 })
+        .collect();
+    let key_b: Vec<f32> = (0..key_dim)
+        .map(|i| if i == 1 { 1.0 } else { 0.0 })
+        .collect();
     let (final_readout_a, _) = read(&state, &key_a, None, true, true);
     let (final_readout_b, _) = read(&state, &key_b, None, true, true);
-    assert_close("final_readout_a", &final_readout_a, &flatten(&fixture["final_readout_a"]));
-    assert_close("final_readout_b", &final_readout_b, &flatten(&fixture["final_readout_b"]));
+    assert_close(
+        "final_readout_a",
+        &final_readout_a,
+        &flatten(&fixture["final_readout_a"]),
+    );
+    assert_close(
+        "final_readout_b",
+        &final_readout_b,
+        &flatten(&fixture["final_readout_b"]),
+    );
 }

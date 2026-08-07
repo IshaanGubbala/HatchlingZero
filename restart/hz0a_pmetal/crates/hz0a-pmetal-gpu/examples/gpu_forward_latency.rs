@@ -16,7 +16,9 @@ use std::time::Instant;
 use hz0a_pmetal_gpu::MetalConditionalAnchorAttention;
 
 fn lcg_f32(state: &mut u64, scale: f32) -> f32 {
-    *state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+    *state = state
+        .wrapping_mul(6364136223846793005)
+        .wrapping_add(1442695040888963407);
     (((*state >> 40) as f32 / (1u64 << 24) as f32) - 0.5) * 2.0 * scale
 }
 
@@ -51,16 +53,23 @@ fn main() {
         for &rate in &[0.0f32, 0.15, 1.0] {
             let trigger = trigger_at_rate(seq, rate);
             for _ in 0..warmup {
-                gpu.forward(batch, seq, dim, heads, &x, &qkv_w, &qkv_b, &out_w, &out_b, &trigger).unwrap();
+                gpu.forward(
+                    batch, seq, dim, heads, &x, &qkv_w, &qkv_b, &out_w, &out_b, &trigger,
+                )
+                .unwrap();
             }
             let mut timings = Vec::with_capacity(repeats);
             for _ in 0..repeats {
                 let started = Instant::now();
-                gpu.forward(batch, seq, dim, heads, &x, &qkv_w, &qkv_b, &out_w, &out_b, &trigger).unwrap();
+                gpu.forward(
+                    batch, seq, dim, heads, &x, &qkv_w, &qkv_b, &out_w, &out_b, &trigger,
+                )
+                .unwrap();
                 timings.push(started.elapsed().as_secs_f64() * 1000.0);
             }
             let mean = timings.iter().sum::<f64>() / timings.len() as f64;
-            let variance = timings.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / timings.len() as f64;
+            let variance =
+                timings.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / timings.len() as f64;
             println!("seq={seq},rate={rate},{mean:.4},{:.4}", variance.sqrt());
         }
     }

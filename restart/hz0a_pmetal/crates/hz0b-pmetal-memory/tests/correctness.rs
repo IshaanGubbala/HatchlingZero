@@ -7,7 +7,9 @@
 use hz0b_pmetal_memory::*;
 
 fn onehot(dim: usize, index: usize) -> Vec<f32> {
-    (0..dim).map(|i| if i == index { 1.0 } else { 0.0 }).collect()
+    (0..dim)
+        .map(|i| if i == index { 1.0 } else { 0.0 })
+        .collect()
 }
 
 #[test]
@@ -30,7 +32,10 @@ fn overwrite_existing_fact_same_key_same_slot() {
     let (state, slot1, _) = write(&state, &key, &value1, &[1.0], 0, 1, None);
     let (state, slot2, rejected) = write(&state, &key, &value2, &[1.0], 1, 1, None);
     assert!(!rejected[0]);
-    assert_eq!(slot1[0], slot2[0], "same key must route to the same slot (update, not a new fact)");
+    assert_eq!(
+        slot1[0], slot2[0],
+        "same key must route to the same slot (update, not a new fact)"
+    );
     let (readout, _) = read(&state, &key, Some(&slot2), false, true);
     assert!((0..4).all(|i| (readout[i] - value2[i]).abs() < 1e-5));
 }
@@ -52,7 +57,10 @@ fn near_identical_keys_stay_distinct_after_the_0_999_threshold_fix() {
     let value_b: Vec<f32> = onehot(16, 1).iter().map(|v| v * 5.0).collect();
     let (state, slot_a, _) = write(&state, &key_a, &value_a, &[1.0], 0, 1, None);
     let (state, slot_b, _) = write(&state, &key_b, &value_b, &[1.0], 1, 1, None);
-    assert_ne!(slot_a[0], slot_b[0], "near-identical-but-different keys must land in distinct slots");
+    assert_ne!(
+        slot_a[0], slot_b[0],
+        "near-identical-but-different keys must land in distinct slots"
+    );
     let (readout_a, _) = read(&state, &key_a, Some(&slot_a), false, true);
     let (readout_b, _) = read(&state, &key_b, Some(&slot_b), false, true);
     assert!((0..16).all(|i| (readout_a[i] - value_a[i]).abs() < 1e-4));
@@ -104,8 +112,14 @@ fn forget_or_decay_reduces_confidence_and_protection_slows_it() {
     }
     let unprotected_conf = decayed.confidence[slot0[0] as usize];
     let protected_conf = decayed.confidence[slot1[0] as usize];
-    assert!(unprotected_conf < 0.2, "unprotected confidence should decay substantially over 20 steps");
-    assert!(protected_conf > 0.99, "protected confidence should barely decay");
+    assert!(
+        unprotected_conf < 0.2,
+        "unprotected confidence should decay substantially over 20 steps"
+    );
+    assert!(
+        protected_conf > 0.99,
+        "protected confidence should barely decay"
+    );
 }
 
 #[test]
@@ -124,8 +138,14 @@ fn confidence_weighted_read_prefers_fresh_over_stale() {
 
     let (readout_weighted, _) = read(&decayed, &key, None, true, true);
     let (readout_unweighted, _) = read(&decayed, &key, None, true, false);
-    assert!((0..4).all(|i| (readout_weighted[i] - fresh_value[i]).abs() < 1e-4), "confidence-weighted hard read must prefer the fresh memory");
-    assert!((0..4).all(|i| (readout_unweighted[i] - stale_value[i]).abs() < 1e-4), "unweighted read ties go to the lower-index (stale) slot");
+    assert!(
+        (0..4).all(|i| (readout_weighted[i] - fresh_value[i]).abs() < 1e-4),
+        "confidence-weighted hard read must prefer the fresh memory"
+    );
+    assert!(
+        (0..4).all(|i| (readout_unweighted[i] - stale_value[i]).abs() < 1e-4),
+        "unweighted read ties go to the lower-index (stale) slot"
+    );
     let _ = slot1;
 }
 
@@ -134,7 +154,8 @@ fn capacity_pressure_protected_memory_survives() {
     let mut state = reset(1, 8, 8, 8);
     let protected_key = onehot(8, 0);
     let protected_value: Vec<f32> = onehot(8, 0).iter().map(|v| v * 5.0).collect();
-    let (s, protected_slot, _) = write(&state, &protected_key, &protected_value, &[1.0], 0, 1, None);
+    let (s, protected_slot, _) =
+        write(&state, &protected_key, &protected_value, &[1.0], 0, 1, None);
     state = protect(&s, &protected_slot, &[1.0]);
     for i in 1..12 {
         let key = onehot(8, i % 8);

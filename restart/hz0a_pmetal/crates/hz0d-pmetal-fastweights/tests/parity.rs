@@ -28,7 +28,8 @@ fn assert_close(name: &str, a: &[f32], b: &[f32]) {
 
 #[test]
 fn replays_two_independent_sessions_batched_and_matches_python_exactly() {
-    let fixture: Value = serde_json::from_str(include_str!("fixture.json")).expect("fixture.json must parse");
+    let fixture: Value =
+        serde_json::from_str(include_str!("fixture.json")).expect("fixture.json must parse");
     let dim = fixture["dim"].as_u64().unwrap() as usize;
     let rank = fixture["rank"].as_u64().unwrap() as usize;
     let num_layers = fixture["num_layers"].as_u64().unwrap() as usize;
@@ -55,7 +56,15 @@ fn replays_two_independent_sessions_batched_and_matches_python_exactly() {
             let grad_b = flatten(&step["grad_b"]);
             let lr = step["lr"].as_f64().unwrap() as f32;
             let max_delta_norm = step["max_delta_norm"].as_f64().unwrap() as f32;
-            state = update(&state, session_idx, layer, &grad_a, &grad_b, lr, max_delta_norm);
+            state = update(
+                &state,
+                session_idx,
+                layer,
+                &grad_a,
+                &grad_b,
+                lr,
+                max_delta_norm,
+            );
         }
     }
 
@@ -65,8 +74,22 @@ fn replays_two_independent_sessions_batched_and_matches_python_exactly() {
     // exercises the real `decay` op (whole-batch, matching its real
     // semantics) while still reproducing each trace's own independent
     // decay_rate exactly.
-    let decay0 = session0["steps"].as_array().unwrap().iter().find(|s| s["op"] == "decay").unwrap()["decay_rate"].as_f64().unwrap() as f32;
-    let decay1 = session1["steps"].as_array().unwrap().iter().find(|s| s["op"] == "decay").unwrap()["decay_rate"].as_f64().unwrap() as f32;
+    let decay0 = session0["steps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["op"] == "decay")
+        .unwrap()["decay_rate"]
+        .as_f64()
+        .unwrap() as f32;
+    let decay1 = session1["steps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["op"] == "decay")
+        .unwrap()["decay_rate"]
+        .as_f64()
+        .unwrap() as f32;
     let decayed_for_0 = decay(&state, decay0);
     let decayed_for_1 = decay(&state, decay1);
     let a_len_per_session = num_layers * dim * rank;
@@ -75,20 +98,54 @@ fn replays_two_independent_sessions_batched_and_matches_python_exactly() {
     merged_a.extend_from_slice(&decayed_for_1.a_fast[a_len_per_session..2 * a_len_per_session]);
     let mut merged_b = decayed_for_0.b_fast[0..b_len_per_session].to_vec();
     merged_b.extend_from_slice(&decayed_for_1.b_fast[b_len_per_session..2 * b_len_per_session]);
-    state = FastWeightState { sessions: 2, num_layers, dim, rank, a_fast: merged_a, b_fast: merged_b, update_count: state.update_count.clone() };
+    state = FastWeightState {
+        sessions: 2,
+        num_layers,
+        dim,
+        rank,
+        a_fast: merged_a,
+        b_fast: merged_b,
+        update_count: state.update_count.clone(),
+    };
 
     for (session_idx, trace) in [(0usize, session0), (1usize, session1)] {
         let final_state = &trace["final_state"];
-        let (a_off, a_len) = (session_idx * num_layers * dim * rank, num_layers * dim * rank);
-        let (b_off, b_len) = (session_idx * num_layers * rank * dim, num_layers * rank * dim);
-        assert_close(&format!("session{session_idx} a_fast"), &state.a_fast[a_off..a_off + a_len], &flatten(&final_state["a_fast"]));
-        assert_close(&format!("session{session_idx} b_fast"), &state.b_fast[b_off..b_off + b_len], &flatten(&final_state["b_fast"]));
-        assert_eq!(state.update_count[session_idx], final_state["update_count"].as_i64().unwrap() as i32, "session{session_idx} update_count mismatch");
+        let (a_off, a_len) = (
+            session_idx * num_layers * dim * rank,
+            num_layers * dim * rank,
+        );
+        let (b_off, b_len) = (
+            session_idx * num_layers * rank * dim,
+            num_layers * rank * dim,
+        );
+        assert_close(
+            &format!("session{session_idx} a_fast"),
+            &state.a_fast[a_off..a_off + a_len],
+            &flatten(&final_state["a_fast"]),
+        );
+        assert_close(
+            &format!("session{session_idx} b_fast"),
+            &state.b_fast[b_off..b_off + b_len],
+            &flatten(&final_state["b_fast"]),
+        );
+        assert_eq!(
+            state.update_count[session_idx],
+            final_state["update_count"].as_i64().unwrap() as i32,
+            "session{session_idx} update_count mismatch"
+        );
 
         let delta0 = effective_delta(&state, session_idx, 0);
         let delta1 = effective_delta(&state, session_idx, 1);
-        assert_close(&format!("session{session_idx} delta layer0"), &delta0, &flatten(&trace["final_delta_layer0"]));
-        assert_close(&format!("session{session_idx} delta layer1"), &delta1, &flatten(&trace["final_delta_layer1"]));
+        assert_close(
+            &format!("session{session_idx} delta layer0"),
+            &delta0,
+            &flatten(&trace["final_delta_layer0"]),
+        );
+        assert_close(
+            &format!("session{session_idx} delta layer1"),
+            &delta1,
+            &flatten(&trace["final_delta_layer1"]),
+        );
     }
 
     // apply(): `apply` takes ONE shared base_weight/bias per call (the
@@ -100,14 +157,30 @@ fn replays_two_independent_sessions_batched_and_matches_python_exactly() {
     // conflating it with a same-weights-across-sessions assumption the
     // fixture doesn't make.
     for (session_idx, trace) in [(0usize, session0), (1usize, session1)] {
-        let single_a = state.a_fast[session_idx * num_layers * dim * rank..(session_idx + 1) * num_layers * dim * rank].to_vec();
-        let single_b = state.b_fast[session_idx * num_layers * rank * dim..(session_idx + 1) * num_layers * rank * dim].to_vec();
-        let single_state = FastWeightState { sessions: 1, num_layers, dim, rank, a_fast: single_a, b_fast: single_b, update_count: vec![state.update_count[session_idx]] };
+        let single_a = state.a_fast
+            [session_idx * num_layers * dim * rank..(session_idx + 1) * num_layers * dim * rank]
+            .to_vec();
+        let single_b = state.b_fast
+            [session_idx * num_layers * rank * dim..(session_idx + 1) * num_layers * rank * dim]
+            .to_vec();
+        let single_state = FastWeightState {
+            sessions: 1,
+            num_layers,
+            dim,
+            rank,
+            a_fast: single_a,
+            b_fast: single_b,
+            update_count: vec![state.update_count[session_idx]],
+        };
         let x = flatten(&trace["apply"]["x"]);
         let base_weight = flatten(&trace["apply"]["base_weight"]);
         let base_bias = flatten(&trace["apply"]["base_bias"]);
         let layer = trace["apply"]["layer"].as_u64().unwrap() as usize;
         let y = apply(&single_state, &x, &base_weight, &base_bias, layer);
-        assert_close(&format!("session{session_idx} apply.y"), &y, &flatten(&trace["apply"]["y"]));
+        assert_close(
+            &format!("session{session_idx} apply.y"),
+            &y,
+            &flatten(&trace["apply"]["y"]),
+        );
     }
 }

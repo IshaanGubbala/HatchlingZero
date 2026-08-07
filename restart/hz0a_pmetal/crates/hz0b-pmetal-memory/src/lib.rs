@@ -66,7 +66,13 @@ pub fn reset(batch: usize, num_slots: usize, key_dim: usize, value_dim: usize) -
 /// reference's own differentiability-at-zero reasoning even though this
 /// Rust port has no autodiff -- keeping the exact same numerics as the
 /// reference it's meant to match is the point.
-fn cosine_similarity(query: &[f32], keys: &[f32], batch: usize, num_slots: usize, dim: usize) -> Vec<f32> {
+fn cosine_similarity(
+    query: &[f32],
+    keys: &[f32],
+    batch: usize,
+    num_slots: usize,
+    dim: usize,
+) -> Vec<f32> {
     let mut scores = vec![0.0f32; batch * num_slots];
     for b in 0..batch {
         let q = &query[b * dim..(b + 1) * dim];
@@ -74,7 +80,11 @@ fn cosine_similarity(query: &[f32], keys: &[f32], batch: usize, num_slots: usize
         for s in 0..num_slots {
             let k = &keys[(b * num_slots + s) * dim..(b * num_slots + s + 1) * dim];
             let k_norm = (k.iter().map(|x| x * x).sum::<f32>() + 1e-8).sqrt();
-            let dot: f32 = q.iter().zip(k.iter()).map(|(a, c)| (a / q_norm) * (c / k_norm)).sum();
+            let dot: f32 = q
+                .iter()
+                .zip(k.iter())
+                .map(|(a, c)| (a / q_norm) * (c / k_norm))
+                .sum();
             scores[b * num_slots + s] = dot;
         }
     }
@@ -96,7 +106,16 @@ fn softmax(scores: &[f32], batch: usize, num_slots: usize) -> Vec<f32> {
 }
 
 fn argmax_row(row: &[f32]) -> usize {
-    row.iter().enumerate().fold((0, f32::NEG_INFINITY), |(bi, bv), (i, &v)| if v > bv { (i, v) } else { (bi, bv) }).0
+    row.iter()
+        .enumerate()
+        .fold((0, f32::NEG_INFINITY), |(bi, bv), (i, &v)| {
+            if v > bv {
+                (i, v)
+            } else {
+                (bi, bv)
+            }
+        })
+        .0
 }
 
 /// Contract op: read(query) -> (readout, read_weights).
@@ -104,8 +123,15 @@ fn argmax_row(row: &[f32]) -> usize {
 /// the 2026-07-30 fix): adds `ln(confidence + eps)` to each slot's score
 /// before ranking, so a low-confidence slot competes on worse footing --
 /// see `docs/restart/hz0b_b8_stage5_results.md` finding 2.
-pub fn read(state: &MemoryState, query: &[f32], slot_idx: Option<&[i32]>, hard: bool, confidence_weighted: bool) -> (Vec<f32>, Vec<f32>) {
-    let (batch, num_slots, key_dim, value_dim) = (state.batch, state.num_slots, state.key_dim, state.value_dim);
+pub fn read(
+    state: &MemoryState,
+    query: &[f32],
+    slot_idx: Option<&[i32]>,
+    hard: bool,
+    confidence_weighted: bool,
+) -> (Vec<f32>, Vec<f32>) {
+    let (batch, num_slots, key_dim, value_dim) =
+        (state.batch, state.num_slots, state.key_dim, state.value_dim);
     let weights = if let Some(idx) = slot_idx {
         let mut w = vec![0.0f32; batch * num_slots];
         for b in 0..batch {
@@ -160,8 +186,12 @@ fn choose_write_slot(state: &MemoryState, key: &[f32]) -> (Vec<i32>, Vec<bool>) 
         let has_match = is_match.iter().any(|&m| m);
         if has_match {
             // argmax of similarity among matching slots only
-            let (matched_slot, _) = row.iter().enumerate().filter(|(i, _)| is_match[*i]).fold((0usize, f32::NEG_INFINITY), |(bi, bv), (i, &v)| if v > bv { (i, v) } else { (bi, bv) });
-            let is_protected = state.protection[b * num_slots + matched_slot] >= PROTECTION_BLOCK_THRESHOLD;
+            let (matched_slot, _) = row.iter().enumerate().filter(|(i, _)| is_match[*i]).fold(
+                (0usize, f32::NEG_INFINITY),
+                |(bi, bv), (i, &v)| if v > bv { (i, v) } else { (bi, bv) },
+            );
+            let is_protected =
+                state.protection[b * num_slots + matched_slot] >= PROTECTION_BLOCK_THRESHOLD;
             slot_idx[b] = matched_slot as i32;
             forced_reject[b] = is_protected;
         } else {
@@ -178,9 +208,14 @@ fn choose_write_slot(state: &MemoryState, key: &[f32]) -> (Vec<i32>, Vec<bool>) 
                 let eviction_score = if is_protected {
                     f32::INFINITY
                 } else {
-                    state.confidence[idx] * (1.0 - state.protection[idx]) - (state.age[idx] as f32) * 1e-6
+                    state.confidence[idx] * (1.0 - state.protection[idx])
+                        - (state.age[idx] as f32) * 1e-6
                 };
-                let empty_score = if is_empty && !is_protected { -1.0 } else { f32::INFINITY };
+                let empty_score = if is_empty && !is_protected {
+                    -1.0
+                } else {
+                    f32::INFINITY
+                };
                 let score = empty_score.min(eviction_score);
                 if score < best_score {
                     best_score = score;
@@ -195,13 +230,23 @@ fn choose_write_slot(state: &MemoryState, key: &[f32]) -> (Vec<i32>, Vec<bool>) 
 }
 
 /// Contract op: write(key, value, strength) -> (new_state, chosen_slot_idx, rejected).
-pub fn write(state: &MemoryState, key: &[f32], value: &[f32], strength: &[f32], step: i32, source: i32, slot_idx: Option<&[i32]>) -> (MemoryState, Vec<i32>, Vec<bool>) {
-    let (batch, num_slots, key_dim, value_dim) = (state.batch, state.num_slots, state.key_dim, state.value_dim);
+pub fn write(
+    state: &MemoryState,
+    key: &[f32],
+    value: &[f32],
+    strength: &[f32],
+    step: i32,
+    source: i32,
+    slot_idx: Option<&[i32]>,
+) -> (MemoryState, Vec<i32>, Vec<bool>) {
+    let (batch, num_slots, key_dim, value_dim) =
+        (state.batch, state.num_slots, state.key_dim, state.value_dim);
     let (chosen_slot, rejected) = match slot_idx {
         Some(idx) => {
             let mut rej = vec![false; batch];
             for b in 0..batch {
-                rej[b] = state.protection[b * num_slots + idx[b] as usize] >= PROTECTION_BLOCK_THRESHOLD;
+                rej[b] =
+                    state.protection[b * num_slots + idx[b] as usize] >= PROTECTION_BLOCK_THRESHOLD;
             }
             (idx.to_vec(), rej)
         }

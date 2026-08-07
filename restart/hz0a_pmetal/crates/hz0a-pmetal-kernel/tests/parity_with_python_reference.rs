@@ -10,23 +10,36 @@
 //! (that only proves the two RUST kernels agree with each other, not that
 //! either agrees with the actual Python reference the model uses).
 
-use hz0a_pmetal_kernel::{conditional_anchor_attention_backward_f32, conditional_anchor_attention_f32};
+use hz0a_pmetal_kernel::{
+    conditional_anchor_attention_backward_f32, conditional_anchor_attention_f32,
+};
 use serde_json::Value;
 
 fn fixture() -> Value {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/conditional_attention_parity.json");
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/conditional_attention_parity.json"
+    );
     let text = std::fs::read_to_string(path)
         .expect("run scripts/hz0c_generate_pmetal_conditional_attention_fixture.py first");
     serde_json::from_str(&text).expect("fixture must be valid JSON")
 }
 
 fn f32_vec(value: &Value) -> Vec<f32> {
-    value.as_array().unwrap().iter().map(|v| v.as_f64().unwrap() as f32).collect()
+    value
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_f64().unwrap() as f32)
+        .collect()
 }
 
 fn max_diff(a: &[f32], b: &[f32]) -> f32 {
     assert_eq!(a.len(), b.len());
-    a.iter().zip(b.iter()).map(|(x, y)| (x - y).abs()).fold(0.0f32, f32::max)
+    a.iter()
+        .zip(b.iter())
+        .map(|(x, y)| (x - y).abs())
+        .fold(0.0f32, f32::max)
 }
 
 #[test]
@@ -46,22 +59,51 @@ fn conditional_attention_matches_python_reference_forward_and_backward() {
     let trigger = f32_vec(&data["trigger"]);
     let grad_output = f32_vec(&data["grad_output"]);
 
-    let output = conditional_anchor_attention_f32(batch, seq, dim, heads, &x, &qkv_w, &qkv_b, &out_w, &out_b, &trigger).unwrap();
+    let output = conditional_anchor_attention_f32(
+        batch, seq, dim, heads, &x, &qkv_w, &qkv_b, &out_w, &out_b, &trigger,
+    )
+    .unwrap();
     let expected_output = f32_vec(&data["output"]);
     let output_diff = max_diff(&output, &expected_output);
-    assert!(output_diff < 1e-3, "forward output diff too large: {output_diff}");
+    assert!(
+        output_diff < 1e-3,
+        "forward output diff too large: {output_diff}"
+    );
 
-    let backward = conditional_anchor_attention_backward_f32(batch, seq, dim, heads, &x, &qkv_w, &qkv_b, &out_w, &trigger, &grad_output).unwrap();
+    let backward = conditional_anchor_attention_backward_f32(
+        batch,
+        seq,
+        dim,
+        heads,
+        &x,
+        &qkv_w,
+        &qkv_b,
+        &out_w,
+        &trigger,
+        &grad_output,
+    )
+    .unwrap();
     let checks: [(&str, &[f32], &str); 5] = [
         ("grad_x", &backward.grad_x, "grad_x"),
-        ("grad_qkv_weight", &backward.grad_qkv_weight, "grad_qkv_weight"),
+        (
+            "grad_qkv_weight",
+            &backward.grad_qkv_weight,
+            "grad_qkv_weight",
+        ),
         ("grad_qkv_bias", &backward.grad_qkv_bias, "grad_qkv_bias"),
-        ("grad_out_weight", &backward.grad_out_weight, "grad_out_weight"),
+        (
+            "grad_out_weight",
+            &backward.grad_out_weight,
+            "grad_out_weight",
+        ),
         ("grad_out_bias", &backward.grad_out_bias, "grad_out_bias"),
     ];
     for (name, rust_values, key) in checks {
         let expected = f32_vec(&data[key]);
         let diff = max_diff(rust_values, &expected);
-        assert!(diff < 1e-2, "{name} diff too large vs Python reference: {diff}");
+        assert!(
+            diff < 1e-2,
+            "{name} diff too large vs Python reference: {diff}"
+        );
     }
 }

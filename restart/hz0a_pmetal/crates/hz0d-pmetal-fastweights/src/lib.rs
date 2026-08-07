@@ -39,12 +39,19 @@ pub struct FastWeightState {
     pub num_layers: usize,
     pub dim: usize,
     pub rank: usize,
-    pub a_fast: Vec<f32>,      // [sessions * num_layers * dim * rank]
-    pub b_fast: Vec<f32>,      // [sessions * num_layers * rank * dim]
+    pub a_fast: Vec<f32>,       // [sessions * num_layers * dim * rank]
+    pub b_fast: Vec<f32>,       // [sessions * num_layers * rank * dim]
     pub update_count: Vec<i32>, // [sessions]
 }
 
-fn layer_slices(sessions: usize, num_layers: usize, dim: usize, rank: usize, session: usize, layer: usize) -> (usize, usize) {
+fn layer_slices(
+    sessions: usize,
+    num_layers: usize,
+    dim: usize,
+    rank: usize,
+    session: usize,
+    layer: usize,
+) -> (usize, usize) {
     let a_off = (session * num_layers + layer) * dim * rank;
     let b_off = (session * num_layers + layer) * rank * dim;
     debug_assert!(session < sessions && layer < num_layers);
@@ -58,8 +65,18 @@ fn layer_slices(sessions: usize, num_layers: usize, dim: usize, rank: usize, ses
 /// the realized delta `A @ B` is exactly zero at every layer for every
 /// session immediately after reset, matching the "inactive fast weights
 /// reproduce HZ-0C behavior" requirement D6 verified end to end.
-pub fn reset(sessions: usize, num_layers: usize, dim: usize, rank: usize, a_fast_init: &[f32]) -> FastWeightState {
-    assert_eq!(a_fast_init.len(), sessions * num_layers * dim * rank, "a_fast_init length mismatch");
+pub fn reset(
+    sessions: usize,
+    num_layers: usize,
+    dim: usize,
+    rank: usize,
+    a_fast_init: &[f32],
+) -> FastWeightState {
+    assert_eq!(
+        a_fast_init.len(),
+        sessions * num_layers * dim * rank,
+        "a_fast_init length mismatch"
+    );
     FastWeightState {
         sessions,
         num_layers,
@@ -115,7 +132,13 @@ pub fn effective_delta(state: &FastWeightState, session: usize, layer: usize) ->
 /// (see `docs/restart/hz0d_d9_pmetal_results.md`), matching C8's own
 /// standing discipline of not leaving a known-fixable redundancy in a
 /// kernel once it's been measured.
-pub fn apply(state: &FastWeightState, x: &[f32], base_weight: &[f32], base_bias: &[f32], layer: usize) -> Vec<f32> {
+pub fn apply(
+    state: &FastWeightState,
+    x: &[f32],
+    base_weight: &[f32],
+    base_bias: &[f32],
+    layer: usize,
+) -> Vec<f32> {
     let dim = state.dim;
     let rank = state.rank;
     assert_eq!(x.len(), state.sessions * dim);
@@ -160,7 +183,13 @@ pub fn apply(state: &FastWeightState, x: &[f32], base_weight: &[f32], base_bias:
 /// splitting the scale evenly across both factors via its square root
 /// (so the low-rank representation is never destroyed by materializing
 /// and reclipping a dense delta).
-fn clip_layer(a_layer: &mut [f32], b_layer: &mut [f32], dim: usize, rank: usize, max_delta_norm: f32) {
+fn clip_layer(
+    a_layer: &mut [f32],
+    b_layer: &mut [f32],
+    dim: usize,
+    rank: usize,
+    max_delta_norm: f32,
+) {
     // delta[i,j] = sum_r a[i,r]*b[r,j] -- materialized densely (matching
     // the Python reference exactly) since the norm needs the SUM over r
     // squared, not a sum of per-r squares.
@@ -192,15 +221,31 @@ fn clip_layer(a_layer: &mut [f32], b_layer: &mut [f32], dim: usize, rank: usize,
 /// approximated here, matching `docs/restart/hz0d_history_audit.md`'s
 /// core lesson (the archived prior implementation's mistake) applied to
 /// this port too. Clips via `clip_layer`.
-pub fn update(state: &FastWeightState, session: usize, layer: usize, grad_a: &[f32], grad_b: &[f32], lr: f32, max_delta_norm: f32) -> FastWeightState {
+pub fn update(
+    state: &FastWeightState,
+    session: usize,
+    layer: usize,
+    grad_a: &[f32],
+    grad_b: &[f32],
+    lr: f32,
+    max_delta_norm: f32,
+) -> FastWeightState {
     let (dim, rank) = (state.dim, state.rank);
     let (a_off, b_off) = layer_slices(state.sessions, state.num_layers, dim, rank, session, layer);
     assert_eq!(grad_a.len(), dim * rank);
     assert_eq!(grad_b.len(), rank * dim);
 
     let mut new_state = state.clone();
-    let mut a_layer: Vec<f32> = state.a_fast[a_off..a_off + dim * rank].iter().zip(grad_a).map(|(v, g)| v - lr * g).collect();
-    let mut b_layer: Vec<f32> = state.b_fast[b_off..b_off + rank * dim].iter().zip(grad_b).map(|(v, g)| v - lr * g).collect();
+    let mut a_layer: Vec<f32> = state.a_fast[a_off..a_off + dim * rank]
+        .iter()
+        .zip(grad_a)
+        .map(|(v, g)| v - lr * g)
+        .collect();
+    let mut b_layer: Vec<f32> = state.b_fast[b_off..b_off + rank * dim]
+        .iter()
+        .zip(grad_b)
+        .map(|(v, g)| v - lr * g)
+        .collect();
     clip_layer(&mut a_layer, &mut b_layer, dim, rank, max_delta_norm);
     new_state.a_fast[a_off..a_off + dim * rank].copy_from_slice(&a_layer);
     new_state.b_fast[b_off..b_off + rank * dim].copy_from_slice(&b_layer);
