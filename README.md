@@ -105,6 +105,22 @@ The throughline: every systems claim in this repo is re-measured against the exa
 
 Real, measured numbers — every row below is cited to a live run or a dated evidence document, not estimated.
 
+### vs. matched Transformer control (100M-token ladder)
+
+A same-param-count Transformer (374 model arrays, identical `dim`/`layers`/`heads`, `d_ff` widened to match active params) was trained on the exact same 100M-token corpus, same seed, same milestone schedule as the hybrid backbone, and both were scored on the same 2,112-sequence full held-out set at every milestone — a real, apples-to-apples comparison, not a leaderboard number.
+
+| Tokens | Hybrid loss (nats) | Transformer loss (nats) | Nats improvement | Perplexity improvement |
+| --- | --- | --- | --- | --- |
+| 10M | 3.4536 | 3.0393 | −13.63% (Transformer ahead) | −51.3% (Transformer ahead) |
+| 25M | 2.8560 | 2.9814 | **+4.21%** | **+11.8%** |
+| 50M | 2.5614 | 2.7547 | **+7.02%** | **+17.6%** |
+| 75M | 2.4649 | 2.6683 | **+7.62%** | **+18.4%** |
+| 100M | 2.4412 | 2.5865 | **+5.62%** | **+13.5%** |
+
+The honest shape of this result: the Transformer starts ahead at 10M tokens, the hybrid crosses over and pulls ahead from 25M on, peaks around 75M, and narrows slightly by 100M — not a monotonic runaway win.
+
+**This is the *pre-correction* recurrence** (the original `gdn2` mixer, not `gdn2_fix`) — it is the only real, full-scale, apples-to-apples matched-Transformer data that currently exists on disk. Whether this advantage survives, strengthens, or disappears with the corrected exact-GDN-2 math is exactly `HZ-0G`'s open `G1` question; the plan's own stated gate for a *credible* verdict is 500M–2B tokens, well past where `G1` is right now. Source: `outputs/hz0a_stage2_100m_{hybrid,transformer}_seed7/full_holdout_sweep.json`, narrated in `plans/HZ-0A_Progress_Tracker.md`.
+
 ### Training throughput (Apple Silicon, `gdn2_fix` backbone, 301M params, `G1`)
 
 | Metric | Value |
