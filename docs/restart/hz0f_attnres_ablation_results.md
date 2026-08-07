@@ -107,3 +107,29 @@ source technique was actually validated (100M+ parameters), not treating
 this tiny-model result as the final word -- this experiment answers "does
 it help THIS tiny model," not "is the idea sound," and should not be
 overclaimed as a rejection of the broader technique.
+
+## Final verdict (recorded 2026-08-06)
+
+> AttnRes is actively worse than standard residuals for tiny HZ models,
+> by a substantial and seed-stable ~0.05-0.07 nat margin.
+
+All three variants lost (full-rank, low-rank, multi-head), not just one
+implementation choice -- combined with the single-history identity
+correctness property and 32/32 passing tests, "probably implemented
+wrong" is not a live explanation. No further compute is being spent
+tuning AttnRes at this ~5M-parameter scale.
+
+```text
+Standard residual   -> HZ default
+AttnRes @ tiny scale -> rejected
+AttnRes @ 100M+      -> unresolved
+```
+
+**If this is revisited**, the protocol should be brutally simple, not a
+repeat of all three variants: ~100M parameters, same tokenizer/data/step
+order, same optimizer/token budget, standard residual vs. ONE best
+lightweight AttnRes variant (low-rank or multi-head, not both), 3 seeds,
+comparing validation loss, convergence rate, throughput, memory, and
+gradient stability. Not run in this investigation -- filed here as the
+exact next step if HZ ever approaches that scale, not attempted
+speculatively now.
