@@ -4,7 +4,7 @@ Updated: August 8, 2026
 
 ## Current status
 
-- Overall phase: **H0 in progress** (real work done, not yet complete -- see below).
+- Overall phase: **H0 done, H1 real oracle built and passing.** H2 (streaming equivalence) not started.
 - H0-H2 may be isolated; H3-H8 wait for the HZ-0G canonical-backbone decision.
 - T0-T2 may proceed as a separate ternary-training lane, but cannot replace the
   required full-precision BDH/GDN-2/Transformer baselines.
@@ -16,8 +16,8 @@ Updated: August 8, 2026
 
 | Phase | Status | Exit evidence |
 | --- | --- | --- |
-| H0 provenance/component map | In progress -- paper (arXiv 2509.26507) and official `bdh.py` source both fetched and read directly; two paper-summary claims (no-RoPE, no-weight-tying) checked against real code and corrected (both were wrong -- RoPE is present, depth weights ARE shared). `train.py`/`BDHConfig` defaults and the Section 4.2 scaling-law table not yet extracted. | Every claim labeled by source/evidence type |
-| H1 Torch/MLX BDH-GPU oracle | Not started | Forward/gradient parity and deterministic resume |
+| H0 provenance/component map | **Done** -- paper (arXiv 2509.26507) and official `bdh.py`/`train.py` source all fetched and read directly, not summarized-only; `BDHConfig` real defaults confirmed; complete verbatim forward-pass spec extracted (both docs). Section 4.2's scaling table not recovered after 3 real attempts (arXiv HTML, PDF over size limit, HF mirror) -- deferred to just-before-H3, doesn't block H1/H2. | Every claim labeled by source/evidence type |
+| H1 Torch/MLX BDH-GPU oracle | **Done** -- `reference/hz0h_bdh_torch.py` + `reference/hz0h_bdh_mlx.py`, faithful port (preserves the no-normalization and strictly-lower-triangular-mask discrepancies from the paper's prose). 5 real parity tests passing: forward <1e-3, gradient <1e-3, determinism, checkpoint replay, finite long-sequence. NOT tested against the actual official package running (ported from source, not installed/executed side-by-side) -- disclosed gap. | Forward/gradient parity and deterministic resume |
 | H2 parallel/streaming `rho` equivalence | Not started | Agreement across lengths and chunk boundaries |
 | T0 ternary training design memo | Not started | Quantization contract and success metrics documented |
 | T1 ternary sandbox on simple baselines | Not started | Stable training recipe on same-architecture controls |
@@ -36,9 +36,9 @@ Updated: August 8, 2026
 - [x] `docs/restart/hz0h_bdh_history_audit.md` -- real, sourced (paper + raw official code read directly), not complete (Section 4.2 table, train.py/BDHConfig defaults still open)
 - [x] `docs/restart/hz0h_bdh_component_map.md` -- structured, labeled per H0's own taxonomy, cites the audit doc's corrections
 - [ ] `docs/restart/hz0h_ternary_training_design.md`
-- [ ] `reference/hz0h_bdh_torch.py`
-- [ ] `reference/hz0h_bdh_mlx.py`
-- [ ] `tests/reference/test_hz0h_bdh_parity.py`
+- [x] `reference/hz0h_bdh_torch.py`
+- [x] `reference/hz0h_bdh_mlx.py`
+- [x] `tests/reference/test_hz0h_bdh_parity.py` -- 5/5 passing, official-package-execution parity NOT included (disclosed gap)
 - [ ] Paper-regime reproduction report
 - [ ] HZ-regime matched comparison report
 - [ ] T1 ternary sandbox report
