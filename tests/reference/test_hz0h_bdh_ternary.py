@@ -1,13 +1,16 @@
-"""HZ-0H T1: BDH-GPU ternary quantization -- unit correctness + training
-stability sandbox.
+"""HZ-0H T1/T2: BDH-GPU ternary quantization -- unit correctness, training
+stability sandbox (T1), and a matched FP-vs-ternary convergence check (T2).
 
 Per docs/restart/hz0h_ternary_training_design.md's T0 contract: absmean
 ternary STE applied to `encoder`/`encoder_v`/`decoder` only (`embed`/
 `lm_head`/`ln` stay full precision). This file checks the mechanism itself
 (forward formula, STE gradient) the same way the existing HZ-0A BitLinear
-work was checked before being trusted, then T1's own bar: a short real
-training run must actually learn (loss drops below the random-baseline
-floor, no NaN/Inf) with `config.ternary=True`.
+work was checked before being trusted, then T1's own bar (a short real
+training run must actually learn, no NaN/Inf), then a small-scale version
+of T2's own bar (ternary must not meaningfully diverge from a matched
+full-precision run) -- see docs/restart/hz0h_t2_bdh_fp_vs_ternary.md for
+the full-scale report this test's assertions are a fast regression-check
+version of.
 """
 from __future__ import annotations
 
@@ -146,3 +149,51 @@ def test_t1_stability_sandbox_ternary_learns_below_random_floor():
     final_loss = sum(losses[-10:]) / 10
     assert final_loss < random_floor * 0.5, f"ternary BDH-GPU did not learn: final loss {final_loss:.3f} vs random floor {random_floor:.3f}"
     assert losses[-1] < losses[0], f"loss did not decrease: {losses[0]:.3f} -> {losses[-1]:.3f}"
+
+
+def test_t2_matched_fp32_vs_ternary_convergence_gap_is_small():
+    """Fast regression-check version of T2's full comparison
+    (docs/restart/hz0h_t2_bdh_fp_vs_ternary.md ran this at a larger scale
+    with a real order-2 Markov data-generating process and 300 steps;
+    reported gap there was +0.0001, noise-level). Same idea, smaller/faster
+    for CI: same seed, same init (ternary model's weights copied from the
+    FP model), same data, same budget -- only `config.ternary` differs.
+    Asserts the gap stays small, not that it's exactly reproduced (RNG/step
+    count differ from the full report)."""
+    vocab_size = 32
+    config_kwargs = dict(n_layer=2, n_embd=32, n_head=4, mlp_internal_dim_multiplier=8, vocab_size=vocab_size, dropout=0.0)
+
+    torch.manual_seed(21)
+    fp_model = bdh_torch.BDH(bdh_torch.BDHConfig(**config_kwargs, ternary=False))
+    ternary_model = bdh_torch.BDH(bdh_torch.BDHConfig(**config_kwargs, ternary=True))
+    ternary_model.load_state_dict(fp_model.state_dict())
+
+    gen = torch.Generator().manual_seed(9)
+    transition = torch.randn(vocab_size, vocab_size, generator=gen)
+    batch, seq_len = 4, 24
+    tokens = torch.randint(0, vocab_size, (batch, 1), generator=gen)
+    for _ in range(seq_len):
+        probs = torch.softmax(transition[tokens[:, -1]], dim=-1)
+        next_tok = torch.multinomial(probs, 1, generator=gen)
+        tokens = torch.cat([tokens, next_tok], dim=1)
+    idx, targets = tokens[:, :-1].contiguous(), tokens[:, 1:].contiguous()
+
+    final_losses = {}
+    for name, model in (("fp32", fp_model), ("ternary", ternary_model)):
+        model.train()
+        opt = torch.optim.AdamW(model.parameters(), lr=3e-3)
+        losses = []
+        for _ in range(120):
+            _logits, loss = model(idx, targets=targets)
+            assert torch.isfinite(loss)
+            opt.zero_grad()
+            loss.backward()
+            opt.step()
+            losses.append(float(loss))
+        final_losses[name] = sum(losses[-10:]) / 10
+
+    random_floor = math.log(vocab_size)
+    assert final_losses["fp32"] < random_floor * 0.5, "fp32 control did not learn -- broken test setup"
+    assert final_losses["ternary"] < random_floor * 0.5, "ternary did not learn"
+    gap = abs(final_losses["ternary"] - final_losses["fp32"])
+    assert gap < 0.5, f"convergence gap too large: fp32={final_losses['fp32']:.4f} ternary={final_losses['ternary']:.4f} gap={gap:.4f}"
