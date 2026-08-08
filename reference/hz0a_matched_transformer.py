@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 
 import torch
@@ -52,6 +53,13 @@ class MatchedTransformerLM(nn.Module):
         super().__init__()
         self.config = config
         self.embedding = nn.Embedding(config.vocab_size, config.d_model)
+        # Same fix as reference/hz0a_torch_model.py's HZ0AModel (found 2026-08-01,
+        # see that file's comment for the full derivation): PyTorch's nn.Embedding
+        # default init is N(0, 1), ~28x larger than MLX's own `sqrt(1/dims)`
+        # default -- left uncorrected here, it produces the same ~500+ initial
+        # loss / 300-1000+ early gradient norms as the HZ0AModel bug did, not a
+        # depth-scaling quirk of this architecture as originally assumed.
+        nn.init.normal_(self.embedding.weight, std=math.sqrt(1.0 / config.d_model))
         self.blocks = nn.ModuleList(MatchedTransformerBlock(config) for _ in range(config.num_layers))
         self.final_norm = BiasFreeRMSNorm(config.d_model)
 
