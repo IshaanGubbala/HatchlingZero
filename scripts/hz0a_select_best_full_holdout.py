@@ -39,14 +39,15 @@ def load_config(run_dir: Path, args) -> dict:
         return {
             "dim": snapshot["dim"], "layers": snapshot["layers"], "heads": snapshot["heads"],
             "d_ff": snapshot["d_ff"], "architecture": snapshot["architecture"], "vocab_size": snapshot["vocab_size"],
+            "mixer": snapshot.get("mixer", "gdn2"),
         }
-    return {"dim": args.dim, "layers": args.layers, "heads": args.heads, "d_ff": args.d_ff, "architecture": args.architecture, "vocab_size": args.vocab_size}
+    return {"dim": args.dim, "layers": args.layers, "heads": args.heads, "d_ff": args.d_ff, "architecture": args.architecture, "vocab_size": args.vocab_size, "mixer": args.mixer}
 
 
 def load_model_from_checkpoint(checkpoint_dir: Path, config: dict):
     payload = json.loads((checkpoint_dir / "state.json").read_text())
     attention = tuple(range(config["layers"])) if config["architecture"] == "transformer" else tuple(index for index in (4, 9, 14, 19, 24, 29) if index < config["layers"])
-    model = HZ0AMlxModel(config["vocab_size"], config["dim"], config["layers"], config["heads"], config["d_ff"], attention, native_metal=True)
+    model = HZ0AMlxModel(config["vocab_size"], config["dim"], config["layers"], config["heads"], config["d_ff"], attention, native_metal=True, mixer=config["mixer"])
     model_arrays = [(item["key"], mx.load(str(checkpoint_dir / item["file"]))) for item in payload["arrays"] if item["group"] == "model"]
     model.update(tree_unflatten(model_arrays))
     mx.eval(model.parameters())
@@ -83,6 +84,7 @@ def main() -> None:
     parser.add_argument("--d-ff", type=int, default=2304)
     parser.add_argument("--vocab-size", type=int, default=24576)
     parser.add_argument("--architecture", choices=("hybrid", "transformer"), default="hybrid")
+    parser.add_argument("--mixer", choices=("gdn2", "gdn2_fix"), default="gdn2", help="Only used as a fallback when config_snapshot.json is missing (older runs); newer runs read this from the snapshot directly.")
     args = parser.parse_args()
 
     config = load_config(args.run_dir, args)
