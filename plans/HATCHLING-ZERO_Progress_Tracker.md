@@ -8,7 +8,7 @@ This tracker translates the master development plan into restart-era execution s
 
 ## Overall Status
 
-- Program state: HZ-0A through HZ-0F complete. HZ-0G (architecture freeze + integration) is next; see `plans/HZ-0G_Integration_Plan.md`.
+- Program state: HZ-0A through HZ-0F complete. HZ-0G (architecture freeze + integration) is active, and HZ-0H (BDH reconciliation) is planned but not started; see `plans/HZ-0G_Integration_Plan.md` and `plans/HZ-0H_BDH_Reconciliation_Plan.md`.
 - Active focus: G1 -- validating the corrected exact-GDN-2 backbone at real scale (100M -> 500M -> 2B -> 6B token continuation ladder), gated on whether it beats a matched Transformer at 500M-2B tokens.
 - Blocking rule carried into HZ-0G: no new mechanism until G0-G5 close, per `plans/HZ-0G_Integration_Plan.md`'s explicit out-of-scope list.
 
@@ -23,6 +23,7 @@ This tracker translates the master development plan into restart-era execution s
 | HZ-0E | Micro-MoE specialization | Complete -- mixed, disclosed both ways | `docs/restart/hz0e_e10_evaluation_results.md`: beats fair dense on per-domain quality at matched active compute (6/6 trials), loses general/OOD quality (real, structural), PMetal never beat plain MLX across 5 iterations |
 | HZ-0F | MoE generalization + technique investigations | Complete | `docs/restart/hz0e_f_investigation_summary.md`: fallback/routing tradeoff confirmed via 3 independent mechanisms; `mx.gather_mm` adopted; AttnRes rejected at tiny scale (unresolved at 100M+); counterfactual routing not adopted |
 | HZ-0G | Architecture freeze + integration | G0 done (this tracker + the plan doc); G1 starting | `plans/HZ-0G_Integration_Plan.md` |
+| HZ-0H | BDH reconciliation + selective integration | Planned; H0-H2 may be isolated, H3-H8 gated on HZ-0G | `plans/HZ-0H_BDH_Reconciliation_Plan.md` |
 
 ## Program Rules
 
@@ -50,6 +51,7 @@ This tracker translates the master development plan into restart-era execution s
 1. G1: run the exact-GDN-2 continuation ladder (100M -> 500M -> 2B -> 6B tokens) on the real 301M backbone, evaluating at every gate against held-out CE, the pre-correction HZ recurrence baseline, and a matched Transformer.
 2. G2-G4: revalidate B/C/D against whichever checkpoint G1 produces, once it exists.
 3. G5: real Dense vs. MoE vs. domain-adapter decision on the fully integrated checkpoint.
+4. Prepare HZ-0H H0-H2 provenance and oracle work without changing the canonical HZ backbone.
 
 ## Risks
 
@@ -60,4 +62,4 @@ This tracker translates the master development plan into restart-era execution s
 ## Stop / Go Gate
 
 - `GO` for HZ-0G G1 (exact-GDN-2 scaling ladder)
-- `STOP` for any new architecture mechanism (AttnRes, mHC, large-count MoE, Engram-style memory, a second recurrence/memory subsystem, multimodal, exotic positional encodings, another PMetal rewrite) until HZ-0G's G0-G5 gates close, per `plans/HZ-0G_Integration_Plan.md`
+- `STOP` for promoting any new architecture mechanism, including BDH components, until HZ-0G's G0-G5 gates close, per `plans/HZ-0G_Integration_Plan.md`. Isolated HZ-0H provenance/oracle work is allowed under `plans/HZ-0H_BDH_Reconciliation_Plan.md`.

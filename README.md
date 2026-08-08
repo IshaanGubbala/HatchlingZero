@@ -46,6 +46,7 @@ This shows up directly in the evidence trail: `docs/restart/` holds dozens of re
 | `HZ-0E` | Micro-MoE specialization | Complete — real, disclosed tradeoff (below) |
 | `HZ-0F` | MoE generalization investigation | Complete — six independent diagnostics, closed with an honest verdict |
 | `HZ-0G` | Architecture freeze + integration | In progress — no new mechanisms, only lineage repair and scale validation |
+| `HZ-0H` | BDH reconciliation + selective integration | Planned — isolated oracle work may begin; promotion is gated on HZ-0G and HZ-0H evidence |
 
 **HZ-0E, in one paragraph:** the micro-MoE mechanism beats a fairly warm-started, active-compute-matched dense baseline on in-domain quality in 6 of 6 real trials — a genuine, reproducible specialization effect. It also loses a small, real, structural amount of general/out-of-distribution quality, confirmed even after a standard mitigation (replay/rehearsal) was tried directly. Both results are reported together in [`docs/restart/hz0e_e10_evaluation_results.md`](docs/restart/hz0e_e10_evaluation_results.md) — this is not a universal win, and the repo does not present it as one.
 
@@ -88,6 +89,10 @@ A diagnostic sequence, not a new architecture stage: six independent experiments
 Deliberately introduces **no new mechanism**. Its job is lineage repair: every earlier stage was developed against a different generation of the backbone, and `HZ-0G` is where that gets reconciled — a real scaling validation of the corrected backbone (`G1`), followed by revalidating `HZ-0B`/`HZ-0C`/`HZ-0D` against it incrementally (`G2`–`G4`), and a real Dense-vs-MoE-vs-adapter decision made on the fully integrated checkpoint (`G5`), not carried over from `HZ-0E`'s isolated result.
 
 ---
+
+### `HZ-0H` — BDH reconciliation + selective integration
+
+HZ-0H is a gated research phase for faithfully reproducing the public Dragon Hatchling implementation, comparing it against exact GDN-2 and the Transformer under matched HZ conditions, and testing only BDH components that earn promotion. It does not modify the canonical HZ backbone during HZ-0G, and it keeps paper-regime reproduction separate from HZ apples-to-apples comparisons. See [`plans/HZ-0H_BDH_Reconciliation_Plan.md`](plans/HZ-0H_BDH_Reconciliation_Plan.md) and [`plans/HZ-0H_Progress_Tracker.md`](plans/HZ-0H_Progress_Tracker.md).
 
 ## Systems notes
 
