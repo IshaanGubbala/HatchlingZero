@@ -51,7 +51,7 @@ This tracker translates the master development plan into restart-era execution s
 1. G1: 100M-token gate reached (real, clean exit, held-out CE 2.4330 nats on 528/529 sequences). Continuation toward 500M -> 2B -> 6B not yet started; a same-corpus matched-Transformer control is running separately (RTX 3060, see `docs/rtx3060_g1_matched_transformer.md`) to make that comparison valid once both exist.
 2. G2 (revalidate B): done against the 100M checkpoint -- real, mixed result, not uniform in either direction. See `docs/restart/hz0g_g2_b_revalidation_results.md`.
 3. G3 (revalidate C): done against the 100M checkpoint -- triggered attention still beats naive baselines at matched cost, real downstream loss cost of missing triggers is small (+0.009 nats) but scenario-dependent, latency shows no meaningful full-vs-triggered difference at this scale. See `docs/restart/hz0g_g3_c_revalidation_results.md`.
-4. G4: revalidate D against the same checkpoint -- prep done (task-to-script mapping, real gap found: rollback/rule-change only tested at pure-mechanism level, not against a real checkpoint), real run not started.
+4. G4 (revalidate D): done against the 100M checkpoint -- clean transfer, no reversals (unlike G2/G3): all 5 exit gates pass with wide margins, GD divergence now 8/8 seeds (stronger than the original finding). Real gap remains: rollback/rule-change only tested at pure-mechanism level, not against a real checkpoint. See `docs/restart/hz0g_g4_d_revalidation_results.md`.
 5. G5: real Dense vs. MoE vs. domain-adapter decision on the fully integrated checkpoint.
 6. Prepare HZ-0H H0-H2 provenance and oracle work without changing the canonical HZ backbone.
 
