@@ -25,8 +25,8 @@ Updated: August 8, 2026
 | H3 matched BDH/GDN-2/Transformer study | **Correctly still blocked** -- requires the HZ-0G G1 decision (500M-2B-token matched-Transformer gate), confirmed NOT YET DONE per `plans/HATCHLING-ZERO_Progress_Tracker.md` ("G1's own critical gate... is NOT yet run -- only the 100M checkpoint exists"). Not worked around or approximated. | Curves plus quality, compute, state, latency, memory |
 | T3 post-H3 ternary replay of surviving arms | **Correctly still blocked** on H3 (T2 alone, now done, is not sufficient -- T3 needs a real cross-architecture ranking to test preservation of) | Whether ternary preserves ranking or changes deployment frontier |
 | H4 component ablations | Blocked on H3 | Component wins/losses with controls |
-| H5 synaptic memory comparison | Unblocked by H1/H2 (both done) but **not started** this session -- real remaining H&T-lane work, scoped as a comparison against HZ-0B/HZ-0D memory mechanisms specifically, not attempted here for time reasons | Recall, reversal, interference, reset, strengthening |
-| H6 effective graph tests | Unblocked by H1 (done) but **not started** this session -- real remaining work | Topology ablation and justified sparse execution |
+| H5 synaptic memory comparison | **Scoped and done for one real task** -- full 14-scenario x 5-condition scope too large for one pass; built a real state-contribution ablation (stream to query with real accumulated state vs. state forcibly zeroed at that point, reusing H2's tested `bdh_stream_chunk`) on a passkey-retrieval task. Real state: 1.00 accuracy (64/64). Zeroed state: 0.109, statistically at chance (1/8=0.125). Caught and fixed a real bug first: training used `model(idx, targets=idx)` instead of the official shifted-target convention (verified against `train.py` directly) -- a degenerate task that lets the model shortcut via the residual path; the bug's tell was near-zero train loss but exactly 0/64 real eval accuracy. See `docs/restart/hz0h_h5_state_ablation_results.md`. Remaining 13 scenario types and the combination (BDH+B+D) condition: real, disclosed, not attempted. | Recall, reversal, interference, reset, strengthening |
+| H6 effective graph tests | **Done for the core falsifiability check.** `decoder_h @ encoder_h` per head gives a real N x N effective adjacency (H0's `Dx E`/`Dy E` mapped to real code). Trained vs. untrained vs. statistics-preserving-shuffled control, 3 seeds: trained modularity (0.175-0.186) never exceeds shuffled (0.189-0.204) -- no detectable graph structure beyond chance at this tiny scale (~800K params), even on a model independently confirmed to learn real structure elsewhere (H5's passkey result, same training-convention fix applied). Real, reproducible negative result, explicitly scale-caveated per the plan's own "don't reject from a tiny toy run" rule -- not tested at the paper's actual 10M-1B scale. See `docs/restart/hz0h_h6_graph_structure_results.md`. Semantic correspondence and cross-seed node-identity stability (vs. just modularity-score stability): not attempted. | Topology ablation and justified sparse execution |
 | H7 maximum four graft candidates | Blocked on H4-H6 | Promotion decision per candidate |
 | T4 ternary graft qualification | Blocked on H7 and T3 | Surviving grafts retain value under ternary |
 | H8 causal interpretability | Unblocked by H1 (done) but depends on H6 (not started) for its graph-based candidate concepts | Stable selectivity plus causal ablation |
@@ -47,8 +47,8 @@ Updated: August 8, 2026
 - [x] T2 same-architecture FP vs ternary report -- `docs/restart/hz0h_t2_bdh_fp_vs_ternary.md`; resume comparison specifically still open
 - [ ] T3 surviving-arm ternary replay report
 - [ ] H4 component ablation report
-- [ ] H5 memory report
-- [ ] H6 graph-structure report
+- [x] H5 memory report -- `docs/restart/hz0h_h5_state_ablation_results.md`, scoped to one real task (passkey), 13 scenario types remain
+- [x] H6 graph-structure report -- `docs/restart/hz0h_h6_graph_structure_results.md`, real negative result, scale-caveated
 - [ ] H7 selective-graft report
 - [ ] T4 ternary graft qualification report
 - [ ] H8 causal-interpretability report
