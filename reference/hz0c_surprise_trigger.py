@@ -257,22 +257,32 @@ def rate_bounded_threshold(score: mx.array, *, target_rate: float, min_rate: flo
     """C2's own required spec item: "specify... thresholding, minimum
     and maximum trigger rates." score: [batch, seq] (typically already
     normalized). Returns a per-BATCH-ROW threshold (`[batch, 1]`) set
-    via the `(1 - target_rate)`-quantile of that sequence's own score
-    distribution, so triggering `score > threshold` yields close to
-    `target_rate` fraction of positions triggered BY CONSTRUCTION,
-    regardless of the score distribution's absolute scale -- clamped
-    so the resulting rate cannot fall outside `[min_rate, max_rate]`
-    (approximated by clamping `target_rate` itself into that range
-    before computing the quantile, since the quantile-threshold
-    construction makes the ACHIEVED rate track the TARGET rate
-    directly). Fully deterministic -- no sampling, same output every
-    call for the same input, satisfying C2's "deterministic inference
-    behavior" requirement."""
+    so that the strict comparison `score > threshold` triggers exactly
+    `round(target_rate * seq)` positions (the nearest achievable count
+    on a `seq`-length discrete sequence), clamped so the resulting rate
+    cannot fall outside `[min_rate, max_rate]` (approximated by
+    clamping `target_rate` itself into that range first). Fully
+    deterministic -- no sampling, same output every call for the same
+    input, satisfying C2's "deterministic inference behavior"
+    requirement.
+
+    2026-08-07 fix: the previous formula (`idx = int((1-target_rate) *
+    seq)`, threshold = sorted_scores[idx]) floor-truncated the quantile
+    index, which systematically UNDER-shoots the target rate -- e.g. at
+    seq=32, target_rate=0.15, it achieved exactly 4/32=0.125 (a 17%
+    relative miss), not a rounding artifact but a one-sided bias that
+    gets worse at short sequences. Confirmed via a real HZ-0G G3 run
+    (`docs/restart/hz0g_g3_c_revalidation_results.md`) before being
+    diagnosed and fixed here -- this directly targets the desired
+    TRIGGERED COUNT (`round(target_rate * seq)`) instead of floor-
+    truncating the quantile index, which is the correct way to hit a
+    rate target exactly on a discrete set."""
     clamped_rate = min(max(target_rate, min_rate), max_rate)
-    quantile = 1.0 - clamped_rate
     sorted_scores = mx.sort(score, axis=-1)
     seq = score.shape[-1]
-    idx = min(max(int(quantile * seq), 0), seq - 1)
+    target_count = min(max(round(clamped_rate * seq), 0), seq)
+    idx = seq - 1 - target_count
+    idx = min(max(idx, 0), seq - 1)
     return sorted_scores[:, idx:idx + 1]
 
 

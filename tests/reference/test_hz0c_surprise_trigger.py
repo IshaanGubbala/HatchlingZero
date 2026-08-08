@@ -374,3 +374,17 @@ def test_oracle_trigger_hits_exactly_the_ground_truth_positions():
 def test_full_attention_trigger_is_all_one():
     trigger = full_attention_trigger(2, 5)
     assert bool(mx.all(trigger == 1.0))
+
+
+def test_rate_bounded_threshold_hits_target_at_short_sequence_lengths():
+    """2026-08-07 regression: at short seq (real HZ-0G G3 case, seq=32),
+    the old floor-truncated-quantile formula achieved exactly 0.125 for
+    a 0.15 target -- a real, one-sided, ~17% relative undershoot, not
+    within-tolerance noise. The fix must land within one discrete
+    triggered-position step of the true target at this length."""
+    mx.random.seed(555)
+    score = mx.random.normal((1, 32))
+    threshold = rate_bounded_threshold(score, target_rate=0.15, min_rate=0.05, max_rate=0.5)
+    achieved_rate = float(mx.mean((score > threshold).astype(mx.float32)))
+    assert abs(achieved_rate - 0.15) <= 1.0 / 32 + 1e-6  # within one position's worth of rate at this length
+    assert achieved_rate > 0.125 + 1e-6  # strictly better than the old bug's exact undershoot
