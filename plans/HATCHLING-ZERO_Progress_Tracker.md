@@ -48,10 +48,11 @@ This tracker translates the master development plan into restart-era execution s
 
 ## Immediate Next Milestones
 
-1. G1: run the exact-GDN-2 continuation ladder (100M -> 500M -> 2B -> 6B tokens) on the real 301M backbone, evaluating at every gate against held-out CE, the pre-correction HZ recurrence baseline, and a matched Transformer.
-2. G2-G4: revalidate B/C/D against whichever checkpoint G1 produces, once it exists.
-3. G5: real Dense vs. MoE vs. domain-adapter decision on the fully integrated checkpoint.
-4. Prepare HZ-0H H0-H2 provenance and oracle work without changing the canonical HZ backbone.
+1. G1: 100M-token gate reached (real, clean exit, held-out CE 2.4330 nats on 528/529 sequences). Continuation toward 500M -> 2B -> 6B not yet started; a same-corpus matched-Transformer control is running separately (RTX 3060, see `docs/rtx3060_g1_matched_transformer.md`) to make that comparison valid once both exist.
+2. G2 (revalidate B): done against the 100M checkpoint -- real, mixed result, not uniform in either direction. See `docs/restart/hz0g_g2_b_revalidation_results.md`.
+3. G3-G4: revalidate C/D against the same checkpoint -- prep done (task-to-script mapping, checkpoint/mixer landmine audit), real runs not started.
+4. G5: real Dense vs. MoE vs. domain-adapter decision on the fully integrated checkpoint.
+5. Prepare HZ-0H H0-H2 provenance and oracle work without changing the canonical HZ backbone.
 
 ## Risks
 
