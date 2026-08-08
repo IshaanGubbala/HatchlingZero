@@ -25,14 +25,14 @@ import mlx.core as mx
 from reference.hz0a_mlx_model import HZ0AMlxModel
 from reference.hz0b_b6_hz0a_integration import frozen_hidden_states
 from reference.hz0c_surprise_trigger import normalize_score, rate_bounded_threshold, state_novelty_score, surprise_score
-from scripts.hz0b_b11_baseline_comparison import CHECKPOINT, D_MODEL, D_FF, HEADS, LAYERS, VOCAB_SIZE, ATTENTION_INDICES
+from scripts.hz0b_b11_baseline_comparison import CHECKPOINT, D_MODEL, D_FF, HEADS, LAYERS, VOCAB_SIZE, ATTENTION_INDICES, MIXER
 import json
 from mlx.utils import tree_unflatten
 
 
 def load_frozen_model():
     payload = json.loads((CHECKPOINT / "state.json").read_text())
-    model = HZ0AMlxModel(VOCAB_SIZE, D_MODEL, LAYERS, HEADS, D_FF, ATTENTION_INDICES, native_metal=True)
+    model = HZ0AMlxModel(VOCAB_SIZE, D_MODEL, LAYERS, HEADS, D_FF, ATTENTION_INDICES, native_metal=True, mixer=MIXER)
     model_arrays = [(item["key"], mx.load(str(CHECKPOINT / item["file"]))) for item in payload["arrays"] if item["group"] == "model"]
     model.update(tree_unflatten(model_arrays))
     mx.eval(model.parameters())

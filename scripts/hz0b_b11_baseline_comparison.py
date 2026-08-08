@@ -177,7 +177,7 @@ def run_equal_param_adapter(model, train_hidden, train_is_a, held_out_hidden, he
     return float(mx.mean((predicted == targets_for(held_out_is_a)).astype(mx.float32)))
 
 
-def run_hzb_memory(model, train_hidden, train_is_a, held_out_hidden, held_out_is_a, *, seed: int, steps: int, lr: float, num_slots: int = NUM_SLOTS, ste: bool = False, lambda_sparse: float = LAMBDA_SPARSE, target_write_rate: float | None = None) -> float:
+def run_hzb_memory(model, train_hidden, train_is_a, held_out_hidden, held_out_is_a, *, seed: int, steps: int, lr: float, num_slots: int = NUM_SLOTS, ste: bool = False, lambda_sparse: float = LAMBDA_SPARSE, target_write_rate: float | None = None, normalize_gate_input: bool = False) -> float:
     """Real HZ-0B latent write+read, trained fresh at this seed --
     reuses reference/hz0b_b8_latent_write.py unmodified, same mechanics
     as scripts/hz0b_b8_stage3_latent_write_probe.py. `num_slots`
@@ -217,7 +217,7 @@ def run_hzb_memory(model, train_hidden, train_is_a, held_out_hidden, held_out_is
 
     def loss_fn(pd: dict) -> mx.array:
         p = dict_to_latent_params(pd)
-        logits, _, gates = latent_forward_pass(model, precomputed_hidden=train_hidden, latent_params=p, num_slots=num_slots, ste=ste)
+        logits, _, gates = latent_forward_pass(model, precomputed_hidden=train_hidden, latent_params=p, num_slots=num_slots, ste=ste, normalize_gate_input=normalize_gate_input)
         task_loss = mx.mean(nn.losses.cross_entropy(logits[:, -1, :], targets))
         if target_write_rate is not None:
             write_rate = mx.mean(gates)
@@ -236,7 +236,7 @@ def run_hzb_memory(model, train_hidden, train_is_a, held_out_hidden, held_out_is
             print(f"    [memory seed={seed} num_slots={num_slots} ste={ste}] step {step:4d}  train loss {float(loss):.5f}")
 
     trained = dict_to_latent_params(params_dict)
-    logits, _, _ = latent_forward_pass(model, precomputed_hidden=held_out_hidden, latent_params=trained, num_slots=num_slots, ste=ste)
+    logits, _, _ = latent_forward_pass(model, precomputed_hidden=held_out_hidden, latent_params=trained, num_slots=num_slots, ste=ste, normalize_gate_input=normalize_gate_input)
     predicted = mx.argmax(logits[:, -1, :], axis=-1)
     return float(mx.mean((predicted == targets_for(held_out_is_a)).astype(mx.float32)))
 
@@ -254,6 +254,7 @@ def main():
     parser.add_argument("--lambda-sparse", type=float, default=LAMBDA_SPARSE, help="the factorial diagnosis found this penalty starves the timing gate's gradient when content offers no position-differentiating reward -- lowering it rescued the isolated cell-3 collapse (0.053->0.281); tests whether it also helps the full mechanism")
     parser.add_argument("--target-write-rate", type=float, default=None, help="replaces the plain sparsity penalty with a squared-distance-from-target write-rate budget, which has a real equilibrium instead of monotonically pushing toward 0 -- tests whether this fixes seed-557-style reproducible collapse")
     parser.add_argument("--only-seed-offset", type=int, default=None, help="run only ONE specific seed offset (e.g. 2 for seed 557) instead of the full --num-seeds sweep, for a fast targeted diagnostic")
+    parser.add_argument("--normalize-gate-input", action="store_true", help="RMS-normalize the write gate's own input (not key/value/read) -- fixes a real sigmoid-saturation risk when the input is a checkpoint's raw, unnormalized residual stream (see reference/hz0b_b8_latent_write.py's docstring). Default off, preserves exact existing behavior.")
     args = parser.parse_args()
 
     print(f"equal-param adapter budget: {param_count(D_MODEL, ADAPTER_HIDDEN)} params, "
@@ -297,7 +298,7 @@ def main():
     print(f"\n3. HZ-0B real latent write+read ({len(seed_offsets)} seeds, steps={args.steps}, lr={args.lr}, lambda_sparse={args.lambda_sparse}, num_slots={args.num_slots}, ste={args.ste}, target_write_rate={args.target_write_rate}):")
     memory_accs = []
     for seed_offset in seed_offsets:
-        acc = run_hzb_memory(model, train_hidden, train_is_a, held_out_hidden, held_out_is_a, seed=SEED + seed_offset, steps=args.steps, lr=args.lr, num_slots=args.num_slots, ste=args.ste, lambda_sparse=args.lambda_sparse, target_write_rate=args.target_write_rate)
+        acc = run_hzb_memory(model, train_hidden, train_is_a, held_out_hidden, held_out_is_a, seed=SEED + seed_offset, steps=args.steps, lr=args.lr, num_slots=args.num_slots, ste=args.ste, lambda_sparse=args.lambda_sparse, target_write_rate=args.target_write_rate, normalize_gate_input=args.normalize_gate_input)
         print(f"  seed {SEED + seed_offset}: {acc:.3f}")
         memory_accs.append(acc)
     memory_mean = sum(memory_accs) / len(memory_accs)

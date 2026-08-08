@@ -128,3 +128,39 @@ def test_precomputed_hidden_matches_token_path_exactly():
     logits_b = DummyModel.final_norm(hidden2) @ DummyModel.embedding.weight.T
     assert bool(mx.all(mx.abs(logits_a - logits_b) < 1e-6))
     assert bool(mx.all(gates_a == gates_b))
+
+
+def test_normalize_gate_input_false_is_unchanged_from_before_this_flag_existed():
+    """Default behavior (normalize_gate_input=False) must be bit-identical
+    to before this flag existed -- strictly opt-in, same convention as
+    `ste`."""
+    params = init_latent_write_controller(D_MODEL, KEY_DIM, VALUE_DIM, seed=1)
+    hidden = make_hidden(seed=2)
+    _, _, gates_default = sequential_latent_write_and_read(params, hidden)
+    _, _, gates_explicit_false = sequential_latent_write_and_read(params, hidden, normalize_gate_input=False)
+    assert bool(mx.all(gates_default == gates_explicit_false))
+
+
+def test_normalize_gate_input_prevents_sigmoid_saturation_on_large_hidden_states():
+    """The real bug this flag fixes: a large-magnitude hidden state (as
+    measured on real HZ-0A checkpoints, both gdn2 and gdn2_fix -- see
+    latent_write_and_read_step's docstring) times a fixed-scale
+    write_gate_w produces a pre-sigmoid logit that saturates to bit-exact
+    0.0 or 1.0, killing gradient. Construct a synthetic hidden state with
+    the same kind of large per-example outlier scale (mean abs ~7, some
+    rows scaled 10x) and confirm normalize_gate_input=True keeps every
+    write gate away from the saturated extremes, while the default
+    (False) actually does saturate on this adversarial input -- proving
+    the flag addresses the real failure mode, not a strawman."""
+    params = init_latent_write_controller(D_MODEL, KEY_DIM, VALUE_DIM, seed=1)
+    hidden = make_hidden(seed=2) * 7.0
+    hidden = mx.concatenate([hidden[:, :3, :], hidden[:, 3:, :] * 10.0], axis=1)  # some rows much larger, matching real outlier structure
+
+    _, _, gates_unnormalized = sequential_latent_write_and_read(params, hidden, normalize_gate_input=False)
+    _, _, gates_normalized = sequential_latent_write_and_read(params, hidden, normalize_gate_input=True)
+
+    saturated_unnormalized = bool(mx.any((gates_unnormalized < 1e-6) | (gates_unnormalized > 1 - 1e-6)))
+    saturated_normalized = bool(mx.any((gates_normalized < 1e-6) | (gates_normalized > 1 - 1e-6)))
+    assert saturated_unnormalized  # confirms this synthetic input actually reproduces the failure mode
+    assert not saturated_normalized  # confirms the fix actually prevents it
+    assert bool(mx.all(mx.isfinite(gates_normalized)))

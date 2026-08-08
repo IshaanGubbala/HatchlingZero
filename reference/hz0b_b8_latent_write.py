@@ -77,7 +77,7 @@ def init_latent_write_controller(d_model: int, key_dim: int, value_dim: int, see
     )
 
 
-def latent_write_and_read_step(params: LatentWriteControllerParams, hidden_state: mx.array, memory_state: MemoryState, *, step: int, ste: bool = False, shared_key_query: bool = False, read_hops: int = 1) -> tuple[mx.array, MemoryState, mx.array, mx.array]:
+def latent_write_and_read_step(params: LatentWriteControllerParams, hidden_state: mx.array, memory_state: MemoryState, *, step: int, ste: bool = False, shared_key_query: bool = False, read_hops: int = 1, normalize_gate_input: bool = False) -> tuple[mx.array, MemoryState, mx.array, mx.array]:
     """Read happens against the PRE-write state (same write-visibility
     convention as B7 -- a write at position t is visible from t+1
     onward, matching B1 decision 7). Returns (output, new_state,
@@ -107,7 +107,49 @@ def latent_write_and_read_step(params: LatentWriteControllerParams, hidden_state
     "Testing the slot-capacity hypothesis") -- with `ste=True`, a write
     either fully happens or doesn't; there is no partial commit for
     gradient descent to exploit as a cheap, uninformative way to reduce
-    the sparsity penalty."""
+    the sparsity penalty.
+
+    `normalize_gate_input` (2026-08-07, HZ-0G G2 diagnosis): the write
+    gate's pre-sigmoid logit is a linear read of the RAW, unnormalized
+    backbone residual stream (`hidden_state`, taken before `final_norm`),
+    which has real per-example outliers (measured up to ~70 in magnitude
+    on both HZ-0A checkpoints tried). Combined with a fixed-scale random
+    `write_gate_w`, this produces a real risk of the pre-sigmoid logit
+    landing in float32's saturated tail (`|logit| > ~15`), where
+    `sigmoid`'s gradient underflows to exactly 0.0 and that batch row's
+    write gate is permanently dead for the rest of training -- confirmed
+    empirically against G1's `gdn2_fix` checkpoint (3 of 5 real B11
+    seeds collapsed to a bit-identical loss from step ~300 onward; write-
+    logit std measured 1.5-2x higher than on the pre-correction `gdn2`
+    checkpoint, a real difference in residual-stream geometry between the
+    two backbones, not the same fragility manifesting identically).
+    Default `False` preserves every existing caller's behavior exactly,
+    matching `ste`'s own convention -- this fragility predates the
+    gdn2_fix correction (the old checkpoint saturates too, just less
+    reliably), so flipping the default would silently change numbers
+    behind already-published results. When `True`, ONLY the write gate's
+    own input is RMS-normalized (key/value/read-query projections are
+    untouched, since they aren't run through a saturating nonlinearity
+    and so aren't vulnerable the same way) -- a per-row unit-RMS rescale
+    that makes the gate's input scale consistent regardless of which
+    backbone's residual-stream statistics produced it.
+
+    **Tested against G1's real checkpoint (2026-08-07): does NOT fix the
+    collapse.** 5-seed single-fact-recall rerun with this flag on:
+    mean 0.134 (vs. 0.147 without it -- not a real improvement, within
+    noise), 2 of 5 seeds (556, 559) still hit the exact same flat-loss
+    plateau (~13.2) as without the flag. One seed (558) that collapsed
+    without the flag trained normally with it (0.000 -> 0.266) -- a
+    real, partial, seed-specific effect, not nothing, but this is NOT
+    the root cause of the collapse pattern, only a real contributing
+    factor for some seeds. Left in as a tested, ruled-out-as-a-full-fix
+    intervention (same convention as B8 Stage 3's own documented history
+    of partial/failed write-selectivity fixes) rather than reverted,
+    since it is a real, harmless, correctly-opt-in normalization that
+    measurably helped one seed even though it didn't solve the general
+    problem. The actual root cause of seeds 556/559's collapse remains
+    open -- a genuine dead fixed-point somewhere else in the write/read
+    loop, not (only) sigmoid saturation on the gate's raw input."""
     wc = params.write_controller
     key = hidden_state @ params.key_proj_w + params.key_proj_b
     output, read_weights = gated_memory_read(
@@ -125,7 +167,12 @@ def latent_write_and_read_step(params: LatentWriteControllerParams, hidden_state
             confidence_scaled=True, query_override=second_query,
         )
     max_confidence = mx.max(memory_state.confidence, axis=-1)
-    write_logit = (hidden_state @ wc.write_gate_w + wc.write_gate_b)[:, 0] + max_confidence * params.occupancy_gate_w[0]
+    gate_input = hidden_state
+    if normalize_gate_input:
+        hidden_fp32 = hidden_state.astype(mx.float32)
+        rms = mx.sqrt(mx.mean(hidden_fp32 * hidden_fp32, axis=-1, keepdims=True) + 1e-6)
+        gate_input = (hidden_fp32 / rms).astype(hidden_state.dtype)
+    write_logit = (gate_input @ wc.write_gate_w + wc.write_gate_b)[:, 0] + max_confidence * params.occupancy_gate_w[0]
     write_gate_soft = mx.sigmoid(write_logit)
     if ste:
         write_gate_hard = (write_gate_soft > 0.5).astype(mx.float32)
@@ -139,7 +186,7 @@ def latent_write_and_read_step(params: LatentWriteControllerParams, hidden_state
     return output, new_state, write_gate, read_entropy
 
 
-def sequential_latent_write_and_read(params: LatentWriteControllerParams, hidden: mx.array, *, num_slots: int = 8, decay_rate: float = 1.0, ste: bool = False, shared_key_query: bool = False, read_hops: int = 1, return_read_entropy: bool = False):
+def sequential_latent_write_and_read(params: LatentWriteControllerParams, hidden: mx.array, *, num_slots: int = 8, decay_rate: float = 1.0, ste: bool = False, shared_key_query: bool = False, read_hops: int = 1, return_read_entropy: bool = False, normalize_gate_input: bool = False):
     """hidden: [batch, seq, d_model]. Every position gets a chance to
     write, gated continuously by its own learned `write_gate` -- no
     position is hand-picked or labeled as "the" write position, unlike
@@ -175,7 +222,7 @@ def sequential_latent_write_and_read(params: LatentWriteControllerParams, hidden
     )
     outputs, gates, entropies = [], [], []
     for t in range(seq):
-        output, memory_state, write_gate, read_entropy = latent_write_and_read_step(params, hidden[:, t, :], memory_state, step=t, ste=ste, shared_key_query=shared_key_query, read_hops=read_hops)
+        output, memory_state, write_gate, read_entropy = latent_write_and_read_step(params, hidden[:, t, :], memory_state, step=t, ste=ste, shared_key_query=shared_key_query, read_hops=read_hops, normalize_gate_input=normalize_gate_input)
         if decay_rate < 1.0:
             memory_state = forget_or_decay(memory_state, decay_rate=decay_rate)
         outputs.append(output)
@@ -185,7 +232,7 @@ def sequential_latent_write_and_read(params: LatentWriteControllerParams, hidden
     return result + (mx.stack(entropies, axis=1),) if return_read_entropy else result
 
 
-def forward(model, token_ids: mx.array | None = None, *, latent_params: LatentWriteControllerParams | None = None, states=None, num_slots: int = 8, decay_rate: float = 1.0, ste: bool = False, shared_key_query: bool = False, read_hops: int = 1, return_read_entropy: bool = False, precomputed_hidden: mx.array | None = None):
+def forward(model, token_ids: mx.array | None = None, *, latent_params: LatentWriteControllerParams | None = None, states=None, num_slots: int = 8, decay_rate: float = 1.0, ste: bool = False, shared_key_query: bool = False, read_hops: int = 1, return_read_entropy: bool = False, precomputed_hidden: mx.array | None = None, normalize_gate_input: bool = False):
     """Full forward pass. `latent_params=None` -> exact no-memory
     behavior. Otherwise every position gets the latent write+read path.
     `ste=False` (default) preserves every existing caller's behavior
@@ -208,7 +255,7 @@ def forward(model, token_ids: mx.array | None = None, *, latent_params: LatentWr
     write_gates = None
     read_entropy = None
     if latent_params is not None:
-        result = sequential_latent_write_and_read(latent_params, hidden, num_slots=num_slots, decay_rate=decay_rate, ste=ste, shared_key_query=shared_key_query, read_hops=read_hops, return_read_entropy=return_read_entropy)
+        result = sequential_latent_write_and_read(latent_params, hidden, num_slots=num_slots, decay_rate=decay_rate, ste=ste, shared_key_query=shared_key_query, read_hops=read_hops, return_read_entropy=return_read_entropy, normalize_gate_input=normalize_gate_input)
         if return_read_entropy:
             hidden, _, write_gates, read_entropy = result
         else:

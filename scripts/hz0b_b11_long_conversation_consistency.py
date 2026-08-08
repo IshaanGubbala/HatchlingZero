@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import random
 from pathlib import Path
 
@@ -33,7 +34,14 @@ from scripts.hz0b_b11_passkey_task import latent_params_to_dict, dict_to_latent_
 
 VOCAB_SIZE, D_MODEL, LAYERS, HEADS, D_FF = 24576, 768, 31, 12, 2304
 ATTENTION_INDICES = (4, 9, 14, 19, 24, 29)
-CHECKPOINT = Path("outputs/hz0a_stage2_100m_hybrid_seed7/native_metal_checkpoint_best_full_holdout")
+# Overridable via env vars -- mirrors scripts/hz0b_b11_baseline_comparison.py's
+# HZ0_EVAL_CHECKPOINT/HZ0_EVAL_MIXER pattern (see commit 9a2e180) so this
+# script can be repointed at a corrected gdn2_fix checkpoint for HZ-0G G2.
+CHECKPOINT = Path(os.environ.get(
+    "HZ0_EVAL_CHECKPOINT",
+    "outputs/hz0a_stage2_100m_hybrid_seed7/native_metal_checkpoint_best_full_holdout",
+))
+MIXER = os.environ.get("HZ0_EVAL_MIXER", "gdn2")
 
 FACT_MARKER, FACT_A_ID, FACT_B_ID = 21000, 21001, 21002
 READ_TRIGGER_A, READ_TRIGGER_B = 21003, 21004
@@ -49,10 +57,10 @@ LAMBDA_SPARSE = 0.1
 TARGET_WRITE_RATE = 0.1
 
 
-def load_frozen_model():
-    payload = json.loads((CHECKPOINT / "state.json").read_text())
-    model = HZ0AMlxModel(VOCAB_SIZE, D_MODEL, LAYERS, HEADS, D_FF, ATTENTION_INDICES, native_metal=True)
-    model_arrays = [(item["key"], mx.load(str(CHECKPOINT / item["file"]))) for item in payload["arrays"] if item["group"] == "model"]
+def load_frozen_model(checkpoint: Path = CHECKPOINT, mixer: str = MIXER):
+    payload = json.loads((checkpoint / "state.json").read_text())
+    model = HZ0AMlxModel(VOCAB_SIZE, D_MODEL, LAYERS, HEADS, D_FF, ATTENTION_INDICES, native_metal=True, mixer=mixer)
+    model_arrays = [(item["key"], mx.load(str(checkpoint / item["file"]))) for item in payload["arrays"] if item["group"] == "model"]
     model.update(tree_unflatten(model_arrays))
     mx.eval(model.parameters())
     return model, payload
