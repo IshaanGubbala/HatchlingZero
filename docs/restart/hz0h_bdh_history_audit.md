@@ -55,14 +55,37 @@ Fetched `https://raw.githubusercontent.com/pathwaycom/bdh/main/bdh.py` directly 
 | **No variable named `rho` or `sigma` anywhere in this file.** The paper's "persistent edge-state" framing describes what the encoder/decoder loop's math is equivalent to (a fast-weights/state-space reinterpretation), not a literal named state object carried between forward calls in this specific file. | Refines, doesn't contradict -- `bdh.py` is the GPU tensor-formulation ("BDH-GPU"), which the paper itself describes as a mean-field/tensor reformulation of the literal graph dynamics; the state-space equivalence is likely proven mathematically (Section 3) rather than implemented as an explicit stateful object in code. Needs H2's own streaming-equivalence work to confirm this precisely, not assumed here. |
 | **Weights ARE tied/shared across all layers**: the same `self.encoder`/`self.encoder_v`/`self.decoder` Parameter objects are reused inside `for level in range(C.n_layer)` -- one shared set of matrices for the whole depth, not per-layer instances. | **Corrects** the earlier tentative "no explicit weight tying reported" claim, which was wrong. This is a real, load-bearing architectural fact for H1's faithful port and H4's "shared vs untied depth weights" ablation -- H4 should treat "shared" as the paper's actual baseline, not a variant to test against an assumed-default "untied" baseline. |
 
+## `BDHConfig` real defaults, verified directly against raw `bdh.py`
+
+```python
+@dataclasses.dataclass
+class BDHConfig:
+    n_layer: int = 6
+    n_embd: int = 256
+    dropout: float = 0.1
+    n_head: int = 4
+    mlp_internal_dim_multiplier: int = 128
+    vocab_size: int = 256
+```
+
+`N` (the sparse-latent width) = `mlp_internal_dim_multiplier * n_embd // n_head` = `128 * 256 // 4 = 8192` at these defaults. `vocab_size=256` is a byte-level default, matching `train.py`'s own toy setup below, not the paper's real 10M-1B-scale experiments.
+
+## `train.py` real defaults, verified directly
+
+Dataset: tiny Shakespeare (`raw.githubusercontent.com/karpathy/char-rnn/.../tinyshakespeare/input.txt`) -- a toy smoke-test script, not the paper's actual scaling-law training runs. Optimizer: `AdamW`, `lr=1e-3`, `weight_decay=0.1` (betas not specified in the fetched excerpt). `BATCH_SIZE=32`, `BLOCK_SIZE=512`, `MAX_ITERS=3000`, dtype `bfloat16`/`float16` depending on hardware. This script is a wiring smoke test, not a source for H3's real matched-scale configs.
+
+## Real, disclosed gap: Section 4.2's scaling-law table
+
+Three separate real attempts to extract Section 4.2's actual parameter-count/loss table -- arXiv's HTML rendering (twice, including a v1-pinned URL), the raw PDF (rejected: exceeds the fetch tool's 10MB limit), and the Hugging Face papers mirror -- all failed to surface the actual numbers; the table content does not survive conversion in any of these paths (likely a LaTeX table or figure that summarization-based extraction can't parse). The paper states models range "10M to 1B" parameters and that BDH-GPU "generally compares favorably to the Transformer... even on... translation," but no concrete loss/perplexity/config values were recovered.
+
+This is not needed for H1 (mechanism-level parity at any small scale) or H2 (streaming equivalence, also scale-independent). It IS needed for H3's honest matched-scale design, but H3 is blocked on the HZ-0G G1-G5 decision regardless -- getting the real table (via direct PDF page access, or asking a human to paste the relevant page) can happen later, right before H3 actually starts, without blocking H1/H2 now.
+
 ## What H0 does not yet establish
 
-- No extracted Section 4.2 scaling-law table (exact parameter counts and loss/perplexity values) -- needed to design H3's matched-scale comparison honestly rather than guessing configs. Requires the actual PDF, not the HTML summarization pass already tried.
-- `train.py` and `BDHConfig`'s real default hyperparameters (dims, `n_layer`, `mlp_internal_dim_multiplier`, learning rate, dataset) not yet read directly -- next real step, same "read the raw file, don't trust a summary" discipline that just paid off above.
+- Section 4.2's real scaling-law table (see above) -- deferred to just-before-H3, not blocking H1/H2.
 - Community MLX port exists (`github.com/severian42/BDH-MLX`) -- not evaluated, not to be trusted as a stand-in for `reference/hz0h_bdh_mlx.py`'s own from-scratch, tested implementation per H1's own requirement ("no component enters HZ-1 without a predeclared metric and a fair control" applies equally to trusting a third-party port uncritically).
 - Community Hugging Face Transformers port also exists (`jploski/bdh-transformers`) -- same caveat.
-- The RoPE finding and the tied-weights finding both need to flow into `docs/restart/hz0h_bdh_component_map.md`'s H1 implementation checklist -- done in that document, see below.
 
-## Immediate next step (H0 continuation, still GPU-free)
+## H0 status: sufficient to start H1
 
-Read `train.py` and `BDHConfig` directly for real default hyperparameters, and pull Section 4.2's real scaling-law table from the actual PDF -- both prerequisites for H1's faithful-reference implementation and H3's matched-scale design, neither requires any training compute.
+Real architecture (four named parameters, per-layer forward sequence, `Q=K`, RoPE, shared depth weights) and real default config values are both now verified directly against source, not guessed from paper prose. H1 can proceed.

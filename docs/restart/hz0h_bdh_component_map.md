@@ -14,6 +14,42 @@ Date: 2026-08-08. Companion to `docs/restart/hz0h_bdh_history_audit.md` -- that 
 | Hebbian co-activation update (`Y(i), X(j) -> sigma(i,j)`) | The literal graph-dynamics formulation (BDH proper, not BDH-GPU) -- relationship to the code's actual forward pass not yet traced | `paper-defined` -- **UNRESOLVED** how directly this maps to `bdh.py`'s tensor ops vs. being a separate, equivalent-by-proof formulation | No HZ analog -- none of A-E claim a Hebbian formulation |
 | Spiking-neuron interpretation (integrate-and-fire, ReLU-threshold) | A biological reading of the same ReLU-sparse activations, not a separate mechanism | `paper-defined` | No HZ analog |
 
+## Complete, precise forward-pass spec (verified directly against raw `bdh.py`, not summarized)
+
+This supersedes the earlier compressed version in the audit doc -- gaps there (`y_sparse` appearing without a defining line, an ellipsis in the decoder line) are filled in here.
+
+```
+N = mlp_internal_dim_multiplier * D // n_head   (config: n_layer=6, n_embd(D)=256, n_head=4, mlp_internal_dim_multiplier=128, vocab_size=256, dropout=0.1 -- toy defaults)
+
+x = ln(embed(idx).unsqueeze(1))            # (B, 1, T, D) -- the "1" is a broadcast axis for nh, not a literal per-head split of D
+for level in range(n_layer):                # SAME encoder/encoder_v/decoder/ln reused every iteration -- shared depth weights, confirmed
+    x_latent = x @ encoder                  # (B,1,T,D) @ (nh,D,N) -> (B,nh,T,N)
+    x_sparse = relu(x_latent)
+    yKV = attn(Q=x_sparse, K=x_sparse, V=x) # Attention, below
+    yKV = ln(yKV)                           # extra LayerNorm the earlier summary missed
+    y_latent = yKV @ encoder_v              # (B,nh,T,D) @ (nh,D,N) -> (B,nh,T,N)
+    y_sparse = relu(y_latent)
+    xy_sparse = drop(x_sparse * y_sparse)   # elementwise gate, then dropout
+    yMLP = xy_sparse.transpose(1,2).reshape(B,1,T,N*nh) @ decoder   # (B,1,T,N*nh) @ (N*nh,D) -> (B,1,T,D)
+    y = ln(yMLP)
+    x = ln(x + y)                           # residual, then another shared-ln
+logits = x.view(B,T,D) @ lm_head            # (B,T,D) @ (D,vocab) -> (B,T,vocab)
+```
+
+Attention (`Q is K` always, asserted in code):
+```
+freqs = get_freqs(N, theta=2**16) = 1 / (theta ** (floor(arange(N)/2)*2 / N)) / (2*pi)     # shape (1,1,1,N)
+r_phases = arange(T).view(1,1,T,1) * freqs                                                  # (1,1,T,N)
+QR = rope(r_phases, Q); KR = QR                    # rope: v*cos(phases) + rotate_half_pairs(v)*sin(phases)
+scores = (QR @ KR.transpose(-1,-2)).tril(diagonal=-1)   # STRICTLY lower-triangular -- self-position excluded, confirmed
+return scores @ V                                        # NO softmax, NO normalization anywhere -- confirmed by direct search for "sum(" / "/ (" near this code, found nothing
+```
+
+**Two precise, real discrepancies from the paper's own prose, both confirmed by direct code search, both must be preserved faithfully in H1's port rather than "corrected" toward the paper's simplified description:**
+
+1. The paper's stated formula is `output = (K^T V) / (K^T 1)` (a normalized average). The real code has **no such division anywhere** -- raw `scores @ V`, scale presumably controlled entirely by the surrounding `ln()` calls instead.
+2. `tril(diagonal=-1)` is **strictly** lower-triangular -- position `t` cannot attend to itself, only to positions `< t`. Standard causal masks (`diagonal=0`) would be a real, silent deviation from the official implementation if used without checking this.
+
 ## How this feeds H1
 
 H1's faithful-reference implementation (`reference/hz0h_bdh_torch.py`, `reference/hz0h_bdh_mlx.py`) should port `bdh.py`'s actual four parameters (`encoder`, `encoder_v`, `decoder`, `lm_head`), the real per-layer forward sequence documented in the audit doc, the literal `Q=K` assertion, RoPE, and the shared-depth-weights structure -- all four are now `official-code implemented` confidence, not guesses. The `rho`/state-space equivalence claim and the literal Hebbian-to-tensor mapping remain open questions H1/H2 need to resolve by testing, not by assuming the paper's narrative describes the code 1:1.
