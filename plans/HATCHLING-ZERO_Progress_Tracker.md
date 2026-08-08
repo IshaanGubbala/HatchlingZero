@@ -52,7 +52,7 @@ This tracker translates the master development plan into restart-era execution s
 2. G2 (revalidate B): done against the 100M checkpoint -- real, mixed result, not uniform in either direction. See `docs/restart/hz0g_g2_b_revalidation_results.md`.
 3. G3 (revalidate C): done against the 100M checkpoint -- triggered attention still beats naive baselines at matched cost, real downstream loss cost of missing triggers is small (+0.009 nats) but scenario-dependent, latency shows no meaningful full-vs-triggered difference at this scale. See `docs/restart/hz0g_g3_c_revalidation_results.md`.
 4. G4 (revalidate D): done against the 100M checkpoint -- clean transfer, no reversals (unlike G2/G3): all 5 exit gates pass with wide margins, GD divergence now 8/8 seeds (stronger than the original finding). Real gap remains: rollback/rule-change only tested at pure-mechanism level, not against a real checkpoint. See `docs/restart/hz0g_g4_d_revalidation_results.md`.
-5. G5: real Dense vs. MoE vs. domain-adapter decision on the fully integrated checkpoint.
+5. G5: prerequisite built and verified -- reference/hz0g_g5_full_integration.py composes A+B+C+D+E for the first time (G2-G4 only tested B/C/D in isolation against A), bit-identical to existing A+C+D path when MoE off, bit-identical to E6's own MoE computation when isolated. The real Dense vs. MoE vs. domain-adapter comparison itself (needs trained MoE experts + trained adapter on this composed pipeline) not yet run.
 6. Prepare HZ-0H H0-H2 provenance and oracle work without changing the canonical HZ backbone.
 
 ## Risks
