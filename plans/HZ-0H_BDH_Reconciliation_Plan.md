@@ -7,6 +7,11 @@ the mechanisms HatchlingZero evolved independently. This is a research phase,
 not a commitment to replace or modify canonical HZ. A negative result is
 successful if BDH was reproduced faithfully and compared fairly.
 
+Also determine whether native ternary/1.58-bit training is a worthwhile
+efficiency multiplier for HatchlingZero, but only after the comparison design
+preserves clean BDH-vs-GDN conclusions. Quantization is treated as a separate
+training-regime variable, not as evidence that BDH itself is better or worse.
+
 Use two separate regimes:
 
 1. **Paper reproduction:** public BDH-GPU on the paper's Europarl/raw-UTF8 setup.
@@ -23,6 +28,12 @@ change the architecture.
   canonical HZ backbone or promote BDH components.
 - H3-H8 require the HZ-0G G1-G5 decision, or an explicitly recorded exception,
   so comparisons use a known canonical HZ checkpoint.
+- T0-T2 may study ternary training infrastructure and stability in isolation,
+  but may not replace the full-precision BDH or GDN-2 baselines required for
+  H3-H6.
+- T3 and later ternary architecture comparisons are allowed only after H3
+  establishes the full-precision BDH/GDN-2/Transformer picture. Do not let a
+  quantization instability masquerade as an architecture result.
 - Do not call a model BDH merely because it has a graph, Hebbian update, or
   recurrent state. Separate BDH-GPU computation, graph interpretation,
   synaptic/Hebbian interpretation, and spiking-neuron interpretation.
@@ -31,6 +42,27 @@ change the architecture.
   evidence spans approximately 10M-1B parameter scales.
 - Report quality, learning speed, active FLOPs, state bytes, latency, memory,
   and long-context behavior, not parameter count alone.
+- For ternary work, keep embeddings, logits, normalization, optimizer states,
+  router/control paths, and sensitive recurrent/state variables at higher
+  precision unless a later dedicated ablation isolates those changes.
+
+## T-lane - Ternary training sequencing rules
+
+Ternary work is a parallel lane whose purpose is to learn whether native
+`{-1, 0, +1}` training can reduce memory and deployment cost without muddying
+the BDH reconciliation answer.
+
+1. Establish the full-precision architecture truth first for BDH-GPU, exact
+   GDN-2 HZ, and Transformer in H3.
+2. Restrict early ternary experiments to training mechanics, optimizer
+   stability, scaling rules, and which matrix families tolerate ternarization.
+3. Ternarize large linear/projection/FFN matrices first; do not ternarize
+   recurrent state, memory state, attention/state update logic, embeddings, or
+   output heads in the first pass.
+4. Every ternary comparison must have a full-precision same-architecture
+   control with matched data, order, seeds, budget, and evaluation.
+5. A ternary failure means "this quantized regime failed under these rules," not
+   "the underlying architecture is inferior."
 
 ## H0 - Provenance and architecture audit
 
@@ -73,17 +105,66 @@ chunked streaming agree at lengths 1, 16, 128, and 1,024. Cover reset,
 serialization, resume, and arbitrary chunk boundaries. Do not assume the
 paper's state-space interpretation implies implementation equivalence.
 
+## T0 - Native ternary training design memo
+
+Create:
+
+```text
+docs/restart/hz0h_ternary_training_design.md
+```
+
+Specify the initial quantization contract: master real-valued weights with
+forward ternary projection; exact ternary value set `{-1, 0, +1}`; per-tensor
+or per-channel scaling policy; straight-through gradient rule; clipping;
+optimizer/state precision; and excluded modules. Define success metrics for
+stability, throughput, memory, and quality retention before code or scaling
+claims are made.
+
+## T1 - Ternary training sandbox on canonical simple baselines
+
+Implement ternary training only on ordinary Transformer/HZ training skeletons
+first, not on BDH reconciliation arms. Use approximately 10-15M parameter
+baseline runs to answer: do training remain stable, do losses decrease on
+schedule, which layers fail first, and what extra optimizer/normalization rules
+are needed. This is a mechanics gate, not an architecture verdict.
+
+## T2 - Same-architecture full-precision vs ternary controls
+
+For each architecture admitted to ternary study, compare full precision and
+ternary within that same architecture before any cross-architecture claim.
+Suggested first order:
+
+```text
+Transformer FP vs Transformer ternary
+GDN-2 FP vs GDN-2 ternary
+BDH-GPU FP vs BDH-GPU ternary
+```
+
+Measure convergence, final validation CE, throughput, peak memory, checkpoint
+size, decode behavior, and stability under resume. If ternary materially harms
+one family more than another, record that as a regime interaction, not as a
+replacement for H3.
+
 ## H3 - BDH-GPU vs exact GDN-2 vs Transformer
 
 After the HZ-0G dependency, train matched models at approximately 10-15M and
 50-100M parameters: Transformer, exact GDN-2 HZ, faithful vanilla BDH-GPU,
 and optionally BDH-GPU' as a labeled fourth arm. Record learning curves, not
-endpoints only.
+endpoints only. This phase stays full precision for all primary arms so the
+architecture comparison is not confounded by quantization maturity.
 
 Measure validation CE, quality per parameter/token/active FLOP, train/decode
 tok/s, state bytes, peak unified memory, and long-context degradation. BDH
 stays live if it wins meaningfully on any important axis; it need not win
 universally.
+
+## T3 - Post-H3 ternary replay of surviving arms
+
+Only after H3 defines the clean full-precision picture, replay ternary on the
+architectures still worth pursuing. Start with the H3 winner and strongest
+comparator, then optionally include the third arm if compute permits. The key
+question is whether ternary preserves the same ranking, narrows a cost gap, or
+changes the practical deployment frontier enough to matter for HZ-1 planning.
 
 ## H4 - Component decomposition
 
@@ -125,6 +206,13 @@ H-D: best empirically justified combination
 Each candidate needs a matched control and incremental comparison. No graft is
 promoted from a visualization or theoretical analogy.
 
+## T4 - Ternary graft qualification
+
+Only grafts that already survive H7 in full precision may enter ternary
+qualification. Ternary is the last efficiency filter, not the promotion
+mechanism. A graft that only looks good after quantization but fails the
+full-precision controls does not qualify as a BDH reconciliation success.
+
 ## H8 - Interpretability as a measured capability
 
 Measure activation/synapse selectivity, sparsity, community specialization,
@@ -137,11 +225,14 @@ establish monosemanticity.
 
 Document provenance; pass H1/H2; keep paper and HZ comparison regimes
 reproducible; identify real H3-H6 advantages or failures; evaluate at most four
-justified grafts; and mark every candidate KEEP, REJECT, or UNRESOLVED. No BDH
-component enters HZ-1 without the promotion rule.
+justified grafts; run ternary only in its declared side lane; and mark every
+candidate KEEP, REJECT, or UNRESOLVED for both full-precision value and
+ternary-worthiness where tested. No BDH component enters HZ-1 without the
+promotion rule.
 
 ## Out of scope
 
 Pathway's internal Sudoku system, a wholesale canonical-backbone rewrite, a new
-graph neural-network project, multimodal training, and broad unmotivated
-architecture sweeps.
+graph neural-network project, multimodal training, broad unmotivated
+architecture sweeps, and any attempt to use ternary failures to skip the
+required full-precision reconciliation baselines.
