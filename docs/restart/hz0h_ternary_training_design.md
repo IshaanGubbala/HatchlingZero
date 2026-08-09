@@ -62,7 +62,7 @@ other and to the full-precision H3 baselines once those exist.
 | --- | --- | --- | --- |
 | HZ-0A hybrid (`gdn2`/`gdn3`/`gdn2_fix`/Transformer) | Every mixer/attention/SwiGLU `nn.Linear` | Embedding, LM-head, all `RMSNorm`/`LayerNorm` | Already implemented (`--bitnet`); no new code needed |
 | BDH-GPU (`reference/hz0h_bdh_torch.py`) | `encoder`, `encoder_v`, `decoder` (the three shared low-rank matrices) | `embed`, `lm_head`, `ln` | Raw `nn.Parameter`, not `nn.Linear` -- apply `_ste_round_clip` functionally at each use site inside `forward`/`bdh_stream_chunk`, same formula, no new derivation |
-| Matched Transformer (`reference/hz0a_matched_transformer.py`) | `qkv`, `attn_out`, `gate`, `up`, `down` | `embedding`, `final_norm` | Same `_make_linear`-style swap as the hybrid model |
+| Matched Transformer (`reference/hz0a_matched_transformer.py`) | `qkv`, `attn_out`, `gate`, `up`, `down` | `embedding`, `final_norm` | **Built 2026-08-08** (was aspirational when this row was first written) -- `_make_linear` imported directly from `reference/hz0a_torch_model.py`, gated by `MatchedTransformerConfig(use_bitlinear=True)`; `--bitnet` now also reaches `--architecture transformer` in the runner (previously silently ignored there). See `docs/restart/hz0h_t2_matched_transformer_fp_vs_ternary.md` for T1/T2 results. |
 
 **Consistent across all three:** absmean ternary, STE, weights-only
 (activations stay at the run's `--dtype`), one scalar scale per weight

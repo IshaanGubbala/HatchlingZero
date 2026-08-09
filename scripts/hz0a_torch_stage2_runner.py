@@ -256,6 +256,7 @@ def main() -> None:
         transformer_config = MatchedTransformerConfig({
             "vocab_size": args.vocab_size, "d_model": args.dim, "num_layers": args.layers,
             "num_heads": args.heads, "head_dim": args.dim // args.heads, "d_ff": args.d_ff,
+            "use_bitlinear": args.bitnet,
         })
         model = MatchedTransformerLM(transformer_config)
     else:

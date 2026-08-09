@@ -9,9 +9,12 @@ from pathlib import Path
 import torch
 from torch import nn
 
+from reference.hz0a_torch_model import _make_linear
+
 
 class MatchedTransformerConfig:
     def __init__(self, values: dict):
+        self.use_bitlinear = False  # HZ-0H T-lane default; see docs/restart/hz0h_ternary_training_design.md
         self.__dict__.update(values)
 
     @classmethod
@@ -33,9 +36,19 @@ class MatchedTransformerBlock(nn.Module):
     def __init__(self, config: MatchedTransformerConfig):
         super().__init__()
         d, ff = config.d_model, config.d_ff
+        use_bitlinear = getattr(config, "use_bitlinear", False)
         self.norm1, self.norm2 = BiasFreeRMSNorm(d), BiasFreeRMSNorm(d)
-        self.qkv, self.attn_out = nn.Linear(d, 3 * d), nn.Linear(d, d)
-        self.gate, self.up, self.down = nn.Linear(d, ff), nn.Linear(d, ff), nn.Linear(ff, d)
+        # HZ-0H T-lane (docs/restart/hz0h_ternary_training_design.md): same
+        # absmean-ternary-STE `_make_linear`/`BitLinear` swap already used by
+        # reference/hz0a_torch_model.py's hybrid model -- reused directly
+        # rather than duplicated, per the design memo's own "same
+        # _make_linear-style swap as the hybrid model" contract row.
+        # `norm1`/`norm2`/embedding/final_norm stay full precision either way.
+        self.qkv = _make_linear(d, 3 * d, use_bitlinear)
+        self.attn_out = _make_linear(d, d, use_bitlinear)
+        self.gate = _make_linear(d, ff, use_bitlinear)
+        self.up = _make_linear(d, ff, use_bitlinear)
+        self.down = _make_linear(ff, d, use_bitlinear)
         self.heads, self.head_dim = config.num_heads, config.head_dim
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
