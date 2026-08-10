@@ -50,7 +50,17 @@ class SessionFastWeights(nn.Module):
         super().__init__(); self.dim=dim; self.rank=rank; self.max_norm=max_norm
         self.a=nn.Parameter(torch.randn(dim,rank)*.02); self.b=nn.Parameter(torch.zeros(rank,dim))
     def delta(self):
-        d=self.a@self.b; n=d.float().norm().clamp_min(1e-8); return d*min(1.0,self.max_norm/max(float(n.detach()),1e-6))
+        # b.detach().clone(): b is Hebbian-updated in-place by adapt() (never
+        # gradient-trained), and this module's single shared instance is
+        # called once per layer within one forward pass. Reading self.b
+        # directly and later calling adapt() in the same pass mutates the
+        # exact tensor PyTorch saved for this read's backward, raising
+        # "modified by an inplace operation". clone() snapshots the value so
+        # later in-place writes to the real b can't invalidate it; detach()
+        # keeps b (rightly) out of the autograd graph since only a and the
+        # gate are meant to receive gradients.
+        b=self.b.detach().clone()
+        d=self.a@b; n=d.float().norm().clamp_min(1e-8); return d*min(1.0,self.max_norm/max(float(n.detach()),1e-6))
     def apply(self,x): return x @ self.delta().T
     @torch.no_grad()
     def adapt(self,x,lr=1e-3,mask=None):

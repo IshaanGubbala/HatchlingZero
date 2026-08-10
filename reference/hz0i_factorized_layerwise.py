@@ -23,7 +23,9 @@ class FactorizedLayerwiseTiedBDH(FactorizedTiedBDH):
    if self.conditional is not None:
     local_triggers=self.trigger_gate(h)[1] if triggers is None else triggers
     h=h+torch.tanh(self.conditional_gate)*self.conditional(h,local_triggers)
-   if self.fast is not None:h=h+torch.tanh(self.fast_gate)*self.fast.apply_masked(h,triggers)
+   if self.fast is not None:
+    h=h+torch.tanh(self.fast_gate)*self.fast.apply_masked(h,triggers)
+    self.fast.adapt(h,mask=triggers)
    if self.moe is not None:h=h+torch.tanh(self.moe_gate)*self.moe(h)[0]
    if trace is not None:
     rec={'layer':level,'hidden_rms':float(h.detach().float().pow(2).mean().sqrt()),'conditional_gate':float(torch.tanh(self.conditional_gate).detach()) if self.conditional_gate is not None else 0.0,'fast_gate':float(torch.tanh(self.fast_gate).detach()) if self.fast_gate is not None else 0.0,'moe_gate':float(torch.tanh(self.moe_gate).detach()) if self.moe_gate is not None else 0.0}

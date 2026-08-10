@@ -37,6 +37,42 @@ def test_capability_gates_start_zero_and_receive_gradient():
  c=HZ0IBDHConfig(n_layer=1,n_embd=24,n_head=4,mlp_internal_dim_multiplier=8,vocab_size=32,dropout=0.,use_conditional_attention=True,use_fast_weights=True,use_moe=True);m=FactorizedLayerwiseTiedBDH(c,rank=3);x=torch.randint(0,32,(1,8));tr=torch.zeros(1,8,dtype=torch.bool);tr[:,::2]=1;_,l=m(x,triggers=tr,targets=x);l.backward();assert float(m.conditional_gate)==0 and m.conditional_gate.grad is not None
 
 
+def test_fast_gate_receives_nonzero_gradient_across_training_steps():
+ """Real regression test for a structural bug: SessionFastWeights.adapt()
+ (which writes the actual fast-weight memory `b`, starting at zero) was
+ never called from forward()/forward_hidden() -- only from the separate
+ stream() inference path -- so `b` stayed exactly zero forever, making
+ fast_gate's gradient PROVABLY zero on every training step (0 * anything
+ = 0), regardless of how long training ran. Confirmed empirically: every
+ real training run this session logged fast_gate=0.0000 at every single
+ traced step. Fixed by calling self.fast.adapt() in the hook, after the
+ read (matching stream()'s own read-then-write order so a position never
+ reads state written from its own future). n_layer=3 here specifically to
+ exercise the OTHER real bug that fix surfaced: since this module's single
+ SessionFastWeights instance is shared and called once per layer within
+ one forward pass, adapt()'s in-place mutation of `b` invalidated the
+ autograd graph node from an earlier layer's read in the SAME pass
+ ("modified by an inplace operation") until reference/hz0i_optional_
+ integrations.py's SessionFastWeights.delta() was changed to clone() b at
+ read time."""
+ c=HZ0IBDHConfig(n_layer=3,n_embd=24,n_head=4,mlp_internal_dim_multiplier=8,vocab_size=32,dropout=0.,use_fast_weights=True)
+ m=FactorizedLayerwiseTiedBDH(c,rank=3)
+ x=torch.randint(0,32,(2,8))
+ # first call: b starts at zero (fresh model), so apply_masked's output is
+ # provably zero for THIS call -- fast_gate's gradient here can be zero,
+ # that's expected and not what's being tested.
+ _,l1=m(x,targets=x);l1.backward()
+ assert m.fast.b.abs().sum()>0, "adapt() should have written nonzero state into b after one forward pass"
+ m.fast_gate.grad=None
+ # second call: b is now nonzero (from the first call's adapt), so
+ # apply_masked's output is nonzero, so fast_gate must receive a real,
+ # nonzero gradient -- this is the actual fix being verified.
+ _,l2=m(x,targets=x);l2.backward()
+ assert m.fast_gate.grad is not None
+ assert float(m.fast_gate.grad.abs())>0, "fast_gate gradient is still zero -- fix did not take effect"
+ assert torch.isfinite(l2)
+
+
 def test_layerwise_moe_capacity_option():
  c=HZ0IBDHConfig(n_layer=1,n_embd=24,n_head=4,mlp_internal_dim_multiplier=8,vocab_size=32,dropout=0.,use_moe=True,moe_capacity_factor=.5);m=FactorizedLayerwiseTiedBDH(c,rank=3);y,_=m(torch.randint(0,32,(1,8)));assert torch.isfinite(y).all() and m.moe.capacity_factor==.5
 
