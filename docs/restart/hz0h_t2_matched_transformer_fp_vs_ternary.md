@@ -114,3 +114,8 @@ deployment-time packed format.
 GDN-2 (H3's job, still blocked on HZ-0G's G1 decision), and nothing about
 whether this late-training jitter is architecture-specific or would
 disappear with a longer run / LR schedule -- both open questions.
+
+
+## Checkpoint/resume follow-up
+
+A deterministic interrupted-vs-uninterrupted regression now restores model state, AdamW state, and PyTorch RNG state and matches final parameters and losses exactly within `1e-7` on the fixed dropout-free sandbox. This validates framework-level resume semantics; it is not evidence of cross-framework optimizer-state portability.

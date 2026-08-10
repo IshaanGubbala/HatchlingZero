@@ -1,4 +1,4 @@
-.venv/
+.venv
 .venv-msl/
 .venv-py39/
 __pycache__/
@@ -10,3 +10,4 @@ build/
 *.egg-info/
 data/
 outputs/
+.impeccable/

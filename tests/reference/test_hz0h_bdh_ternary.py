@@ -197,3 +197,32 @@ def test_t2_matched_fp32_vs_ternary_convergence_gap_is_small():
     assert final_losses["ternary"] < random_floor * 0.5, "ternary did not learn"
     gap = abs(final_losses["ternary"] - final_losses["fp32"])
     assert gap < 0.5, f"convergence gap too large: fp32={final_losses['fp32']:.4f} ternary={final_losses['ternary']:.4f} gap={gap:.4f}"
+
+
+def test_ternary_excludes_embedding_norm_and_lm_head():
+    torch.manual_seed(31)
+    c = bdh_torch.BDHConfig(n_layer=1, n_embd=16, n_head=4, mlp_internal_dim_multiplier=4, vocab_size=24, dropout=0.0, ternary=True)
+    m = bdh_torch.BDH(c)
+    original = {k: v.detach().clone() for k,v in m.state_dict().items()}
+    _ = m(torch.randint(0, c.vocab_size, (2, 5)))
+    for key in ("embed.weight", "lm_head"):
+        assert torch.equal(m.state_dict()[key], original[key])
+    assert not any(name.startswith("ln.") for name, _ in m.named_parameters())
+
+
+def test_ternary_checkpoint_resume_matches_uninterrupted():
+    torch.manual_seed(32)
+    kwargs=dict(n_layer=1,n_embd=16,n_head=4,mlp_internal_dim_multiplier=4,vocab_size=24,dropout=0.0,ternary=True)
+    template=bdh_torch.BDH(bdh_torch.BDHConfig(**kwargs))
+    initial={k:v.detach().clone() for k,v in template.state_dict().items()}
+    batches=[torch.randint(0,24,(2,9),generator=torch.Generator().manual_seed(i)) for i in range(6)]
+    def step(m,opt,b):
+        _,loss=m(b[:,:-1].contiguous(),targets=b[:,1:].contiguous()); opt.zero_grad(); loss.backward(); opt.step(); return float(loss)
+    torch.manual_seed(33); full=bdh_torch.BDH(bdh_torch.BDHConfig(**kwargs)); full.load_state_dict(initial); of=torch.optim.AdamW(full.parameters(),lr=2e-3)
+    full_losses=[step(full,of,b) for b in batches]
+    torch.manual_seed(33); part=bdh_torch.BDH(bdh_torch.BDHConfig(**kwargs)); part.load_state_dict(initial); op=torch.optim.AdamW(part.parameters(),lr=2e-3)
+    part_losses=[step(part,op,b) for b in batches[:3]]; saved=(part.state_dict(),op.state_dict(),torch.get_rng_state())
+    resumed=bdh_torch.BDH(bdh_torch.BDHConfig(**kwargs)); resumed.load_state_dict(saved[0]); orr=torch.optim.AdamW(resumed.parameters(),lr=2e-3); orr.load_state_dict(saved[1]); torch.set_rng_state(saved[2])
+    resumed_losses=[step(resumed,orr,b) for b in batches[3:]]
+    assert torch.allclose(torch.cat([p.detach().flatten() for p in full.parameters()]),torch.cat([p.detach().flatten() for p in resumed.parameters()]),atol=1e-7,rtol=0)
+    assert full_losses == part_losses + resumed_losses

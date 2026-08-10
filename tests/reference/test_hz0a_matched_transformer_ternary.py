@@ -154,3 +154,17 @@ def test_t2_matched_fp32_vs_ternary_convergence_gap_is_small():
     assert final_losses["ternary"] < random_floor * 0.5, "ternary did not learn"
     gap = abs(final_losses["ternary"] - final_losses["fp32"])
     assert gap < 0.5, f"convergence gap too large: fp32={final_losses['fp32']:.4f} ternary={final_losses['ternary']:.4f} gap={gap:.4f}"
+
+
+def test_ternary_checkpoint_resume_matches_uninterrupted():
+    torch.manual_seed(41)
+    cfg=lambda bit: _config(use_bitlinear=bit, vocab_size=24, d_model=16, num_layers=1, num_heads=4, d_ff=32)
+    template=MatchedTransformerLM(cfg(True)); initial={k:v.detach().clone() for k,v in template.state_dict().items()}
+    batches=[torch.randint(0,24,(2,9),generator=torch.Generator().manual_seed(i)) for i in range(6)]
+    def step(m,opt,b):
+        logits=m(b[:,:-1].contiguous()); loss=torch.nn.functional.cross_entropy(logits.reshape(-1,24),b[:,1:].contiguous().reshape(-1)); opt.zero_grad(); loss.backward(); opt.step(); return float(loss)
+    torch.manual_seed(42); full=MatchedTransformerLM(cfg(True)); full.load_state_dict(initial); of=torch.optim.AdamW(full.parameters(),lr=2e-3); fl=[step(full,of,b) for b in batches]
+    torch.manual_seed(42); part=MatchedTransformerLM(cfg(True)); part.load_state_dict(initial); op=torch.optim.AdamW(part.parameters(),lr=2e-3); pl=[step(part,op,b) for b in batches[:3]]; saved=({k:v.detach().clone() for k,v in part.state_dict().items()},op.state_dict(),torch.get_rng_state())
+    resumed=MatchedTransformerLM(cfg(True)); resumed.load_state_dict(saved[0]); orr=torch.optim.AdamW(resumed.parameters(),lr=2e-3); orr.load_state_dict(saved[1]); torch.set_rng_state(saved[2]); rl=[step(resumed,orr,b) for b in batches[3:]]
+    assert torch.allclose(torch.cat([p.detach().flatten() for p in full.parameters()]),torch.cat([p.detach().flatten() for p in resumed.parameters()]),atol=1e-7,rtol=0)
+    assert fl == pl + rl

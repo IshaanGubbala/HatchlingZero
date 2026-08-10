@@ -1,0 +1,22 @@
+{
+  "name": "hz0i_code_reasoning_0p3b",
+  "paths": {
+    "general": "data/packed/stage1_10m_train_seq256.jsonl",
+    "code": "data/packed/external/code_train.jsonl",
+    "math": "data/packed/external/mathematical_and_structured_train.jsonl",
+    "json": "data/packed/external/json_and_configuration_train.jsonl",
+    "docs": "data/packed/external/documentation_train.jsonl",
+    "terminal": "data/packed/external/terminal_and_debugging_train.jsonl"
+  },
+  "weights": {
+    "general": 0.06,
+    "code": 0.3,
+    "math": 0.3,
+    "json": 0.1,
+    "docs": 0.12,
+    "terminal": 0.12
+  },
+  "seed": 17,
+  "adaptive": true,
+  "note": "train splits; biased toward code (0.30) and math/reasoning (0.30); general low"
+}

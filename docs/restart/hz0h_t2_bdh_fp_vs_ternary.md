@@ -90,3 +90,8 @@ remains a separate, not-yet-built deployment step for either architecture.
 job), and anything about ranking preservation across architectures (T3's
 job, blocked on H3). This report only qualifies BDH-GPU's *own*
 full-precision result against BDH-GPU's *own* ternary result.
+
+
+## Checkpoint/resume follow-up
+
+A deterministic interrupted-vs-uninterrupted regression now restores model state, AdamW state, and PyTorch RNG state and matches final parameters and losses exactly within `1e-7` on the fixed dropout-free sandbox. This validates framework-level resume semantics; it is not evidence of cross-framework optimizer-state portability.

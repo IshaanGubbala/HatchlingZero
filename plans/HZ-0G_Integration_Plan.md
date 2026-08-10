@@ -63,7 +63,7 @@ Deliverable: this document, plus an explicit tracker entry recording the
 KEEP / NOT-PROMOTED lists above as the canonical starting point for
 everything downstream. No code changes. **Status: this section IS G0.**
 
-## G1 — Make exact GDN-2 the canonical backbone (requires real compute budget -- not started)
+## G1 — Make exact GDN-2 the canonical backbone (in progress)
 
 The real gate: does exact GDN-2's early 10M-token advantage survive at
 real scale, or does a matched Transformer catch up?
@@ -83,9 +83,9 @@ compute, or better long-context/stateful behavior -- versus the matched
 Transformer. If the early advantage disappears, that must be known
 before any further HZ-0G integration work is built around this backbone.
 
-**This requires a real, multi-session compute/time commitment this plan
-does not itself authorize.** Not started; needs an explicit go/no-go
-before the first 100M-token run begins.
+**Status:** in progress. The 100M-token checkpoint is complete and the 500M
+continuation is running on a separate machine. The 500M-2B critical gate
+remains open until the matched evaluation is complete.
 
 ## G2 — Revalidate B (after G1 produces a credible checkpoint)
 

@@ -1,0 +1,37 @@
+{
+  "hz0i_0p3b": {
+    "vocab_size": 24576,
+    "d_model": 768,
+    "n_layer": 8,
+    "n_head": 12,
+    "mlp_internal_dim_multiplier": 144
+  },
+  "hz0i_0p8b": {
+    "vocab_size": 24576,
+    "d_model": 1024,
+    "n_layer": 8,
+    "n_head": 16,
+    "mlp_internal_dim_multiplier": 256
+  },
+  "hz0i_1b": {
+    "vocab_size": 24576,
+    "d_model": 1280,
+    "n_layer": 8,
+    "n_head": 16,
+    "mlp_internal_dim_multiplier": 160
+  },
+  "hz0i_3b": {
+    "vocab_size": 24576,
+    "d_model": 1536,
+    "n_layer": 8,
+    "n_head": 24,
+    "mlp_internal_dim_multiplier": 384
+  },
+  "hz0i_5b": {
+    "vocab_size": 24576,
+    "d_model": 2048,
+    "n_layer": 8,
+    "n_head": 32,
+    "mlp_internal_dim_multiplier": 320
+  }
+}

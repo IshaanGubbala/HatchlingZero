@@ -191,6 +191,25 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             body = json.dumps(snapshot(requested_run), default=float).encode("utf-8")
             self._send_bytes(200, body, "application/json")
             return
+        if path.startswith("/api/bdh-graph"):
+            requested = query.get("run", ["hz0h_live_bdh_graph"])[0]
+            graph_path = OUT_DIR / requested / "bdh_graph.json"
+            payload = {}
+            if graph_path.is_file():
+                try: payload = json.loads(graph_path.read_text(encoding="utf-8"))
+                except Exception: payload = {"error": "invalid bdh_graph.json"}
+            self._send_bytes(200, json.dumps(payload, default=float).encode("utf-8"), "application/json")
+            return
+        if path.startswith("/api/representation"):
+            requested_run = query.get("run", [None])[0]
+            run_dir = _find_run(requested_run) if requested_run else _pick_latest_run()
+            rep = {}
+            if run_dir and (run_dir / "representation.json").is_file():
+                try: rep = json.loads((run_dir / "representation.json").read_text(encoding="utf-8"))
+                except Exception: rep = {"error": "invalid representation.json"}
+            body = json.dumps(rep, default=float).encode("utf-8")
+            self._send_bytes(200, body, "application/json")
+            return
         if path in ("/", "/index", "/index.html"):
             try:
                 self._send_bytes(200, INDEX_HTML.read_bytes(), "text/html; charset=utf-8")

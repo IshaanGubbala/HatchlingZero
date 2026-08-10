@@ -1,0 +1,62 @@
+[
+  {
+    "bdh": {
+      "params": 15335424,
+      "loss_first": 10.137946128845215,
+      "loss_last": 5.007373332977295,
+      "validation_loss": 4.904699802398682,
+      "tok_s": 1819.1593518347718,
+      "finite": true
+    },
+    "gdn2_fix": {
+      "params": 12686184,
+      "loss_first": 10.603689193725586,
+      "loss_last": 5.217957496643066,
+      "validation_loss": 5.050301122665405,
+      "tok_s": 2093.091075230072,
+      "finite": true
+    },
+    "steps": 500,
+    "note": "real packed corpus, short matched smoke"
+  },
+  {
+    "bdh": {
+      "params": 15335424,
+      "loss_first": 10.102468490600586,
+      "loss_last": 5.075815677642822,
+      "validation_loss": 4.887149715423584,
+      "tok_s": 1787.9876873414648,
+      "finite": true
+    },
+    "gdn2_fix": {
+      "params": 12686184,
+      "loss_first": 10.578198432922363,
+      "loss_last": 5.153022289276123,
+      "validation_loss": 5.034886336326599,
+      "tok_s": 2084.3893930007957,
+      "finite": true
+    },
+    "steps": 500,
+    "note": "real packed corpus, short matched smoke"
+  },
+  {
+    "bdh": {
+      "params": 15335424,
+      "loss_first": 10.094518661499023,
+      "loss_last": 5.0619797706604,
+      "validation_loss": 4.937813401222229,
+      "tok_s": 1782.8098256055541,
+      "finite": true
+    },
+    "gdn2_fix": {
+      "params": 12686184,
+      "loss_first": 10.671011924743652,
+      "loss_last": 5.0923967361450195,
+      "validation_loss": 5.068868231773377,
+      "tok_s": 2096.0666802094975,
+      "finite": true
+    },
+    "steps": 500,
+    "note": "real packed corpus, short matched smoke"
+  }
+]

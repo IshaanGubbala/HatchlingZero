@@ -1,0 +1,71 @@
+[
+  {
+    "scale": "10m",
+    "steps": 150,
+    "bdh": {
+      "parameter_count": 10629120,
+      "loss_first": 4.171326160430908,
+      "loss_last": 0.007824379950761795,
+      "validation_loss": 0.09785453975200653,
+      "finite": true,
+      "seconds": 8.72149945795536,
+      "tokens_per_second": 2201.456308351498
+    },
+    "gdn2_fix": {
+      "parameter_count": 10333032,
+      "loss_first": 4.625335693359375,
+      "loss_last": 0.0015440556453540921,
+      "validation_loss": 0.053032081574201584,
+      "finite": true,
+      "seconds": 8.224609708006028,
+      "tokens_per_second": 2334.4572790256866
+    },
+    "interpretation": "preliminary training smoke; not a quality verdict"
+  },
+  {
+    "scale": "10m",
+    "steps": 150,
+    "bdh": {
+      "parameter_count": 10629120,
+      "loss_first": 4.073114395141602,
+      "loss_last": 0.008074665442109108,
+      "validation_loss": 0.06280843168497086,
+      "finite": true,
+      "seconds": 8.56679966696538,
+      "tokens_per_second": 2241.2103406640326
+    },
+    "gdn2_fix": {
+      "parameter_count": 10333032,
+      "loss_first": 4.855194568634033,
+      "loss_last": 0.0012207761174067855,
+      "validation_loss": 0.0012217559851706028,
+      "finite": true,
+      "seconds": 8.122200667043217,
+      "tokens_per_second": 2363.8913623380736
+    },
+    "interpretation": "preliminary training smoke; not a quality verdict"
+  },
+  {
+    "scale": "10m",
+    "steps": 150,
+    "bdh": {
+      "parameter_count": 10629120,
+      "loss_first": 4.133743762969971,
+      "loss_last": 0.007827742956578732,
+      "validation_loss": 0.05052145570516586,
+      "finite": true,
+      "seconds": 8.583890499954578,
+      "tokens_per_second": 2236.748010718636
+    },
+    "gdn2_fix": {
+      "parameter_count": 10333032,
+      "loss_first": 5.105897903442383,
+      "loss_last": 0.0015213052975013852,
+      "validation_loss": 0.001531497691757977,
+      "finite": true,
+      "seconds": 8.065241625008639,
+      "tokens_per_second": 2380.5858389245013
+    },
+    "interpretation": "preliminary training smoke; not a quality verdict"
+  }
+]

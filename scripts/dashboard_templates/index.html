@@ -100,6 +100,10 @@
     font-weight: 700;
   }
   .panel canvas { flex: 1; min-height: 0; }
+  .representation { display:grid; grid-template-columns: 2fr 1fr; gap:16px; margin-top:16px; }
+  #state-heatmap { width:100%; height:240px; image-rendering:pixelated; background:#0b1228; }
+  #bdh-graph { width:100%; height:520px; background:#0b1228; border-radius:8px; }
+  .top-tokens { font-family:ui-monospace,monospace; font-size:12px; color:var(--muted); overflow:auto; max-height:240px; white-space:pre; }
   .log {
     background: var(--card); border: 1px solid var(--line); border-radius: 14px;
     padding: 14px 18px; max-height: 220px; overflow: auto;
@@ -152,6 +156,11 @@
     </div>
   </div>
 
+  <div class="panel" style="margin-top:16px"><h3><span class="badge">actual BDH graph</span> Effective neuron connectivity · decoder × encoder</h3><canvas id="bdh-graph"></canvas></div>
+  <div class="representation">
+    <div class="panel"><h3><span class="badge">actual state</span> Recurrent representation heatmap</h3><canvas id="state-heatmap"></canvas></div>
+    <div class="panel"><h3><span class="badge">inference</span> Top logits on probe tokens</h3><div class="top-tokens" id="top-tokens">representation probe not running</div></div>
+  </div>
   <div class="log" id="log-tail">log tail loading…</div>
 </main>
 <footer>
@@ -231,7 +240,35 @@ lrChart.data.datasets = [{
   backgroundColor: 'rgba(167, 139, 250, 0.10)', fill: true, tension: 0.25,
 }];
 
+async function paintBdhGraph() {
+  try { const r=await fetch('/api/bdh-graph?run=hz0h_live_bdh_graph'); const g=await r.json(); if(!g.nodes) return;
+    const c=document.getElementById('bdh-graph'),ctx=c.getContext('2d'),W=c.clientWidth,H=c.clientHeight,dpr=window.devicePixelRatio||1;c.width=W*dpr;c.height=H*dpr;ctx.scale(dpr,dpr);ctx.clearRect(0,0,W,H);
+    const n=g.nodes.length, pos=g.nodes.map((_,i)=>{const a=2*Math.PI*i/n;return{x:W/2+(W*.38)*Math.cos(a),y:H/2+(H*.40)*Math.sin(a)}});
+    let max=0;g.edges.forEach(e=>max=Math.max(max,Math.abs(e.weight)));
+    g.edges.forEach(e=>{const a=pos[e.source],b=pos[e.target],q=Math.abs(e.weight)/Math.max(max,1e-9);ctx.strokeStyle=e.weight>0?`rgba(34,211,238,${.12+.65*q})`:`rgba(244,114,182,${.12+.65*q})`;ctx.lineWidth=.4+2*q;ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke()});
+    let am=0;g.nodes.forEach(x=>am=Math.max(am,x.activation));g.nodes.forEach((x,i)=>{const a=pos[i],q=x.activation/Math.max(am,1e-9);ctx.fillStyle=`rgb(${Math.round(40+180*q)},${Math.round(100+100*q)},${Math.round(190+50*q)})`;ctx.beginPath();ctx.arc(a.x,a.y,2.5+7*q,0,Math.PI*2);ctx.fill();ctx.fillStyle='#94a3b8';ctx.font='9px monospace';ctx.fillText(x.id,a.x+7,a.y+3)});ctx.fillStyle='#94a3b8';ctx.font='11px monospace';ctx.fillText(`step ${g.step} · ${g.nodes.length} neurons · ${g.edges.length} strongest edges`,12,18);
+  } catch (_) {}
+}
+
+async function paintRepresentation(run) {
+  try {
+    const r = await fetch(`/api/representation${run ? `?run=${encodeURIComponent(run)}` : ''}`);
+    const rep = await r.json();
+    if (!rep.state_heatmap) return;
+    const canvas=document.getElementById('state-heatmap'), ctx=canvas.getContext('2d');
+    const rows=rep.state_heatmap.length, cols=Math.max(...rep.state_heatmap.map(x=>x.length),1);
+    canvas.width=cols; canvas.height=rows;
+    const image=ctx.createImageData(cols,rows); let max=0; rep.state_heatmap.flat().forEach(v=>{max=Math.max(max,v||0)});
+    rep.state_heatmap.forEach((row,y)=>row.forEach((v,x)=>{const q=Math.sqrt((v||0)/Math.max(max,1e-12)); const i=(y*cols+x)*4; image.data[i]=Math.round(30+80*q); image.data[i+1]=Math.round(80+150*q); image.data[i+2]=Math.round(140+110*q); image.data[i+3]=255;}));
+    ctx.putImageData(image,0,0);
+    const lines=(rep.top_tokens||[]).map((row,i)=>`t${i}=${rep.token_ids[i]}  top: ${row.join(', ')}`);
+    document.getElementById('top-tokens').textContent=`checkpoint step ${rep.step} · state norms ${(rep.state_norms||[]).map(x=>x.toFixed(2)).join(', ')}\n\n`+lines.join('\n');
+  } catch (_) {}
+}
+
 function paint({ ts, run, metrics, summary, log }) {
+  paintBdhGraph();
+  paintRepresentation(run);
   document.getElementById('run-tag').textContent = `run: ${run || 'none'} · ${metrics.length} checkpoints`;
   document.getElementById('ts-tag').textContent =
     `ts: ${new Date(ts * 1000).toLocaleTimeString()}`;

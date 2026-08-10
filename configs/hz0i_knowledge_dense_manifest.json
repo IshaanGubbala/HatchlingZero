@@ -1,0 +1,19 @@
+{
+  "paths": {
+    "general": "data/packed/repro_256_val.jsonl",
+    "code": "data/packed/external/code_validation.jsonl",
+    "math": "data/packed/external/mathematical_and_structured_validation.jsonl",
+    "json": "data/packed/external/json_and_configuration_validation.jsonl",
+    "docs": "data/packed/external/documentation_validation.jsonl",
+    "terminal": "data/packed/external/terminal_and_debugging_validation.jsonl"
+  },
+  "weights": {
+    "general": 0.4,
+    "code": 0.15,
+    "math": 0.15,
+    "json": 0.1,
+    "docs": 0.1,
+    "terminal": 0.1
+  },
+  "seed": 17
+}
