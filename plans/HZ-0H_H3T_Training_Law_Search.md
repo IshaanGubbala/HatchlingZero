@@ -378,26 +378,68 @@ idea at this scale, though it does establish SG-global itself (used every
 step, no calibration gaps) as a real, if modest, improvement over
 SG-local.
 
+## SG-global extended to all three shared parameters
+
+`scripts/hz0h_h3t_sg_global_all_shared_params.py`, combining SG-global's
+real per-position target (verified again here: all three parameters'
+targets reconstruct their true gradients to <1e-5, `test_all_three_targets_reconstruct_true_gradients_exactly`)
+with the earlier all-three-parameter predictor architecture.
+
+**A real bug was caught and fixed before it produced a misleading
+number**: an early draft called `opt.zero_grad()` after the data pass's
+own `loss.backward()`, which would have wiped `embed`/`lm_head`'s already-
+correct real gradients (they are never substituted) and frozen them for
+every synthetic step. Fixed by only overwriting the three shared
+parameters' `.grad` attributes directly, never re-zeroing. Pinned down
+with a real regression test that trains for 15 steps (12 past warmup,
+so mostly synthetic) and confirms `embed.weight`/`lm_head` actually
+changed, not just that the run avoided crashing
+(`test_embed_and_lm_head_still_train_during_synthetic_steps`).
+
+**Result: WORSE than single-parameter SG-global, and worse in ratio than
+the earlier local-signal-based three-parameter swap.** 300 steps: final
+loss 0.7930 vs true BPTT's 0.3944 (roughly 2x) -- compare single-param
+SG-global's 0.4203 (roughly 1.07x) and the local-signal three-parameter
+swap's 1.9120 vs true BPTT's 1.4545 (roughly 1.31x). **The better
+per-parameter signal (SG-global's real per-position target vs the local
+signal's depth-truncated one) does not overcome the compounding-error
+problem when three independently-approximate signals combine** -- each
+parameter's predictor is individually better than its SG-local
+counterpart, but the model has to simultaneously tolerate imperfect
+credit for `encoder`, `encoder_v`, and `decoder` at once, and those
+errors do not cancel.
+
+Efficiency for this combination was NOT re-measured separately -- the
+production-mode wall-clock (1.147x, from the earlier three-parameter
+efficiency script) is a property of the computation graph
+(`requires_grad=False` + a cheap predictor forward pass), not of which
+target trained the predictor offline, so the existing measurement
+applies here too without needing a new timing run.
+
 ## Status
 
 Stage 1 (prerequisite gate), Stage 2's three training-rule arms (real
 loss curves), real efficiency measurements for both a one-parameter and
 a three-parameter (all shared/tied params) Arm B swap, SG-global (real
-per-position BPTT targets), and a periodic-calibration sweep are all
-complete. Real, honest, mixed picture throughout: none beats true BPTT on
-quality. SG-global is a real, confirmed improvement over SG-local on both
-alignment and quality at a sufficient horizon, but periodic calibration
-(the mechanism that would have turned that improvement into a compute
-saving) does not hold up well at this scale -- quality craters past ~80%
-synthetic, and the sub-80% range that stays close to true BPTT doesn't
-save much compute for a single parameter. Swapping all three shared
-parameters together produced the expected tradeoff -- better speed
-(1.147x, up from 1.03x for one parameter) at the cost of worse quality
-(loss 1.9120, up from 1.5231). Neither end of any measured curve is yet a
-compelling production case. Real next steps, not yet attempted: SG-global
-applied to all three shared parameters together (not just `encoder`),
-larger scale (a real ~10-30M faithful BDH, not this session's tiny toy
-configs) and multi-seed validation before treating any of these numbers
-as settled, and -- per the investigation's own explicit call -- no new
-local-learning-rule variants until the existing curve is either bent
-favorably at scale or conclusively found not to bend.
+per-position BPTT targets, both single-parameter and all-three-parameter),
+and a periodic-calibration sweep are all complete. Real, honest, mixed
+picture throughout: none beats true BPTT on quality. SG-global is a real,
+confirmed improvement over SG-local on both alignment and quality at a
+sufficient horizon, but two real limits on that improvement are now
+established: periodic calibration (the mechanism that would have turned
+it into a compute saving) does not hold up at this scale -- quality
+craters past ~80% synthetic; and extending SG-global to all three shared
+parameters simultaneously makes things WORSE, not better, than the
+single-parameter version (loss 0.7930 vs 0.4203) -- a better per-parameter
+signal does not overcome three independent approximate signals compounding
+their errors together. Neither end of any measured curve, on any
+dimension tried, is yet a compelling production case.
+
+Real next steps, not yet attempted: larger scale (a real ~10-30M faithful
+BDH, not this session's tiny toy configs) and multi-seed validation
+before treating any of these numbers as settled -- everything measured so
+far is a single seed on a small-enough-to-iterate-quickly toy model, and
+per-parameter compounding effects especially could look different at
+scale. Per the investigation's own explicit call: no new local-learning-
+rule variants until the existing curve is either bent favorably at scale
+or conclusively found not to bend.
