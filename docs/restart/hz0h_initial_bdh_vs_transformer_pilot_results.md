@@ -1,6 +1,35 @@
 # HZ-0H initial BDH-vs-Transformer pilot: real results
 
-## Update 2026-08-11: Transformer rerun with RoPE + matched weight_decay
+## Update 2 2026-08-11: decisive same-machine, same-dtype result (RTX 3060)
+
+Dispatched the RoPE-fixed Transformer config to the SAME machine/dtype the
+BDH run already used (RTX 3060, CUDA, bfloat16, batch_size=32,
+weight_decay=0.1, both with real RoPE) -- closes every confound from
+Update 1 below at once (hardware, dtype, weight_decay). Real result:
+
+| | BDH | Transformer |
+| --- | --- | --- |
+| tokens/sec | 26,596 | **146,788** (~5.5x faster) |
+| best validation loss | 1.623 | **1.355** (lower/better) |
+| parameters | 4,849,664 | 4,804,868 |
+| training wall-clock | 940.1s | 170.3s |
+| peak VRAM (RTX 3060) | not captured | ~1,887 MB (nvidia-smi sampled, coarse) |
+
+**No confound left in this pair**: same GPU, same dtype, same batch size,
+same token budget (25M), same weight_decay, both architectures with real
+(if formula-different) RoPE. At this specific small scale (~4.8M params,
+byte-level vocab, single code-corpus source), the Transformer wins
+decisively on both throughput and quality. This does not generalize past
+"the tested range" (see `plans/HZ Benchmark Plan.md`'s claim-discipline
+section) -- it is one real, clean data point at one small scale, not
+evidence about BDH at 125M-1B+ scale, where BDH's O(1)-state streaming
+inference and shared/tied-weight parameter efficiency (this project's own
+H2/H5 findings) may matter more than at a scale this small. Real next
+step per the benchmark plan: repeat at a larger scale once hardware
+allows, and add the iso-compute/iso-quality comparisons (not just
+iso-parameter) before drawing any scale-independent conclusion.
+
+## Update 1 2026-08-11: Transformer rerun with RoPE + matched weight_decay
 
 Per this doc's own "real next steps" #1-2 below: added an opt-in `use_rope`
 flag to `reference/hz0a_matched_transformer.py` (standard Llama/GPT-NeoX/
