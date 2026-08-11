@@ -15,6 +15,15 @@ from reference.hz0a_torch_model import _make_linear
 class MatchedTransformerConfig:
     def __init__(self, values: dict):
         self.use_bitlinear = False  # HZ-0H T-lane default; see docs/restart/hz0h_ternary_training_design.md
+        # Off by default -- this class backs many established HZ-0A/HZ-0H
+        # results (T1/T2 ternary comparisons, HZ-0A hybrid-vs-transformer
+        # controls) that were run and reported WITHOUT any positional
+        # encoding at all. Adding RoPE unconditionally would silently
+        # change what every one of those historical results measured.
+        # Opt in explicitly per run instead -- see
+        # docs/restart/hz0h_initial_bdh_vs_transformer_pilot_results.md's
+        # "real, current gap" finding for why this was added.
+        self.use_rope = False
         self.__dict__.update(values)
 
     @classmethod
@@ -30,6 +39,37 @@ class BiasFreeRMSNorm(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return x * torch.rsqrt(x.square().mean(dim=-1, keepdim=True) + self.eps) * self.weight
+
+
+def _rope_cos_sin(seq_len: int, head_dim: int, device, dtype, theta: float = 10000.0) -> tuple[torch.Tensor, torch.Tensor]:
+    """Standard (Llama/GPT-NeoX/Qwen-style) "rotate-half" RoPE, computed
+    fresh per forward call rather than cached in a buffer -- this
+    project's sequence lengths are small (<=1024) so the recompute cost
+    is negligible, and it sidesteps any buffer-resize/device/dtype-cast
+    bookkeeping entirely. Deliberately NOT reusing
+    reference/hz0h_bdh_torch.py's Attention.phases_cos_sin: that formula
+    is BDH's own real, verified-against-upstream RoPE variant (quantized
+    frequency bins, cycles-to-radians wrap) -- this is a standard,
+    independent implementation for the Transformer baseline, not a port
+    of BDH's version, so this comparison isn't "BDH's RoPE vs no RoPE"
+    but "BDH's RoPE vs a normal modern Transformer's RoPE."
+    """
+    half = head_dim // 2
+    freqs = 1.0 / (theta ** (torch.arange(0, half, dtype=torch.float32, device=device) / half))
+    positions = torch.arange(seq_len, dtype=torch.float32, device=device)
+    angles = torch.outer(positions, freqs)  # (T, head_dim/2)
+    angles = torch.cat([angles, angles], dim=-1)  # (T, head_dim)
+    return angles.cos().to(dtype), angles.sin().to(dtype)
+
+
+def _rotate_half(x: torch.Tensor) -> torch.Tensor:
+    x1, x2 = x.chunk(2, dim=-1)
+    return torch.cat([-x2, x1], dim=-1)
+
+
+def _apply_rope(x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.Tensor:
+    # x: (B, heads, T, head_dim); cos/sin: (T, head_dim), broadcast over B/heads.
+    return x * cos + _rotate_half(x) * sin
 
 
 class MatchedTransformerBlock(nn.Module):
@@ -50,11 +90,15 @@ class MatchedTransformerBlock(nn.Module):
         self.up = _make_linear(d, ff, use_bitlinear)
         self.down = _make_linear(ff, d, use_bitlinear)
         self.heads, self.head_dim = config.num_heads, config.head_dim
+        self.use_rope = getattr(config, "use_rope", False)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         bsz, steps, dim = x.shape
         q, k, v = self.qkv(self.norm1(x)).view(bsz, steps, self.heads, 3 * self.head_dim).chunk(3, dim=-1)
         q, k, v = (item.transpose(1, 2) for item in (q, k, v))
+        if self.use_rope:
+            cos, sin = _rope_cos_sin(steps, self.head_dim, x.device, q.dtype)
+            q, k = _apply_rope(q, cos, sin), _apply_rope(k, cos, sin)
         mixed = torch.nn.functional.scaled_dot_product_attention(q, k, v, is_causal=True)
         x = x + self.attn_out(mixed.transpose(1, 2).reshape(bsz, steps, dim))
         y = self.norm2(x)

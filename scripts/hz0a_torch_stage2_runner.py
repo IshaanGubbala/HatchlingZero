@@ -213,6 +213,8 @@ def main() -> None:
     parser.add_argument("--lr-min-ratio", type=float, default=0.1)
     parser.add_argument("--lr-schedule", choices=("cosine", "constant"), default="cosine")
     parser.add_argument("--architecture", choices=("hybrid", "transformer"), default="hybrid")
+    parser.add_argument("--rope", action="store_true", help="--architecture transformer only: opt into standard RoPE on q/k (reference/hz0a_matched_transformer.py's _apply_rope, off by default -- see MatchedTransformerConfig.use_rope's docstring for why this isn't the default). Added for a fair BDH-vs-Transformer comparison (BDH has real, verified RoPE; this baseline previously had no positional encoding at all) -- does not affect --architecture hybrid.")
+    parser.add_argument("--weight-decay", type=float, default=0.01, help="AdamW weight_decay. 0.01 matches this script's own long-standing default; override to match a specific comparison run (e.g. reference/hz0h_bdh_train_torch.py's real 0.1 for a BDH-vs-Transformer pilot).")
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--validation-batch-size", type=int, default=32)
     parser.add_argument("--milestone-tokens", type=str, default="")
@@ -256,7 +258,7 @@ def main() -> None:
         transformer_config = MatchedTransformerConfig({
             "vocab_size": args.vocab_size, "d_model": args.dim, "num_layers": args.layers,
             "num_heads": args.heads, "head_dim": args.dim // args.heads, "d_ff": args.d_ff,
-            "use_bitlinear": args.bitnet,
+            "use_bitlinear": args.bitnet, "use_rope": args.rope,
         })
         model = MatchedTransformerLM(transformer_config)
     else:
@@ -289,9 +291,9 @@ def main() -> None:
 
     if args.optimizer == "adamw8bit":
         import bitsandbytes as bnb
-        optimizer = bnb.optim.AdamW8bit(model.parameters(), lr=current_lr(0), weight_decay=0.01)
+        optimizer = bnb.optim.AdamW8bit(model.parameters(), lr=current_lr(0), weight_decay=args.weight_decay)
     else:
-        optimizer = torch.optim.AdamW(model.parameters(), lr=current_lr(0), weight_decay=0.01)
+        optimizer = torch.optim.AdamW(model.parameters(), lr=current_lr(0), weight_decay=args.weight_decay)
     metrics, step, tokens_seen, batch_index = [], 0, 0, 0
     microbatch_count, epoch_or_data_pass = 0, 0
     best_validation_loss, milestones_hit = None, []
