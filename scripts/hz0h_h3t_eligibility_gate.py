@@ -36,6 +36,7 @@ from __future__ import annotations
 import torch
 
 from reference.hz0h_bdh_torch import BDH, BDHConfig
+from reference.hz0h_bdh_train_torch import shifted_target_batch
 
 
 def compute_eligibility_trace(model: BDH, idx: torch.Tensor) -> torch.Tensor:
@@ -69,9 +70,16 @@ def compute_eligibility_trace(model: BDH, idx: torch.Tensor) -> torch.Tensor:
         return trace
 
 
-def compute_true_gradient(model: BDH, idx: torch.Tensor) -> tuple[torch.Tensor, float]:
+def compute_true_gradient(model: BDH, idx: torch.Tensor, targets: torch.Tensor) -> tuple[torch.Tensor, float]:
+    """`targets` must be the REAL shifted-by-one next-token targets, never
+    `idx` itself -- `model(idx, targets=idx)` lets BDH shortcut through the
+    residual stream instead of doing real next-token prediction (see
+    docs/restart/hz0h_rope_bug_critical_correction.md's sibling correction
+    on the same-sequence-target bug). Use
+    `reference.hz0h_bdh_train_torch.shifted_target_batch` to build `idx`/
+    `targets` correctly from a single sequence tensor."""
     model.zero_grad(set_to_none=True)
-    _logits, loss = model(idx, targets=idx)
+    _logits, loss = model(idx, targets=targets)
     loss.backward()
     grad = model.encoder.grad.detach().clone()
     return grad, float(loss.detach())
@@ -88,10 +96,11 @@ def main():
     model = BDH(config)
     model.eval()  # dropout off for a clean, reproducible comparison between the two passes
 
-    idx = torch.randint(0, config.vocab_size, (4, 24))
+    full = torch.randint(0, config.vocab_size, (4, 25))
+    idx, targets = shifted_target_batch(full)
 
     trace = compute_eligibility_trace(model, idx)
-    grad, loss = compute_true_gradient(model, idx)
+    grad, loss = compute_true_gradient(model, idx, targets)
 
     assert trace.shape == grad.shape, (trace.shape, grad.shape)
     assert torch.isfinite(trace).all() and torch.isfinite(grad).all()
