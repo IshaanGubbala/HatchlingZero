@@ -92,7 +92,7 @@ class MatchedTransformerBlock(nn.Module):
         self.heads, self.head_dim = config.num_heads, config.head_dim
         self.use_rope = getattr(config, "use_rope", False)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, activation_sparsity_out: list | None = None) -> torch.Tensor:
         bsz, steps, dim = x.shape
         q, k, v = self.qkv(self.norm1(x)).view(bsz, steps, self.heads, 3 * self.head_dim).chunk(3, dim=-1)
         q, k, v = (item.transpose(1, 2) for item in (q, k, v))
@@ -102,7 +102,17 @@ class MatchedTransformerBlock(nn.Module):
         mixed = torch.nn.functional.scaled_dot_product_attention(q, k, v, is_causal=True)
         x = x + self.attn_out(mixed.transpose(1, 2).reshape(bsz, steps, dim))
         y = self.norm2(x)
-        return x + self.down(torch.nn.functional.silu(self.gate(y)) * self.up(y))
+        gated = torch.nn.functional.silu(self.gate(y))
+        if activation_sparsity_out is not None:
+            # SwiGLU's silu is never exactly zero (unlike BDH's ReLU, which
+            # produces true sparse-positive activations) -- "near-zero"
+            # (|.| < 0.05) is a real, disclosed, DIFFERENT metric standing
+            # in for the same comparison slot, not a directly-comparable
+            # number to BDH's exact-zero fraction. See
+            # reference/hz0h_bdh_torch.py's compute_activation_and_state_diagnostics
+            # for the BDH side.
+            activation_sparsity_out.append(float((gated.abs() < 0.05).float().mean()))
+        return x + self.down(gated * self.up(y))
 
 
 class MatchedTransformerLM(nn.Module):
@@ -120,12 +130,35 @@ class MatchedTransformerLM(nn.Module):
         self.blocks = nn.ModuleList(MatchedTransformerBlock(config) for _ in range(config.num_layers))
         self.final_norm = BiasFreeRMSNorm(config.d_model)
 
-    def forward(self, token_ids: torch.Tensor) -> torch.Tensor:
+    def forward(self, token_ids: torch.Tensor, activation_sparsity_out: list | None = None) -> torch.Tensor:
         x = self.embedding(token_ids)
         for block in self.blocks:
-            x = block(x)
+            x = block(x, activation_sparsity_out=activation_sparsity_out)
         return torch.einsum("btd,vd->btv", self.final_norm(x), self.embedding.weight)
 
 
 def parameter_count(config: MatchedTransformerConfig) -> int:
     return sum(parameter.numel() for parameter in MatchedTransformerLM(config).parameters())
+
+
+def compute_activation_diagnostics(model: "MatchedTransformerLM", token_ids: torch.Tensor) -> dict:
+    """Phase 1 metric (plans/HatchlingZero_Reality_Plan.md): per-layer
+    SwiGLU-gate near-zero fraction, read-only (no_grad, restores the
+    caller's train/eval mode). NOT directly comparable to BDH's exact-zero
+    ReLU sparsity (reference/hz0h_bdh_torch.py's
+    compute_activation_and_state_diagnostics) -- a real architecture
+    difference (dense SwiGLU vs. true sparse-positive ReLU activations),
+    not a bug. This model has no persistent/recurrent state, so there is
+    no analogous state_norms metric to report here."""
+    was_training = model.training
+    model.eval()
+    with torch.no_grad():
+        activation_sparsity: list = []
+        model(token_ids, activation_sparsity_out=activation_sparsity)
+    if was_training:
+        model.train()
+    return {
+        "gate_near_zero_fraction": activation_sparsity,
+        "mean_activation_sparsity": sum(activation_sparsity) / len(activation_sparsity),
+        "state_norms": None,
+    }

@@ -42,7 +42,7 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from reference.hz0h_bdh_torch import BDH, BDHConfig
+from reference.hz0h_bdh_torch import BDH, BDHConfig, compute_activation_and_state_diagnostics
 from reference.hz0h_bdh_train_torch import shifted_target_batch, build_optimizer
 
 
@@ -282,6 +282,14 @@ def main() -> None:
                 if best_validation_loss is None or item["validation_loss"] < best_validation_loss:
                     best_validation_loss = item["validation_loss"]
                     is_new_best = True
+                # Phase 1 metrics (plans/HatchlingZero_Reality_Plan.md):
+                # activation sparsity + synaptic-state norms. Only at
+                # validation_interval, not every step -- runs a second
+                # (read-only, no_grad) forward via bdh_stream_chunk, real
+                # but non-trivial extra cost.
+                item["activation_state_diagnostics"] = compute_activation_and_state_diagnostics(
+                    model, fixed_validation_tokens[: min(8, fixed_validation_tokens.shape[0])]
+                )
             with memory_log.open("a", encoding="utf-8") as handle:
                 handle.write(json.dumps(item) + "\n")
             metrics.append(item)

@@ -310,6 +310,7 @@ def init_bdh_states(model: "BDH", batch_size: int, device=None, dtype=None) -> l
 
 def bdh_stream_chunk(
     model: "BDH", states: list[torch.Tensor], idx_chunk: torch.Tensor, start_position: int,
+    diagnostics: dict | None = None,
 ) -> tuple[list[torch.Tensor], torch.Tensor]:
     """Process one chunk of tokens (`idx_chunk`: (B, L), L >= 1) through the
     full model, given the running per-layer states from everything streamed
@@ -321,7 +322,18 @@ def bdh_stream_chunk(
     identical to `BDH.forward`'s parallel computation (same formula, same
     operations -- the intra-chunk term alone covers the whole sequence and
     the cross-chunk term is exactly zero).
+
+    `diagnostics`: optional dict, filled in place (not returned, so the
+    return signature stays exactly what every existing caller/test already
+    expects) with per-layer activation-sparsity (Phase 1 metric,
+    plans/HatchlingZero_Reality_Plan.md) if passed. Reuses this function's
+    own already-computed `x_sparse`/`y_sparse` rather than a separate
+    reimplementation of the forward math -- `None` (the default) skips this
+    entirely, zero cost/behavior change for existing callers.
     """
+    if diagnostics is not None:
+        diagnostics["x_sparse_fraction_zero"] = []
+        diagnostics["y_sparse_fraction_zero"] = []
     c = model.config
     B, L = idx_chunk.shape
     D = c.n_embd
@@ -339,6 +351,8 @@ def bdh_stream_chunk(
     for level in range(c.n_layer):
         x_latent = x @ model._w(model.encoder)
         x_sparse = F.relu(x_latent)
+        if diagnostics is not None:
+            diagnostics["x_sparse_fraction_zero"].append(float((x_sparse == 0).float().mean()))
         QR = model.attn.rope(r_phases, x_sparse)
         KR = QR
         V = x
@@ -351,6 +365,8 @@ def bdh_stream_chunk(
 
         y_latent = yKV @ model._w(model.encoder_v)
         y_sparse = F.relu(y_latent)
+        if diagnostics is not None:
+            diagnostics["y_sparse_fraction_zero"].append(float((y_sparse == 0).float().mean()))
         xy_sparse = x_sparse * y_sparse
         xy_sparse = model.drop(xy_sparse)
         yMLP = xy_sparse.transpose(1, 2).reshape(B, 1, L, N * nh) @ model._w(model.decoder)
@@ -362,6 +378,36 @@ def bdh_stream_chunk(
 
     logits = x.view(B, L, D) @ model.lm_head
     return new_states, logits
+
+
+def compute_activation_and_state_diagnostics(model: "BDH", idx: torch.Tensor) -> dict:
+    """Phase 1 metrics (plans/HatchlingZero_Reality_Plan.md): per-layer
+    activation sparsity and synaptic-state norms, read-only (no_grad,
+    doesn't disturb the caller's train/eval mode or gradients). Runs
+    `idx` as ONE full-sequence chunk through `bdh_stream_chunk`
+    (`start_position=0`, fresh `init_bdh_states`) -- per that function's
+    own docstring, mathematically identical to `BDH.forward`'s parallel
+    computation, so this measures the same activations `forward` would
+    produce without a second, separately-written reimplementation of the
+    forward math."""
+    was_training = model.training
+    model.eval()
+    with torch.no_grad():
+        states = init_bdh_states(model, idx.shape[0], device=idx.device)
+        diagnostics: dict = {}
+        new_states, _logits = bdh_stream_chunk(model, states, idx, start_position=0, diagnostics=diagnostics)
+        state_norms = [float(s.norm()) for s in new_states]
+        x_frac = diagnostics["x_sparse_fraction_zero"]
+        y_frac = diagnostics["y_sparse_fraction_zero"]
+    if was_training:
+        model.train()
+    return {
+        "x_sparse_fraction_zero": x_frac,
+        "y_sparse_fraction_zero": y_frac,
+        "mean_activation_sparsity": sum(x_frac + y_frac) / len(x_frac + y_frac),
+        "state_norms": state_norms,
+        "mean_state_norm": sum(state_norms) / len(state_norms),
+    }
 
 
 def bdh_stream_sequence(

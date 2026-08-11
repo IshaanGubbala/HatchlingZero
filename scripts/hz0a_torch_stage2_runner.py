@@ -76,7 +76,7 @@ import torch.nn.functional as F
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from reference.hz0a_torch_model import HZ0AConfig, HZ0AModel
-from reference.hz0a_matched_transformer import MatchedTransformerConfig, MatchedTransformerLM
+from reference.hz0a_matched_transformer import MatchedTransformerConfig, MatchedTransformerLM, compute_activation_diagnostics
 
 
 def read_batch(handle, batch_size: int, sequence_length: int, device, epoch_counter: list[int] | None = None) -> torch.Tensor:
@@ -503,6 +503,17 @@ def main() -> None:
                 if best_validation_loss is None or item["validation_loss"] < best_validation_loss:
                     best_validation_loss = item["validation_loss"]
                     is_new_best = True
+                if args.architecture == "transformer":
+                    # Phase 1 metric (plans/HatchlingZero_Reality_Plan.md):
+                    # SwiGLU gate near-zero fraction, NOT directly comparable
+                    # to BDH's exact-zero ReLU sparsity -- see
+                    # reference/hz0a_matched_transformer.py's
+                    # compute_activation_diagnostics docstring. Hybrid
+                    # architecture has its own recurrent state and isn't
+                    # wired to this yet -- real, disclosed gap, not done here.
+                    item["activation_state_diagnostics"] = compute_activation_diagnostics(
+                        model, fixed_validation_tokens[: min(8, fixed_validation_tokens.shape[0])]
+                    )
             # Written here, after validation_loss (if any) has already been added to `item`
             # above -- writing inside the truncate-backward per-chunk loop or immediately in
             # the non-truncate-backward branch (as this used to) flushes each line to disk
