@@ -101,10 +101,118 @@ noise-level result (confirmed directly, same model/input, in
   unverified foundation. Stage 1b's positive result is grounds to continue,
   not yet grounds to trust any of those arms would actually work.
 
+## Stage 2 (partial): three training-rule arms, real loss curves
+
+Following Stage 1's positive gate, built and ran three real training-rule
+comparisons on the same tiny faithful BDH (`n_layer=4, n_embd=32, n_head=4,
+mlp_internal_dim_multiplier=16, vocab_size=64`), 150 steps, same seed/data
+stream, true BPTT + AdamW for every parameter except `encoder`'s update
+rule, which varies per arm. All scripts and 4 regression tests
+(`tests/reference/test_hz0h_h3t_training_law_arms.py`) pass.
+
+| Arm | Mechanism | Final loss (true BPTT baseline: 1.4545) |
+| --- | --- | --- |
+| A: local signal via optimizer | Stage 1b's per-layer local readout, real backward each step, fed through AdamW | 1.7430 |
+| B: synthetic gradients | Small per-head linear predictor, regression-trained against Arm A's target; **zero backward at use-time** after a 50-step warmup | **1.5231** |
+| C: pure local three-factor | Raw Hebbian trace (Stage 1a) x scalar loss-surprise signal, direct weight update, **zero backward ever** | 1.6749 (at lr=0.001) |
+
+### Arm A: `scripts/hz0h_h3t_arm_a_local_signal_training.py`
+
+Directly extends Stage 1b: substitutes the local-signal pseudo-gradient
+for `encoder.grad` before the optimizer step. Real, working, does not
+diverge -- but consistently trails true BPTT at every checkpoint (e.g.
+step 100: 2.21 vs 2.41), tracking Stage 1b's moderate (cos=0.53) alignment
+directly. Does not yet save any compute (both true and local gradients
+are computed every step here) -- this is a quality-only diagnostic, wall-
+clock savings would need a real Stage 3 comparison.
+
+### Arm B: `scripts/hz0h_h3t_arm_b_synthetic_gradients.py`
+
+The most interesting result. A tiny per-head linear predictor
+(`predicted_grad_x_latent = x_sparse @ SynthW[h]`, one `N x N` matrix per
+head) is trained by regression (MSE) against Arm A's real local-signal
+target every step. Its own prediction quality is tracked directly: cosine
+similarity to its target starts at ~0.01 (near-zero, expected at random
+init) and climbs to ~0.47 by step 149 -- it is genuinely learning to
+approximate a real signal, not stuck. After a 50-step warmup, `encoder`'s
+actual gradient is reconstructed ENTIRELY from the predictor's forward
+output (`x_in @ predicted_grad_x_latent`, zero backward pass needed for
+this at all past warmup) and fed through the optimizer as normal.
+
+**Result: closest of all three arms to true BPTT** (1.5231 vs 1.4545,
+a ~5% gap) -- better than Arm A's DIRECT local-signal substitution
+(1.7430), despite Arm B's signal being a distillation of Arm A's own
+target. Plausible reason (not confirmed further): the predictor, trained
+via gradient descent on a smooth regression objective across many steps,
+may produce a less noisy/more consistent estimate than Arm A's raw
+per-step local signal, similar to how a learned value function can smooth
+over noisy per-step rewards.
+
+### Arm C: `scripts/hz0h_h3t_arm_c_pure_local_three_factor.py`
+
+The strictest reading of "pure local three-factor learning" -- zero
+backward passes anywhere for `encoder`. Rule:
+`Delta(encoder) = -eta * (loss_t - running_avg_loss) * hebbian_trace_t`,
+applied as a direct weight update (no AdamW, since an adaptive-moment
+optimizer is itself gradient-descent machinery this arm is meant to avoid).
+
+**Real, disclosed instability**: at the first-tried learning rate (0.5),
+diverges to NaN around step 40 (confirmed as a real, reproducible
+divergence, not a fluke, via `test_arm_c_diverges_at_naive_learning_rate`).
+At `lr=0.01`: stable, reaches 2.2454. At `lr=0.001`: stable and reaches
+1.6749 -- notably BETTER than expected given Stage 1a's near-zero
+instantaneous gradient cosine (0.0058). Real, honest revision to the
+initial "cos~0 means training will fail" instinct: many small,
+low-magnitude updates in a noisy-but-not-fully-uninformative direction,
+combined with every OTHER parameter still training correctly via true
+BPTT, can still net out to real learning over enough accumulated steps --
+correlation-at-a-single-step and usefulness-as-a-training-rule are related
+but not the same question.
+
+## What this establishes
+
+- All three arms produce REAL, non-diverging (at appropriate
+  hyperparameters) training when given a chance -- none is a dead end
+  outright.
+- Synthetic gradients (Arm B) is the standout: comparable quality to the
+  best hand-crafted local signal (Arm A) while needing zero backward
+  computation at use-time after warmup -- the most promising real lead
+  for an eventual wall-clock-efficiency win.
+- Arm C confirms Stage 1a's raw-Hebbian finding needs nuance: the signal
+  alone doesn't correlate with the true gradient at any single step, but
+  used carefully (small learning rate, direct update, many accumulated
+  steps) it is NOT completely useless as a training signal -- a real,
+  disclosed correction to an initial pessimistic read.
+
+## What this does not establish -- the real remaining gaps
+
+- Only `encoder` was tested in all three arms; `encoder_v` and `decoder`
+  (also shared/tied, also part of the "slow" long-term parameters) have
+  their own local-signal designs to work out.
+- No wall-clock or memory measurement yet for any arm -- Arm A and C both
+  still compute quantities that would need real optimization to become
+  genuinely cheaper (Arm A computes both true and local gradients every
+  step; Arm C's trace and the true gradient are both computed every step
+  here for comparison purposes, though the RULE itself doesn't need the
+  true gradient at all). Arm B is the only arm structurally positioned to
+  save real backward-pass compute (after warmup), but this hasn't been
+  measured yet.
+- Single seed, single tiny model scale, 150 steps -- real signal, not a
+  statistically robust or scale-tested verdict.
+- Arm D (synthetic-gradient + eligibility combined, as originally
+  proposed) and Arm E (hybrid local + periodic-exact-BPTT) were not
+  attempted -- Arm B already covers much of Arm D's spirit (synthetic
+  gradients trained against a local target), but the explicit combination
+  with an eligibility trace specifically was not built.
+
 ## Status
 
-Stage 1 (the prerequisite gate) complete: raw Hebbian is dead, but a real,
-cheap, non-circular local alternative shows genuine promise. Next real
-step, not yet started: an actual training-rule comparison (real loss
-curves, not just gradient cosine) using the depth-truncated local signal
-in place of full BPTT for `encoder`'s updates specifically.
+Stage 1 (prerequisite gate) and a first pass at Stage 2 (three training-
+rule arms with real loss curves) both complete. Real, honest, mixed
+picture: none beats true BPTT on quality yet, but none is a dead end
+either, and Arm B (synthetic gradients) is a genuinely promising lead for
+where real wall-clock savings might eventually come from. Next real step:
+measure actual compute/wall-clock for Arm B post-warmup (the one arm
+structurally capable of saving real backward-pass cost), and/or extend to
+`encoder_v`/`decoder` before any claim about a full BDH-native training
+pipeline.
