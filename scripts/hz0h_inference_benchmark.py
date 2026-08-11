@@ -5,9 +5,8 @@ scripts/hz0h_stage2_runner_bdh.py / scripts/hz0a_torch_stage2_runner.py
 (loss, tokens/sec, peak training memory, activation sparsity, state
 norms).
 
-Three decode paths measured, not one, because they are NOT
-interchangeable and conflating them would misrepresent BDH's real
-structural advantage:
+Four decode paths measured, not one, because they are NOT interchangeable
+and conflating them would misrepresent BDH's real structural advantage:
 
 1. BDH, naive replay (`BDH.generate()`, real upstream code): re-runs the
    ENTIRE sequence through the model every new token -- O(T) work per
@@ -18,30 +17,29 @@ structural advantage:
    persistent per-layer synaptic state. This is the actual mechanism
    HatchlingZero's thesis is about -- if BDH has an inference-speed edge
    at long context, THIS is where it would show up, not path 1.
-3. Transformer, naive replay (no KV-cache implemented in
-   `reference/hz0a_matched_transformer.py`): same O(T) per-token
-   replay cost as path 1. A real, honest comparison of "no-cache BDH vs
-   no-cache Transformer" -- NOT a fair comparison against a production
-   Transformer serving stack (those use KV-caching, which this baseline
-   doesn't have yet -- a real, disclosed gap, see the module-level
-   TODO below, not silently glossed over).
+3. Transformer, naive replay (no KV-cache): same O(T) per-token replay
+   cost as path 1. Kept for a "no-cache BDH vs no-cache Transformer"
+   comparison, but NOT the fair Transformer baseline -- see path 4.
+4. Transformer, real KV-cache
+   (`reference/hz0a_matched_transformer.py`'s `MatchedTransformerLM.
+   new_kv_cache`/`forward(kv_cache=...)`, added 2026-08-11, numerically
+   verified identical to a full non-cached forward --
+   `tests/reference/test_hz0a_matched_transformer_kv_cache.py`): the
+   real, standard, serving-realistic Transformer decode mechanism.
+   Still O(context) attention work per token (not O(1) like BDH's
+   streaming state), but no longer replaying the whole sequence -- this
+   is the fair comparison against BDH's streaming path, closing the
+   single biggest gap this script had at first.
 
 Energy (joules/token): CUDA-only in this script, via polling
 `nvidia-smi --query-gpu=power.draw` in a background thread during the
 timed region (average power x elapsed time = joules) -- real, but a
 coarse sampling-based estimate (matches the same-class caveat already
 used for the pilot's peak-VRAM sampling), not a hardware energy counter.
-No equivalent instrumentation exists for Mac (no accessible per-process
-GPU power API without `powermetrics`, which needs sudo) -- reported as
-null with a disclosed reason, not silently omitted.
-
-Real gap, not attempted here: giving the Transformer baseline an actual
-KV-cache so its OWN decode path is representative of how Transformers
-are actually served -- without that, "BDH streaming vs Transformer
-naive-replay" is the most favorable comparison for BDH, and this script
-also reports "BDH naive-replay vs Transformer naive-replay" (both
-disadvantaged the same way) so the streaming path's real advantage isn't
-overstated by comparing it only against a crippled baseline.
+No equivalent instrumentation exists for Mac yet: `powermetrics` (the
+real per-process CPU/GPU/ANE power sampling path on macOS) needs sudo,
+which this script does not prompt for -- reported as null with a
+disclosed reason, not silently omitted. Real next step, not this one.
 """
 from __future__ import annotations
 
@@ -213,6 +211,35 @@ def measure_transformer_decode_naive(model: MatchedTransformerLM, prompt: torch.
     return {"tokens_per_second": max_new_tokens / elapsed, "elapsed_seconds": elapsed, "mean_watts": sampler.mean_watts()}
 
 
+def measure_transformer_decode_kv_cache(model: MatchedTransformerLM, prompt: torch.Tensor, max_new_tokens: int, device: torch.device) -> dict:
+    """The real, serving-realistic decode path: prefill the prompt once
+    into a KV-cache (reference/hz0a_matched_transformer.py's
+    MatchedTransformerLM.new_kv_cache/forward(kv_cache=...)), then decode
+    one token at a time doing O(1) new-token work (attention is still
+    O(context) per step, same as any real KV-cached Transformer -- this
+    is NOT claimed to be O(1) like BDH's streaming state, just the real
+    standard Transformer serving mechanism instead of the crippled
+    full-replay baseline measure_transformer_decode_naive uses)."""
+    with torch.no_grad():
+        def run(n_tokens: int) -> None:
+            cache = model.new_kv_cache()
+            logits = model(prompt, kv_cache=cache)
+            token = torch.argmax(logits[:, -1, :], dim=-1, keepdim=True)
+            for _ in range(n_tokens):
+                logits = model(token, kv_cache=cache)
+                token = torch.argmax(logits[:, -1, :], dim=-1, keepdim=True)
+
+        _sync(device)
+        run(4)  # warmup
+        _sync(device)
+        with _PowerSampler(device) as sampler:
+            started = time.perf_counter()
+            run(max_new_tokens)
+            _sync(device)
+            elapsed = time.perf_counter() - started
+    return {"tokens_per_second": max_new_tokens / elapsed, "elapsed_seconds": elapsed, "mean_watts": sampler.mean_watts()}
+
+
 _mps_peak_bytes = [0]
 
 
@@ -300,12 +327,17 @@ def main() -> None:
         transformer_decode_naive = measure_transformer_decode_naive(transformer_model, prompt, args.decode_tokens, device)
         transformer_decode_naive["peak_memory_bytes"] = peak_memory_bytes(device)
 
+        reset_peak_memory(device)
+        transformer_decode_kv_cache = measure_transformer_decode_kv_cache(transformer_model, prompt, args.decode_tokens, device)
+        transformer_decode_kv_cache["peak_memory_bytes"] = peak_memory_bytes(device)
+
         results["by_context_length"][context_length] = {
             "bdh_prefill": bdh_prefill,
             "bdh_decode_naive_replay": bdh_decode_naive,
             "bdh_decode_streaming_state": bdh_decode_streaming,
             "transformer_prefill": transformer_prefill,
             "transformer_decode_naive_replay": transformer_decode_naive,
+            "transformer_decode_kv_cache": transformer_decode_kv_cache,
         }
 
     output_text = json.dumps(results, indent=2)

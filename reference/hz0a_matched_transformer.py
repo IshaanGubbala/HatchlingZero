@@ -41,7 +41,7 @@ class BiasFreeRMSNorm(nn.Module):
         return x * torch.rsqrt(x.square().mean(dim=-1, keepdim=True) + self.eps) * self.weight
 
 
-def _rope_cos_sin(seq_len: int, head_dim: int, device, dtype, theta: float = 10000.0) -> tuple[torch.Tensor, torch.Tensor]:
+def _rope_cos_sin(seq_len: int, head_dim: int, device, dtype, theta: float = 10000.0, start_position: int = 0) -> tuple[torch.Tensor, torch.Tensor]:
     """Standard (Llama/GPT-NeoX/Qwen-style) "rotate-half" RoPE, computed
     fresh per forward call rather than cached in a buffer -- this
     project's sequence lengths are small (<=1024) so the recompute cost
@@ -53,13 +53,38 @@ def _rope_cos_sin(seq_len: int, head_dim: int, device, dtype, theta: float = 100
     independent implementation for the Transformer baseline, not a port
     of BDH's version, so this comparison isn't "BDH's RoPE vs no RoPE"
     but "BDH's RoPE vs a normal modern Transformer's RoPE."
+
+    `start_position`: RoPE's phase depends on each token's ABSOLUTE
+    position in the full sequence, not its position within whatever chunk
+    is being processed right now -- needed for correct rotation when
+    decoding new tokens against an existing KV-cache (see
+    _kv_cache_attention_mask below), same reason
+    reference/hz0h_bdh_torch.py's bdh_stream_chunk takes an explicit
+    start_position.
     """
     half = head_dim // 2
     freqs = 1.0 / (theta ** (torch.arange(0, half, dtype=torch.float32, device=device) / half))
-    positions = torch.arange(seq_len, dtype=torch.float32, device=device)
+    positions = torch.arange(start_position, start_position + seq_len, dtype=torch.float32, device=device)
     angles = torch.outer(positions, freqs)  # (T, head_dim/2)
     angles = torch.cat([angles, angles], dim=-1)  # (T, head_dim)
     return angles.cos().to(dtype), angles.sin().to(dtype)
+
+
+def _kv_cache_attention_mask(past_length: int, new_length: int, device) -> torch.Tensor:
+    """Boolean mask (True = attend), shape (new_length, past_length+new_length),
+    for attending `new_length` fresh queries against a KV-cache that
+    already holds `past_length` prior positions plus these new ones.
+    Query i (0-indexed within the new chunk, absolute position
+    past_length+i) may attend to every cached key (all causally in the
+    past by construction) plus new keys up to and including itself --
+    generalizes to both a full prefill (past_length=0, reduces to the
+    standard lower-triangular causal mask) and single-token decode
+    (new_length=1, reduces to "attend to everything in the cache," since
+    there is nothing to mask -- the cache only ever contains
+    already-causally-visible positions)."""
+    key_positions = torch.arange(past_length + new_length, device=device).view(1, -1)
+    query_positions = torch.arange(new_length, device=device).view(-1, 1) + past_length
+    return key_positions <= query_positions
 
 
 def _rotate_half(x: torch.Tensor) -> torch.Tensor:
@@ -92,14 +117,33 @@ class MatchedTransformerBlock(nn.Module):
         self.heads, self.head_dim = config.num_heads, config.head_dim
         self.use_rope = getattr(config, "use_rope", False)
 
-    def forward(self, x: torch.Tensor, activation_sparsity_out: list | None = None) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, activation_sparsity_out: list | None = None, kv_cache: dict | None = None) -> torch.Tensor:
         bsz, steps, dim = x.shape
         q, k, v = self.qkv(self.norm1(x)).view(bsz, steps, self.heads, 3 * self.head_dim).chunk(3, dim=-1)
         q, k, v = (item.transpose(1, 2) for item in (q, k, v))
+
+        past_length = kv_cache["k"].shape[2] if kv_cache is not None and "k" in kv_cache else 0
         if self.use_rope:
-            cos, sin = _rope_cos_sin(steps, self.head_dim, x.device, q.dtype)
+            cos, sin = _rope_cos_sin(steps, self.head_dim, x.device, q.dtype, start_position=past_length)
             q, k = _apply_rope(q, cos, sin), _apply_rope(k, cos, sin)
-        mixed = torch.nn.functional.scaled_dot_product_attention(q, k, v, is_causal=True)
+
+        if kv_cache is not None:
+            # Real KV-cache: `x` here is only the NEW tokens for this call
+            # (the caller decides how many -- the full prompt on a prefill
+            # call, one token per subsequent decode call). Concatenate
+            # onto whatever's already cached, store the grown tensors back,
+            # and attend the new queries over the FULL (cached + new) key/
+            # value set -- see _kv_cache_attention_mask's docstring for why
+            # this needs an explicit mask rather than `is_causal=True`
+            # (which assumes query and key lengths match).
+            if "k" in kv_cache:
+                k = torch.cat([kv_cache["k"], k], dim=2)
+                v = torch.cat([kv_cache["v"], v], dim=2)
+            kv_cache["k"], kv_cache["v"] = k, v
+            mask = _kv_cache_attention_mask(past_length, steps, x.device)
+            mixed = torch.nn.functional.scaled_dot_product_attention(q, k, v, attn_mask=mask)
+        else:
+            mixed = torch.nn.functional.scaled_dot_product_attention(q, k, v, is_causal=True)
         x = x + self.attn_out(mixed.transpose(1, 2).reshape(bsz, steps, dim))
         y = self.norm2(x)
         gated = torch.nn.functional.silu(self.gate(y))
@@ -130,11 +174,19 @@ class MatchedTransformerLM(nn.Module):
         self.blocks = nn.ModuleList(MatchedTransformerBlock(config) for _ in range(config.num_layers))
         self.final_norm = BiasFreeRMSNorm(config.d_model)
 
-    def forward(self, token_ids: torch.Tensor, activation_sparsity_out: list | None = None) -> torch.Tensor:
+    def forward(self, token_ids: torch.Tensor, activation_sparsity_out: list | None = None, kv_cache: list[dict] | None = None) -> torch.Tensor:
         x = self.embedding(token_ids)
-        for block in self.blocks:
-            x = block(x, activation_sparsity_out=activation_sparsity_out)
+        for layer_index, block in enumerate(self.blocks):
+            layer_cache = kv_cache[layer_index] if kv_cache is not None else None
+            x = block(x, activation_sparsity_out=activation_sparsity_out, kv_cache=layer_cache)
         return torch.einsum("btd,vd->btv", self.final_norm(x), self.embedding.weight)
+
+    def new_kv_cache(self) -> list[dict]:
+        """One empty, mutable dict per layer -- pass this (or a
+        previously-used, still-growing one) as `kv_cache=` to `forward`.
+        A fresh call starts an empty cache; `forward` grows each layer's
+        dict in place across repeated calls (see MatchedTransformerBlock.forward)."""
+        return [{} for _ in self.blocks]
 
 
 def parameter_count(config: MatchedTransformerConfig) -> int:

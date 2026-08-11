@@ -1,5 +1,54 @@
 # HZ Phase 1: inference-throughput results — the first real positive BDH signal
 
+## Update 2026-08-11: real KV-cache added, cleaner (and still positive) result
+
+Added a real KV-cache to `reference/hz0a_matched_transformer.py`
+(`MatchedTransformerLM.new_kv_cache`/`forward(kv_cache=...)`) — numerically
+verified identical to a full non-cached forward
+(`tests/reference/test_hz0a_matched_transformer_kv_cache.py`, 5 tests,
+including chunked-prefill and no-RoPE cases). This was the single biggest
+disclosed gap in the original pilot below: "Transformer naive" was not a
+representative Transformer serving path.
+
+**Real, honest surprise**: at this tiny scale (~4.8M params) and these
+short contexts, the KV-cache is SLOWER than naive full-replay, not
+faster:
+
+| Context length | BDH streaming (tok/s) | Transformer naive replay (tok/s) | Transformer KV-cache (tok/s) | BDH streaming vs. Transformer KV-cache |
+| --- | --- | --- | --- | --- |
+| 128 | 792.5 | 511.3 | 247.2 | **3.21x** |
+| 512 | 783.8 | 442.2 | 242.8 | **3.23x** |
+| 1024 | 639.8 | 326.5 | 221.6 | **2.89x** |
+
+This is a real, known small-scale effect, not a bug: a KV-cached decode
+step does one token's worth of work per Python-level loop iteration
+(small matmuls, plus tensor-concat overhead to grow the cache each step),
+while naive replay's larger batched forward pass gets better hardware
+utilization per call despite doing asymptotically more total work. The
+crossover point where KV-caching actually wins is a real, model-size-and
+context-length-dependent threshold -- not tested here (would need a
+bigger model / longer context to find).
+
+**Against the real, correct baseline, BDH's streaming decode still wins
+decisively (~2.9-3.2x) and more STABLY across context length** than the
+original (naive-vs-naive) comparison showed (which ranged 1.49x-6.65x,
+partly an artifact of the naive Transformer's own quadratic degradation).
+This is a cleaner, more defensible number than the original pilot below,
+precisely because both baselines are no longer both crippled the same
+way.
+
+**One more honest caveat this update adds**: this comparison can't yet
+distinguish "BDH's streaming state is architecturally more efficient
+per token" from "this particular KV-cache implementation has more
+per-step Python/tensor-op overhead than `bdh_stream_chunk`'s own call" --
+both are real possibilities, not yet separated. A fairer apples-to-apples
+implementation-efficiency comparison (e.g. profiling where each path's
+per-step time actually goes) is real, undone future work.
+
+---
+
+## Original pilot (2026-08-11, kept for the record — see the update above for the corrected comparison)
+
 Date: 2026-08-11. `scripts/hz0h_inference_benchmark.py`, matched ~4.8M-param
 configs (same as the training pilot, `docs/restart/hz0h_initial_bdh_vs_transformer_pilot_results.md`),
 Mac MPS, batch=1, greedy decode (argmax), 48 decode tokens, 3 prefill
@@ -62,14 +111,9 @@ result `plans/HatchlingZero_Reality_Plan.md`'s own framing anticipates.
    related. A trained model would very likely have the same relative
    timing (the mechanism doesn't depend on the weight values), but this
    hasn't been separately confirmed.
-2. **The Transformer baseline has no KV-cache.** A real, comparable,
-   production Transformer implementation would NOT replay the full
-   sequence every decode step — it would cache K/V and do O(1)
-   (well, O(context) attention lookup, but not a full forward) work per
-   token too, closing much or all of this gap. This result says "BDH's
-   real inference mechanism beats a Transformer WITHOUT a KV-cache," not
-   "BDH beats Transformers at inference" — the latter claim needs a KV-
-   cached Transformer baseline, real future work, not done here.
+2. **(Resolved by the 2026-08-11 update above)** The Transformer baseline
+   now has a real, tested KV-cache — the comparison in the update section
+   is against the real serving-realistic decode path, not a crippled one.
 3. **Small scale, single seed, batch=1, one machine.** Per
    `plans/HZ Benchmark Plan.md`'s own claim discipline — one real data
    point, not a scaling-law claim.
@@ -86,14 +130,21 @@ result `plans/HatchlingZero_Reality_Plan.md`'s own framing anticipates.
 
 ## Real next steps
 
-1. Add a real KV-cache to `reference/hz0a_matched_transformer.py` so
-   "Transformer naive" becomes "Transformer, real serving-realistic
-   decode" — the single biggest fairness gap left in this comparison.
+1. ~~Add a real KV-cache to `reference/hz0a_matched_transformer.py`~~ —
+   done 2026-08-11, see the update section above.
 2. Repeat at a larger, trained-model scale where peak memory differences
-   become visible and quality-per-token can be reported alongside speed.
+   become visible, quality-per-token can be reported alongside speed, and
+   the KV-cache-vs-naive crossover point (where caching actually starts
+   winning) can be found.
 3. Add CUDA energy sampling to this same benchmark on the RTX 3060 side
-   for a real joules/token number (Mac has no path to this yet).
+   for a real joules/token number (Mac has no path to this without
+   `powermetrics`, which needs sudo this script doesn't prompt for).
 4. Longer context lengths (8K, 32K, 128K per `plans/HZ Benchmark
-   Plan.md`'s target grid) once a trained checkpoint and a KV-cached
-   Transformer baseline both exist — this is where BDH's O(1)-state
-   memory advantage should become most visible, if it holds.
+   Plan.md`'s target grid) at a scale where the KV-cache is actually
+   winning over naive replay — this is where BDH's O(1)-state memory
+   advantage should become most visible, if it holds.
+5. Profile where each decode path's per-step time actually goes (Python
+   loop overhead vs. tensor-op time vs. cache-concat cost) to separate
+   "BDH's mechanism is architecturally more efficient" from
+   "this KV-cache implementation has more overhead than bdh_stream_chunk's
+   own call" — not yet done, see the update section's closing caveat.
