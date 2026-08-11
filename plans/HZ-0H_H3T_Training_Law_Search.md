@@ -302,25 +302,102 @@ bend this curve favorably, rather than just moving along it.
   proposed) and Arm E (hybrid local + periodic-exact-BPTT) were not
   attempted -- Arm B already covers much of Arm D's spirit (synthetic
   gradients trained against a local target), but the explicit combination
-  with an eligibility trace specifically was not built. The periodic-
-  exact-calibration sweep (95/5, 99/1 synthetic/exact splits) and the
-  SG-global variant (predictor trained against sparse TRUE BPTT gradient
-  samples rather than Arm A's local target) were both proposed as real
-  next steps and are not yet built.
+  with an eligibility trace specifically was not built.
+
+## SG-global: real per-position BPTT gradient targets instead of Arm A's lossy local signal
+
+`scripts/hz0h_h3t_sg_global.py`. Arm A's local-signal target (Stage 1b)
+discards cross-layer credit BY CONSTRUCTION -- each layer's readout
+pretends it's the last layer. Its own cos=0.53 vs the true aggregated
+gradient is a real ceiling that fact imposes on anything trained against
+it (including the original single-parameter Arm B synthetic-gradient
+predictor). SG-global instead runs the REAL, full, un-truncated forward
+pass and captures the true per-position gradient at each layer's
+`x_latent` via `retain_grad()` after a real `loss.backward()` -- this is
+not an approximation of the true credit signal, it IS the same tensor
+full BPTT computes internally on its way to `encoder.grad` via the chain
+rule. Verified directly: reconstructing `encoder.grad` from the
+per-position targets matches the real `.grad` PyTorch computed to
+1.68e-8 (float32 rounding only), pinned down by
+`test_sg_global_target_reconstructs_true_gradient_exactly`.
+
+Real, disclosed cost: generating this target needs a full real backward
+pass every time it's sampled -- there is no free warmup, unlike SG-local's
+cheaper (but lossier) depth-truncated target. The entire point of a
+periodic-calibration design is sampling this rarely, not every step.
+
+### SG-local vs SG-global, real comparison (`scripts/hz0h_h3t_sg_global_comparison.py`)
+
+At a short (150-step) horizon, the two were close on quality (loss 1.5231
+vs 1.5209) despite SG-global's much better raw alignment even then (mean
+cosine to the true gradient over the last 10 steps: 0.0702 vs 0.2675).
+**At a longer (300-step) horizon, the difference became real and
+material on BOTH axes** -- SG-local's alignment actually DEGRADES toward
+zero/negative (-0.0991) while SG-global's stays meaningfully positive
+(0.2931), and this now shows up in quality too: final loss 0.4393
+(SG-local) vs 0.4203 (SG-global), holding over the last 20 steps (0.5096
+vs 0.4905) -- true BPTT baseline: 0.3944. A real, clean trigger for the
+investigation's own "if SG-global materially improves alignment/quality"
+condition, confirmed at the longer horizon after being ambiguous at the
+shorter one -- worth remembering that a short pilot run understated this
+real difference.
+
+### Periodic exact-BPTT calibration sweep (`scripts/hz0h_h3t_periodic_calibration_sweep.py`)
+
+Given SG-global's real advantage, tested whether MOST steps can run on
+the cheap synthetic predictor while occasionally recalibrating with a
+real exact-BPTT step (which also refreshes the predictor's own training).
+300 steps, sweeping the synthetic fraction:
+
+| Synthetic fraction | Actual exact fraction | Final loss | Mean last-20 |
+| --- | --- | --- | --- |
+| 0% (true BPTT) | 100% | 0.3944 | -- |
+| 50% | 53% | 0.4127 | 0.4736 |
+| 80% | 27% | 0.4354 | 0.5036 |
+| 95% | 11% | 0.6219 | 0.6971 |
+| 99% | 8% | 0.7256 | 0.7889 |
+
+**Real, monotonic, honest finding: quality degrades sharply past ~80%
+synthetic**, confirmed reproducibly (`test_calibration_quality_degrades_as_synthetic_fraction_increases`).
+The 50-80% range stays reasonably close to true BPTT, but at THIS scale
+doesn't offer a compelling efficiency case either -- a single-parameter
+synthetic step is only ~1.03-1.04x cheaper than an exact one (per the
+earlier efficiency measurement), so a 50/50 mix buys only a marginal
+overall speedup while already showing a real (~4.6%) quality gap. The
+95%+ range, which WOULD offer more real compute savings, degrades quality
+too much to be usable as measured. Plausible mechanism (not confirmed
+further): the model's own weights change every step, so the true
+gradient mapping the predictor is approximating also shifts continuously
+-- a predictor recalibrated only rarely can't track a moving target,
+unlike SG-local's per-step (if lossy) target which at least stays
+"fresh" every step even though it's a worse approximation each time.
+
+**No calibration fraction tested here offers a clearly compelling
+quality-for-speed tradeoff** -- this doesn't validate the periodic-hybrid
+idea at this scale, though it does establish SG-global itself (used every
+step, no calibration gaps) as a real, if modest, improvement over
+SG-local.
 
 ## Status
 
 Stage 1 (prerequisite gate), Stage 2's three training-rule arms (real
-loss curves), and real efficiency measurements for both a one-parameter
-and a three-parameter (all shared/tied params) Arm B swap are all
-complete. Real, honest, mixed picture: none beats true BPTT on quality,
-and swapping all three shared parameters together produced the expected
-tradeoff -- better speed (1.147x, up from 1.03x for one parameter) at the
-cost of worse quality (loss 1.9120, up from 1.5231). Neither end of the
-measured curve is yet a compelling production case. Real next steps, not
-yet attempted: the periodic-exact-calibration hybrid (mix true BPTT and
-synthetic-gradient steps, sweep the ratio) and SG-global (train the
-predictor against real BPTT gradient samples instead of Arm A's own
-already-lossy local-signal target) -- both proposed as ways to bend the
-tradeoff curve favorably rather than just move along it, and both build
-directly on the infrastructure already in place.
+loss curves), real efficiency measurements for both a one-parameter and
+a three-parameter (all shared/tied params) Arm B swap, SG-global (real
+per-position BPTT targets), and a periodic-calibration sweep are all
+complete. Real, honest, mixed picture throughout: none beats true BPTT on
+quality. SG-global is a real, confirmed improvement over SG-local on both
+alignment and quality at a sufficient horizon, but periodic calibration
+(the mechanism that would have turned that improvement into a compute
+saving) does not hold up well at this scale -- quality craters past ~80%
+synthetic, and the sub-80% range that stays close to true BPTT doesn't
+save much compute for a single parameter. Swapping all three shared
+parameters together produced the expected tradeoff -- better speed
+(1.147x, up from 1.03x for one parameter) at the cost of worse quality
+(loss 1.9120, up from 1.5231). Neither end of any measured curve is yet a
+compelling production case. Real next steps, not yet attempted: SG-global
+applied to all three shared parameters together (not just `encoder`),
+larger scale (a real ~10-30M faithful BDH, not this session's tiny toy
+configs) and multi-seed validation before treating any of these numbers
+as settled, and -- per the investigation's own explicit call -- no new
+local-learning-rule variants until the existing curve is either bent
+favorably at scale or conclusively found not to bend.
