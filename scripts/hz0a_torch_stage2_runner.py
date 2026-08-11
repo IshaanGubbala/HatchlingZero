@@ -180,6 +180,40 @@ def resolve_device(name: str) -> torch.device:
     return torch.device(name)
 
 
+def reset_peak_memory(device: torch.device) -> None:
+    if device.type == "cuda":
+        torch.cuda.reset_peak_memory_stats()
+    # MPS/CPU: no native peak-reset API -- see peak_memory_bytes()'s own
+    # docstring (shared pattern with scripts/hz0h_stage2_runner_bdh.py).
+
+
+_mps_peak_bytes = [0]
+
+
+def peak_memory_bytes(device: torch.device) -> int | None:
+    """Real peak memory, not an estimate. CUDA has a native peak counter
+    (this script already used it, CUDA-only, only inside the
+    --truncate-backward branch -- generalized here to every device and
+    both branches). MPS has no equivalent (torch.mps only exposes a
+    current-allocation snapshot) -- tracked by keeping a running max of
+    that snapshot across calls, which misses any peak strictly BETWEEN
+    two calls (e.g. mid-backward) -- a real, disclosed undercount, not a
+    silent one. CPU uses resource.getrusage's maxrss (whole-process
+    lifetime peak; bytes on macOS, KB on Linux)."""
+    if device.type == "cuda":
+        return int(torch.cuda.max_memory_allocated())
+    if device.type == "mps":
+        current = int(torch.mps.current_allocated_memory())
+        _mps_peak_bytes[0] = max(_mps_peak_bytes[0], current)
+        return _mps_peak_bytes[0]
+    if device.type == "cpu":
+        import resource
+        import sys
+        maxrss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        return maxrss if sys.platform == "darwin" else maxrss * 1024
+    return None
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--data", type=Path, required=True)
@@ -396,6 +430,7 @@ def main() -> None:
             model.train()
             return total / count
 
+        reset_peak_memory(device)
         model.train()
         while tokens_seen < args.target_tokens:
             tokens = read_batch(train, args.batch_size, sequence_length, device, epoch_counter)
@@ -434,9 +469,7 @@ def main() -> None:
                         step += 1
                         accumulated_count = 0
                     tokens_seen += args.batch_size * chunk.shape[1]
-                    entry = {"step": step, "tokens_seen": tokens_seen, "loss": float(loss), "gradient_norm": grad_norm, "update_norm": update_norm, "lr": last_lr, "wall_time": time.perf_counter() - started, "microbatch_count": microbatch_count, "epoch_or_data_pass": epoch_counter[0]}
-                    if device.type == "cuda":
-                        entry["peak_memory_bytes"] = int(torch.cuda.max_memory_allocated())
+                    entry = {"step": step, "tokens_seen": tokens_seen, "loss": float(loss), "gradient_norm": grad_norm, "update_norm": update_norm, "lr": last_lr, "wall_time": time.perf_counter() - started, "microbatch_count": microbatch_count, "epoch_or_data_pass": epoch_counter[0], "peak_memory_bytes": peak_memory_bytes(device)}
                     chunk_metrics.append(entry)
                 batch_index += 1
                 item = chunk_metrics[-1]
@@ -461,7 +494,7 @@ def main() -> None:
                 batch_index += 1
                 tokens_seen += args.batch_size * sequence_length
                 microbatch_count += 1
-                item = {"step": step, "tokens_seen": tokens_seen, "loss": float(loss), "gradient_norm": grad_norm, "update_norm": update_norm, "lr": last_lr, "wall_time": time.perf_counter() - started, "microbatch_count": microbatch_count, "epoch_or_data_pass": epoch_counter[0]}
+                item = {"step": step, "tokens_seen": tokens_seen, "loss": float(loss), "gradient_norm": grad_norm, "update_norm": update_norm, "lr": last_lr, "wall_time": time.perf_counter() - started, "microbatch_count": microbatch_count, "epoch_or_data_pass": epoch_counter[0], "peak_memory_bytes": peak_memory_bytes(device)}
                 chunk_metrics.append(item)
 
             is_new_best = False
@@ -500,6 +533,7 @@ def main() -> None:
         "parameter_count": sum(p.numel() for p in model.parameters()), "initialization_seed": args.seed,
         "final_parameter_sha256": model_fingerprint(model), "metrics": metrics, "checkpoint": str(checkpoint),
         "training_seconds": time.perf_counter() - started, "tokens_per_second": tokens_seen / max(time.perf_counter() - started, 1e-9),
+        "peak_memory_bytes": peak_memory_bytes(device),
     }
     (args.run_dir / "torch_stage2.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(json.dumps(report, indent=2))
