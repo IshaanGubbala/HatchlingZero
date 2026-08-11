@@ -1,5 +1,47 @@
 # HZ-0H H3-T: does BDH have a native (cheaper-than-full-BPTT) training rule?
 
+## ⚠️ CRITICAL CORRECTION (2026-08-10, discovered after the SG-global/calibration/3-param work below): every H3-T script used a broken task
+
+Every single script in this investigation (Stage 1, Arms A/B/C, SG-global,
+the periodic calibration sweep, the all-three-shared-parameter extension)
+called `model(idx, targets=idx)` -- the SAME-sequence target convention.
+`reference/hz0h_bdh_h5_memory_tasks.py`'s own H5 investigation already
+found and fixed this exact bug for this exact `BDH` class, months earlier:
+same-sequence targets let the model trivially copy the current token
+forward through the residual stream instead of doing real next-token
+prediction. The real convention (verified against `train.py` directly,
+back in H5): `x, y = idx[:, :-1], idx[:, 1:]`, `model(x, targets=y)`.
+
+**Confirmed directly, decisively**, on random data: the broken convention
+shows real "learning" (loss 4.17 -> 2.23 over 100 steps -- the model
+learning the copy shortcut); the correct convention stays flat at the
+random floor (4.17 -> 4.18), exactly as expected, since random data has
+zero real next-token structure a correctly-set-up model could exploit.
+
+**What this means for everything below**: the ABSOLUTE numbers in every
+section below (Arm A/B/C loss curves, SG-global's 1.5231/0.4203, the
+calibration sweep's degradation curve, the three-parameter compounding
+result) were measured on a task the model could trivially cheat on using
+GENUINELY RANDOM (unstructured) data -- not real credit-assignment
+quality. **Redone and checked**: Stage 1's core prerequisite gate (raw
+Hebbian vs local-signal cosine to the true gradient) was rerun with BOTH
+fixes (correct shifted targets AND real structured data -- H5's own
+validated passkey task, not random tokens) in
+`scripts/hz0h_h3t_stage1_redo_real_task.py`. **The qualitative finding
+survives**: raw Hebbian cos=0.0223 (still near-zero, vs the original
+broken-task 0.0058) and local-signal cos=0.6659 (still real and
+meaningfully positive, actually higher than the original broken-task
+0.5283). This validates Stage 1's core verdict. **It does NOT validate
+anything downstream** -- Arms A/B/C, SG-global, the calibration sweep,
+and the three-parameter extension have NOT been rerun with the fix and
+their specific numbers/conclusions should be treated as unverified until
+they are. Sections below are left as originally written (not retroactively
+edited) so the real history and the real mistake are both visible, per
+this project's own disclosure discipline -- read them knowing the
+underlying task was broken throughout.
+
+---
+
 Started 2026-08-10, prompted by a real question: the BDH paper trains its
 long-term parameters with conventional AdamW+BPTT, and only its σ (fast
 synaptic) state uses local Hebbian-style updates. That establishes BDH
