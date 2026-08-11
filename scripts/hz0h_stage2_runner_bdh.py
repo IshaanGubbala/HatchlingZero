@@ -172,6 +172,13 @@ def main() -> None:
         vocab_size=args.vocab_size, dropout=args.dropout,
     )
     model = BDH(bdh_config).to(device=device, dtype=torch_dtype)
+    # RoPE's frequency buffer must stay float32 (BDH.attn.forward's own
+    # `assert self.freqs.dtype == torch.float32`) -- the blanket .to(dtype=...)
+    # above downcasts every buffer/parameter including this one when
+    # --dtype is float16/bfloat16, which crashes on the very first forward
+    # call. Restore it after the cast rather than skip the cast for the
+    # rest of the model.
+    model.attn.freqs = model.attn.freqs.to(torch.float32)
 
     config_snapshot = {key: (str(value) if isinstance(value, Path) else value) for key, value in vars(args).items()}
     config_snapshot.update(sequence_length_resolved=sequence_length, effective_batch_tokens=effective_batch_tokens, total_optimizer_steps_estimate=total_optimizer_steps, resolved_device=str(device), backend="torch", architecture="bdh", parameter_count=sum(p.numel() for p in model.parameters()))
