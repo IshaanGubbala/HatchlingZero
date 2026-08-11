@@ -102,6 +102,14 @@ def test_mlx_to_torch_round_trip_forward_parity(tmp_path: Path):
     convert to a Torch state_dict, load into a fresh Torch model, and
     check forward parity."""
     spec = _specs()
+    # Real, previously-flaky test: mlx_model's random init was unseeded,
+    # so its weights (and thus this test's measured max_diff, which
+    # varies somewhat with the specific weight values drawn) depended on
+    # whatever global MLX RNG state preceded it in a full-suite run --
+    # sometimes landing just over the 1e-2 tolerance. Seeded explicitly,
+    # matching test_torch_to_mlx_to_torch_round_trip_forward_parity's own
+    # torch.manual_seed(0) pattern, for a deterministic, reproducible run.
+    mx.random.seed(0)
     mlx_model = HZ0AMlxModel(spec.vocab_size, spec.dim, spec.layers, spec.heads, spec.d_ff, spec.attention_indices, native_metal=False, mixer=spec.mixer)
     mx.eval(mlx_model.parameters())
 
