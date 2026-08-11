@@ -231,15 +231,66 @@ same process, Arm B's reported RSS can only be >= true BPTT's, not a fair
 independent measurement. A real comparison needs separate subprocesses;
 not done here.
 
+## Stage 2, all three shared parameters swapped together
+
+`scripts/hz0h_h3t_arm_b_all_shared_params.py` (quality) and
+`scripts/hz0h_h3t_arm_b_all_shared_params_efficiency.py` (wall-clock).
+Extends Arm B from `encoder` alone to all three shared/tied parameters
+(`encoder`, `encoder_v`, `decoder`) simultaneously -- three independent
+synthetic-gradient predictors, each conditioned on its OWN post-activation
+output (DNI-style, same convention as the single-parameter version).
+
+Real shape discovery made building this: `encoder`'s pre-synaptic input
+(`x_in`) is genuinely shared across heads (`B,1,T,D`), but `encoder_v`'s
+(`yKV`, attention's output) is NOT -- attention's `scores @ V` broadcasts
+`V`'s singleton head dimension against Q/K's real `nh` heads, so the
+result has genuine per-head values (`B,nh,T,D`). The two parameters
+needed different pseudo-gradient contraction formulas for exactly this
+reason; verified directly against `reference/hz0h_bdh_torch.py`'s real
+`Attention.forward`, not assumed symmetric with encoder. `decoder` has no
+per-head structure at all (nh and N are merged before one matmul) -- a
+single `D->D` predictor. All shapes verified via
+`test_local_signal_data_all_params_shapes_and_finite` and
+`test_predictor_bank_pseudo_gradient_shapes_match_real_params`, and the
+custom forward loop re-verified byte-identical to `BDH.forward()` before
+trusting either the quality or efficiency numbers.
+
+**Quality: WORSE than the single-parameter swap.** 150 steps, same
+seed/data/model as every other arm: final loss 1.9120 vs true BPTT's
+1.4545 (single-parameter Arm B: 1.5231). Real, confirmed via
+`test_synthetic_all_three_is_real_but_worse_than_true_bptt`: three
+independent approximate signals compound their errors rather than
+canceling, at least at this scale/step count.
+
+**Efficiency: BETTER than the single-parameter swap.** 1.147x (n_layer=6,
+n_embd=128, n_head=8, batch=8, seq=32, CPU) vs the single-parameter
+version's 1.03-1.04x -- makes sense, since more of the shared-parameter
+backward accumulation is skipped. Still short of a dramatic win, but a
+real, monotonic improvement in the expected direction.
+
+**The real, honest tradeoff curve, three points now measured:**
+
+| Params swapped | Speedup | Final loss (true BPTT: 1.4545) |
+| --- | --- | --- |
+| 0 (true BPTT) | 1.00x | 1.4545 |
+| 1 (encoder only) | 1.03-1.04x | 1.5231 |
+| 3 (encoder+encoder_v+decoder) | 1.147x | 1.9120 |
+
+No free lunch in either direction: more parameters swapped buys more
+speed and costs more quality, monotonically in both measured points so
+far. Neither end of this curve is yet a compelling production case (best
+speedup so far, 1.147x, comes with the worst quality gap, ~31% higher
+loss) -- the real next question is whether a smarter design (the
+proposed periodic-exact-calibration hybrid, or SG-global trained against
+real BPTT samples instead of Arm A's already-lossy local target) can
+bend this curve favorably, rather than just moving along it.
+
 ## What this does not establish -- the real remaining gaps
 
-- Only `encoder` was tested in all three arms; `encoder_v` and `decoder`
-  (also shared/tied, also part of the "slow" long-term parameters) have
-  their own local-signal designs to work out. Since a whole-encoder
-  swap only saved ~3-4%, the REAL efficiency case for this approach likely
-  needs ALL of `encoder`/`encoder_v`/`decoder` swapped together (a much
-  larger share of total backward cost) before it's worth pursuing further
-  on efficiency grounds alone.
+- Only two points on the parameter-count/quality/speed tradeoff curve are
+  measured (1 param, 3 params) -- 2 params (e.g. encoder+encoder_v,
+  skipping decoder) was not tried, so the curve's shape between the two
+  measured points is interpolated, not measured.
 - No fair memory comparison (see above -- needs separate subprocesses).
 - Only measured at one small CPU scale; the ratio of encoder's backward
   cost to total step cost may differ substantially at real training scale
@@ -260,15 +311,16 @@ not done here.
 ## Status
 
 Stage 1 (prerequisite gate), Stage 2's three training-rule arms (real
-loss curves), and a first real efficiency measurement for Arm B are all
+loss curves), and real efficiency measurements for both a one-parameter
+and a three-parameter (all shared/tied params) Arm B swap are all
 complete. Real, honest, mixed picture: none beats true BPTT on quality,
-and the one real efficiency measurement so far shows only a small (~3-4%)
-speedup, well short of the 2-4x that would make this a compelling
-production case on a single-parameter swap. Arm B (synthetic gradients)
-remains the most promising direction on quality alone, but the efficiency
-case for it specifically has NOT yet been made at a scale that matters --
-the real next step is extending the swap to all three shared/tied
-parameters (`encoder`+`encoder_v`+`decoder`) together, since backward
-cost for one of three roughly-equal-sized shared parameters was never
-going to show a large win on its own, before drawing any conclusion about
-whether this approach is worth pursuing as a production training method.
+and swapping all three shared parameters together produced the expected
+tradeoff -- better speed (1.147x, up from 1.03x for one parameter) at the
+cost of worse quality (loss 1.9120, up from 1.5231). Neither end of the
+measured curve is yet a compelling production case. Real next steps, not
+yet attempted: the periodic-exact-calibration hybrid (mix true BPTT and
+synthetic-gradient steps, sweep the ratio) and SG-global (train the
+predictor against real BPTT gradient samples instead of Arm A's own
+already-lossy local-signal target) -- both proposed as ways to bend the
+tradeoff curve favorably rather than just move along it, and both build
+directly on the infrastructure already in place.
