@@ -1,10 +1,10 @@
 # HatchlingZero
 
-**A research program for hybrid, memory-aware language models — built for real evidence, not benchmark theater.**
+**A research program testing whether a byte-faithful Dragon Hatchling (BDH) core — persistent synaptic state, shared/tied iterative weights, sparse positive neuronal activity — can replace a meaningful fraction of a conventional Transformer's static parameter count and dense computation, without losing quality.**
 
-HatchlingZero (`HZ`) is a staged architecture research effort exploring what happens when a language model backbone combines linear-time recurrent state, sparse triggered attention, session-scoped memory, bounded fast-weight adaptation, and conditional (mixture-of-experts) compute — instead of a single mechanism scaled up. The project runs on Apple Silicon today, with a native Metal execution path, and a CUDA/Triton path for the upstream `GatedDeltaNet-2` kernel on Linux.
+HatchlingZero (`HZ`) starts from two trusted, byte-faithful foundations — the official `bdh.py` and `train.py` from [`pathwaycom/bdh`](https://github.com/pathwaycom/bdh), verified line-by-line against fresh, complete, verbatim fetches of the upstream source — and builds every extension on top of that oracle, not from a summary or a hand-transcription. The central question: **can dynamic state, reused weights, and sparse computation replace a large fraction of the static parameters and repeated dense computation a Transformer uses, while matching its quality per parameter, RAM, energy, and inference speed?**
 
-We do not claim to reproduce any single paper faithfully. We claim something narrower and more useful: every mechanism in this repo is built, tested, and compared against a parameter-matched control before it is trusted — and every result, positive or negative, is reported as measured.
+We do not assume the answer is yes. The first real, matched, same-hardware test in this repo (below) says no at small scale, for reasons that are understood and disclosed, not hidden. That is the standard every claim here is held to: a same-shape control, a real run, and the result reported as measured — including when it doesn't favor BDH.
 
 ---
 
@@ -12,9 +12,10 @@ We do not claim to reproduce any single paper faithfully. We claim something nar
 
 - [Philosophy](#philosophy)
 - [Where the project stands](#where-the-project-stands)
-- [Research stages](#research-stages)
-- [Systems notes](#systems-notes)
-- [Performance](#performance)
+- [The trusted foundation](#the-trusted-foundation)
+- [Real evidence so far](#real-evidence-so-far)
+- [The research plan](#the-research-plan)
+- [Prior work (HZ-0A – HZ-0H, superseded direction)](#prior-work-hz-0a--hz-0h-superseded-direction)
 - [Repository layout](#repository-layout)
 - [Getting started](#getting-started)
 - [Branching model](#branching-model)
@@ -27,226 +28,173 @@ We do not claim to reproduce any single paper faithfully. We claim something nar
 
 Three rules govern every stage of this project:
 
-1. **Real evidence over plausible narrative.** Every architectural claim ships with a same-shape control, a real dataset, and a result — including the ones that don't favor the new mechanism. A stage that loses to a fair baseline is reported as losing.
+1. **Real evidence over plausible narrative.** Every architectural claim ships with a same-shape control, a real dataset, and a result — including the ones that don't favor the new mechanism. A run that loses to a fair baseline is reported as losing.
 2. **Isolate before you integrate.** Each mechanism is built, tested, and evaluated on its own before it is wired into the rest of the stack. Cross-mechanism interactions are tested explicitly, not assumed.
-3. **Disclose both sides.** If a technique wins on one axis and loses on another — as HatchlingZero's own mixture-of-experts work does — both halves are reported together, not smoothed into a single headline number.
+3. **Ground claims in the real upstream source, not a summary of it.** Three real, independently-confirmed bugs this project shipped and then caught (a degenerate training-target convention, a missing RoPE unit conversion, a missing embedding-init override) all trace back to building from a remembered/summarized reading of `bdh.py` instead of a fresh, complete, verbatim one. The fix was a byte-faithful rewrite (`reference/hz0h_bdh_torch.py`), diffable line-by-line against upstream — not another round of patching a hand-port.
 
-This shows up directly in the evidence trail: `docs/restart/` holds dozens of results documents, and a non-trivial fraction of them report a technique that **did not** work, with the reasoning and the numbers behind why.
+This shows up directly in the evidence trail: `docs/restart/` holds dozens of results documents, and a non-trivial fraction of them report a technique, or a comparison, that **did not** go the way it was expected to — with the reasoning and the numbers behind why.
 
 ---
 
 ## Where the project stands
 
-| Stage | Focus | Status |
+HatchlingZero's direction changed on 2026-08-11. The project's first ~7 stages (`HZ-0A` through `HZ-0H`, summarized below) explored a hand-built hybrid backbone accumulating recurrence, memory, triggered attention, fast weights, and MoE — real, evidence-based, individually-tested work, preserved in full — but not the current direction. The current plan (`plans/HatchlingZero_Reality_Plan.md`) restarts from a verbatim upstream BDH oracle and asks a narrower, sharper question: does BDH's own structural difference from a Transformer — shared iterative weights, persistent synaptic state instead of a growing KV-cache, sparse positive activations — translate into a *measurable* advantage, at matched parameters/tokens/compute, or not?
+
+**Real status right now**: one small (~4.8M-param), same-hardware, same-dtype, RoPE-matched pilot has been run end to end (see below). At that scale, on that corpus, a modern Transformer beat BDH decisively on both throughput and validation loss. That is a real, disclosed, single-data-point result at the smallest end of the planned scaling ladder (`plans/HZ Benchmark Plan.md`) — not a verdict on BDH at the 100M–1B+ scale where its O(1) streaming state and shared-weight parameter efficiency are structurally more likely to matter. The plan's own claim discipline: no scale-independent conclusion until the ladder (25M → 100M → 300M → 800M) has real data at more than one point.
+
+---
+
+## The trusted foundation
+
+Two files are the project's ground truth, each verified against a fresh, complete, verbatim fetch of the real upstream source (not a summary, not a prior reading) and diffable line-by-line against it:
+
+- **[`reference/hz0h_bdh_torch.py`](reference/hz0h_bdh_torch.py)** — byte-faithful transcription of `github.com/pathwaycom/bdh/bdh.py`: `BDHConfig`, `get_freqs`, `Attention` (including real RoPE), `BDH` (real parameter-creation order, real `_init_weights`/`self.apply`, real forward). A fresh independent re-fetch and diff (2026-08-11) confirmed exactly two intentional, marked deltas from upstream (a `ternary` config field, a quantization hook) — everything else is byte-identical. Project extensions (ternary quantization, exact streaming/chunked state) live below an explicit `# --- end of verbatim upstream source ---` marker, never interleaved into the base.
+- **[`reference/hz0h_bdh_train_torch.py`](reference/hz0h_bdh_train_torch.py)** — byte-faithful transcription of `github.com/pathwaycom/bdh/train.py`: confirms the real recipe is plain `AdamW(model.parameters(), lr=1e-3, weight_decay=0.1)` over *every* parameter (no special treatment of the shared/tied `encoder`/`encoder_v`/`decoder`), the real shifted next-token target convention (`x = data[i:i+T]`, `y = data[i+1:i+1+T]`), no LR schedule. Extension functions (`shifted_target_batch`, `build_optimizer`, `train_step`) expose that real recipe for reuse on synthetic/packed data, so every script built on this file gets the real convention by construction, not by remembering to get it right.
+
+Both are isolated oracles: neither touches, calls, or depends on any prior (`HZ-0A`–`HZ-0H`) mechanism, and nothing in that prior work depends on these files.
+
+---
+
+## Real evidence so far
+
+**Three real, confirmed bugs in the prior "faithful BDH port"** (built from a careful reading of the source, not the verbatim source itself) were found and fixed 2026-08-10/11, all traceable to the same root cause — see [`docs/restart/hz0h_rope_bug_critical_correction.md`](docs/restart/hz0h_rope_bug_critical_correction.md):
+1. A degenerate same-sequence training-target convention (`model(idx, targets=idx)`) that lets BDH shortcut through the residual stream instead of doing real next-token prediction.
+2. A missing RoPE cycles-to-radians conversion — diverged from the real formula by up to 2.0 (the theoretical max for `cos`/`sin`), even at sequence length 4.
+3. A missing embedding-init override — left `nn.Embedding` at PyTorch's default `N(0,1)` init, ~50x larger scale than every other parameter.
+
+None of these were caught by ~70 internal self-consistency tests (streaming agrees with parallel, two independently-written ports agree with each other) built and passing across multiple prior sessions — because internal agreement holds even when both sides share the same bug. Only a fresh, complete, verbatim re-fetch of the actual upstream file, diffed line by line, caught them. The fix was a full verbatim rewrite, not another patch.
+
+**Initial BDH-vs-Transformer pilot** (2026-08-10/11, [`docs/restart/hz0h_initial_bdh_vs_transformer_pilot_results.md`](docs/restart/hz0h_initial_bdh_vs_transformer_pilot_results.md)): matched ~4.8M-param BDH and Transformer models, byte-level vocabulary, 25M training tokens, real upstream recipe. The first pass (different hardware per architecture, and a Transformer baseline with **no positional encoding at all**) showed BDH ahead — a confounded, misleading result. Closing every confound (same RTX 3060, same bfloat16, same batch size, same weight_decay, both architectures given real RoPE):
+
+| | BDH | Transformer |
 | --- | --- | --- |
-| `HZ-0A` | Recurrent-first hybrid backbone, exact GDN-2 correction | Architecture complete; scale validation in progress (see `HZ-0G` → `G1`) |
+| tokens/sec | 26,596 | **146,788** (~5.5x faster) |
+| best validation loss | 1.623 | **1.355** (lower/better) |
+| parameters | 4,849,664 | 4,804,868 |
+
+Transformer wins decisively at this scale, with no confound left in the comparison. Reported as-is — this is what a clean, controlled, small-scale test actually showed, not what the project's thesis would prefer it showed. Whether this holds, narrows, or reverses at 100M–1B+ params (where BDH's shared-weight depth and O(1) streaming state are structurally more relevant) is real, open, undone work.
+
+---
+
+## The research plan
+
+[`plans/HatchlingZero_Reality_Plan.md`](plans/HatchlingZero_Reality_Plan.md) is the current, authoritative plan: 16 phases from preserving the upstream oracle through a candidate `HZ-1` architecture (target ~0.8–1.2B params), each with a real exit gate and a documented backup plan if the hypothesis fails at that phase. In order: freeze the oracle → establish real BDH/Transformer baselines at 25M→100M→300M → prove exact streaming-state equivalence → compress synaptic state → turn sparsity into real compute savings (BlockBDH) → variable shared-depth adaptive reasoning → re-evaluate whether BPTT is actually the right training law → optimize BPTT itself → scale validation → distillation → latent reasoning → conditional attention → multi-token prediction → native low-precision weights → `HZ-1`.
+
+[`plans/HZ Benchmark Plan.md`](plans/HZ%20Benchmark%20Plan.md) is the detailed benchmark methodology backing every scale-comparison claim in that plan: iso-parameter, iso-compute, and iso-quality comparisons at 125M/350M/1B against a Qwen2.5-style modern Transformer baseline, once hardware beyond a single Mac + RTX 3060 is available. It also names a real, current gap found while writing it: `reference/hz0a_matched_transformer.py` (this project's Transformer control) had no positional encoding at all until the pilot above added an opt-in RoPE flag — the top action item for any larger comparison.
+
+Every prior stage's own plan and tracker (`HZ-0A` through `HZ-0H`) is preserved, not deleted, under [`plans/archived plans/`](plans/archived%20plans/).
+
+---
+
+## Prior work (`HZ-0A` – `HZ-0H`, superseded direction)
+
+Real, evidence-based, individually-tested work — kept in full under `plans/archived plans/` and `docs/restart/`, and still built/tested (`reference/`, `tests/reference/` still cover it) — but no longer the project's active direction as of the reality-plan restart above.
+
+| Stage | Focus | Real result |
+| --- | --- | --- |
+| `HZ-0A` | Recurrent-first hybrid backbone, exact GDN-2 correction | Architecture complete; beat a matched Transformer control by +4–8% nats on a 100M-token ladder (pre-correction recurrence) — see evidence below |
 | `HZ-0B` | Session-scoped associative memory | Complete |
 | `HZ-0C` | Surprise-triggered anchor attention | Complete |
 | `HZ-0D` | Bounded, session-local fast-weight updates | Complete |
-| `HZ-0E` | Micro-MoE specialization | Complete — real, disclosed tradeoff (below) |
-| `HZ-0F` | MoE generalization investigation | Complete — six independent diagnostics, closed with an honest verdict |
-| `HZ-0G` | Architecture freeze + integration | In progress — no new mechanisms, only lineage repair and scale validation |
-| `HZ-0H` | BDH reconciliation + selective integration | Planned — isolated oracle work may begin; promotion is gated on HZ-0G and HZ-0H evidence |
+| `HZ-0E` | Micro-MoE specialization | Complete — real specialization gain, with a disclosed OOD quality cost |
+| `HZ-0F` | MoE generalization investigation | Complete — six independent diagnostics, closed with an honest, partly-unresolved verdict |
+| `HZ-0G` | Architecture freeze + integration | Real scaling validation of the corrected backbone; found and disclosed real lineage drift (`HZ-0E`/`HZ-0F` had evaluated the *uncorrected* recurrence) |
+| `HZ-0H` | BDH reconciliation | Superseded by the reality-plan restart above — its own oracle files (`reference/hz0h_bdh_torch.py`, `hz0h_bdh_train_torch.py`) are what the CURRENT plan is built on, but the phase's own H2–H8/H3-T investigation results predate the RoPE/target-convention fixes and need re-verification (`plans/archived plans/HZ-0H_Total_Restart_Plan.md`) |
 
-**HZ-0E, in one paragraph:** the micro-MoE mechanism beats a fairly warm-started, active-compute-matched dense baseline on in-domain quality in 6 of 6 real trials — a genuine, reproducible specialization effect. It also loses a small, real, structural amount of general/out-of-distribution quality, confirmed even after a standard mitigation (replay/rehearsal) was tried directly. Both results are reported together in [`docs/restart/hz0e_e10_evaluation_results.md`](docs/restart/hz0e_e10_evaluation_results.md) — this is not a universal win, and the repo does not present it as one.
+**`HZ-0A` vs. matched Transformer** (100M-token ladder, pre-correction recurrence — the only full-scale matched data that exists for the original mixer): hybrid crosses over and pulls ahead from 25M tokens on, peaking around 75M (+7.62% nats / +18.4% perplexity), narrowing slightly by 100M. Transformer was ahead at 10M tokens. Source: `outputs/hz0a_stage2_100m_{hybrid,transformer}_seed7/full_holdout_sweep.json`, narrated in `plans/archived plans/HZ-0A_Progress_Tracker.md`.
 
-**HZ-0F, in one paragraph:** a follow-up investigation into *why* that tradeoff exists. It found a real, reproducible single-layer fix (retraining the MoE fallback path on general data instead of curriculum-domain overflow gradients reverses the deficit outright), then found — by testing it, not assuming it — that the fix does **not** survive at the full multi-layer scope. Two further techniques (a native MLX kernel and a router-training change) were tested on their own merits; one was adopted, one was not. See [`docs/restart/hz0e_f_investigation_summary.md`](docs/restart/hz0e_f_investigation_summary.md) for the full account.
+**`HZ-0E`, in one paragraph:** the micro-MoE mechanism beat a fairly warm-started, active-compute-matched dense baseline on in-domain quality in 6 of 6 real trials — a genuine, reproducible specialization effect. It also lost a small, real, structural amount of general/out-of-distribution quality, confirmed even after a standard mitigation (replay/rehearsal) was tried directly. See [`docs/restart/hz0e_e10_evaluation_results.md`](docs/restart/hz0e_e10_evaluation_results.md).
 
-**HZ-0G, right now:** the corrected exact-GDN-2 backbone's only prior training evidence at 301M-parameter scale was a 10M-token run. `HZ-0G`'s first gate (`G1`) is a live continuation ladder toward 100M → 500M → 2B → 6B tokens, validating whether that backbone's early advantage survives against a matched Transformer control at real scale. The `G1` run trains on a real, diverse, ~112M-token corpus (general text, code, documentation, math, JSON, terminal transcripts) at a throughput independently re-measured on this hardware after each real optimization was applied and verified, not assumed from an earlier, different configuration. See [`plans/HZ-0G_Integration_Plan.md`](plans/HZ-0G_Integration_Plan.md).
+**`HZ-0F`, in one paragraph:** a follow-up investigation into *why* that tradeoff exists. Found a real, reproducible single-layer fix, then found — by testing it, not assuming it — that the fix does **not** survive at full multi-layer scope. See [`docs/restart/hz0e_f_investigation_summary.md`](docs/restart/hz0e_f_investigation_summary.md).
 
-A recurring theme worth naming directly: `HZ-0G`'s own `G0` audit found that the checkpoint used throughout most of `HZ-0E`/`HZ-0F`'s evaluation work was running the backbone's *original*, uncorrected recurrence — not the corrected `gdn2_fix` math `HZ-0A` shipped. That is exactly the kind of lineage drift `HZ-0G` exists to catch and repair, and it is reported here rather than quietly patched over.
+**`HZ-0G`, real, disclosed lineage finding:** its own `G0` audit found the checkpoint used throughout most of `HZ-0E`/`HZ-0F`'s evaluation work was running the backbone's *original*, uncorrected recurrence — not the corrected `gdn2_fix` math `HZ-0A` shipped. Reported here rather than quietly patched over.
 
----
-
-## Research stages
-
-### `HZ-0A` — Recurrent-first hybrid backbone
-
-The foundation stage: linear-time sequence mixing with periodic anchor attention, dense FFNs, and no online weight updates. Ships with a pluggable mixer backend (`fallback`, `gdn2_ref`, `gdn2`, `gdn2_fix`) and a same-shape Transformer control so every hybrid claim has a matched baseline. `gdn2_fix` is the corrected exact-GDN-2 recurrence — a key-conditioned retrieve-and-subtract delta rule, not blanket decay — and is the backbone every later stage builds on.
-
-### `HZ-0B` — Session memory
-
-A per-session scratchpad layer on top of the `HZ-0A` backbone: bounded slots that can be reset, read, and written, with an optional momentum gate for gradual memory adoption.
-
-### `HZ-0C` — Surprise-triggered anchor attention
-
-Replaces a fixed periodic attention schedule with a **triggered** one — anchors fire when the recurrent state signals something unexpected, so attention spend tracks surprise rather than wall-clock position.
-
-### `HZ-0D` — Bounded fast-weight updates
-
-A small, session-isolated fast-weight store, writable within a session, with snapshot/rollback semantics so a bad update can be reverted without corrupting the base model.
-
-### `HZ-0E` — Micro-MoE specialization
-
-Selected upper FFN blocks become small, top-1-routed expert mixtures with a shared dense fallback. Real, disclosed result summarized above.
-
-### `HZ-0F` — MoE generalization investigation
-
-A diagnostic sequence, not a new architecture stage: six independent experiments (an oracle routing audit, gate/overflow/fallback analysis, a full-scale re-audit, a three-arm fallback isolation test, a joint-scope validation, plus follow-up tests of Attention Residuals, `mx.gather_mm`, and counterfactual router training) tracing the root cause of `HZ-0E`'s OOD tradeoff. Closed with an honest, partially-unresolved verdict rather than a forced fix.
-
-### `HZ-0G` — Architecture freeze + integration
-
-Deliberately introduces **no new mechanism**. Its job is lineage repair: every earlier stage was developed against a different generation of the backbone, and `HZ-0G` is where that gets reconciled — a real scaling validation of the corrected backbone (`G1`), followed by revalidating `HZ-0B`/`HZ-0C`/`HZ-0D` against it incrementally (`G2`–`G4`), and a real Dense-vs-MoE-vs-adapter decision made on the fully integrated checkpoint (`G5`), not carried over from `HZ-0E`'s isolated result.
-
----
-
-### `HZ-0H` — BDH reconciliation + selective integration
-
-HZ-0H is a gated research phase for faithfully reproducing the public Dragon Hatchling implementation, comparing it against exact GDN-2 and the Transformer under matched HZ conditions, and testing only BDH components that earn promotion. It does not modify the canonical HZ backbone during HZ-0G, and it keeps paper-regime reproduction separate from HZ apples-to-apples comparisons. See [`plans/HZ-0H_BDH_Reconciliation_Plan.md`](plans/HZ-0H_BDH_Reconciliation_Plan.md) and [`plans/HZ-0H_Progress_Tracker.md`](plans/HZ-0H_Progress_Tracker.md).
-
-## Systems notes
-
-HatchlingZero trains and evaluates on Apple Silicon (Metal, unified memory) as its primary target, with a secondary CUDA/Triton path for the upstream `GatedDeltaNet-2` kernel on Linux. A few real, measured findings from that work are worth knowing before you go looking for a specific optimization:
-
-- **Native custom Metal kernels are not automatically faster than MLX's own ops.** `HZ-0E`'s PMetal track built a hand-written `mx.fast.metal_kernel` two-stage MoE expert kernel across five real engineering iterations — fixing two genuine correctness bugs and testing (and rejecting) two further optimization hypotheses — and it still did not beat MLX's own native `mx.gather_mm` grouped-matmul primitive at real model scale. `gather_mm` is the current best MoE-kernel result in this repo.
-- **Batch size was re-measured for the corrected backbone, not assumed from the old one.** A batch-size sweep (`B=8/12/16/20/24`) was previously documented against the *original* GDN-2 mixer, finding a non-monotonic peak around `B=12`. Re-run independently against `gdn2_fix`, the result held up under a longer, cleaner measurement window after a shorter one initially suggested otherwise — a reminder that short throughput windows on this hardware are genuinely noisy, not just imprecise. Activation checkpointing was previously confirmed as a real regression (not a memory/speed tradeoff win) against the original mixer; disabling it was applied to `gdn2_fix` training directly rather than re-isolated on its own, so that specific number is carried over, not independently re-verified.
-- **A backward-kernel fusion that gave a 1.93x isolated speedup on the original mixer gives a real but much smaller (~9%) speedup on the corrected one**, because the corrected recurrence's backward pass does substantially more per-element math (softplus, exponential decay, an extra learned-rate gradient term) and is comparatively more compute-bound, less memory-bound, than the mechanism the original fusion targeted. Both numbers are real; neither transfers to the other kernel by default.
-
-The throughline: every systems claim in this repo is re-measured against the exact configuration it will actually run under, not carried over from a superficially similar prior result.
-
----
-
-## Performance
-
-Real, measured numbers — every row below is cited to a live run or a dated evidence document, not estimated.
-
-### vs. matched Transformer control (100M-token ladder)
-
-A same-param-count Transformer (374 model arrays, identical `dim`/`layers`/`heads`, `d_ff` widened to match active params) was trained on the exact same 100M-token corpus, same seed, same milestone schedule as the hybrid backbone, and both were scored on the same 2,112-sequence full held-out set at every milestone — a real, apples-to-apples comparison, not a leaderboard number.
-
-| Tokens | Hybrid loss (nats) | Transformer loss (nats) | Nats improvement | Perplexity improvement |
-| --- | --- | --- | --- | --- |
-| 10M | 3.4536 | 3.0393 | −13.63% (Transformer ahead) | −51.3% (Transformer ahead) |
-| 25M | 2.8560 | 2.9814 | **+4.21%** | **+11.8%** |
-| 50M | 2.5614 | 2.7547 | **+7.02%** | **+17.6%** |
-| 75M | 2.4649 | 2.6683 | **+7.62%** | **+18.4%** |
-| 100M | 2.4412 | 2.5865 | **+5.62%** | **+13.5%** |
-
-The honest shape of this result: the Transformer starts ahead at 10M tokens, the hybrid crosses over and pulls ahead from 25M on, peaks around 75M, and narrows slightly by 100M — not a monotonic runaway win.
-
-**This is the *pre-correction* recurrence** (the original `gdn2` mixer, not `gdn2_fix`) — it is the only real, full-scale, apples-to-apples matched-Transformer data that currently exists on disk. Whether this advantage survives, strengthens, or disappears with the corrected exact-GDN-2 math is exactly `HZ-0G`'s open `G1` question; the plan's own stated gate for a *credible* verdict is 500M–2B tokens, well past where `G1` is right now. Source: `outputs/hz0a_stage2_100m_{hybrid,transformer}_seed7/full_holdout_sweep.json`, narrated in `plans/HZ-0A_Progress_Tracker.md`.
-
-### Training throughput (Apple Silicon, `gdn2_fix` backbone, 301M params, `G1`)
-
-| Metric | Value |
-| --- | --- |
-| Throughput (2,000-step clean window, no supervisor restarts) | ~2,164 tok/s |
-| Peak memory at that throughput | 10.56 GB |
-| Batch size | `12` — re-verified for `gdn2_fix` specifically after a short window initially suggested `B=16`; a longer, cleaner window reversed that |
-| Backward-kernel fusion speedup on `gdn2_fix` | ~9% (much smaller than the ~1.93x seen fusing the *original* mixer's backward pass — the corrected recurrence is more compute-bound, less memory-bound) |
-
-Measured live from `outputs/hz0g_g1_gdn2_fix_301m/native_metal_memory.jsonl`, the in-progress `G1` run.
-
-### Inference throughput (`HZ-0A` backbone)
-
-| Path | Throughput | Conditions |
-| --- | --- | --- |
-| Prefill | ~27,876.6 tok/s | batch=2, seq_len=16 |
-| Tokenwise decode | ~9,735.3 tok/s | batch=2, seq_len=16 |
-
-Source: [`docs/restart/hz0a_a12_inference_audit.md`](docs/restart/hz0a_a12_inference_audit.md).
-
-### Frozen-backbone forward cost (`HZ-0B`)
-
-| Metric | Value |
-| --- | --- |
-| Full 301M-param frozen backbone forward | 116.7 ms/call (18,103 tok/s), batch=64, seq_len=33 |
-
-Source: [`docs/restart/hz0b_b11_throughput_cost_results.md`](docs/restart/hz0b_b11_throughput_cost_results.md).
-
-### MoE kernel benchmarks (single forward pass, 3 MoE layers, `d_model=768`)
-
-| Kernel path | Latency | vs MLX reference |
-| --- | --- | --- |
-| MLX reference (no custom kernel) | ~19.6–19.7 ms | baseline |
-| PMetal, original single-stage kernel | 761.7 ms | ~40x slower |
-| PMetal, two-stage kernel, ctypes bridge | ~22.0–22.2 ms | ~12–13% slower |
-| PMetal, two-stage kernel, native MLX custom op | ~20.6–20.7 ms | ~5–6% slower |
-| `mx.gather_mm` — **adopted, current best** | ~19.7–19.9 ms | ~0.5–1% slower |
-
-Five real engineering iterations, in order tried. Source: [`docs/restart/hz0e_e9_pmetal_dispatch_results.md`](docs/restart/hz0e_e9_pmetal_dispatch_results.md), [`docs/restart/hz0f_gather_mm_benchmark_results.md`](docs/restart/hz0f_gather_mm_benchmark_results.md).
-
-### Model quality effect sizes (not speed)
-
-| Result | Effect size | Verdict |
-| --- | --- | --- |
-| Micro-MoE per-domain specialization gain | 6/6 real trials win (2 scopes × 3 seeds), ~0.024 nats | Real, reproducible — adopted, with a disclosed OOD cost (see above) |
-| Attention Residuals vs. standard residual, 5M-param scale | Standard wins 3/3 seeds by ~0.05–0.07 nats | AttnRes rejected at this scale; unresolved at 100M+ |
-
-Source: [`docs/restart/hz0e_moe_per_domain_significance_results.md`](docs/restart/hz0e_moe_per_domain_significance_results.md), [`docs/restart/hz0f_attnres_ablation_results.md`](docs/restart/hz0f_attnres_ablation_results.md).
+Systems-level findings from this work (native Metal kernels not automatically beating MLX's own ops, batch-size/backward-fusion numbers that don't transfer between the original and corrected recurrence without re-measurement) are in [`docs/restart/`](docs/restart) and remain accurate for the `reference/hz0a_*` code they describe.
 
 ---
 
 ## Repository layout
 
 ```text
-reference/            Current, actively-maintained MLX/Python implementation
-                       of every HZ-0A–0G mechanism (models, kernels, training
-                       and evaluation harnesses)
-restart/hz0a_pmetal/   Native Rust + Metal execution path (PMetal): kernel
-                       crates, Python ctypes bridges, parity tests against
-                       the MLX reference
-tests/reference/       Test suite for reference/ — the primary, currently
-                       green test surface (100+ files)
-scripts/                Training entrypoints, benchmark and profiling
-                       scripts, data-packing utilities
-data/                  Packed training/validation corpora (byte-level,
-                       tokenized)
-docs/restart/          Evidence documents — one per real result, dated,
-                       cited, and honest about what did and didn't work
-plans/                  Per-stage restart plans and progress trackers
-                       (`HZ-0X_Total_Restart_Plan.md`, `HZ-0X_Progress_Tracker.md`)
-outputs/               Training run artifacts and checkpoints (git-ignored)
-archive/               Legacy PyTorch implementation (`src/hz0/`) and its
-                       own test suite — superseded by reference/ and
-                       restart/, kept for lineage, not actively developed
+reference/            hz0h_bdh_torch.py / hz0h_bdh_train_torch.py: the current
+                       trusted BDH + training oracle. Also: the full
+                       MLX/PyTorch implementation of every prior HZ-0A-0H
+                       mechanism (models, kernels, training/eval harnesses).
+restart/hz0a_pmetal/   Native Rust + Metal execution path (PMetal) for the
+                       prior HZ-0A backbone: kernel crates, ctypes bridges,
+                       parity tests against the MLX reference.
+tests/reference/       Test suite for reference/ (250+ files) -- covers both
+                       the current BDH oracle and the prior HZ-0A-0H work.
+scripts/               Training entrypoints, benchmark/profiling scripts,
+                       data-packing utilities, for both the BDH pilot work
+                       and the prior HZ-0A-0H stages.
+data/                  Packed training/validation corpora (byte-level and
+                       tokenized), git-ignored.
+docs/restart/          Evidence documents -- one per real result, dated,
+                       cited, and honest about what did and didn't work,
+                       across every stage including the BDH restart.
+plans/                 plans/HatchlingZero_Reality_Plan.md (current plan),
+                       plans/HZ Benchmark Plan.md (benchmark methodology),
+                       plans/archived plans/ (every prior HZ-0A-0H plan and
+                       tracker, preserved not deleted).
+outputs/               Training run artifacts and checkpoints (git-ignored).
+archive/               Legacy PyTorch implementation (`src/hz0/`) from before
+                       the reference/ MLX rewrite -- kept for lineage.
+archive2/               Vestigial HZ-0B/HZ-0H scripts and outputs superseded
+                       or retracted during the 2026-08 cleanup and BDH
+                       restart (e.g. the pre-RoPE-fix H3-T training-law
+                       scripts) -- moved, not deleted, for auditability.
 ```
 
 ---
 
 ## Getting started
 
-The actively-developed surface is `reference/` (pure MLX/Python, no build step) plus, where noted, `restart/hz0a_pmetal/` (Rust/Metal, built with Cargo). Run everything from the repository root.
+Two active surfaces: the current BDH oracle work (`reference/hz0h_bdh_*.py`, pure PyTorch) and the prior `HZ-0A`–`HZ-0H` mechanisms (`reference/hz0a_*.py` etc., pure MLX). Run everything from the repository root.
 
 ```bash
-# Set up a Python environment
+# PyTorch side (current BDH oracle + pilot scripts)
 python3 -m venv .venv
 source .venv/bin/activate
-pip install mlx numpy pytest pyyaml
+pip install torch numpy pytest
 
-# Run the full reference test suite
+# MLX side (prior HZ-0A-0H mechanisms, Apple Silicon only)
+pip install mlx pyyaml
+
+# Run the full test suite (covers both)
 PYTHONPATH=. .venv/bin/python -m pytest tests/reference/ -q
 ```
 
 Tests that require the real frozen checkpoint or real corpus data skip cleanly when those artifacts aren't present locally — the suite is green either way.
 
-To build and test the native Metal kernels:
+To build and test the native Metal kernels (prior `HZ-0A` backbone only):
 
 ```bash
 cd restart/hz0a_pmetal
 cargo test --release
 ```
 
-The legacy PyTorch package under `archive/` has its own environment and test suite (`cd archive && pip install -e . && pytest`) — see `archive/pyproject.toml`. It is kept for lineage and is not where active development happens.
+The legacy PyTorch package under `archive/` has its own environment and test suite (`cd archive && pip install -e . && pytest`) — kept for lineage, not where active development happens.
 
 ---
 
 ## Branching model
 
-This repository develops on a single branch: **`main`**. There are no long-lived feature or experiment branches — every stage's work, including exploratory investigations like `HZ-0F` that turned up real negative results, lands on `main` as a sequence of real, individually-tested, honestly-described commits rather than being staged on a branch that may or may not get merged. If an experiment doesn't pan out, that is recorded in `docs/restart/` and the commit history, not hidden by never merging a branch.
+This repository develops on a single branch: **`main`**. There are no long-lived feature or experiment branches — every stage's work, including exploratory investigations that turned up real negative results, lands on `main` as a sequence of real, individually-tested, honestly-described commits rather than being staged on a branch that may or may not get merged.
 
-`main` is the default branch and the only one you need to check out. Older experimental branches that predate this policy have been consolidated into `main`'s history and removed — nothing on them was unique; every commit they contained is already reachable from `main`.
+`main` is the default branch and the only one you need to check out.
 
 ---
 
 ## Documentation
 
-- [`plans/HATCHLING-ZERO_Progress_Tracker.md`](plans/HATCHLING-ZERO_Progress_Tracker.md) — master status across all stages
-- [`plans/HZ-0G_Integration_Plan.md`](plans/HZ-0G_Integration_Plan.md) — the current phase's plan and gates
+- [`plans/HatchlingZero_Reality_Plan.md`](plans/HatchlingZero_Reality_Plan.md) — the current, authoritative research plan
+- [`plans/HZ Benchmark Plan.md`](plans/HZ%20Benchmark%20Plan.md) — the benchmark methodology for scale comparisons
 - [`docs/restart/`](docs/restart) — the full evidence trail: one document per real result, across every stage
-- [`restart/hz0a_pmetal/README.md`](restart/hz0a_pmetal/README.md) — native Rust/Metal execution path
+- [`plans/archived plans/`](plans/archived%20plans/) — every prior `HZ-0A`–`HZ-0H` plan and progress tracker, preserved
+- [`restart/hz0a_pmetal/README.md`](restart/hz0a_pmetal/README.md) — native Rust/Metal execution path (prior `HZ-0A` backbone)
 
-Each `plans/HZ-0X_Progress_Tracker.md` is the authoritative status for that stage; each `docs/restart/hz0x_*_results.md` is the primary source for a specific claim. If a number in a summary and a number in its cited evidence doc ever disagree, the evidence doc is correct.
+Each `docs/restart/hz0x_*_results.md` is the primary source for a specific claim. If a number in this README and a number in its cited evidence doc ever disagree, the evidence doc is correct.
 
 ---
 
