@@ -141,12 +141,20 @@ this at all past warmup) and fed through the optimizer as normal.
 
 **Result: closest of all three arms to true BPTT** (1.5231 vs 1.4545,
 a ~5% gap) -- better than Arm A's DIRECT local-signal substitution
-(1.7430), despite Arm B's signal being a distillation of Arm A's own
-target. Plausible reason (not confirmed further): the predictor, trained
-via gradient descent on a smooth regression objective across many steps,
-may produce a less noisy/more consistent estimate than Arm A's raw
-per-step local signal, similar to how a learned value function can smooth
-over noisy per-step rewards.
+(1.7430), despite Arm B's signal being trained to regress against Arm A's
+own target. **Correction to an earlier overstatement**: this does NOT mean
+Arm B is "capped" by Arm A's quality -- a predictor trained on many noisy
+per-step samples of a target learns the EXPECTATION of that target, and
+generalizes across the input features (`x_sparse`) it's conditioned on.
+Denoising/generalization can genuinely produce a direction better than any
+individual noisy teacher sample, which is exactly what the 1.52 vs 1.74
+gap demonstrates empirically, not a coincidence. What Arm B's signal still
+cannot do is recover long-range credit-assignment information that is
+truly absent from its inputs and targets (Arm A's own local-signal target
+already discards cross-layer information by construction) -- but "cannot
+exceed the true gradient's information content" and "cannot exceed an
+individual noisy sample of an approximation to it" are different, and only
+the first is a real ceiling.
 
 ### Arm C: `scripts/hz0h_h3t_arm_c_pure_local_three_factor.py`
 
@@ -184,35 +192,83 @@ but not the same question.
   steps) it is NOT completely useless as a training signal -- a real,
   disclosed correction to an initial pessimistic read.
 
+## Stage 2, efficiency phase: real wall-clock/memory for Arm B production mode
+
+`scripts/hz0h_h3t_arm_b_efficiency.py`. Measures the thing that actually
+matters for a training-method claim: with the predictor already warmed up,
+does Arm B's "zero backward for encoder" property translate into real
+saved time? `encoder.requires_grad=False` is the real lever tested --
+skips accumulating `dL/d(encoder)` specifically while every OTHER
+parameter still gets its exact, correct gradient (confirmed directly,
+`test_encoder_requires_grad_false_does_not_corrupt_other_gradients`: same
+loss, identical gradients for `encoder_v`/`decoder`/`lm_head` whether
+`encoder.requires_grad` is True or False).
+
+First version of this measurement had a real bug: it recomputed a
+redundant SECOND full forward pass to get the predictor's input, making
+Arm B artificially slower (0.78x -- looked like a 22% regression). Fixed
+by capturing the needed activation from the SAME forward pass already
+being run for the true backward of other parameters (verified exactly
+matches `BDH.forward()`'s own computation,
+`test_custom_forward_matches_real_bdh_forward_exactly`, diff=0.0).
+
+**Real, honest result after the fix: 1.03-1.04x** (n_layer=6, n_embd=128,
+n_head=8, batch=8, seq=32, CPU) -- a real but small speedup, far short of
+the 2-4x the investigation's own hypothetical curve speculated. **Why it's
+small**: `encoder.requires_grad=False` only skips accumulating `encoder`'s
+OWN gradient contribution -- the rest of the backward graph (through
+`encoder_v`, `decoder`, attention, `lm_head`, and gradient flowing
+THROUGH encoder's output for every other parameter's own correct
+gradient) still runs in full. The saving is proportional to encoder's own
+share of total backward cost, not the whole layer's cost -- a real,
+important correction to the "skip the backward pass" framing, which
+implicitly assumed skipping one parameter's gradient skips most of the
+compute near it.
+
+Memory: attempted via `resource.ru_maxrss`, but this is a MONOTONIC
+peak over the whole process lifetime -- since true BPTT ran first in the
+same process, Arm B's reported RSS can only be >= true BPTT's, not a fair
+independent measurement. A real comparison needs separate subprocesses;
+not done here.
+
 ## What this does not establish -- the real remaining gaps
 
 - Only `encoder` was tested in all three arms; `encoder_v` and `decoder`
   (also shared/tied, also part of the "slow" long-term parameters) have
-  their own local-signal designs to work out.
-- No wall-clock or memory measurement yet for any arm -- Arm A and C both
-  still compute quantities that would need real optimization to become
-  genuinely cheaper (Arm A computes both true and local gradients every
-  step; Arm C's trace and the true gradient are both computed every step
-  here for comparison purposes, though the RULE itself doesn't need the
-  true gradient at all). Arm B is the only arm structurally positioned to
-  save real backward-pass compute (after warmup), but this hasn't been
-  measured yet.
-- Single seed, single tiny model scale, 150 steps -- real signal, not a
-  statistically robust or scale-tested verdict.
+  their own local-signal designs to work out. Since a whole-encoder
+  swap only saved ~3-4%, the REAL efficiency case for this approach likely
+  needs ALL of `encoder`/`encoder_v`/`decoder` swapped together (a much
+  larger share of total backward cost) before it's worth pursuing further
+  on efficiency grounds alone.
+- No fair memory comparison (see above -- needs separate subprocesses).
+- Only measured at one small CPU scale; the ratio of encoder's backward
+  cost to total step cost may differ substantially at real training scale
+  (dim=768, 8 layers, GPU) -- could get better OR worse, not yet checked.
+- Single seed, single tiny model scale, 150 steps for the quality
+  comparison -- real signal, not a statistically robust or scale-tested
+  verdict.
 - Arm D (synthetic-gradient + eligibility combined, as originally
   proposed) and Arm E (hybrid local + periodic-exact-BPTT) were not
   attempted -- Arm B already covers much of Arm D's spirit (synthetic
   gradients trained against a local target), but the explicit combination
-  with an eligibility trace specifically was not built.
+  with an eligibility trace specifically was not built. The periodic-
+  exact-calibration sweep (95/5, 99/1 synthetic/exact splits) and the
+  SG-global variant (predictor trained against sparse TRUE BPTT gradient
+  samples rather than Arm A's local target) were both proposed as real
+  next steps and are not yet built.
 
 ## Status
 
-Stage 1 (prerequisite gate) and a first pass at Stage 2 (three training-
-rule arms with real loss curves) both complete. Real, honest, mixed
-picture: none beats true BPTT on quality yet, but none is a dead end
-either, and Arm B (synthetic gradients) is a genuinely promising lead for
-where real wall-clock savings might eventually come from. Next real step:
-measure actual compute/wall-clock for Arm B post-warmup (the one arm
-structurally capable of saving real backward-pass cost), and/or extend to
-`encoder_v`/`decoder` before any claim about a full BDH-native training
-pipeline.
+Stage 1 (prerequisite gate), Stage 2's three training-rule arms (real
+loss curves), and a first real efficiency measurement for Arm B are all
+complete. Real, honest, mixed picture: none beats true BPTT on quality,
+and the one real efficiency measurement so far shows only a small (~3-4%)
+speedup, well short of the 2-4x that would make this a compelling
+production case on a single-parameter swap. Arm B (synthetic gradients)
+remains the most promising direction on quality alone, but the efficiency
+case for it specifically has NOT yet been made at a scale that matters --
+the real next step is extending the swap to all three shared/tied
+parameters (`encoder`+`encoder_v`+`decoder`) together, since backward
+cost for one of three roughly-equal-sized shared parameters was never
+going to show a large win on its own, before drawing any conclusion about
+whether this approach is worth pursuing as a production training method.
