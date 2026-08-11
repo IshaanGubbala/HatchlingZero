@@ -1,6 +1,19 @@
 # HZ Phase 1: inference-throughput results — the first real positive BDH signal
 
-## Update 2026-08-11: real KV-cache added, cleaner (and still positive) result
+## ⚠️ Superseding update: the positive result below does NOT survive scaling up
+
+`docs/restart/hz0h_phase1_crossover_scale_sweep_results.md` (2026-08-11,
+same day) swept this exact comparison across three matched scales (5M,
+25M, 71M params) and found the advantage below **reverses cleanly and
+monotonically** as scale grows -- BDH streaming decode goes from ~3x
+faster than the Transformer's real KV-cache at 5M params to ~3-5.6x
+SLOWER at 71M params, at every context length tested. Read that document
+for the current picture; the ~4.8M-param result immediately below is a
+real, correctly-measured single data point, not a scale-independent
+finding, exactly as its own caveats already said before the sweep
+confirmed it.
+
+## Update 2026-08-11: real KV-cache added, cleaner (and still positive, AT THIS SCALE) result
 
 Added a real KV-cache to `reference/hz0a_matched_transformer.py`
 (`MatchedTransformerLM.new_kv_cache`/`forward(kv_cache=...)`) — numerically
