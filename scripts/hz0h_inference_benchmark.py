@@ -57,7 +57,7 @@ import torch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from reference.hz0a_matched_transformer import MatchedTransformerConfig, MatchedTransformerLM
-from reference.hz0h_bdh_torch import BDH, BDHConfig, bdh_stream_chunk, init_bdh_states
+from reference.hz0h_bdh_torch import BDH, BDHConfig, bdh_kv_cache_step, bdh_stream_chunk, init_bdh_states, new_bdh_kv_cache
 
 
 def resolve_device(name: str) -> torch.device:
@@ -149,13 +149,23 @@ def measure_bdh_decode_naive(model: BDH, prompt: torch.Tensor, max_new_tokens: i
 
 def measure_bdh_decode_streaming(model: BDH, prompt: torch.Tensor, max_new_tokens: int, device: torch.device) -> dict:
     """The real O(1)-state decode path (bdh_stream_chunk), not the naive
-    full-replay one -- prefill the prompt as one chunk, then decode one
-    token at a time using only the persistent per-layer state."""
+    full-replay one. Prefill (processing the prompt into the initial
+    state) happens ONCE, OUTSIDE the timed region -- a real bug in an
+    earlier version of this function re-ran prefill inside the timed
+    call every time (including the "real" measurement, not just warmup),
+    so `elapsed` silently included one-time prefill cost on top of the
+    `max_new_tokens` decode steps the tokens_per_second denominator
+    assumed -- an undercount that got WORSE at longer prompts. Fixed
+    2026-08-11; see docs/restart/hz0h_phase1_kv_cache_bdh_results.md for
+    the corrected numbers and what changed."""
     with torch.no_grad():
-        def run(n_tokens: int) -> None:
+        def prefill() -> tuple[list[torch.Tensor], torch.Tensor]:
             states = init_bdh_states(model, prompt.shape[0], device=device)
             states, logits = bdh_stream_chunk(model, states, prompt, start_position=0)
             token = torch.argmax(logits[:, -1, :], dim=-1, keepdim=True)
+            return states, token
+
+        def decode(states: list[torch.Tensor], token: torch.Tensor, n_tokens: int) -> None:
             position = prompt.shape[1]
             for _ in range(n_tokens):
                 states, logits = bdh_stream_chunk(model, states, token, start_position=position)
@@ -163,11 +173,54 @@ def measure_bdh_decode_streaming(model: BDH, prompt: torch.Tensor, max_new_token
                 position += 1
 
         _sync(device)
-        run(4)  # warmup
+        states, token = prefill()
+        decode(states, token, 4)  # warmup (decode only, reuses this prefill, not timed)
+        _sync(device)
+
+        states, token = prefill()  # fresh, untimed prefill for the real measurement
         _sync(device)
         with _PowerSampler(device) as sampler:
             started = time.perf_counter()
-            run(max_new_tokens)
+            decode(states, token, max_new_tokens)
+            _sync(device)
+            elapsed = time.perf_counter() - started
+    return {"tokens_per_second": max_new_tokens / elapsed, "elapsed_seconds": elapsed, "mean_watts": sampler.mean_watts()}
+
+
+def measure_bdh_decode_kv_cache(model: BDH, prompt: torch.Tensor, max_new_tokens: int, device: torch.device) -> dict:
+    """The alternative O(D*context)-per-token decode path
+    (bdh_kv_cache_step) -- see that function's docstring for why it's
+    worth measuring against bdh_stream_chunk's O(D^2)-per-token
+    compressed state. Prefill (populating the cache from the prompt, one
+    token at a time -- bdh_kv_cache_step is single-token by construction,
+    unlike bdh_stream_chunk's whole-chunk prefill) happens ONCE, OUTSIDE
+    the timed region, same discipline as measure_bdh_decode_streaming."""
+    with torch.no_grad():
+        def prefill() -> tuple[list[dict], torch.Tensor]:
+            cache = new_bdh_kv_cache(model)
+            logits = None
+            for position in range(prompt.shape[1]):
+                logits = bdh_kv_cache_step(model, cache, prompt[:, position:position + 1], position=position)
+            token = torch.argmax(logits[:, -1, :], dim=-1, keepdim=True)
+            return cache, token
+
+        def decode(cache: list[dict], token: torch.Tensor, n_tokens: int) -> None:
+            position = prompt.shape[1]
+            for _ in range(n_tokens):
+                logits = bdh_kv_cache_step(model, cache, token, position=position)
+                token = torch.argmax(logits[:, -1, :], dim=-1, keepdim=True)
+                position += 1
+
+        _sync(device)
+        cache, token = prefill()
+        decode(cache, token, 4)  # warmup
+        _sync(device)
+
+        cache, token = prefill()
+        _sync(device)
+        with _PowerSampler(device) as sampler:
+            started = time.perf_counter()
+            decode(cache, token, max_new_tokens)
             _sync(device)
             elapsed = time.perf_counter() - started
     return {"tokens_per_second": max_new_tokens / elapsed, "elapsed_seconds": elapsed, "mean_watts": sampler.mean_watts()}
@@ -219,22 +272,36 @@ def measure_transformer_decode_kv_cache(model: MatchedTransformerLM, prompt: tor
     O(context) per step, same as any real KV-cached Transformer -- this
     is NOT claimed to be O(1) like BDH's streaming state, just the real
     standard Transformer serving mechanism instead of the crippled
-    full-replay baseline measure_transformer_decode_naive uses)."""
+    full-replay baseline measure_transformer_decode_naive uses).
+
+    Prefill happens ONCE, OUTSIDE the timed decode region -- a real bug
+    in an earlier version of this function re-ran prefill inside the
+    timed call every time, silently including one-time prefill cost in
+    the decode-throughput denominator (worse at longer prompts). Fixed
+    2026-08-11 alongside the same bug in measure_bdh_decode_streaming;
+    see docs/restart/hz0h_phase1_kv_cache_bdh_results.md."""
     with torch.no_grad():
-        def run(n_tokens: int) -> None:
+        def prefill() -> tuple[list[dict], torch.Tensor]:
             cache = model.new_kv_cache()
             logits = model(prompt, kv_cache=cache)
             token = torch.argmax(logits[:, -1, :], dim=-1, keepdim=True)
+            return cache, token
+
+        def decode(cache: list[dict], token: torch.Tensor, n_tokens: int) -> None:
             for _ in range(n_tokens):
                 logits = model(token, kv_cache=cache)
                 token = torch.argmax(logits[:, -1, :], dim=-1, keepdim=True)
 
         _sync(device)
-        run(4)  # warmup
+        cache, token = prefill()
+        decode(cache, token, 4)  # warmup
+        _sync(device)
+
+        cache, token = prefill()
         _sync(device)
         with _PowerSampler(device) as sampler:
             started = time.perf_counter()
-            run(max_new_tokens)
+            decode(cache, token, max_new_tokens)
             _sync(device)
             elapsed = time.perf_counter() - started
     return {"tokens_per_second": max_new_tokens / elapsed, "elapsed_seconds": elapsed, "mean_watts": sampler.mean_watts()}
@@ -320,6 +387,10 @@ def main() -> None:
         bdh_decode_streaming["peak_memory_bytes"] = peak_memory_bytes(device)
 
         reset_peak_memory(device)
+        bdh_decode_kv_cache = measure_bdh_decode_kv_cache(bdh_model, prompt, args.decode_tokens, device)
+        bdh_decode_kv_cache["peak_memory_bytes"] = peak_memory_bytes(device)
+
+        reset_peak_memory(device)
         transformer_prefill = measure_transformer_prefill(transformer_model, prompt, args.prefill_repeats, device)
         transformer_prefill["peak_memory_bytes"] = peak_memory_bytes(device)
 
@@ -335,6 +406,7 @@ def main() -> None:
             "bdh_prefill": bdh_prefill,
             "bdh_decode_naive_replay": bdh_decode_naive,
             "bdh_decode_streaming_state": bdh_decode_streaming,
+            "bdh_decode_kv_cache": bdh_decode_kv_cache,
             "transformer_prefill": transformer_prefill,
             "transformer_decode_naive_replay": transformer_decode_naive,
             "transformer_decode_kv_cache": transformer_decode_kv_cache,

@@ -380,6 +380,92 @@ def bdh_stream_chunk(
     return new_states, logits
 
 
+def new_bdh_kv_cache(model: "BDH") -> list[dict]:
+    """One empty, mutable dict per layer -- pass to bdh_kv_cache_step,
+    which grows each dict in place across repeated calls (same pattern
+    as reference/hz0a_matched_transformer.py's MatchedTransformerLM.
+    new_kv_cache)."""
+    return [{} for _ in range(model.config.n_layer)]
+
+
+def bdh_kv_cache_step(model: "BDH", kv_cache: list[dict], idx_token: torch.Tensor, position: int) -> torch.Tensor:
+    """Alternative single-new-token decode path: an EXPLICIT, growing
+    per-layer K/V cache (same style as a standard Transformer KV-cache),
+    instead of `bdh_stream_chunk`'s O(1)-in-context, O(D^2)-per-layer
+    compressed running state. Mathematically identical output (same real
+    strictly-lower-triangular causal sum BDH.forward/bdh_stream_chunk
+    compute, just accumulated a different way) -- see
+    tests/reference/test_hz0h_bdh_kv_cache.py for the exact-agreement
+    check against both.
+
+    Real motivation (docs/restart/hz0h_phase1_crossover_scale_sweep_results.md):
+    `bdh_stream_chunk`'s O(D^2)-per-layer state-update cost grows
+    quadratically with model width and dominates at larger D, even
+    though it's context-length-INDEPENDENT. This path instead costs
+    O(D * context_so_far) per token per layer -- context-DEPENDENT (like
+    a Transformer's KV-cache) but with a much smaller constant, since
+    BDH's attention has no softmax (fewer ops per element than a
+    Transformer's). At large D and moderate context, this may beat both
+    `bdh_stream_chunk` AND a real Transformer KV-cache; at very long
+    context it should eventually lose to `bdh_stream_chunk` again (its
+    cost keeps growing with context, `bdh_stream_chunk`'s doesn't) --
+    real, not yet measured, see the module-level TODO in
+    scripts/hz0h_inference_benchmark.py.
+
+    `idx_token`: (B, 1), exactly one new token. `position`: this token's
+    absolute position in the full sequence (RoPE needs it, same reason
+    `bdh_stream_chunk` takes `start_position`). Returns logits (B, 1,
+    vocab_size). `kv_cache` is mutated in place: each layer's dict grows
+    `"k"` (shape (B, nh, t, N)) and `"v"` (shape (B, 1, t, D), broadcast
+    across heads, matching how `Attention.forward`'s own `V` is shared
+    across heads) by one position per call.
+    """
+    C = model.config
+    B = idx_token.shape[0]
+    D = C.n_embd
+    nh = C.n_head
+
+    x = model.embed(idx_token).unsqueeze(1)  # (B, 1, 1, D)
+    x = model.ln(x)
+
+    position_tensor = torch.full((1, 1, 1, 1), float(position), device=idx_token.device, dtype=model.attn.freqs.dtype)
+    r_phases = position_tensor * model.attn.freqs
+
+    for level in range(C.n_layer):
+        x_latent = x @ model._w(model.encoder)
+        x_sparse = F.relu(x_latent)
+        QR = model.attn.rope(r_phases, x_sparse)  # (B, nh, 1, N)
+
+        layer_cache = kv_cache[level]
+        if "k" in layer_cache:
+            scores = QR @ layer_cache["k"].mT  # (B, nh, 1, t)
+            yKV = scores @ layer_cache["v"]  # (B, nh, 1, D)
+            layer_cache["k"] = torch.cat([layer_cache["k"], QR], dim=2)
+            layer_cache["v"] = torch.cat([layer_cache["v"], x], dim=2)
+        else:
+            # Strictly-lower-triangular causal mask (see
+            # reference/hz0h_bdh_torch.py's module docstring, discrepancy
+            # #2): the FIRST token has nothing strictly before it, so its
+            # attention output is exactly zero -- not "attend to self,"
+            # genuinely nothing. Real behavior, not a special case to
+            # work around.
+            yKV = torch.zeros(B, nh, 1, D, device=x.device, dtype=x.dtype)
+            layer_cache["k"] = QR
+            layer_cache["v"] = x
+        yKV = model.ln(yKV)
+
+        y_latent = yKV @ model._w(model.encoder_v)
+        y_sparse = F.relu(y_latent)
+        xy_sparse = x_sparse * y_sparse
+        xy_sparse = model.drop(xy_sparse)
+        N = D * C.mlp_internal_dim_multiplier // nh
+        yMLP = xy_sparse.transpose(1, 2).reshape(B, 1, 1, N * nh) @ model._w(model.decoder)
+        y = model.ln(yMLP)
+        x = model.ln(x + y)
+
+    return x.view(B, 1, D) @ model.lm_head
+
+
 def compute_activation_and_state_diagnostics(model: "BDH", idx: torch.Tensor) -> dict:
     """Phase 1 metrics (plans/HatchlingZero_Reality_Plan.md): per-layer
     activation sparsity and synaptic-state norms, read-only (no_grad,

@@ -1,5 +1,21 @@
 # HZ Phase 1: does BDH's decode advantage survive scaling up? Real, surprising answer: no, it reverses
 
+## ⚠️ Correction: the numbers below have a real measurement bug — see `docs/restart/hz0h_phase1_kv_cache_bdh_results.md`
+
+`measure_bdh_decode_streaming` and `measure_transformer_decode_kv_cache`
+(`scripts/hz0h_inference_benchmark.py`) both re-ran prefill INSIDE the
+timed decode region on every call, silently folding one-time prefill
+cost into the reported decode tokens/sec — worse at longer prompts. This
+affected every number below. Fixed 2026-08-11, same day; the corrected
+sweep (plus a new alternative BDH KV-cache-style decode path) is in
+`docs/restart/hz0h_phase1_kv_cache_bdh_results.md`. The QUALITATIVE
+conclusion (BDH's advantage does not survive to 71M params) still holds
+in the corrected data, but several specific numbers and the 5M-scale
+trend DIRECTION changed (the buggy version showed the advantage
+shrinking with context; the corrected version shows it growing with
+context, which is what the underlying O(1)-vs-O(context) mechanism
+predicts). Read the corrected document for the current picture.
+
 Date: 2026-08-11. Follow-up to `docs/restart/hz0h_phase1_inference_benchmark_results.md`'s
 open question: at ~4.8M params, BDH's streaming decode beat the real
 KV-cached Transformer baseline ~2.9-3.2x, but that KV-cache was *itself*
