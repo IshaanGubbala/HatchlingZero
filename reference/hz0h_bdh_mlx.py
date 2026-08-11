@@ -53,6 +53,20 @@ class Attention:
 
     @staticmethod
     def phases_cos_sin(phases: mx.array) -> tuple[mx.array, mx.array]:
+        # REAL BUG, found and fixed 2026-08-10 (matching the identical fix
+        # in reference/hz0h_bdh_torch.py -- see that file's phases_cos_sin
+        # docstring for the full derivation): get_freqs() divides by 2*pi,
+        # producing phases in CYCLES, not radians. The official
+        # phases_cos_sin wraps to the fractional cycle (phases % 1) THEN
+        # converts to radians (*2*pi) before cos/sin. This file previously
+        # called cos(phases)/sin(phases) directly on cycle-units values --
+        # confirmed to diverge from the real formula by up to ~2.0 (max
+        # possible for cos/sin). Not caught by this file's own tests
+        # because Torch and MLX had the SAME bug, so they still agreed
+        # with each other -- only fixing one side exposed it (2 real
+        # cross-framework parity test failures led directly to finding
+        # this).
+        phases = (phases % 1) * (2 * mx.array(3.141592653589793, dtype=mx.float32))
         return mx.cos(phases), mx.sin(phases)
 
     def rope(self, phases: mx.array, v: mx.array) -> mx.array:

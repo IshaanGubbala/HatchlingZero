@@ -1,6 +1,35 @@
 # HZ-0H H3-T: does BDH have a native (cheaper-than-full-BPTT) training rule?
 
-## ⚠️ CRITICAL CORRECTION (2026-08-10, discovered after the SG-global/calibration/3-param work below): every H3-T script used a broken task
+## 🚨 SECOND, LARGER CORRECTION (2026-08-10/11): the model itself had a RoPE bug -- the "Stage 1 survives" claim below was ALSO wrong
+
+After the correction immediately below this one was written (fixing the
+same-sequence-target bug and re-verifying Stage 1 "survives"), a
+completely separate, more severe bug was found: `reference/hz0h_bdh_torch.py`
+and `hz0h_bdh_mlx.py` never correctly implemented RoPE at all (missing a
+`(phases % 1) * 2*pi` conversion present in the real official source --
+full writeup: `docs/restart/hz0h_rope_bug_critical_correction.md`).
+
+**Re-running Stage 1's redo script with BOTH fixes (target convention AND
+RoPE) now in place changes the result again**: `cos(local_signal,
+true_grad)` flips from **+0.6659** (target fixed, RoPE still broken -- the
+number reported as "the qualitative finding survives" just below) to
+**-0.6443** (both fixed) -- similar magnitude, opposite sign. Raw Hebbian
+stays near-zero throughout (0.0058 -> 0.0223 -> 0.0149), the one part of
+this investigation that has been consistently reproducible across every
+fix so far.
+
+**This means the "Stage 1 survives" claim in the section immediately
+below is ITSELF now known to be wrong** -- it was checked against a model
+that still had the RoPE bug. Left in place, not deleted, so the real
+history (including the real mistake of reporting a survival claim before
+it had been checked against a fully-corrected model) stays visible. Per
+explicit user direction, this was stopped and documented here rather than
+further chased in the same session -- re-verifying Stage 1 a third time
+(and everything downstream: Arms A/B/C, SG-global, the calibration sweep,
+the three-parameter extension, none of which have been rerun against the
+RoPE-corrected model at all) is real, necessary, NOT YET DONE.
+
+## ⚠️ FIRST CORRECTION (2026-08-10, discovered after the SG-global/calibration/3-param work below): every H3-T script used a broken task
 
 Every single script in this investigation (Stage 1, Arms A/B/C, SG-global,
 the periodic calibration sweep, the all-three-shared-parameter extension)
