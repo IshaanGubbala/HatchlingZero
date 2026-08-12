@@ -75,22 +75,46 @@ solved most of the real memory problem (16x on its own); grouped state
 was always the harder, more speculative lever. Do not keep iterating
 past one real redesign attempt.
 
-## Step 3 — Retarget BlockBDH to 50% active (not 12.5%), fix training stability first
+**Status: CLOSED (2026-08-12).** Both formulations tried failed --
+direct grouped state (hard depth-block assignment, reproducible 44%
+ceiling even with zero sharing) and this learned-addressing redesign
+(bimodal, seed-dominated failure at every bank count including zero
+sharing, `docs/restart/hz0h_phase2r_step2_soft_grouped_state_results.md`).
+The second failure is arguably worse than the first (no stable outcome
+at all, vs. a reproducible-but-low ceiling). Grouped-state compression
+is archived, not pursued further -- no formulation #3 planned.
 
-50% active alone is already a real ~2x speedup, and Phase 4's own
-finding was that its failure mode looks like training instability
-(some seeds reach 1.00, others 0.60), not a hard capability wall.
+## Step 3 — BlockBDH: moved to its own research lane (2026-08-12), not canonical
 
-Build **HZ-Block-v1** = HZ-State-v1 (VB D/4 + INT8) + 50% block
-activation, trained end-to-end from initialization (not layered onto an
-already-trained dense-state model). Run **>=5 seeds** on the
-reassignment task. Real, concrete target:
+Real status per `docs/restart/hz0h_phase4_blocksparse_results.md`
+Updates 6-8: 50% active gives a genuine, measured 1.95-6.20x decode
+speedup and 1.00 accuracy on passkey, but the reassignment task shows
+real seed instability (0.60-1.00 across 5 seeds) that survived THREE
+mechanistically distinct fix attempts (noise injection, constant-lambda
+balance loss, annealed balance loss) -- all three show the identical
+failure signature (help whichever seeds needed it, hurt whichever
+didn't, never a clean win). **6.2x measured wall-clock speedup is too
+valuable a signal to discard, but three unsuccessful stability fixes
+means it doesn't belong in the canonical candidate.**
 
-> Turn 0.60-1.00 (single-seed range found so far) into consistently
-> ~0.95-1.00 across seeds.
+Status: **`HZ-Sparse` experimental lane** -- real speed mechanism
+proven, trainability unresolved. Kept alive as separate ongoing
+research, NOT bundled into HZ-Core. Real next ideas (not yet tried,
+mechanistically different from all 3 failed attempts, for whenever this
+lane is revisited):
 
-Only drop to 25% active if 50% is first made seed-stable. Do not chase
-more aggressive sparsity while the current level is still unreliable.
+- **Dense-warmup anneal**: train dense first, then gradually anneal
+  active fraction 100% -> 75% -> 50%, instead of training at 50% from
+  step 0 -- may avoid the abrupt regime shift that seems to trigger
+  router lock-in.
+- **Distillation**: dense BDH teacher -> 50%-active BlockBDH student,
+  rather than training the sparse model against ground truth alone.
+
+Re-entry condition: multi-seed stability (matching Step 3's original
+target, `>=0.95-1.00` consistently across `>=5` seeds) on the
+reassignment task, via a mechanism genuinely different in kind from the
+three already-failed attempts -- not a fourth optimizer/loss-term tweak
+on the same family.
 
 ## Step 4 — Learned router, once BlockBDH's fixed heuristic router is the bottleneck
 
@@ -101,22 +125,32 @@ collapse, reassignment accuracy, CE, and wall-clock together — not just
 task accuracy alone. No RL-based routing yet; softmax + top-k + balance
 loss only.
 
-## Step 5 — Train variable depth from scratch (not zero-shot extrapolation)
+## Step 5 — Variable depth: REJECTED AS TESTED (2026-08-12)
 
 Phase 5's real finding: a model trained at depth `d` does not know how
-to reason at `2d` — this does NOT mean adaptive depth is a dead end, it
-means it was never trained for. Real fix: sample a random depth each
-batch (e.g. `depth in {2,4,6,8,12}`) or curriculum (early: 2-4, middle:
-2-8, late: 2-12/16), same shared weights throughout. Evaluate the
-resulting model across the SAME depth range it trained on.
+to reason at `2d` zero-shot — training depth-variation in-path (curriculum,
+not i.i.d. random sampling, which failed outright) fixes that cleanly,
+1.00 accuracy at every trained depth on every trained hop count
+(`docs/restart/hz0h_phase5_variable_depth_results.md` Update 3).
 
-**The real test, not just stability**: does `accuracy(d=12) >
-accuracy(d=4)` on genuinely HARD examples? If additional trained
-recurrent depth measurably helps on hard cases (not just "doesn't
-break"), that is a real test-time-compute mechanism and a significant
-result. If it doesn't, that's real too — report it honestly either way.
+**But the actual hypothesis this step exists to test failed**: on the
+held-out hard task, accuracy is HIGHEST at low depth (0.935 @ d=4) and
+falls monotonically as depth increases (0.87 @ d=16) -- the opposite of
+"more compute helps harder problems." The model learned a
+difficulty-independent solution (6-hop chains solved at only 2
+iterations), not "one hop per iteration," so depth stopped being the
+thing doing any differentiating work. Trainability isn't the open
+question here anymore -- the mechanism trains fine. The premise is
+falsified.
 
-## Step 6 — The integrated 25M HZ candidate (narrowed 2026-08-12)
+Status: **REJECTED AS TESTED.** Not integrated into HZ-Core. Could
+reopen later under a fundamentally different objective than plain
+next-token loss -- intermediate latent targets, process supervision, or
+RL explicitly rewarding successful extra computation -- but there is no
+current evidence this belongs in HZ-Core, and no further hyperparameter
+variants of the tested mechanism are planned.
+
+## Step 6 — HZ-Core-1: the minimal integrated 25M candidate (renamed/narrowed 2026-08-12)
 
 Real reassessment, per this step's own stated precondition ("once Steps
 1/3/5 each independently work"): Step 3 does NOT independently work
@@ -125,46 +159,59 @@ seed instability on the reassignment task, 3 mechanistically distinct
 fix attempts all failed the same way, left open and unresolved). Step 5
 does NOT independently work either, in the sense that matters for this
 plan's own gate: "trained depth measurably helps hard tasks" is one of
-the six decision-gate criteria below, and it is now FALSIFIED, not just
+the decision-gate criteria below, and it is now FALSIFIED, not just
 unproven (`docs/restart/hz0h_phase5_variable_depth_results.md` Update
 3 — accuracy on the held-out hard task DECREASES monotonically as
 trained depth increases). Bundling either into the 25M candidate would
 make any negative result uninterpretable (real advantage from Step 1
 could be masked by Step 3's seed roulette or Step 5's dead weight), and
 would burn the 25M compute budget on components already known to be
-broken.
+broken. If it fails, three components would already be suspect and the
+failure would be unattributable; if it succeeds, the extra complexity's
+necessity would be unproven either way.
 
-**Narrowed scope: Step 1 only.**
+**Deliberately minimal: `HZ-Core-1` = Faithful BDH + Value Bottleneck +
+INT8 synaptic state.** The point is to establish that the ONE mechanism
+that actually survived (state compression) continues to work on a real
+25M-scale language model, not just on controlled synthetic tasks.
 
 ```text
 Faithful BDH
-  + value bottleneck (D/4) + INT8 state      [Step 1, HZ-State-v1]
+  + value bottleneck (D/4)                   [Step 1a]
+  + INT8 synaptic state                      [Step 1b]
+= HZ-Core-1
 ```
 
-This is the one component with a real, reliable, seed-stable result
-(0% degradation up to 16x combined reduction on both passkey and
-reassignment, `docs/restart/hz0h_phase2r_combined_vb_int8_results.md`).
-BlockBDH and variable-depth remain open research threads, to be
-revisited as separate, clearly-labeled ADDITIVE upgrades later, only if
-their real problems (BlockBDH's instability, variable-depth's falsified
-premise) get fixed — never bundled into a gate-worthy comparison while
-broken.
+Deliberately excluded: MoE, separate HZ-B-style memory, fast weights,
+ternary weights, synthetic-gradient training, BlockBDH (own `HZ-Sparse`
+lane, see Step 3), variable-depth (rejected as tested, see Step 5).
 
-Deliberately excluded for now: MoE, separate HZ-B-style memory, fast
-weights, ternary weights, synthetic-gradient training, BlockBDH,
-variable-depth. Keep the integrated candidate clean — one real test of
-whether the ONE proven win (state compression) composes at 25M scale
-with quality preserved, not a kitchen sink.
+**Four-way ablation**, at 25M params, matched tokenizer/data/optimizer/
+budget (per `reference/hz0h_bdh_h5_memory_tasks.py`'s H5 methodology for
+the task evals, and `docs/restart/hz0h_phase1_crossover_scale_sweep_results.md`'s
+25M config for the matched-Transformer baseline):
 
-Compare, at 25M params, matched tokenizer/data/optimizer/budget:
-upstream BDH, matched Transformer, HZ candidate. Measure:
+```text
+upstream BDH
+vs BDH + VB               (isolate value bottleneck's own effect)
+vs BDH + VB + INT8        (= HZ-Core-1)
+vs matched Transformer
+```
 
-- **Quality**: language CE, passkey, reassignment, harder memory tasks,
-  code/reasoning if available.
-- **Efficiency**: total RAM, decode throughput, prefill throughput,
-  joules/token (CUDA-only for now, per the standing Mac-`powermetrics`
-  gap), active FLOPs.
-- **Dynamic reasoning**: accuracy vs. internal depth curve.
+Measure simultaneously, not sequentially in separate one-off scripts:
+
+- Validation cross-entropy (real held-out text, not synthetic tasks)
+- Downstream reasoning/code quality, if available at this scale
+- Passkey / reassignment / interference memory tasks
+- Total inference RAM, state RAM specifically
+- Prefill throughput, decode throughput
+- Joules/token (CUDA-only for now, per the standing Mac-`powermetrics` gap)
+- Long-context KV-cache crossover point
+
+**Promotion target for HZ-Core-1**: state memory down 16-21x while
+quality degradation stays <=~3%, and total inference memory meaningfully
+below the matched Transformer at useful context lengths. That is a real,
+publishable HatchlingZero result on its own, even without a speed win.
 
 ## The real decision gate (narrowed 2026-08-12, matching Step 6's narrowed scope)
 
@@ -189,9 +236,28 @@ advantage is — the missing thing right now is exactly this: memory,
 speed, and quality wins have all been shown SEPARATELY, never together
 in one trained model.
 
-## Status
+## Status (updated 2026-08-12)
 
-Not started. Real next bit-by-bit steps, in order: lock HZ-State-v1
-(cheap, mostly done already) -> Step 3's 5-seed BlockBDH stability
-check (bounded, well-defined) -> Step 5's variable-depth training ->
-Step 6's integrated candidate, only once 1/3/5 each work independently.
+```text
+Step 1 (VB + INT8):    DONE, real reproducible win at small scale
+Step 2 (grouped state): CLOSED, both formulations failed
+Step 3 (BlockBDH):     moved to HZ-Sparse lane, unresolved, not canonical
+Step 4 (learned router): blocked on Step 3's re-entry, not started
+Step 5 (variable depth): REJECTED AS TESTED
+Step 6 (HZ-Core-1):    not started -- real next step
+```
+
+Real next bit-by-bit steps, in order: confirm existing 25M-scale
+infrastructure (`scripts/hz0h_stage2_runner_bdh.py`, byte-level packed
+corpus at `data/packed/`, `reference/hz0h_bdh_vb_torch.py`'s `BDHVB`
+fully vectorized forward, `reference/hz0a_matched_transformer.py`) with
+a short smoke test before committing to a full run (the stage2 BDH
+runner has never actually been executed) -> real matched-budget training
+runs for all four HZ-Core-1 ablation arms -> quality + efficiency
+measurement per Step 6's list -> promotion decision against the revised
+gate.
+
+Separately, independently, not blocking HZ-Core-1: `HZ-Sparse` lane
+(Step 3) may resume later if a mechanistically new stability fix (dense-
+warmup anneal or distillation, see Step 3) reaches multi-seed
+reliability.
