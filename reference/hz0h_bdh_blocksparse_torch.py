@@ -40,13 +40,29 @@ import torch.nn.functional as F
 from reference.hz0h_bdh_torch import BDH, BDHConfig
 
 
-def compute_active_blocks(model: BDH, idx: torch.Tensor, block_size: int, active_fraction: float) -> torch.Tensor:
+def compute_active_blocks(model: BDH, idx: torch.Tensor, block_size: int, active_fraction: float, exploration_noise: float = 0.0) -> torch.Tensor:
     """Cheap router: one forward-ish pass computing x_sparse for the
     FIRST layer only (reusing the model's own encoder, no extra learned
     router parameters -- the cheapest possible real router), aggregates
     mean activation magnitude per block across the whole batch/sequence,
     and returns the indices of the top-k active blocks. Real, coarse,
-    call-level granularity (not per-token) -- see module docstring."""
+    call-level granularity (not per-token) -- see module docstring.
+
+    `exploration_noise`: real, disclosed fix for a diagnosed failure
+    mode (`docs/restart/hz0h_phase4_blocksparse_results.md`'s Update 5):
+    with `exploration_noise=0` (the original, default behavior), the
+    router is a deterministic top-k on activation magnitude -- a "rich
+    get richer" dynamic where whichever blocks happen to score slightly
+    higher early in training get selected, receive all the gradient,
+    grow further, and lock in permanently (observed directly: bad-seed
+    training runs freeze their block SET by step ~200 and then the loss
+    plateaus for the rest of training, while good-seed runs keep
+    exploring different block sets until step ~600 and keep improving
+    long after). Setting `exploration_noise > 0` adds real Gumbel-style
+    noise to the block scores before top-k (`score + noise *
+    -log(-log(uniform))`), giving every block a real, decaying-over-
+    training-if-scheduled-externally chance of selection instead of a
+    fully deterministic, self-reinforcing choice."""
     with torch.no_grad():
         C = model.config
         D = C.n_embd
@@ -59,6 +75,10 @@ def compute_active_blocks(model: BDH, idx: torch.Tensor, block_size: int, active
         x_latent = x @ model.encoder
         x_sparse = F.relu(x_latent)  # (B, nh, T, N)
         block_scores = x_sparse.reshape(*x_sparse.shape[:-1], n_blocks, block_size).abs().mean(dim=(0, 1, 2, 4))  # (n_blocks,)
+        if exploration_noise > 0:
+            uniform = torch.rand_like(block_scores).clamp_min(1e-9)
+            gumbel = -torch.log(-torch.log(uniform))
+            block_scores = block_scores + exploration_noise * gumbel
         active_blocks = torch.topk(block_scores, n_active).indices.sort().values
         return active_blocks
 

@@ -1,6 +1,54 @@
 # HZ Phase 4 (BlockBDH): real speedup confirmed, zero-shot quality fails badly
 
-## ⚠️ Update 2: does NOT generalize to the harder reassignment task — real degradation, not 0%
+## Update 6 (`plans/HZ Integrated Candidate Plan.md` Step 3 diagnosis): found the real mechanism — premature router lock-in. First fix (noise) made it WORSE, not better.
+
+Direct diagnosis of Update 4's 5-seed instability (3/5 perfect, 2/5
+degraded). Logged the router's block SELECTION and the loss every 100
+steps for one bad seed (1, final 0.60) and one good seed (2, final
+1.00):
+
+**Bad seed**: block set `[3,4,5,6,7,9,12,13]` locks in by step 200 and
+never changes again through step 2400. Loss drops to ~2.02 by step 300,
+then flatlines (2.00-2.02) for the remaining ~2100 steps, ending at
+1.984 — essentially no further learning after the block set froze.
+
+**Good seed**: block set keeps changing — 5 different configurations
+across steps 0/100/200/500/600 — before settling at step 600. Loss at
+settling (2.022) is comparable to the bad seed's plateau value, but
+UNLIKE the bad seed, it keeps improving steadily afterward: 2.005 (step
+1000) → 1.971 (step 1200) → 1.957 (step 1500) → 1.953 (step 2200).
+
+**Real, clear mechanism**: the router (deterministic top-k on activation
+magnitude) is a rich-get-richer dynamic — whichever blocks score
+slightly higher early get selected, receive all the gradient, grow
+their magnitude further, and lock in permanently. Good seeds happen to
+explore several candidate block sets before one wins convincingly; bad
+seeds converge to a set almost immediately and get stuck there whether
+or not it was actually sufficient for the task.
+
+**First fix attempted — real, honest negative result**: added
+Gumbel-noise-based stochastic exploration to `compute_active_blocks`
+(new `exploration_noise` parameter, `reference/hz0h_bdh_blocksparse_torch.py`),
+annealed from 0.5 to 0 over the first 1000 steps, and retrained the two
+previously-bad seeds (0, 1) with it. Result: **WORSE, not better** —
+0.135 and 0.11 (both near the 0.125 chance floor), down from the
+original 0.74 and 0.60 without any fix at all. Injecting noise into the
+router prevents the encoder's selected columns from receiving a
+CONSISTENT gradient signal for long enough to specialize, which appears
+to hurt more than premature lock-in does. The diagnosis (premature
+lock-in) is very likely still correct — this specific fix (raw noise
+injection) was the wrong response to it.
+
+**Real, honest next step, not yet tried**: an explicit load-balancing
+LOSS term (`L = L_LM + lambda * L_balance`, penalizing uneven block
+utilization directly, per `plans/HZ Integrated Candidate Plan.md` Step
+4's own design) rather than noise injection — this changes WHAT the
+router is optimized to do, rather than randomly perturbing its choices,
+and may avoid destabilizing the encoder's ability to specialize. Not
+attempted here; the noise-injection attempt is disclosed as a real,
+informative failure, not hidden or silently abandoned.
+
+## Update 2: does NOT generalize to the harder reassignment task — real degradation, not 0%
 
 Same day, same trained-end-to-end methodology, applied immediately
 (before trusting the passkey-only "0% degradation at every fraction"
