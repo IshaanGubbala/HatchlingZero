@@ -95,23 +95,50 @@ projections fix plain grouping's ~26-81% degradation — they're
 confounded by the baseline's own non-convergence. **This experiment
 does not yet answer 2R-C's real question.**
 
+## Update: two quick fixes tried, both ruled out
+
+1. **Gradient explosion?** Measured raw (unclipped) gradient norms for
+   the first 50 training steps of the no-sharing baseline: 0.23–0.86,
+   small and actually SHRINKING over those steps, not exploding. Rules
+   out gradient clipping as a fix — there's nothing large to clip.
+   Small/shrinking norms instead point toward a vanishing-signal
+   explanation (gradient information attenuating across the ~132
+   sequential operations in one forward pass — 6 layers × ~22
+   timesteps), not an instability one.
+2. **Higher learning rate (8e-3, 4x the original 2e-3)?** Also plateaus
+   around the same ~2.0-2.1 loss band through step 2000, and gets
+   actively WORSE/unstable near the end (loss jumped to 2.69 at step
+   2250, settled at 2.33) rather than breaking through — a higher LR
+   does not fix this, and pushes toward instability without any
+   compensating gain.
+
+**Neither quick hyperparameter fix works.** This is not an LR-tuning
+problem — the plateau is consistent across a 4x LR range and isn't
+explained by gradient magnitude. Real methodology work (sequence-length
+curriculum, truncated BPTT, or a genuine architectural adjustment) is
+needed, not a quick tweak — stopping the quick-fix search here rather
+than continuing to guess at hyperparameters without a principled reason
+to expect a different one to work.
+
 ## Real next steps
 
-1. Diagnose the optimization difficulty directly: try gradient clipping,
-   a lower learning rate, or an LR warmup/schedule for this specific
-   sequential-BPTT training regime before concluding per-layer
-   projections don't work.
-2. Try a sequence-length curriculum (train on short passkey sequences
+1. Try a sequence-length curriculum (train on short passkey sequences
    first, extend gradually) — a common fix for exactly this class of
-   long-sequential-dependency optimization difficulty.
-3. Consider truncated BPTT (detach the state periodically during
+   long-sequential-dependency optimization difficulty, not yet
+   attempted (real methodology work, bigger than a hyperparameter swap).
+2. Consider truncated BPTT (detach the state periodically during
    training, like `plans/HatchlingZero_Reality_Plan.md`'s own Phase 6
    "Training D" idea, originally scoped for a different purpose but
    directly applicable here) to see if that's an easier optimization
    landscape even if less exact.
-4. Only once the no-sharing baseline reliably reaches a real, high
+3. Only once the no-sharing baseline reliably reaches a real, high
    accuracy under SOME training recipe: re-run the `n_state_groups`
    sweep and get a real, trustworthy answer to whether trained
    projections rescue plain grouping.
-5. 2R-D (2 depth-state banks + D/4 value width) remains blocked on this
-   resolving, same status as before this experiment.
+4. 2R-D (2 depth-state banks + D/4 value width) remains blocked on this
+   resolving. Given the cost found here, real next work in the meantime
+   should go to 2R-E (combining the already-working 2R-B value
+   bottleneck with the already-working Phase 3 INT8 quantization,
+   neither of which has this blocker) rather than continuing to chase
+   this specific optimization difficulty without a curriculum/truncated-
+   BPTT implementation in hand.
