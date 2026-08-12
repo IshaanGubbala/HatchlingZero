@@ -1,5 +1,64 @@
 # HZ Phase 4 (BlockBDH): real speedup confirmed, zero-shot quality fails badly
 
+## Update 7: load-balancing LOSS term tried (3 magnitudes) — also NOT a clean fix, real mixed/negative result
+
+Real second attempt at Update 6's diagnosed router-lock-in problem,
+this time via `block_balance_loss` (`reference/hz0h_bdh_blocksparse_torch.py`),
+the loss-term fix named as the real next step after noise injection
+failed. Unlike `exploration_noise`, this has real gradient (no
+`torch.no_grad()`): `p = softmax(block_scores)`, `loss = n_blocks *
+sum(p_i^2)`, minimized at uniform `p` — pushes `encoder` itself toward
+producing more evenly-spread block activation magnitudes, combined as
+`total_loss = lm_loss + lambda * block_balance_loss(...)`. Tested via
+`scripts/hz0h_bdh_blocksparse_balance_loss_reassignment_eval.py`, same
+task/config/2500-step budget as Update 4's 5-seed table (so directly
+comparable).
+
+**lambda=0.1, all 5 seeds:**
+
+| Seed | Baseline (no fix) | With balance loss (λ=0.1) |
+| --- | --- | --- |
+| 0 | 0.74 | **0.405** (worse) |
+| 1 | 0.60 | **0.11** (worse, near chance) |
+| 2 | 1.00 | **0.925** (worse) |
+| 3 | 1.00 | **0.225** (much worse) |
+| 4 | 1.00 | **0.11** (much worse, near chance) |
+
+Clean failure, worse than the noise-injection attempt — at λ=0.1 the
+balance term is strong enough to actively break 2 of the 3 seeds that
+previously reached perfect accuracy without any fix at all.
+
+**Lower lambdas, seeds 0/1 only (the originally-bad seeds):**
+
+| Seed | Baseline | λ=0.01 | λ=0.001 |
+| --- | --- | --- | --- |
+| 0 | 0.74 | **0.135** (near chance, worse) | **0.135** (near chance, worse) |
+| 1 | 0.60 | **1.00** (better) | **0.705** (better) |
+
+**Real, honest verdict: no clean win at any magnitude tried.** Seed 1
+improves at both lower lambdas (0.60→1.00 at λ=0.01, 0.60→0.705 at
+λ=0.001) — a real, positive effect on that seed. But seed 0 collapses
+to near the 0.125 chance floor at BOTH lower lambdas (0.74→0.135),
+which is worse than doing nothing, and λ=0.1 additionally wrecks two
+seeds that were already perfect. The fix helps some seeds and actively
+harms others, including previously-working ones — not a reliable,
+seed-independent solution.
+
+**Two real fix attempts for router lock-in have now both failed to
+generalize cleanly**: `exploration_noise` (Update 6) and
+`block_balance_loss` at 3 magnitudes (this update). Both are disclosed,
+real negative results, not hidden. Real open question, not yet
+resolved: whether a schedule (e.g., higher λ early, annealed to 0, the
+same idea `exploration_noise` tried and which also failed) or a
+different balance-loss formulation (entropy instead of sum-of-squares)
+would behave differently — not attempted here. Per this session's own
+elimination discipline (see BDHGSP's per-layer-projection plateau,
+diagnosed as architectural only after 4 mechanistically distinct fixes
+all failed), two independent fix families both failing raises real
+doubt that this is a simple hyperparameter-tuning problem rather than a
+harder underlying issue with how a heuristic (non-learned) router
+interacts with any auxiliary-loss-based correction.
+
 ## Update 6 (`plans/HZ Integrated Candidate Plan.md` Step 3 diagnosis): found the real mechanism — premature router lock-in. First fix (noise) made it WORSE, not better.
 
 Direct diagnosis of Update 4's 5-seed instability (3/5 perfect, 2/5

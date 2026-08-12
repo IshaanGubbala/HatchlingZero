@@ -83,6 +83,42 @@ def compute_active_blocks(model: BDH, idx: torch.Tensor, block_size: int, active
         return active_blocks
 
 
+def block_balance_loss(model: BDH, idx: torch.Tensor, block_size: int) -> torch.Tensor:
+    """Real load-balancing AUXILIARY loss (`docs/restart/hz0h_phase4_blocksparse_results.md`
+    Update 6's proposed fix, replacing the failed `exploration_noise`
+    attempt above): the router in `compute_active_blocks` has NO learned
+    parameters of its own -- it just reads mean activation magnitude of
+    `model.encoder`'s own output. So the real lever for fixing the
+    "rich get richer" lock-in isn't the router, it's `encoder` itself:
+    this loss pushes `encoder` (via a real gradient, unlike
+    `compute_active_blocks` which runs under `torch.no_grad()`) to
+    produce block activation magnitudes that are MORE evenly spread,
+    so the (still deterministic, still un-learned) top-k selection
+    naturally has less of a permanent few-blocks-dominate attractor.
+
+    `p = softmax(block_scores)`; loss = `n_blocks * sum(p_i^2)`, the
+    standard squared-coefficient-of-variation-style load-balancing
+    loss (Shazeer et al. sparse-MoE lineage) -- minimized exactly at
+    uniform `p` (loss=1), maximized when one block captures all mass
+    (loss=n_blocks). Combine as `total_loss = lm_loss + lambda_balance *
+    block_balance_loss(...)` in the training loop; this function computes
+    ONLY the auxiliary term, with gradient enabled (no `torch.no_grad()`),
+    since blocking gradient here would make it a no-op identical to the
+    noise-injection attempt it's replacing."""
+    C = model.config
+    D = C.n_embd
+    nh = C.n_head
+    N = D * C.mlp_internal_dim_multiplier // nh
+    n_blocks = N // block_size
+
+    x = model.ln(model.embed(idx).unsqueeze(1))
+    x_latent = x @ model.encoder
+    x_sparse = F.relu(x_latent)
+    block_scores = x_sparse.reshape(*x_sparse.shape[:-1], n_blocks, block_size).abs().mean(dim=(0, 1, 2, 4))
+    p = F.softmax(block_scores, dim=0)
+    return n_blocks * (p * p).sum()
+
+
 def bdh_blocksparse_forward(model: BDH, idx: torch.Tensor, active_blocks: torch.Tensor, block_size: int, targets: torch.Tensor | None = None):
     """Same real per-layer computation as `BDH.forward`, except
     `encoder`/`encoder_v`/`decoder` are only ever multiplied through
