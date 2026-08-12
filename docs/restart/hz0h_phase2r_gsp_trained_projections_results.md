@@ -120,25 +120,47 @@ needed, not a quick tweak — stopping the quick-fix search here rather
 than continuing to guess at hyperparameters without a principled reason
 to expect a different one to work.
 
+## Update: a sequence-length curriculum also fails — three real fixes now ruled out
+
+Tried a sequence-length curriculum (`filler_len` ramped linearly from 1
+to the target 16 over the first half of a 3000-step run, then held at
+16) on the no-sharing baseline — a standard, common fix for exactly this
+class of long-sequential-dependency optimization difficulty. Real
+result: loss still plateaus once the curriculum reaches full length
+(~2.07-2.09 from step 1800 onward, the same band every other attempt
+plateaued at), and final accuracy (**0.295**) is WORSE than flat
+training's own 0.44 at the same total step budget — the curriculum did
+not help, and this specific run did measurably worse.
+
+**Three real, distinct fixes have now been tried and ruled out**:
+gradient clipping (ruled out — gradients are small and shrinking, not
+exploding), a 4x higher learning rate (plateaus at the same loss band,
+gets unstable near the end), and a sequence-length curriculum (also
+plateaus, worse final accuracy than the uncurriculed baseline). This is
+not a quick-fix problem. Stopping further hyperparameter/methodology
+guessing here — the remaining real option (truncated BPTT, a
+genuinely different training mechanism, not a variant of full
+sequential backprop) is real, substantial implementation work, not
+another quick experiment.
+
 ## Real next steps
 
-1. Try a sequence-length curriculum (train on short passkey sequences
-   first, extend gradually) — a common fix for exactly this class of
-   long-sequential-dependency optimization difficulty, not yet
-   attempted (real methodology work, bigger than a hyperparameter swap).
-2. Consider truncated BPTT (detach the state periodically during
-   training, like `plans/HatchlingZero_Reality_Plan.md`'s own Phase 6
-   "Training D" idea, originally scoped for a different purpose but
-   directly applicable here) to see if that's an easier optimization
-   landscape even if less exact.
-3. Only once the no-sharing baseline reliably reaches a real, high
+1. Truncated BPTT (detach the state periodically during training, like
+   `plans/HatchlingZero_Reality_Plan.md`'s own Phase 6 "Training D"
+   idea, originally scoped for a different purpose but directly
+   applicable here) is now the one remaining untried real idea — a
+   genuinely different training mechanism (bounded backward-pass depth
+   through time, not full sequential BPTT), not a hyperparameter
+   variant of what's already failed three times. Real, substantial
+   implementation work, not attempted here.
+2. Only once the no-sharing baseline reliably reaches a real, high
    accuracy under SOME training recipe: re-run the `n_state_groups`
    sweep and get a real, trustworthy answer to whether trained
    projections rescue plain grouping.
-4. 2R-D (2 depth-state banks + D/4 value width) remains blocked on this
-   resolving. Given the cost found here, real next work in the meantime
-   should go to 2R-E (combining the already-working 2R-B value
-   bottleneck with the already-working Phase 3 INT8 quantization,
-   neither of which has this blocker) rather than continuing to chase
-   this specific optimization difficulty without a curriculum/truncated-
-   BPTT implementation in hand.
+3. 2R-D (2 depth-state banks + D/4 value width) remains blocked on this
+   resolving. Given three real fixes have now failed here, real next
+   work should continue on 2R-B/2R-E's already-working, already-strong
+   results (up to 21x combined reduction with small real degradation,
+   `docs/restart/hz0h_phase2r_reassignment_bisection_results.md`)
+   rather than continuing to chase this specific optimization
+   difficulty without a truncated-BPTT implementation in hand.
