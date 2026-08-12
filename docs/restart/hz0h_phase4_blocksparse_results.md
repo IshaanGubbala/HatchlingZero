@@ -1,5 +1,52 @@
 # HZ Phase 4 (BlockBDH): real speedup confirmed, zero-shot quality fails badly
 
+## Update 8: third fix attempt (annealed balance loss) -- same failure pattern, router lock-in left unsolved
+
+One more targeted attempt after Update 7's constant-lambda failure:
+anneal `lambda` linearly from 0.05 to 0 over the first 800 steps (the
+natural exploration window good seeds show in Update 6's diagnosis),
+then pure LM loss for the remaining ~1700 steps so the model gets full,
+uncontested specialization capacity for the back half of training --
+mechanistically different from both prior attempts (not injected
+randomness, and not a constant tax across the whole run).
+
+**All 5 seeds, reassignment task, same 2500-step budget:**
+
+| Seed | Baseline | Annealed balance loss (λ 0.05→0 @ 800 steps) |
+| --- | --- | --- |
+| 0 | 0.74 | **1.00** (better) |
+| 1 | 0.60 | **1.00** (better) |
+| 2 | 1.00 | **0.765** (worse) |
+| 3 | 1.00 | 1.00 (unchanged) |
+| 4 | 1.00 | **0.29** (much worse, near chance) |
+
+Mean baseline 0.868, mean with fix 0.811 -- **worse on average**, and
+the exact same shape as both prior attempts: fixes the previously-bad
+seeds, breaks previously-good ones, no seed-independent win. Real,
+disclosed negative result, third mechanistically distinct fix in a row
+to fail the same way.
+
+**Updated diagnosis**: three independent fix families (noise injection,
+constant-lambda balance loss, annealed balance loss) all show the SAME
+"some seeds better, some seeds worse, never all seeds better"
+signature. That consistency is itself informative -- the router has no
+trainable parameters of its own; every fix has had to act indirectly
+through `model.encoder`, which is shared with the LM objective itself.
+The real structural hypothesis, not yet tested: `encoder` is being
+asked to do two jobs at once (produce good routing signal AND good LM
+features), and these may genuinely compete for a given seed's
+initialization -- which would explain why any correction that shifts
+the routing behavior helps whichever seeds needed it and hurts whichever
+seeds didn't. Not fixed here. Per this session's own elimination
+discipline (BDHGSP required 4 distinct failed procedural fixes before
+the architecture-level verdict; this router mechanism has now failed 3),
+further hyperparameter/schedule variants on this same fix family are not
+recommended as the next step -- real next step per
+`plans/HZ Integrated Candidate Plan.md` is Step 5 (train variable depth
+from scratch), leaving BlockBDH's 50%-active reassignment instability an
+open, disclosed, unsolved problem rather than one "fixed" by an
+unreliable patch.
+
 ## Update 7: load-balancing LOSS term tried (3 magnitudes) — also NOT a clean fix, real mixed/negative result
 
 Real second attempt at Update 6's diagnosed router-lock-in problem,
