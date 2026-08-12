@@ -19,7 +19,34 @@ BDH elsewhere this session):
 **Non-monotonic and, at 50%/12.5%, real degradation — the passkey
 result's "0% degradation at every fraction" does not hold here.**
 
-## Update 3: multi-seed confirms 50% active is genuinely UNSTABLE on reassignment, not just one unlucky run
+## Update 4 (`plans/HZ Integrated Candidate Plan.md` Step 3): 5-seed picture — majority-reliable, not yet consistent
+
+Extended to 5 total seeds at 50% active on reassignment, the concrete
+target set in `plans/HZ Integrated Candidate Plan.md` ("turn 0.60-1.00
+into consistently ~0.95-1.00"):
+
+| Seed | Accuracy at 50% active |
+| --- | --- |
+| 0 | 0.74 |
+| 1 | 0.60 |
+| 2 | 1.00 |
+| 3 | **1.00** |
+| 4 | **1.00** |
+
+**3 of 5 seeds reach perfect (1.00) accuracy; 2 of 5 show real
+degradation (0.60, 0.74).** More precise than the earlier 3-seed picture
+suggested: this is not a coin-flip between "works" and "fails" — the
+majority of initializations DO find the fully-correct solution, but the
+training recipe still doesn't reliably reach it every time. **Target not
+yet met** (this is not yet "consistently ~0.95-1.00") but the gap is
+narrower than it first looked: 60% of seeds already hit the target
+outcome exactly. Real next step per the plan: diagnose what
+differentiates the 3 successful seeds from the 2 unsuccessful ones
+(e.g. early-training loss trajectory, gradient norms) before trying a
+blind fix (more steps, different LR) — same discipline as every other
+training-instability diagnosis this session.
+
+## Update 3: initial 3-seed picture (kept for the record, see Update 4 for the fuller 5-seed result)
 
 Ran 2 more seeds at the ambiguous 50%-active setting to check whether
 the non-monotonic shape above (50% worse than 25%) was a real capacity
@@ -28,27 +55,16 @@ effect or training variance:
 | Seed | Accuracy at 50% active |
 | --- | --- |
 | 0 (original) | 0.74 |
-| 1 | **0.60** |
-| 2 | **1.00** |
+| 1 | 0.60 |
+| 2 | 1.00 |
 
-**High variance, 0.60-1.00 range across 3 seeds at the identical
-config.** This settles the earlier ambiguity: 50%-active BlockBDH
-training on reassignment is not a reliably "safe, slightly-degraded"
-setting — it is genuinely SEED-UNSTABLE, landing on a fully-solved
-(1.00) outcome for some initializations and a real-degradation (0.60)
-outcome for others. **Conclusion: BlockBDH's current training recipe
-does not yet reliably converge on this harder task at 50% active** —
-this is a real, disclosed instability in the training procedure itself
-(matching the same class of finding as 2R-C's optimization plateau,
-though far less severe -- some seeds DO reach 1.00), not evidence that
-50% compression is architecturally impossible for reassignment-like
-tasks. A production use of BlockBDH on tasks like this would need either
-a training-recipe fix (better seed robustness) or a multi-seed/ensemble
-acceptance check before deploying a specific trained model.
-
-Read the passkey-only numbers below as one real, positive, single-seed
-data point on an easy task, not a general or seed-stable property of
-trained BlockBDH.
+High variance, 0.60-1.00 range across 3 seeds at the identical config —
+settled the earlier ambiguity (real instability, not a clean capacity
+trend), though the fuller 5-seed picture in Update 4 shows this is
+majority-reliable (3/5 perfect) rather than a coin flip. Read the
+passkey-only numbers below as one real, positive, single-seed data
+point on an easy task, not a general or seed-stable property of trained
+BlockBDH.
 
 ## ✅ Update 1: trained end-to-end on PASSKEY, both halves of the exit gate real — 100% accuracy at every fraction tested, up to 6.20x speedup
 
