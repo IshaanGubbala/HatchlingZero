@@ -466,6 +466,99 @@ def bdh_kv_cache_step(model: "BDH", kv_cache: list[dict], idx_token: torch.Tenso
     return x.view(B, 1, D) @ model.lm_head
 
 
+# --- Phase 3 (plans/HatchlingZero_Reality_Plan.md): synaptic-state ---------
+# quantization (NOT in upstream). Direct response to
+# docs/restart/hz0h_phase2_streaming_state_size_results.md's real, measured
+# finding: BDH's fp32 running state is already 2-3.3x the size of the
+# model's own weights at the scales tested. INT8 (the plan's own
+# recommended first rung: "BF16 -> FP8/INT8 -> lower precision only if
+# justified") is a direct 4x reduction vs fp32 -- cheapest real experiment
+# to try first, per the plan's own "likely first combination to test" note
+# (this file only does the quantization half; block-sparsity is separate,
+# undone work).
+
+def quantize_state_int8(state: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    """Per-tensor absmax INT8 quantization (not per-block -- the plan's
+    §6.4 recommends per-block scales for a production version; per-tensor
+    is the simplest real first experiment). Returns (int8_tensor,
+    scale) where `state ~= int8_tensor.float() * scale`."""
+    scale = state.detach().abs().amax().clamp_min(1e-8) / 127.0
+    quantized = (state / scale).round().clamp(-127, 127).to(torch.int8)
+    return quantized, scale
+
+
+def dequantize_state_int8(quantized: torch.Tensor, scale: torch.Tensor) -> torch.Tensor:
+    return quantized.to(torch.float32) * scale
+
+
+def init_bdh_states_int8(model: "BDH", batch_size: int, device=None) -> list[dict]:
+    """INT8-quantized-state analog of init_bdh_states -- a fresh (all-zero)
+    state quantizes to zero exactly (no error at t=0), one dict per layer
+    holding `{"q": int8 tensor, "scale": scale tensor}`."""
+    fp32_states = init_bdh_states(model, batch_size, device=device, dtype=torch.float32)
+    return [{"q": quantize_state_int8(state)[0], "scale": torch.tensor(1.0, device=state.device)} for state in fp32_states]
+
+
+def bdh_stream_chunk_int8_state(
+    model: "BDH", states: list[dict], idx_chunk: torch.Tensor, start_position: int,
+) -> tuple[list[dict], torch.Tensor]:
+    """Same real computation as `bdh_stream_chunk` (dequantize the
+    incoming state, compute the exact same intra-chunk + cross-chunk sum,
+    requantize the result) -- NOT a separate reimplementation of the
+    forward math, just wraps quantize/dequantize around the state
+    round-trip. Real, compounding quantization error is expected (each
+    call requantizes the PREVIOUS call's already-quantized-and-noisy
+    state, not the exact fp32 running sum) -- see
+    docs/restart/hz0h_phase3_state_quantization_results.md for the real,
+    measured quality impact on a real task, not assumed negligible.
+    `states`: list of per-layer `{"q": ..., "scale": ...}` dicts (see
+    `init_bdh_states_int8`), mutated by returning a NEW list (not
+    in-place, matching `bdh_stream_chunk`'s own not-in-place contract for
+    its `states` list)."""
+    c = model.config
+    B, L = idx_chunk.shape
+    D = c.n_embd
+    nh = c.n_head
+    N = D * c.mlp_internal_dim_multiplier // nh
+    device = idx_chunk.device
+
+    x = model.embed(idx_chunk).unsqueeze(1)
+    x = model.ln(x)
+
+    positions = torch.arange(start_position, start_position + L, device=device, dtype=model.attn.freqs.dtype).view(1, 1, L, 1)
+    r_phases = positions * model.attn.freqs
+
+    new_states = []
+    for level in range(c.n_layer):
+        x_latent = x @ model._w(model.encoder)
+        x_sparse = F.relu(x_latent)
+        QR = model.attn.rope(r_phases, x_sparse)
+        KR = QR
+        V = x
+
+        intra = (QR @ KR.mT).tril(diagonal=-1) @ V
+        prefix_state = dequantize_state_int8(states[level]["q"], states[level]["scale"])
+        cross = QR @ prefix_state
+        yKV = intra + cross
+        yKV = model.ln(yKV)
+
+        y_latent = yKV @ model._w(model.encoder_v)
+        y_sparse = F.relu(y_latent)
+        xy_sparse = x_sparse * y_sparse
+        xy_sparse = model.drop(xy_sparse)
+        yMLP = xy_sparse.transpose(1, 2).reshape(B, 1, L, N * nh) @ model._w(model.decoder)
+        y = model.ln(yMLP)
+        x = model.ln(x + y)
+
+        chunk_contribution = KR.mT @ V
+        new_state_fp32 = prefix_state + chunk_contribution
+        new_q, new_scale = quantize_state_int8(new_state_fp32)
+        new_states.append({"q": new_q, "scale": new_scale})
+
+    logits = x.view(B, L, D) @ model.lm_head
+    return new_states, logits
+
+
 def compute_activation_and_state_diagnostics(model: "BDH", idx: torch.Tensor) -> dict:
     """Phase 1 metrics (plans/HatchlingZero_Reality_Plan.md): per-layer
     activation sparsity and synaptic-state norms, read-only (no_grad,
