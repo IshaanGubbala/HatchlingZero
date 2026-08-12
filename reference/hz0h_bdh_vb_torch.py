@@ -195,3 +195,72 @@ def bdh_vb_stream_chunk(
 
     logits = x.view(B, L, D) @ model.lm_head
     return new_states, logits
+
+
+# --- Phase 2R-E: combine 2R-B (value bottleneck) with Phase 3's INT8 ------
+# state quantization (docs/restart/hz0h_phase3_state_quantization_results.md)
+# -- both already independently validated (0% measured degradation each),
+# neither has 2R-C's sequential-BPTT training blocker (this file trains via
+# a normal vectorized forward pass, same as exact BDH). Reuses
+# reference/hz0h_bdh_torch.py's quantize_state_int8/dequantize_state_int8
+# directly rather than duplicating them.
+
+from reference.hz0h_bdh_torch import dequantize_state_int8, quantize_state_int8
+
+
+def init_bdh_vb_states_int8(model: BDHVB, batch_size: int, device=None) -> list[dict]:
+    fp32_states = init_bdh_vb_states(model, batch_size, device=device, dtype=torch.float32)
+    return [{"q": quantize_state_int8(state)[0], "scale": torch.tensor(1.0, device=state.device)} for state in fp32_states]
+
+
+def bdh_vb_stream_chunk_int8_state(
+    model: BDHVB, states: list[dict], idx_chunk: torch.Tensor, start_position: int,
+) -> tuple[list[dict], torch.Tensor]:
+    """Same real computation as bdh_vb_stream_chunk, with the (already
+    d_state-wide, per 2R-B) state additionally round-tripping through
+    INT8 between calls -- real, compounding quantization error on top of
+    the value-bottleneck's own already-real approximation, not assumed
+    to compose for free."""
+    c = model.config
+    B, L = idx_chunk.shape
+    D = c.n_embd
+    nh = c.n_head
+    N = D * c.mlp_internal_dim_multiplier // nh
+    device = idx_chunk.device
+
+    x = model.embed(idx_chunk).unsqueeze(1)
+    x = model.ln(x)
+
+    positions = torch.arange(start_position, start_position + L, device=device, dtype=model.attn.freqs.dtype).view(1, 1, L, 1)
+    r_phases = positions * model.attn.freqs
+
+    new_states = []
+    for level in range(c.n_layer):
+        x_latent = x @ model.encoder
+        x_sparse = F.relu(x_latent)
+        QR = model.attn.rope(r_phases, x_sparse)
+        KR = QR
+        v_bottleneck = x @ model.P
+
+        intra = (QR @ KR.mT).tril(diagonal=-1) @ v_bottleneck
+        prefix_state = dequantize_state_int8(states[level]["q"], states[level]["scale"])
+        cross = QR @ prefix_state
+        yKV_bottleneck = intra + cross
+        yKV = yKV_bottleneck @ model.O
+        yKV = model.ln(yKV)
+
+        y_latent = yKV @ model.encoder_v
+        y_sparse = F.relu(y_latent)
+        xy_sparse = x_sparse * y_sparse
+        xy_sparse = model.drop(xy_sparse)
+        yMLP = xy_sparse.transpose(1, 2).reshape(B, 1, L, N * nh) @ model.decoder
+        y = model.ln(yMLP)
+        x = model.ln(x + y)
+
+        chunk_contribution = KR.mT @ v_bottleneck
+        new_state_fp32 = prefix_state + chunk_contribution
+        new_q, new_scale = quantize_state_int8(new_state_fp32)
+        new_states.append({"q": new_q, "scale": new_scale})
+
+    logits = x.view(B, L, D) @ model.lm_head
+    return new_states, logits
