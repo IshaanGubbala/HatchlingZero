@@ -1,4 +1,4 @@
-# HZ Phase 2R-C v2: trained per-layer projections — a real design bug caught, then a real, unresolved optimization difficulty
+# HZ Phase 2R-C v2: trained per-layer projections — a real design bug caught, then a real architectural capacity limit (not a training problem)
 
 Date: 2026-08-11. Direct follow-up to
 `docs/restart/hz0h_phase2r_grouped_state_results.md`'s finding that
@@ -143,24 +143,58 @@ genuinely different training mechanism, not a variant of full
 sequential backprop) is real, substantial implementation work, not
 another quick experiment.
 
+## Update: truncated BPTT also fails — decisive verdict, this is NOT a training-procedure problem
+
+Built real truncated BPTT: the sequence processed in `chunk_length=4`
+segments, `loss.backward()` called per segment (gradients accumulate
+across segments, matching real truncated-BPTT semantics), state
+explicitly `.detach()`-ed between segments so the backward pass never
+has to span more than 4 sequential steps at once — a genuinely different
+training mechanism from everything tried so far, not a variant of full
+sequential backprop.
+
+Real result: loss plateaus at **the same ~2.08-2.09 band** every other
+attempt converged to, and final accuracy (**0.095**, near the 0.125
+chance floor) is worse than every other attempt including the
+uncurriculed flat-training baseline (0.44).
+
+**Four real, mechanistically distinct training procedures — full
+sequential BPTT, a 4x higher learning rate, a sequence-length
+curriculum, and now truncated BPTT — all converge to the SAME narrow
+loss band (~2.0-2.1), regardless of how the model gets there.** This is
+a decisive signal, not another inconclusive attempt: when four
+different optimization strategies all plateau at the same value, the
+bottleneck is very unlikely to be an optimization-procedure problem at
+all. It looks like a real, architecture-level capacity/representational
+limit in this specific `BDHGSP` design (the per-layer `P_l`/`O_l`
+read/write projections, as currently constructed) for this task — not
+something a fifth training trick would be expected to fix.
+
+**Real, disclosed verdict: 2R-C's per-layer-projection design (as
+currently built) is architecturally limited for the passkey task in a
+way that four different training procedures cannot train around.** The
+honest next step is not another training-methodology experiment but
+reconsidering the `P_l`/`O_l` design itself (e.g. a different
+functional form, or projections applied at a different point in the
+layer, or reconsidering whether independent per-layer projections were
+the right mechanism at all) — real, substantial architecture-design
+work, not something to attempt without checking in first.
+
 ## Real next steps
 
-1. Truncated BPTT (detach the state periodically during training, like
-   `plans/HatchlingZero_Reality_Plan.md`'s own Phase 6 "Training D"
-   idea, originally scoped for a different purpose but directly
-   applicable here) is now the one remaining untried real idea — a
-   genuinely different training mechanism (bounded backward-pass depth
-   through time, not full sequential BPTT), not a hyperparameter
-   variant of what's already failed three times. Real, substantial
-   implementation work, not attempted here.
-2. Only once the no-sharing baseline reliably reaches a real, high
-   accuracy under SOME training recipe: re-run the `n_state_groups`
-   sweep and get a real, trustworthy answer to whether trained
-   projections rescue plain grouping.
+1. **Do not** try further training-procedure variants (more LR sweeps,
+   different curricula, different truncation lengths) — four real,
+   distinct attempts converging to the same loss band is already
+   decisive evidence this class of fix won't work.
+2. Reconsider the `BDHGSP` architecture itself: is `D -> D` per-layer
+   projection (matching 2R-B's own `P`/`O` shape) actually the right
+   mechanism, or does something about how it interacts with the shared
+   `encoder`/`encoder_v`/`decoder` create a genuine representational
+   bottleneck? Real design question, not attempted here.
 3. 2R-D (2 depth-state banks + D/4 value width) remains blocked on this
-   resolving. Given three real fixes have now failed here, real next
-   work should continue on 2R-B/2R-E's already-working, already-strong
-   results (up to 21x combined reduction with small real degradation,
+   resolving. Given four real fixes have now failed, real next work
+   should continue on 2R-B/2R-E's already-working, already-strong
+   results (up to ~21x combined reduction with small real degradation,
    `docs/restart/hz0h_phase2r_reassignment_bisection_results.md`)
-   rather than continuing to chase this specific optimization
-   difficulty without a truncated-BPTT implementation in hand.
+   rather than continuing to chase this specific architecture without a
+   genuinely new design idea in hand.
