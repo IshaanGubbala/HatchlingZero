@@ -1,5 +1,28 @@
 # HZ Phase 2R-E: Value Bottleneck + INT8, combined — real 32x state reduction, 0% measured quality loss
 
+## Update: decode-speed cost measured — modest, real, 9-16% slowdown
+
+`scripts/hz0h_bdh_vb_decode_speed.py`, matched ~4.85M-param config
+(D=256, n_layer=6, d_state=D/8=32), Mac MPS, real token-by-token
+streaming decode:
+
+| Context | Exact BDH (tok/s) | VB fp32 (tok/s) | VB+INT8 (tok/s) | VB+INT8 vs. exact BDH |
+| --- | --- | --- | --- | --- |
+| 128 | 819.0 | 802.3 | 748.4 | 0.91x |
+| 512 | 871.0 | 813.5 | 733.5 | 0.84x |
+| 2048 | 870.1 | 812.6 | 730.8 | 0.84x |
+
+**The combined VB+INT8 path runs at 84-91% of exact BDH's decode speed
+-- a real, modest, bounded cost (9-16% slower), not a dealbreaker.**
+Trading ~15% throughput for a 32x memory reduction with 0% measured
+accuracy loss (see below) is a strong, real tradeoff -- this closes the
+one open gap flagged when this document was first written. The
+slowdown is fairly flat across context length (0.91x -> 0.84x -> 0.84x,
+most of the drop already present by context=512), consistent with the
+cost being dominated by the extra P/O projections and
+quantize/dequantize per-step overhead rather than anything that scales
+with context.
+
 Date: 2026-08-11. Direct test of whether 2R-B's value bottleneck
 (`docs/restart/hz0h_phase2r_value_bottleneck_results.md`, 0% degradation
 up to 8x) and Phase 3's INT8 state quantization
@@ -78,9 +101,9 @@ tokens of context.
 
 ## Real next steps
 
-1. Measure the combined path's decode-speed cost via
-   `scripts/hz0h_inference_benchmark.py`, matching what 2R-B and Phase 3
-   individually still owe.
+1. ~~Measure the combined path's decode-speed cost~~ — done above
+   (`scripts/hz0h_bdh_vb_decode_speed.py`): 84-91%, a real, modest,
+   bounded 9-16% slowdown vs. exact BDH.
 2. Retrain the reassignment/overwrite task properly (fixing the
    undertraining trap this whole plan keeps needing to check for) as a
    harder real quality check for the combined method.
