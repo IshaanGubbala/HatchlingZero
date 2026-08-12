@@ -1,5 +1,50 @@
 # HZ-Core-1 quality at 25M params: real, significant negative result -- VB does NOT preserve quality at real-data scale
 
+## Update 2: second-seed check -- the regression HOLDS, not a single-seed fluke
+
+Real second-seed run (seed=8, same config, `--batch-size 12` from the
+start) requested specifically to check whether Update 0's +9.12% VB
+regression was a real effect or single-seed noise, matching this
+session's own standing discipline (several other results this session
+turned out to hinge heavily on seed -- BlockBDH, soft-grouped state).
+
+| | seed=7 | seed=8 |
+| --- | --- | --- |
+| Exact BDH best_val_loss | 1.6484 | 1.6367 |
+| BDH+VB best_val_loss | 1.7988 | 1.7715 |
+| Relative VB regression | +9.12% | **+8.24%** |
+
+**The regression holds.** ~1-point spread between seeds looks like
+normal seed-to-seed training variance around a real, consistent effect,
+not two seeds landing on opposite sides of a coin flip. Both seeds
+individually improved slightly on absolute loss (seed 8 beats seed 7 on
+both architectures by ~0.01-0.03 nats, plausible seed luck) but the
+RELATIVE VB-vs-exact-BDH gap stayed essentially the same magnitude both
+times. Throughput/VRAM/power stayed within 1-3% across all four runs,
+same conclusion as before -- no efficiency differentiator either way.
+
+**Real, honest verdict: this is not a single-seed fluke.** Two seeds
+is not a large-N statistical claim, but it's real, disclosed evidence
+against the most likely alternative explanation (noise), consistent
+with (not contradicting) the standing "verify before trusting" instinct
+that prompted the check in the first place.
+
+**Real, well-motivated next hypothesis, not yet tested**: this session
+already found once before, during VB's own original tiny-synthetic-task
+development, that VB's EXTRA `P`/`O` projection parameters make
+optimization genuinely harder and need MORE training steps than exact
+BDH to reach comparable quality at a matched budget (the "undertraining
+trap", `docs/restart/hz0h_phase2r_*_results.md`) -- there, retraining at
+3x the steps closed the gap entirely (0% degradation). The SAME
+25M-token budget was used for both exact BDH and BDH+VB here; it is a
+real, plausible, not-yet-ruled-out possibility that VB's extra
+~131K parameters (`P`+`O`, `D x d_state` each) simply need more than
+25M tokens to converge as well as exact BDH's simpler formulation does
+at this token budget -- not yet tested at this real-data scale. Real
+next step: retrain BDH+VB alone at a larger token budget (e.g. 2-3x,
+matching the multiplier that worked before) and check whether the gap
+shrinks, closes, or persists.
+
 ## Update 1: real in-context retrieval check on the ACTUAL trained checkpoints -- second independent metric, same direction
 
 Real next step per this doc's own open item: passkey/reassignment
