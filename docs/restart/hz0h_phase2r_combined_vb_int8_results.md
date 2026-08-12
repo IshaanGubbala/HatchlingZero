@@ -1,5 +1,17 @@
 # HZ Phase 2R-E: Value Bottleneck + INT8, combined — real 32x state reduction, 0% measured quality loss
 
+## ⚠️ Correction: the 32x/0%-degradation headline does NOT generalize past the easy task it was measured on
+
+`docs/restart/hz0h_phase2r_reassignment_task_results.md` (same day) ran
+the identical VB+INT8 combination on H5's harder reassignment/overwrite
+task and found the 32x setting (D/8 value bottleneck + INT8) fails badly
+there — accuracy drops to 0.535, a real 46.5-point degradation from
+exact BDH's 1.00. **16x (D/4 + INT8) still holds perfectly on both tasks
+(1.00 accuracy, 0% degradation)** — that is the currently-validated-safe
+combined reduction, not 32x. This section's own numbers below are real
+and correctly measured for the passkey task they were run on; read the
+correction document for why they don't generalize as-is.
+
 ## Update: decode-speed cost measured — modest, real, 9-16% slowdown
 
 `scripts/hz0h_bdh_vb_decode_speed.py`, matched ~4.85M-param config
