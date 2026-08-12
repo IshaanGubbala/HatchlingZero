@@ -1,5 +1,78 @@
 # HZ Phase 5 (Shared-Depth Adaptive Reasoning): zero-shot depth extrapolation mostly fails — same lesson as Phase 2R/4, one more time
 
+## Update 3 (`plans/HZ Integrated Candidate Plan.md` Step 5): trained in-path with a curriculum -- perfect in-distribution accuracy at every depth, but the "more iterations helps harder problems" hypothesis is NOT confirmed
+
+Real next step per HZ Principle #1: train depth-variation IN-PATH
+instead of asking for it zero-shot (`scripts/hz0h_bdh_variable_depth_trained_multihop_eval.py`).
+
+**First attempt (i.i.d. random) failed**: sampling both hop-count and
+iteration-count uniformly at random every step, from step 0, across the
+full grid (hops in {2,3,4,6}, iterations in {2,4,8,16}), 3000 steps —
+did NOT converge. Loss plateaus at ~1.6-1.8 (chance-floor territory for
+this 8-way task), accuracy 0.08-0.145 across every (hops, iterations)
+combination tested, including hops=2 (the easiest case, which a
+fixed-depth model solves at 1.00 elsewhere in this session). Isolating
+the variable (fixed hops=2, only iterations sampled i.i.d. randomly)
+still failed to converge well (loss ~1.6, best accuracy 0.285) — so the
+problem is variable-depth training itself, not the joint difficulty
+space; even the easiest possible case doesn't learn under naive i.i.d.
+random depth sampling.
+
+**Real fix: curriculum, not i.i.d. sampling.** Widening both the
+hop-count pool and the iteration-count pool together, narrow-to-wide,
+over training (`_curriculum_pools` in the eval script: 4 stages, each
+widening the sampled pool) fixes it completely. Isolated single-variable
+check (hops fixed at 2, only iterations curriculum'd) recovered
+0.97-0.98 accuracy at every depth 2-16, vs. 0.08-0.29 without the
+curriculum — confirming the curriculum, not more steps, is what mattered.
+
+**Full joint curriculum (hops widening 2→3→4→6, iterations widening
+2→4→8→16 together, 4000 steps), evaluated on the full grid plus a
+held-out hop count (8) never seen in training at any depth:**
+
+| Hops | 2 iter | 4 iter | 8 iter | 12 iter | 16 iter |
+| --- | --- | --- | --- | --- | --- |
+| 2 (trained) | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 |
+| 3 (trained) | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 |
+| 4 (trained) | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 |
+| 6 (trained) | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 |
+| 8 (held out) | **0.93** | **0.935** | 0.915 | 0.88 | **0.87** |
+
+**Perfect (1.00) accuracy on every trained hop count at every depth
+tested** — a real, clean, positive result: trained-in-path (with the
+right curriculum) fully fixes what zero-shot extrapolation could not.
+Real generalization to the held-out hop count too (0.87-0.935, well
+above the 0.125 chance floor, on a difficulty never trained at any
+depth).
+
+**But the specific hypothesis this step was built to test —
+`accuracy(d=12) > accuracy(d=4)` on hard examples — is NOT confirmed,
+and the real trend runs the other way**: on the held-out hard task
+(hops=8), accuracy is HIGHEST at the lowest depths (0.93 at d=2, 0.935
+at d=4) and decreases as depth increases (0.915 at d=8, 0.88 at d=12,
+0.87 at d=16). More compute does not help on harder problems here — if
+anything it costs a little (6.5-point spread, small but consistent and
+monotonic across all 5 depths tested, not noise scattered in one
+direction).
+
+**Real, honest interpretation**: the perfect 1.00 across every trained
+(hops, iterations) pairing — including 6-hop chains solved at only 2
+iterations — means the model did NOT learn "one hop resolved per
+iteration," the mechanism this whole Phase 5 line of experiments was
+originally motivated by. It learned a difficulty-independent solution
+that works at any trained depth regardless of hop count, which is why
+depth stops mattering (and mildly hurts) once the problem is genuinely
+out of distribution — there's no learned "spend more iterations on
+harder inputs" behavior to fall back on, because iteration count was
+never the thing doing the differentiating work during training. This is
+a different, more specific failure of the original premise than the
+zero-shot result already showed: it's not that variable-depth training
+doesn't work (it works very well, in-distribution) — it's that the
+"more depth = more reasoning capacity for harder problems" story this
+phase set out to validate isn't what the trained model actually does.
+
+## Update 1/2 (kept for the record): zero-shot depth extrapolation mostly fails — same lesson as Phase 2R/4, one more time
+
 Date: 2026-08-11. First real experiment under
 `plans/HatchlingZero_Reality_Plan.md`'s Phase 5, testing the core
 premise before building any adaptive halting controller: BDH's
