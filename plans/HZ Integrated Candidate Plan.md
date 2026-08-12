@@ -239,25 +239,46 @@ in one trained model.
 ## Status (updated 2026-08-12)
 
 ```text
-Step 1 (VB + INT8):    DONE, real reproducible win at small scale
+Step 1 (VB + INT8):    DONE, real reproducible win at small (synthetic-task) scale
 Step 2 (grouped state): CLOSED, both formulations failed
 Step 3 (BlockBDH):     moved to HZ-Sparse lane, unresolved, not canonical
 Step 4 (learned router): blocked on Step 3's re-entry, not started
 Step 5 (variable depth): REJECTED AS TESTED
-Step 6 (HZ-Core-1):    not started -- real next step
+Step 6 (HZ-Core-1):    RUN, real mixed result -- see below
 ```
 
-Real next bit-by-bit steps, in order: confirm existing 25M-scale
-infrastructure (`scripts/hz0h_stage2_runner_bdh.py`, byte-level packed
-corpus at `data/packed/`, `reference/hz0h_bdh_vb_torch.py`'s `BDHVB`
-fully vectorized forward, `reference/hz0a_matched_transformer.py`) with
-a short smoke test before committing to a full run (the stage2 BDH
-runner has never actually been executed) -> real matched-budget training
-runs for all four HZ-Core-1 ablation arms -> quality + efficiency
-measurement per Step 6's list -> promotion decision against the revised
-gate.
+**HZ-Core-1's real 25M-param result, 2 seeds each arm** (full data:
+`docs/restart/hz0h_core1_efficiency_25m_results.md`,
+`docs/restart/hz0h_core1_quality_25m_results.md`):
 
-Separately, independently, not blocking HZ-Core-1: `HZ-Sparse` lane
-(Step 3) may resume later if a mechanistically new stability fix (dense-
-warmup anneal or distillation, see Step 3) reaches multi-seed
+```text
+State RAM:    MET -- real 15.98x reduction (268.4MB -> 16.8MB/batch-item)
+Decode speed: PARTIALLY MET -- VB fp32 beats exact BDH 1.37-1.44x; INT8
+              has a real, unresolved long-context regression (41%
+              slower than exact BDH at 2048 context); never benchmarked
+              directly against the matched Transformer in one harness
+Quality:      NOT MET -- real, seed-confirmed +8.24%/+9.12% relative CE
+              regression vs exact BDH (2 seeds, same direction and
+              magnitude both times, not noise). Confirmed on a SECOND
+              independent metric too (real in-context retrieval under
+              state ablation, checkpoint-eval harness).
+Stateful tasks: real signal that persistent state helps at all (beats
+              zeroed state on both architectures), but exact BDH beats
+              HZ-Core-1 head to head on this axis too.
+```
+
+**Real, honest verdict**: one clean advantage (state RAM), one clean
+miss (quality, confirmed twice over), everything else partial/
+unresolved. Does not clearly clear the plan's own gate as currently
+measured. A well-motivated next hypothesis exists (VB's extra
+parameters may need a larger token budget than the 25M shared here to
+converge, matching a pattern already seen once for VB on the tiny
+synthetic tasks) but is explicitly NOT being pursued right now, by
+instruction -- not because it's a dead end, just not the next priority.
+Left here as a real, disclosed, open finding rather than either
+declared a win or silently abandoned.
+
+Separately, independently, not blocking anything above: `HZ-Sparse`
+lane (Step 3) may resume later if a mechanistically new stability fix
+(dense-warmup anneal or distillation, see Step 3) reaches multi-seed
 reliability.
