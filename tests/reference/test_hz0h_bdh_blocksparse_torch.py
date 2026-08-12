@@ -60,6 +60,33 @@ def test_reduced_fractions_produce_finite_output_and_differ_from_dense():
             assert not torch.allclose(logits_dense, logits_sparse, atol=1e-3), f"fraction={fraction} should differ from dense (real information is dropped)"
 
 
+def test_gradients_flow_through_selected_columns_only():
+    """Real property this session's positive training result depends on:
+    backprop through bdh_blocksparse_forward must reach encoder/
+    encoder_v/decoder's SELECTED columns (so training can actually adapt
+    them), while unselected columns correctly get zero gradient this
+    step (they weren't used in the forward pass at all)."""
+    config = _tiny_config()
+    torch.manual_seed(5)
+    model = BDH(config)
+    model.train()
+    idx = torch.randint(0, config.vocab_size, (2, 9))
+    active_blocks = compute_active_blocks(model, idx, block_size=32, active_fraction=0.5)
+    x, y = idx[:, :-1].contiguous(), idx[:, 1:].contiguous()
+    _logits, loss = bdh_blocksparse_forward(model, x, active_blocks, block_size=32, targets=y)
+    loss.backward()
+
+    assert model.encoder.grad is not None
+    N = config.mlp_internal_dim_multiplier * config.n_embd // config.n_head
+    column_indices = (active_blocks.view(-1, 1) * 32 + torch.arange(32)).reshape(-1)
+    selected_grad_norm = float(model.encoder.grad[:, :, column_indices].norm())
+    mask = torch.ones(N, dtype=torch.bool)
+    mask[column_indices] = False
+    unselected_grad_norm = float(model.encoder.grad[:, :, mask].norm())
+    assert selected_grad_norm > 0, "selected columns should receive real gradient"
+    assert unselected_grad_norm == 0.0, "unselected columns should receive exactly zero gradient this step"
+
+
 def test_odd_block_size_is_rejected():
     config = _tiny_config()
     torch.manual_seed(3)

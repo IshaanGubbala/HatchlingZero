@@ -1,5 +1,63 @@
 # HZ Phase 4 (BlockBDH): real speedup confirmed, zero-shot quality fails badly
 
+## ⚠️ Update 2: does NOT generalize to the harder reassignment task — real degradation, not 0%
+
+Same day, same trained-end-to-end methodology, applied immediately
+(before trusting the passkey-only "0% degradation at every fraction"
+claim below) to H5's harder reassignment/overwrite task, exactly the
+check that already once corrected an over-optimistic easy-task result
+in this session (`docs/restart/hz0h_phase2r_reassignment_task_results.md`).
+Same config, 2500 training steps (confirmed sufficient for dense exact
+BDH elsewhere this session):
+
+| Active fraction | Accuracy (trained end-to-end) |
+| --- | --- |
+| 50% | **0.74** (real degradation, -26 points) |
+| 25% | **1.00** |
+| 12.5% | **0.135** (near the 0.125 chance floor — collapse) |
+
+**Non-monotonic and, at 50%/12.5%, real degradation — the passkey
+result's "0% degradation at every fraction" does not hold here.** Only
+one seed per condition (same limitation as everywhere else this
+session) — the non-monotonic shape (50% worse than 25%) is odd enough
+that it may partly reflect training variance rather than a clean
+capacity trend, but 12.5%'s near-total collapse is a real, unambiguous
+failure regardless. **Conclusion: BlockBDH's quality-preservation result
+is real but task-dependent, exactly like 2R-B/2R-E's own compression
+ceiling — passkey retrieval is not a hard enough test to certify a
+"safe" active fraction in general.** Read the passkey-only numbers below
+as one real, positive data point, not a general property of trained
+BlockBDH.
+
+## ✅ Update 1: trained end-to-end on PASSKEY, both halves of the exit gate real — 100% accuracy at every fraction tested, up to 6.20x speedup
+
+`scripts/hz0h_bdh_blocksparse_passkey_eval.py`, same day. Direct fix for
+the zero-shot failure below, matching the exact pattern that made 2R-B's
+value bottleneck work: train THROUGH the real block-sparse forward path
+from step 0 (active blocks recomputed fresh each step from the model's
+current weights; gradient reaches only the columns actually selected
+that step — `tests/reference/test_hz0h_bdh_blocksparse_torch.py`'s new
+`test_gradients_flow_through_selected_columns_only` confirms this
+directly: selected columns get real, nonzero gradient, unselected
+columns get exactly zero that step).
+
+Real result, 800 training steps (same budget dense exact BDH needs for
+1.00 accuracy on this task elsewhere in this session):
+
+| Active fraction | Accuracy (trained end-to-end) | Measured speedup (from above) |
+| --- | --- | --- |
+| 50% | **1.00** | 1.95x |
+| 25% | **1.00** | 3.75x |
+| 12.5% | **1.00** | 6.20x |
+
+**Perfect accuracy at every fraction tested, including the most
+aggressive one (12.5% active, 6.20x measured speedup).** Both halves of
+Phase 4's exit gate ("real end-to-end speed... AND acceptable quality")
+are now real and measured together, not just the speed half. This is a
+clean, complete, positive Phase 4 result — read the caveats below
+(still real and still apply) before generalizing past what was actually
+tested.
+
 Date: 2026-08-11. First real experiment under
 `plans/HatchlingZero_Reality_Plan.md`'s Phase 4 ("BlockBDH: Turn
 Sparsity Into Real Compute Savings"), whose own exit gate demands real
@@ -73,46 +131,65 @@ under the actual compute-reduction regime it will run under.
 
 ## Real, honest verdict
 
-**BlockBDH's real-speedup half of Phase 4's exit gate is satisfied** —
-this is a genuine, measured, non-FLOP-counting wall-clock win, the
-hardest part of Phase 4's own stated risk to clear. **The quality half is
-not yet satisfied** — exactly analogous to 2R-B's own arc (value
-bottleneck ALSO needed real training from scratch before it worked;
-zero-shot state grouping failed the same way this did). The real next
-step is the same pattern that worked for 2R-B: train a BlockBDH variant
-end to end (model AND router, or a fixed/annealed router used during
-training) rather than applying block-sparsity to an already-trained
-dense model.
+**The speed half of Phase 4's exit gate is solidly real**: measured,
+non-FLOP-counting wall-clock speedup (1.95x-6.20x), confirmed at a
+matched pilot scale. **The quality half is real but task-dependent, not
+universal**: training through the actual block-sparse path (rather than
+zero-shot) fixed quality completely on passkey retrieval (1.00 at every
+fraction) but only partially on the harder reassignment task (0.74 at
+50%, collapsing to 0.135 at 12.5% — see Update 2 above). The zero-shot
+failure was real and important to disclose, and training-through-the-
+path is a real, necessary fix (not optional, as passkey alone might have
+suggested) — but it is not sufficient on its own to guarantee quality at
+every compression level on every task. The safe operating fraction is
+task-dependent, same conclusion 2R-B/2R-E already reached for state
+compression.
 
-## Real, honest caveats
+## Real, honest caveats — still apply, read before generalizing
 
-1. Single trained model, one task, tiny scale — same limitations as
-   every other Phase 2R/4 result this session.
+1. Single trained model, one task, tiny scale (n_embd=32, 2 layers) —
+   same limitations as every other Phase 2R/4 result this session. The
+   speed numbers were separately measured at a bigger matched pilot
+   scale (D=256, n_layer=6); the QUALITY numbers were only measured at
+   this small scale — not yet confirmed together at the same scale.
 2. The router itself is a minimal, un-learned heuristic (mean absolute
    activation of the first layer only, aggregated once per whole
-   call) — the plan's own candidate design implies a "cheap block
-   router" could itself be a small learned component; not built here.
+   call) — worked here, but the plan's own candidate design implies a
+   "cheap block router" could itself be a small learned component; not
+   built or compared against here.
 3. Coarse (whole-call) granularity, not the plan's eventual per-token
    design — a real, deliberate scope limit for this first experiment,
    matching the plan's own "avoid fine-grained sparsity until it proves
    a real win" guidance, but per-token routing (with its own real
-   dispatch-overhead risk) is still real, undone future work.
-4. No energy measurement here (same CUDA-only/Mac-has-no-`powermetrics`-
+   dispatch-overhead risk, same class of risk the BDH-KV-cache
+   experiment ran into) is still real, undone future work.
+4. Only tested on passkey retrieval — the same task that gave 2R-B's
+   own too-optimistic-looking initial "32x, 0% degradation" result later
+   corrected by the harder reassignment task
+   (`docs/restart/hz0h_phase2r_reassignment_task_results.md`). Real,
+   important next step: re-run this exact check on reassignment before
+   trusting "0% degradation at 6.20x speedup" as a general property
+   rather than a passkey-specific one.
+5. No energy measurement here (same CUDA-only/Mac-has-no-`powermetrics`-
    path gap as every other inference benchmark this session).
 
 ## Real next steps
 
-1. Train a BlockBDH model end to end (real gradient signal through the
-   router's block selection, or a scheduled/annealed sparsity ramp
-   during training) — the direct analog of what made 2R-B's value
-   bottleneck work after its own zero-shot-equivalent first attempt
-   would have failed.
-2. Once quality is real and trained-for: re-measure the speed numbers
-   above on the actually-deployed (trained) router, since a trained
-   router's selection pattern could differ from the untrained heuristic's.
+1. ~~Re-run on the harder reassignment/overwrite task~~ — done, see
+   Update 2 above: real degradation at 50%/12.5%, not the clean 0% the
+   passkey-only result suggested.
+2. Diagnose WHY reassignment fails non-monotonically (50% worse than
+   25%) — multi-seed confirmation needed to tell whether this is real
+   architecture behavior or training variance at this tiny scale/single
+   seed.
 3. Try a real learned router (small linear scorer) instead of the mean-
-   activation heuristic, per the plan's own candidate design.
-4. Extend to per-token (not per-call) routing once a call-level version
-   is quality-validated, with real grouped/sorted dispatch (the plan's
-   own recommended implementation priority) to keep dispatch overhead
-   bounded.
+   activation heuristic, per the plan's own candidate design — may
+   matter more for reassignment than it did for passkey, where the
+   simple heuristic already sufficed.
+4. Confirm speed AND quality together at the same (larger) scale — the
+   6.20x number and the accuracy numbers were measured at different
+   model sizes in this pass.
+5. Extend to per-token (not per-call) routing once a call-level version
+   is quality-validated at more than one task/scale, with real
+   grouped/sorted dispatch (the plan's own recommended implementation
+   priority) to keep dispatch overhead bounded.
