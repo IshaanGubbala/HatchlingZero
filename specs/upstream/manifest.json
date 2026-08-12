@@ -1,0 +1,9 @@
+{
+  "repository": "https://github.com/pathwaycom/bdh",
+  "commit": "a1ea64154600d863b116f9a23e15a096e052e151",
+  "files": {
+    "pathway_bdh.py": "cfe24008f920965cc3c8236feff52c89ca794a31e52324acf9ddb4cd6fd50ac9",
+    "pathway_train.py": "d633d40d1deb2babe8649e2907711736b30cca815be49a383f7d399cfe5345e0"
+  },
+  "note": "Pinned offline snapshots used by integrity tests; update only with source diff and test review."
+}
