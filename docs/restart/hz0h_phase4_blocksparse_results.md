@@ -17,17 +17,38 @@ BDH elsewhere this session):
 | 12.5% | **0.135** (near the 0.125 chance floor — collapse) |
 
 **Non-monotonic and, at 50%/12.5%, real degradation — the passkey
-result's "0% degradation at every fraction" does not hold here.** Only
-one seed per condition (same limitation as everywhere else this
-session) — the non-monotonic shape (50% worse than 25%) is odd enough
-that it may partly reflect training variance rather than a clean
-capacity trend, but 12.5%'s near-total collapse is a real, unambiguous
-failure regardless. **Conclusion: BlockBDH's quality-preservation result
-is real but task-dependent, exactly like 2R-B/2R-E's own compression
-ceiling — passkey retrieval is not a hard enough test to certify a
-"safe" active fraction in general.** Read the passkey-only numbers below
-as one real, positive data point, not a general property of trained
-BlockBDH.
+result's "0% degradation at every fraction" does not hold here.**
+
+## Update 3: multi-seed confirms 50% active is genuinely UNSTABLE on reassignment, not just one unlucky run
+
+Ran 2 more seeds at the ambiguous 50%-active setting to check whether
+the non-monotonic shape above (50% worse than 25%) was a real capacity
+effect or training variance:
+
+| Seed | Accuracy at 50% active |
+| --- | --- |
+| 0 (original) | 0.74 |
+| 1 | **0.60** |
+| 2 | **1.00** |
+
+**High variance, 0.60-1.00 range across 3 seeds at the identical
+config.** This settles the earlier ambiguity: 50%-active BlockBDH
+training on reassignment is not a reliably "safe, slightly-degraded"
+setting — it is genuinely SEED-UNSTABLE, landing on a fully-solved
+(1.00) outcome for some initializations and a real-degradation (0.60)
+outcome for others. **Conclusion: BlockBDH's current training recipe
+does not yet reliably converge on this harder task at 50% active** —
+this is a real, disclosed instability in the training procedure itself
+(matching the same class of finding as 2R-C's optimization plateau,
+though far less severe -- some seeds DO reach 1.00), not evidence that
+50% compression is architecturally impossible for reassignment-like
+tasks. A production use of BlockBDH on tasks like this would need either
+a training-recipe fix (better seed robustness) or a multi-seed/ensemble
+acceptance check before deploying a specific trained model.
+
+Read the passkey-only numbers below as one real, positive, single-seed
+data point on an easy task, not a general or seed-stable property of
+trained BlockBDH.
 
 ## ✅ Update 1: trained end-to-end on PASSKEY, both halves of the exit gate real — 100% accuracy at every fraction tested, up to 6.20x speedup
 
@@ -178,18 +199,23 @@ compression.
 1. ~~Re-run on the harder reassignment/overwrite task~~ — done, see
    Update 2 above: real degradation at 50%/12.5%, not the clean 0% the
    passkey-only result suggested.
-2. Diagnose WHY reassignment fails non-monotonically (50% worse than
-   25%) — multi-seed confirmation needed to tell whether this is real
-   architecture behavior or training variance at this tiny scale/single
-   seed.
-3. Try a real learned router (small linear scorer) instead of the mean-
+2. ~~Diagnose WHY reassignment fails non-monotonically~~ — done, see
+   Update 3 above: 50% active is genuinely seed-unstable (0.60-1.00
+   across 3 seeds), a training-recipe robustness issue, not a fixed
+   architectural ceiling.
+3. Fix the training-recipe instability itself (more steps, a different
+   LR/schedule, or averaging/ensembling across seeds and accepting the
+   best) before trying a learned router — the current failure mode looks
+   like an optimization-robustness problem first, an architecture
+   problem second.
+4. Try a real learned router (small linear scorer) instead of the mean-
    activation heuristic, per the plan's own candidate design — may
    matter more for reassignment than it did for passkey, where the
-   simple heuristic already sufficed.
-4. Confirm speed AND quality together at the same (larger) scale — the
+   simple heuristic already sufficed, but lower priority than item 3.
+5. Confirm speed AND quality together at the same (larger) scale — the
    6.20x number and the accuracy numbers were measured at different
    model sizes in this pass.
-5. Extend to per-token (not per-call) routing once a call-level version
+6. Extend to per-token (not per-call) routing once a call-level version
    is quality-validated at more than one task/scale, with real
    grouped/sorted dispatch (the plan's own recommended implementation
    priority) to keep dispatch overhead bounded.
