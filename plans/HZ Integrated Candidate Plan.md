@@ -116,21 +116,45 @@ recurrent depth measurably helps on hard cases (not just "doesn't
 break"), that is a real test-time-compute mechanism and a significant
 result. If it doesn't, that's real too — report it honestly either way.
 
-## Step 6 — The integrated 25M HZ candidate
+## Step 6 — The integrated 25M HZ candidate (narrowed 2026-08-12)
 
-Once Steps 1/3/5 each independently work (Step 2/4 optional, additive):
+Real reassessment, per this step's own stated precondition ("once Steps
+1/3/5 each independently work"): Step 3 does NOT independently work
+(`docs/restart/hz0h_phase4_blocksparse_results.md` Updates 6-8 — real
+seed instability on the reassignment task, 3 mechanistically distinct
+fix attempts all failed the same way, left open and unresolved). Step 5
+does NOT independently work either, in the sense that matters for this
+plan's own gate: "trained depth measurably helps hard tasks" is one of
+the six decision-gate criteria below, and it is now FALSIFIED, not just
+unproven (`docs/restart/hz0h_phase5_variable_depth_results.md` Update
+3 — accuracy on the held-out hard task DECREASES monotonically as
+trained depth increases). Bundling either into the 25M candidate would
+make any negative result uninterpretable (real advantage from Step 1
+could be masked by Step 3's seed roulette or Step 5's dead weight), and
+would burn the 25M compute budget on components already known to be
+broken.
+
+**Narrowed scope: Step 1 only.**
 
 ```text
 Faithful BDH
-  + value bottleneck (D/4) + INT8 state      [Step 1]
-  + 50% BlockBDH, trained end-to-end          [Step 3]
-  + variable-depth training                   [Step 5]
+  + value bottleneck (D/4) + INT8 state      [Step 1, HZ-State-v1]
 ```
 
+This is the one component with a real, reliable, seed-stable result
+(0% degradation up to 16x combined reduction on both passkey and
+reassignment, `docs/restart/hz0h_phase2r_combined_vb_int8_results.md`).
+BlockBDH and variable-depth remain open research threads, to be
+revisited as separate, clearly-labeled ADDITIVE upgrades later, only if
+their real problems (BlockBDH's instability, variable-depth's falsified
+premise) get fixed — never bundled into a gate-worthy comparison while
+broken.
+
 Deliberately excluded for now: MoE, separate HZ-B-style memory, fast
-weights, ternary weights, synthetic-gradient training. Keep the
-integrated candidate clean — one real test of whether the three proven
-wins compose, not a kitchen sink.
+weights, ternary weights, synthetic-gradient training, BlockBDH,
+variable-depth. Keep the integrated candidate clean — one real test of
+whether the ONE proven win (state compression) composes at 25M scale
+with quality preserved, not a kitchen sink.
 
 Compare, at 25M params, matched tokenizer/data/optimizer/budget:
 upstream BDH, matched Transformer, HZ candidate. Measure:
@@ -142,10 +166,15 @@ upstream BDH, matched Transformer, HZ candidate. Measure:
   gap), active FLOPs.
 - **Dynamic reasoning**: accuracy vs. internal depth curve.
 
-## The real decision gate
+## The real decision gate (narrowed 2026-08-12, matching Step 6's narrowed scope)
 
 HZ advances to 100M only if the integrated model shows MULTIPLE
-simultaneous advantages, not one isolated win:
+simultaneous advantages, not one isolated win. "Trained depth measurably
+helps hard tasks" is dropped from this list -- not because it stopped
+mattering, but because it is now FALSIFIED for the mechanism tested
+(`docs/restart/hz0h_phase5_variable_depth_results.md` Update 3), and
+variable-depth training isn't part of the narrowed Step 6 candidate
+being gated here at all:
 
 ```text
 State RAM:        >=10x below exact BDH's own state
@@ -153,10 +182,9 @@ Total inference RAM: >=30% below matched Transformer at relevant context
 Decode:            >=1.5x faster
 Quality:           <=3-5% degradation, or better
 Stateful tasks:    competitive or better
-Trained depth:     measurably helps hard tasks
 ```
 
-Not all six are required, but more than one real, simultaneous
+Not all five are required, but more than one real, simultaneous
 advantage is — the missing thing right now is exactly this: memory,
 speed, and quality wins have all been shown SEPARATELY, never together
 in one trained model.
