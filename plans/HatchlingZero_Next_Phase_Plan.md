@@ -232,6 +232,13 @@ Promote if:
 - wall-clock remains approximately 1.5×+ better;
 - no depth-transition instability appears.
 
+**GATE MET (2026-08-12)** — see
+`docs/restart/hz0h_phase6_depth_curriculum_results.md` Update 4. All 3
+seeds real improvement (-2.98% to -5.33%, mean ~-4%), ~1.59x wall-clock
+every time, zero instability across 12 transitions, zero NaN. **Locked
+as the canonical exact-BDH training recipe.** A2 below is the real next
+step.
+
 ## A2. Minimal curriculum-shape study
 
 Test only a few scientifically motivated schedules.

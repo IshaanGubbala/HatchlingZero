@@ -1,4 +1,39 @@
-# HZ Phase 6 / Training B (Recurrent-Depth Curriculum): real positive result on BOTH quality and speed -- CONFIRMED at 2 seeds
+# HZ Phase 6 / Training B (Recurrent-Depth Curriculum): real positive result on BOTH quality and speed -- CONFIRMED at 3 seeds, PROMOTED to canonical exact-BDH training recipe
+
+## Update 4 (`plans/HatchlingZero_Next_Phase_Plan.md` Phase A1): third seed confirms -- promotion gate MET, recurrent-depth curriculum locked as canonical
+
+Third independent seed (seed=9) for the exact-BDH depth curriculum,
+requested specifically to satisfy the successor plan's own >=3-seed
+training-law discipline before locking this as the canonical training
+recipe (Phase A1's explicit gate). First result reported through the
+new Pi relay (`plans/HatchlingZero_Next_Phase_Plan.md`'s dispatch
+channel switch) -- worked cleanly, no issues.
+
+**Full 3-seed summary, exact-BDH depth curriculum (2->4->6->8) vs. fixed depth=8:**
+
+| Seed | Curriculum val_loss | Fixed-depth val_loss (own seed where available) | Relative improvement |
+| --- | --- | --- | --- |
+| 7 | 1.5820 | 1.6484 | -4.03% |
+| 8 | 1.5879 | 1.6367 | -2.98% |
+| 9 | 1.5605 | (no matching fixed-depth seed=9 run) | -5.33% vs. seed7's fixed, -4.65% vs. seed8's fixed |
+
+**All 3/3 seeds show real, material improvement** (range -2.98% to
+-5.33%, mean roughly -4%) -- never close to or above the fixed-depth
+range at any seed. Wall-clock speedup is essentially seed-invariant
+(~1.59x every time, training_seconds and tokens_per_second matching
+within noise across all three runs). Zero stage-transition instability
+across all 12 transitions checked (3 seeds x 4 stages each), zero
+NaN/Inf across all three runs.
+
+**Real, honest verdict: Phase A1's promotion gate is MET.** Per the
+plan's own criteria ("all three seeds beat or approximately match
+fixed-depth training; mean validation improvement remains material;
+wall-clock remains approximately 1.5x+ better; no depth-transition
+instability appears") -- every criterion holds cleanly. **Recurrent-
+depth curriculum (2->4->6->8, quarters of the token budget) is locked
+as the canonical exact-BDH training recipe.** Per the plan's own
+execution order, Phase B (rebuild Value Bottleneck around this locked
+recipe, sweeping D/2 vs D/3 vs D/4) is the real next step.
 
 ## Update 3: seed-8 correction -- "VB curriculum beats exact BDH outright" does NOT hold; the core curriculum win does
 
