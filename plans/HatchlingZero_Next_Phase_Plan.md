@@ -5,6 +5,20 @@
 **Start condition:** Begin after the Reality Plan's remaining active experiments and decision gates are completed/documented.  
 **Core rule:** Negative results simplify HatchlingZero. A mechanism must earn its way into the canonical architecture.
 
+**Non-negotiable inherited integrity contract:** This successor plan is bound by
+`specs/hz_bdh_integrity_contract.md`. Every BDH arm must use the pinned,
+integrity-tested upstream oracle (`reference/hz0h_bdh_torch.py` and
+`reference/hz0h_bdh_train_torch.py`) or be labeled an explicit derivative (for
+example, HZ-Core-2), never called exact/upstream BDH. No hand-built, incomplete,
+post-hoc streaming-only, or silently modified model can support a superiority
+claim. The contract tests must pass before any result is promoted.
+
+**Primary research target:** at the same total parameter count and matched
+training budget, test **at least 30% lower peak inference RAM** and **at least
+3.0x the frozen, contamination-checked code/math/reasoning capability score**
+versus a fair Transformer. “300% more intelligent” means 3.0x under that frozen
+operational score; it is not a qualitative claim. These are unproven targets.
+
 ---
 
 # 1. How This Relates to the Reality Plan
@@ -109,6 +123,14 @@ This indicates that BDH's shared/tied recurrent computation is highly exploitabl
 ---
 
 # 3. What Failed or Remains Non-Canonical
+
+All comparisons in this successor plan require, at minimum: identical tokenizer,
+data/order, optimizer, schedule, dtype, context, batch tokens, training tokens,
+hardware, and pre-registered seeds; total parameter counts within 1%; a
+Transformer with positional encoding and a real KV cache; frozen evaluation and
+contamination audit; per-task scores and uncertainty; and peak-RAM measurement
+at matched quality. Missing evidence blocks promotion and must be reported as
+exploratory, never as BDH superiority.
 
 ## Grouped recurrent state — CLOSED
 
@@ -519,6 +541,12 @@ The canonical candidate should remain minimal.
 ---
 
 # 10. Phase F — Fair Same-Hardware Baseline Comparison
+
+This is the decisive claim gate, not an optional follow-up. No HZ-Core-2,
+compressed-state, curriculum, or Phase-P result may be described as superior
+until this comparison passes the inherited integrity contract and the 3x/30%
+target protocol. The exact upstream BDH control must be reported separately
+from every derivative; HZ-Core-2 must not be mislabeled as exact BDH.
 
 Before making any major HatchlingZero capability claim, eliminate remaining comparison confounds.
 

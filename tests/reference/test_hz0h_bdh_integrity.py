@@ -172,3 +172,14 @@ def test_active_plan_names_current_oracle_and_targets():
     assert "3.0x" in plan and "30%" in plan
     assert "hand-built approximation" in contract
     assert "matched parameter count" in contract
+
+
+def test_successor_plan_inherits_integrity_and_claim_gates():
+    plan = (ROOT / "plans/HatchlingZero_Next_Phase_Plan.md").read_text()
+    assert "specs/hz_bdh_integrity_contract.md" in plan
+    assert "reference/hz0h_bdh_torch.py" in plan
+    assert "reference/hz0h_bdh_train_torch.py" in plan
+    assert "3.0x" in plan
+    assert "30%" in plan
+    assert "real KV cache" in plan
+    assert "must not be mislabeled as exact BDH" in plan

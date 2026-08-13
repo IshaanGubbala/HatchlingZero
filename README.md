@@ -38,7 +38,7 @@ This shows up directly in the evidence trail: `docs/restart/` holds dozens of re
 
 ## Where the project stands
 
-HatchlingZero's direction changed on 2026-08-11. The project's first ~7 stages (`HZ-0A` through `HZ-0H`, summarized below) explored a hand-built hybrid backbone accumulating recurrence, memory, triggered attention, fast weights, and MoE — real, evidence-based, individually-tested work, preserved in full — but not the current direction. The current plan (`plans/HatchlingZero_Reality_Plan.md`) restarts from a verbatim upstream BDH oracle and asks a narrower, sharper question: does BDH's own structural difference from a Transformer — shared iterative weights, persistent synaptic state instead of a growing KV-cache, sparse positive activations — translate into a *measurable* advantage, at matched parameters/tokens/compute, or not?
+HatchlingZero's direction changed on 2026-08-11. The project's first ~7 stages (`HZ-0A` through `HZ-0H`, summarized below) explored a hand-built hybrid backbone accumulating recurrence, memory, triggered attention, fast weights, and MoE — real, evidence-based, individually-tested work, preserved in full — but not the current direction. The active work started with `plans/HatchlingZero_Reality_Plan.md` and now follows its successor `plans/HatchlingZero_Next_Phase_Plan.md`, both bound to the same verbatim upstream BDH oracle and claim contract. The research asks a narrower, sharper question: does BDH's own structural difference from a Transformer — shared iterative weights, persistent synaptic state instead of a growing KV-cache, sparse positive activations — translate into a *measurable* advantage, at matched parameters/tokens/compute, or not?
 
 **Real status right now**: one small (~4.8M-param), same-hardware, same-dtype, RoPE-matched pilot has been run end to end (see below). At that scale, on that corpus, a modern Transformer beat BDH decisively on both throughput and validation loss. That is a real, disclosed, single-data-point result at the smallest end of the planned scaling ladder (`plans/HZ Benchmark Plan.md`) — not a verdict on BDH at the 100M–1B+ scale where its O(1) streaming state and shared-weight parameter efficiency are structurally more likely to matter. The plan's own claim discipline: no scale-independent conclusion until the ladder (25M → 100M → 300M → 800M) has real data at more than one point.
 
@@ -93,7 +93,7 @@ Transformer wins decisively at this scale, with no confound left in the comparis
 
 ## The research plan
 
-[`plans/HatchlingZero_Reality_Plan.md`](plans/HatchlingZero_Reality_Plan.md) is the current, authoritative plan: 16 phases from preserving the upstream oracle through a candidate `HZ-1` architecture (target ~0.8–1.2B params), each with a real exit gate and a documented backup plan if the hypothesis fails at that phase. In order: freeze the oracle → establish real BDH/Transformer baselines at 25M→100M→300M → prove exact streaming-state equivalence → compress synaptic state → turn sparsity into real compute savings (BlockBDH) → variable shared-depth adaptive reasoning → re-evaluate whether BPTT is actually the right training law → optimize BPTT itself → scale validation → distillation → latent reasoning → conditional attention → multi-token prediction → native low-precision weights → `HZ-1`.
+[`plans/HatchlingZero_Next_Phase_Plan.md`](plans/HatchlingZero_Next_Phase_Plan.md) is the current successor roadmap (with [`plans/HatchlingZero_Reality_Plan.md`](plans/HatchlingZero_Reality_Plan.md) as its completed foundation): its phases from preserving the upstream oracle through a candidate `HZ-1` architecture (target ~0.8–1.2B params), each with a real exit gate and a documented backup plan if the hypothesis fails at that phase. In order: freeze the oracle → establish real BDH/Transformer baselines at 25M→100M→300M → prove exact streaming-state equivalence → compress synaptic state → turn sparsity into real compute savings (BlockBDH) → variable shared-depth adaptive reasoning → re-evaluate whether BPTT is actually the right training law → optimize BPTT itself → scale validation → distillation → latent reasoning → conditional attention → multi-token prediction → native low-precision weights → `HZ-1`.
 
 [`plans/HZ Benchmark Plan.md`](plans/HZ%20Benchmark%20Plan.md) is the detailed benchmark methodology backing every scale-comparison claim in that plan: iso-parameter, iso-compute, and iso-quality comparisons at 125M/350M/1B against a Qwen2.5-style modern Transformer baseline, once hardware beyond a single Mac + RTX 3060 is available. It records the historical Transformer-control gap: the first pilot used no positional encoding. The working-tree control now has opt-in RoPE and the inference benchmark enables it; the old no-RoPE result is not superiority evidence.
 
@@ -148,7 +148,8 @@ data/                  Packed training/validation corpora (byte-level and
 docs/restart/          Evidence documents -- one per real result, dated,
                        cited, and honest about what did and didn't work,
                        across every stage including the BDH restart.
-plans/                 plans/HatchlingZero_Reality_Plan.md (current plan),
+plans/                 HatchlingZero_Next_Phase_Plan.md (active successor),
+                       HatchlingZero_Reality_Plan.md (foundation),
                        plans/HZ Benchmark Plan.md (benchmark methodology),
                        plans/archived plans/ (every prior HZ-0A-0H plan and
                        tracker, preserved not deleted).
