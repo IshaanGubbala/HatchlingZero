@@ -1,5 +1,44 @@
 # HZ Phase 6 / Training B (Recurrent-Depth Curriculum): real positive result on BOTH quality and speed -- CONFIRMED at 2 seeds
 
+## Update 3: seed-8 correction -- "VB curriculum beats exact BDH outright" does NOT hold; the core curriculum win does
+
+Real seed-8 check of Update 2's VB-curriculum result, requested because
+that result was unusually large and clean. The headline curriculum
+finding is confirmed and strengthened; one specific sub-claim from
+Update 2 is corrected here rather than left standing.
+
+**Full 8-run table, both seeds, all four architecture x schedule combinations:**
+
+| | seed=7 val_loss | seed=8 val_loss | seed=7 vs own fixed | seed=8 vs own fixed |
+| --- | --- | --- | --- | --- |
+| Exact BDH, fixed depth=8 | 1.6484 | 1.6367 | -- | -- |
+| BDH+VB, fixed depth=8 | 1.7988 | 1.7715 | -- | -- |
+| Exact BDH, curriculum | 1.5820 | 1.5879 | -4.03% | -2.98% |
+| BDH+VB, curriculum | 1.6309 | 1.6445 | -9.34% | -7.17% |
+
+**Confirmed, robust**: curriculum training is a real, large, seed-stable
+win for BOTH architectures -- 7-9% relative improvement for VB, 3-4%
+for exact BDH, at both seeds. VB consistently gains MORE from the
+curriculum than exact BDH does (roughly double the relative
+improvement), confirmed both times, not a seed=7-specific artifact.
+
+**Corrected, NOT robust**: Update 2 reported "VB curriculum beats exact
+BDH's own fixed-depth baseline outright" (true at seed=7: 1.6309 <
+1.6484, -1.06%). **This does NOT hold at seed=8**: VB curriculum
+(1.6445) is actually +0.48% WORSE than exact BDH's fixed-depth number
+(1.6367) that time -- a near-tie, not a clean win, once both seeds are
+considered together. The seed-robust claim is **"VB curriculum roughly
+matches/ties plain fixed-depth exact BDH"**, not "beats it" -- Update
+2's framing was on the optimistic side of a real but noisier effect.
+Flagged and corrected here rather than letting the more flattering
+single-seed result stand uncorrected, per this project's own standing
+discipline.
+
+VB-curriculum vs. exact-BDH's-own-curriculum gap is stable across both
+seeds (-3.09% seed=7, -3.57% seed=8) -- **exact BDH + curriculum
+remains the best of all 8 combinations tested today**, at both seeds,
+unambiguously.
+
 ## Update 2: applied to HZ-Core-1's VB arm -- curriculum closes the quality gap AND beats exact BDH's fixed-depth baseline outright (pending seed-8 confirmation)
 
 Real next question after Update 1's confirmation: HZ-Core-1's value
