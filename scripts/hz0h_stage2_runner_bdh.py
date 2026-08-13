@@ -177,6 +177,8 @@ def main() -> None:
     parser.add_argument("--milestone-tokens", type=str, default="")
     parser.add_argument("--device", choices=("auto", "cpu", "cuda", "mps"), default="auto")
     parser.add_argument("--compile-step", action="store_true", help="torch.compile the model's forward call. Checkpoints are still saved from the ORIGINAL (uncompiled) model object -- torch.compile wraps but does not copy parameters, so this stays a plain, portable BDH state_dict, loadable by every existing eval script unchanged. Off by default; see docs/restart/hz0h_phase6_depth_curriculum_results.md for the real speed/correctness measurement this flag was validated against on CUDA before being recommended.")
+    parser.add_argument("--compile-mode", choices=("default", "reduce-overhead", "max-autotune"), default="default", help="torch.compile's `mode` argument, only used if --compile-step is set. `reduce-overhead` uses CUDA graphs to eliminate per-kernel Python/driver launch overhead -- real candidate for BDH specifically, since its forward pass is many small sequential matmuls in a Python for-loop over n_layer (likely launch-overhead-bound at small batch sizes on consumer GPUs), unlike `default` mode which mainly fuses operators but still issues per-op CUDA calls normally. CUDA graphs require STATIC input shapes across calls (true here: batch/sequence-length are fixed for the whole run) and static memory addresses for the graphed tensors -- a real, disclosed constraint of this mode, not a free upgrade in general, but a good fit for this runner's own fixed-shape training loop specifically.")
+    parser.add_argument("--fused-optimizer", action="store_true", help="AdamW(..., fused=True) -- CUDA-only kernel fusion for the optimizer step, mathematically IDENTICAL update rule to the unfused path (not an approximation), just fewer kernel launches. Off by default to keep build_optimizer's own 'real upstream recipe' semantics untouched for every other caller; this flag overrides the optimizer construction locally in this runner only.")
     args = parser.parse_args()
 
     if args.warmup_steps < 0:
@@ -218,7 +220,7 @@ def main() -> None:
     # tensors -- forward_model is used for every training/eval step below,
     # while `model` itself (uncompiled) is what gets checkpointed, so saved
     # weights stay a plain, portable BDH state_dict either way.
-    forward_model = torch.compile(model) if args.compile_step else model
+    forward_model = torch.compile(model, mode=args.compile_mode) if args.compile_step else model
 
     config_snapshot = {key: (str(value) if isinstance(value, Path) else value) for key, value in vars(args).items()}
     config_snapshot.update(sequence_length_resolved=sequence_length, effective_batch_tokens=effective_batch_tokens, total_optimizer_steps_estimate=total_optimizer_steps, resolved_device=str(device), backend="torch", architecture="bdh", parameter_count=sum(p.numel() for p in model.parameters()))
@@ -229,7 +231,12 @@ def main() -> None:
             return args.max_lr
         return lr_at_step(at_step, total_optimizer_steps, args.warmup_steps, args.max_lr, args.lr_min_ratio)
 
-    optimizer = build_optimizer(model, lr=current_lr(0), weight_decay=args.weight_decay)
+    if args.fused_optimizer:
+        if device.type != "cuda":
+            raise ValueError("--fused-optimizer requires --device cuda (fused AdamW is a CUDA-only kernel)")
+        optimizer = torch.optim.AdamW(model.parameters(), lr=current_lr(0), weight_decay=args.weight_decay, fused=True)
+    else:
+        optimizer = build_optimizer(model, lr=current_lr(0), weight_decay=args.weight_decay)
     metrics, step, tokens_seen, batch_index = [], 0, 0, 0
     epoch_or_data_pass = 0
     best_validation_loss, milestones_hit = None, []

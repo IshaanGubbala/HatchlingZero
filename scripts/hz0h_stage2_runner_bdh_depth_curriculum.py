@@ -193,6 +193,9 @@ def main() -> None:
     parser.add_argument("--validation-batch-size", type=int, default=32)
     parser.add_argument("--milestone-tokens", type=str, default="")
     parser.add_argument("--device", choices=("auto", "cpu", "cuda", "mps"), default="auto")
+    parser.add_argument("--compile-step", action="store_true", help="torch.compile bdh_variable_depth_forward. dynamo specializes/recompiles per distinct n_iterations value (a plain Python int, not a tensor) -- so this curriculum's 4 stages produce up to 4 compiled variants total, each cached and reused for the rest of that stage's steps, not recompiled every step. Same checkpoint-portability guarantee as the fixed-depth runner's own --compile-step (compilation wraps the callable, not the model's parameters).")
+    parser.add_argument("--compile-mode", choices=("default", "reduce-overhead", "max-autotune"), default="default", help="see scripts/hz0h_stage2_runner_bdh.py's own --compile-mode docstring for the real motivation (CUDA graphs / launch-overhead reduction for BDH's many-small-sequential-ops forward pass). Only used if --compile-step is set.")
+    parser.add_argument("--fused-optimizer", action="store_true", help="AdamW(..., fused=True), CUDA-only, mathematically identical update rule -- see scripts/hz0h_stage2_runner_bdh.py's own flag docstring.")
     args = parser.parse_args()
 
     if args.warmup_steps < 0:
@@ -226,6 +229,11 @@ def main() -> None:
     )
     model = BDH(bdh_config).to(device=device, dtype=torch_dtype)
     model.attn.freqs = model.attn.freqs.to(torch.float32)
+    # torch.compile wraps the FUNCTION, not the model -- model's parameters
+    # are untouched either way, so checkpoints stay a plain, portable BDH
+    # state_dict. dynamo specializes per distinct n_iterations value (see
+    # --compile-step's own help text).
+    forward_fn = torch.compile(bdh_variable_depth_forward, mode=args.compile_mode) if args.compile_step else bdh_variable_depth_forward
 
     config_snapshot = {key: (str(value) if isinstance(value, Path) else value) for key, value in vars(args).items()}
     config_snapshot.update(sequence_length_resolved=sequence_length, effective_batch_tokens=effective_batch_tokens, total_optimizer_steps_estimate=total_optimizer_steps, resolved_device=str(device), backend="torch", architecture="bdh_depth_curriculum", curriculum_stages_parsed=curriculum_stages, parameter_count=sum(p.numel() for p in model.parameters()))
@@ -236,7 +244,12 @@ def main() -> None:
             return args.max_lr
         return lr_at_step(at_step, total_optimizer_steps, args.warmup_steps, args.max_lr, args.lr_min_ratio)
 
-    optimizer = build_optimizer(model, lr=current_lr(0), weight_decay=args.weight_decay)
+    if args.fused_optimizer:
+        if device.type != "cuda":
+            raise ValueError("--fused-optimizer requires --device cuda (fused AdamW is a CUDA-only kernel)")
+        optimizer = torch.optim.AdamW(model.parameters(), lr=current_lr(0), weight_decay=args.weight_decay, fused=True)
+    else:
+        optimizer = build_optimizer(model, lr=current_lr(0), weight_decay=args.weight_decay)
     metrics, step, tokens_seen, batch_index = [], 0, 0, 0
     epoch_or_data_pass = 0
     best_validation_loss, milestones_hit = None, []
@@ -265,7 +278,7 @@ def main() -> None:
             for start in range(0, fixed_validation_tokens.shape[0], sub_batch):
                 chunk = fixed_validation_tokens[start:start + sub_batch]
                 x, y = shifted_target_batch(chunk)
-                _logits, loss = bdh_variable_depth_forward(model, x, n_iterations=n_iterations, targets=y)
+                _logits, loss = forward_fn(model, x, n_iterations=n_iterations, targets=y)
                 total += float(loss)
                 count += 1
             model.train()
@@ -278,7 +291,7 @@ def main() -> None:
             tokens = read_batch(train, args.batch_size, sequence_length, device, epoch_counter)
             x, y = shifted_target_batch(tokens)
             optimizer.zero_grad(set_to_none=True)
-            _logits, loss = bdh_variable_depth_forward(model, x, n_iterations=n_iterations, targets=y)
+            _logits, loss = forward_fn(model, x, n_iterations=n_iterations, targets=y)
             loss.backward()
             grad_norm = float(torch.linalg.vector_norm(torch.stack(torch._foreach_norm([p.grad for p in model.parameters() if p.grad is not None], 2.0))))
             last_lr = current_lr(step)
