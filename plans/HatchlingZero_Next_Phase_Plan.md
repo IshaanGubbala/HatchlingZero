@@ -942,6 +942,22 @@ z_b' = g_b(x) * z_b
 
 Train end-to-end.
 
+**REAL RESULT (2026-08-12), disclosed rather than smoothed over**: see
+`docs/restart/hz0h_phase_i4_block_gated_results.md`. 5-seed reassignment
+check, same task/config/budget as the original hard top-k result: mean
+accuracy 0.686 (dense-gated) vs. 0.868 (hard top-k baseline) --
+**worse on average, not better**. Only 1 of 5 seeds improved; one seed
+collapsed to 0.11 (near chance), a failure mode the hard-router
+approach never showed at any seed. The hypothesis that removing the
+hard top-k discontinuity alone would fix the instability is **NOT
+confirmed** -- continuous gating has its own real instability, not
+obviously milder. No diversity/balance pressure was added in this first
+attempt (deliberate, to isolate the hard-vs-soft question cleanly) --
+a real, well-motivated next variant (not yet tried) before this family
+is exhausted per this session's own elimination discipline (3-4
+distinct failed attempts before an architecture-level verdict, this is
+attempt #1 of the continuous-gating family, not yet #3 or #4).
+
 ### I4.2 Soft-to-sparse annealing
 
 After the gates become nontrivial:
