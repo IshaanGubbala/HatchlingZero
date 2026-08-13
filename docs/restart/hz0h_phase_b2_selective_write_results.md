@@ -202,3 +202,33 @@ at that point (e.g. LR-anneal-floor interaction, depth-8-stage duration)
 before deciding whether this is fixable (targeted regularization/warmup
 on the gate) or whether B2 gets killed as "wins mid-training, not
 reliably at the full budget."
+
+## Update 3: real discrepancy caught -- the "25M" selective run may have stopped ~4% short, putting the whole reversal in question
+
+Pulled plain-D4's own seed=7 metrics json (delivered free, no new
+training -- it's the original Phase 6 VB+curriculum seed=7 run,
+`outputs/hz0h_phase6_vb_depth_curriculum/seed7/`) to locate the exact
+crossing point. Before trusting that comparison, checked both runs'
+raw token counts and found a real mismatch with the original seed=7
+report:
+
+```text
+selective checkpoint json: milestones_hit = [5M, 10M, 15M, 20M]  -- 25M MISSING
+                            final metrics entry: step 7800, tokens_seen 23,961,600
+plain-D4 json (just delivered): final entry: step 8139, tokens_seen 25,003,008  -- full budget
+```
+
+The original seed=7 report (`hz0h_phase_b2_selective_write_result.txt`)
+explicitly said "all 5 milestones hit, budget_complete=true" -- that
+does not match the checkpoint json actually returned, which stops
+~1.04M tokens (~4%) short of the 25M target and never records the final
+milestone. This matters: the entire "reversal" being investigated is a
++0.0117 delta, the same order of magnitude a 4%-short run could produce
+on its own with no real late-training mechanism at all. **Not treating
+the Update 2 crossover conclusion as settled** -- dispatched a
+clarification request to Windows (did the run actually stop early, and
+if so why / can it finish the last ~1M tokens; or is this just the
+`_checkpoint_best.json` under-reporting a run that did complete, in
+which case send the true final-step file). Holding off on any kill/
+promote/fix decision until this is resolved -- exactly the kind of
+small mismatch that would otherwise quietly corrupt the conclusion.
