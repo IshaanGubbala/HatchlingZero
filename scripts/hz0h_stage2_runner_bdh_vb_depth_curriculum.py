@@ -16,6 +16,12 @@ curriculum runner) and `scripts/hz0h_stage2_runner_bdh_vb.py` (VB's
 fixed-depth runner), for direct three-way comparability: exact BDH
 fixed depth, exact BDH curriculum, VB fixed depth, VB curriculum, all
 at the same 25M-param HZ-Core-1 config.
+
+`--d-state-divisor` (real addition for `plans/HatchlingZero_Next_Phase_Plan.md`
+Phase B, the D/2 vs D/3 vs D/4 sweep) replaces the earlier hardcoded
+`hz_state_v1_config` (D/4 only) with a direct `BDHVBConfig(d_state=n_embd
+// divisor)` construction -- `BDHVBConfig.d_state` was already a free
+parameter, only this runner's own convenience wrapper locked it.
 """
 from __future__ import annotations
 
@@ -33,9 +39,8 @@ import torch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from reference.hz0h_bdh_train_torch import build_optimizer, shifted_target_batch
-from reference.hz0h_bdh_vb_torch import BDHVB
+from reference.hz0h_bdh_vb_torch import BDHVB, BDHVBConfig
 from reference.hz0h_bdh_vb_variable_depth_torch import bdh_vb_variable_depth_forward
-from reference.hz0h_state_v1 import hz_state_v1_config
 
 
 def parse_curriculum(spec: str, target_tokens: int) -> list[tuple[int, int]]:
@@ -164,6 +169,7 @@ def main() -> None:
     parser.add_argument("--n-head", type=int, default=4)
     parser.add_argument("--mlp-internal-dim-multiplier", type=int, default=24)
     parser.add_argument("--curriculum-stages", type=str, required=True, help="comma-separated token_boundary:n_iterations pairs, e.g. 6250000:2,12500000:4,18750000:6,25000000:8")
+    parser.add_argument("--d-state-divisor", type=int, default=4, help="VB d_state = n_embd // this. Phase B sweeps 2/3/4; default 4 matches the original HZ-Core-1/hz_state_v1_config setting.")
     parser.add_argument("--sequence-length", type=int, default=0)
     parser.add_argument("--dtype", choices=("float32", "float16", "bfloat16"), default="float32")
     parser.add_argument("--dropout", type=float, default=0.0)
@@ -176,6 +182,9 @@ def main() -> None:
     parser.add_argument("--validation-batch-size", type=int, default=32)
     parser.add_argument("--milestone-tokens", type=str, default="")
     parser.add_argument("--device", choices=("auto", "cpu", "cuda", "mps"), default="auto")
+    parser.add_argument("--compile-step", action="store_true", help="torch.compile bdh_vb_variable_depth_forward, same dynamo-per-n_iterations-specialization behavior as scripts/hz0h_stage2_runner_bdh_depth_curriculum.py's own flag.")
+    parser.add_argument("--compile-mode", choices=("default", "reduce-overhead", "max-autotune"), default="default")
+    parser.add_argument("--fused-optimizer", action="store_true", help="AdamW(..., fused=True), CUDA-only, mathematically identical update rule.")
     args = parser.parse_args()
 
     if args.warmup_steps < 0:
@@ -202,13 +211,23 @@ def main() -> None:
     torch.manual_seed(args.seed)
     torch_dtype = {"float32": torch.float32, "float16": torch.float16, "bfloat16": torch.bfloat16}[args.dtype]
 
-    bdh_vb_config = hz_state_v1_config(
+    # Real, disclosed: NOT requiring exact divisibility -- n_embd=512 isn't
+    # evenly divisible by 3 (Phase B's own D/3 arm), and "D/3" is a target
+    # compression ratio, not a strict mathematical constraint. Rounds to the
+    # nearest integer d_state instead (round(512/3) = 171, a 2.99x ratio,
+    # close enough to call "D/3" -- the exact ratio actually used is always
+    # recorded in config_snapshot.json's own d_state field, so nothing is
+    # hidden).
+    d_state = max(1, round(args.n_embd / args.d_state_divisor))
+    bdh_vb_config = BDHVBConfig(
         n_layer=args.n_layer, n_embd=args.n_embd, n_head=args.n_head,
         mlp_internal_dim_multiplier=args.mlp_internal_dim_multiplier,
         vocab_size=args.vocab_size, dropout=args.dropout,
+        d_state=d_state,
     )
     model = BDHVB(bdh_vb_config).to(device=device, dtype=torch_dtype)
     model.attn.freqs = model.attn.freqs.to(torch.float32)
+    forward_fn = torch.compile(bdh_vb_variable_depth_forward, mode=args.compile_mode) if args.compile_step else bdh_vb_variable_depth_forward
 
     config_snapshot = {key: (str(value) if isinstance(value, Path) else value) for key, value in vars(args).items()}
     config_snapshot.update(sequence_length_resolved=sequence_length, effective_batch_tokens=effective_batch_tokens, total_optimizer_steps_estimate=total_optimizer_steps, resolved_device=str(device), backend="torch", architecture="bdh_vb_depth_curriculum", d_state=bdh_vb_config.d_state, curriculum_stages_parsed=curriculum_stages, parameter_count=sum(p.numel() for p in model.parameters()))
@@ -219,7 +238,12 @@ def main() -> None:
             return args.max_lr
         return lr_at_step(at_step, total_optimizer_steps, args.warmup_steps, args.max_lr, args.lr_min_ratio)
 
-    optimizer = build_optimizer(model, lr=current_lr(0), weight_decay=args.weight_decay)
+    if args.fused_optimizer:
+        if device.type != "cuda":
+            raise ValueError("--fused-optimizer requires --device cuda (fused AdamW is a CUDA-only kernel)")
+        optimizer = torch.optim.AdamW(model.parameters(), lr=current_lr(0), weight_decay=args.weight_decay, fused=True)
+    else:
+        optimizer = build_optimizer(model, lr=current_lr(0), weight_decay=args.weight_decay)
     metrics, step, tokens_seen, batch_index = [], 0, 0, 0
     epoch_or_data_pass = 0
     best_validation_loss, milestones_hit = None, []
@@ -248,7 +272,7 @@ def main() -> None:
             for start in range(0, fixed_validation_tokens.shape[0], sub_batch):
                 chunk = fixed_validation_tokens[start:start + sub_batch]
                 x, y = shifted_target_batch(chunk)
-                _logits, loss = bdh_vb_variable_depth_forward(model, x, n_iterations=n_iterations, targets=y)
+                _logits, loss = forward_fn(model, x, n_iterations=n_iterations, targets=y)
                 total += float(loss)
                 count += 1
             model.train()
@@ -261,7 +285,7 @@ def main() -> None:
             tokens = read_batch(train, args.batch_size, sequence_length, device, epoch_counter)
             x, y = shifted_target_batch(tokens)
             optimizer.zero_grad(set_to_none=True)
-            _logits, loss = bdh_vb_variable_depth_forward(model, x, n_iterations=n_iterations, targets=y)
+            _logits, loss = forward_fn(model, x, n_iterations=n_iterations, targets=y)
             loss.backward()
             grad_norm = float(torch.linalg.vector_norm(torch.stack(torch._foreach_norm([p.grad for p in model.parameters() if p.grad is not None], 2.0))))
             last_lr = current_lr(step)
