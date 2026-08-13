@@ -285,3 +285,70 @@ a warmup/anneal on the gate itself to test whether the plateau gap is
 fixable) could resolve the "why" without more brute-force seeds.
 Bringing this to the user rather than picking one autonomously, since
 it's a real compute/direction tradeoff, not a fact I can look up.
+
+User chose: investigate the mechanism first (cheap, local, no dispatch)
+before spending more full-budget seeds.
+
+## Update 5: mechanism investigation -- the gate's selectivity measurably erodes as recurrence depth increases, plausible explanation for the depth-8-stage plateau gap
+
+Ran two diagnostics locally against the seed=7 checkpoint (step 7800,
+23.96M/25M tokens = 95.8% through training -- well inside the final 10%
+window under investigation) on REAL validation text (64-256 real
+sequences from `data/packed/hz0h_bytes_25m_val.jsonl`, not synthetic
+random tokens like the earlier collapse-check).
+
+**Diagnostic 1 -- gate is a pure token-identity lookup at iteration 0,
+by construction.** At the first recurrence iteration, `x` is just
+`LN(embed(token))` -- no cross-token context has entered yet -- so the
+gate at iteration 0 is provably deterministic given the token id.
+Confirmed directly: gate std for every single byte value was exactly
+`0.000000` at iteration 0 (e.g. space=0.2406 exactly, newline=0.9041
+exactly, every single occurrence). This by itself isn't a problem (it's
+mathematically required at iteration 0), but it means the gate's
+signature per-token behavior at low depth (2, 4 -- the curriculum's
+first half) is dominated by this same context-free lookup, while at
+higher depth (6, 8) later iterations have more room to add real
+context-dependence.
+
+**Diagnostic 2 -- selectivity erodes as iterations accumulate,
+tracked per-iteration through the full depth-8 forward pass:**
+
+| iteration | overall gate mean | space (byte 32) mean / std | newline (byte 10) mean / std |
+|---|---|---|---|
+| 0 | 0.4506 | 0.2406 / 0.0000 | 0.9041 / 0.0000 |
+| 1 | 0.5853 | 0.4181 / 0.1835 | 0.9285 / 0.0143 |
+| 2 | 0.6073 | 0.4483 / 0.2707 | 0.9105 / 0.0253 |
+| 3 | 0.6034 | 0.4645 / 0.2947 | 0.8814 / 0.0366 |
+| 4 | 0.5944 | 0.4735 / 0.2989 | 0.8514 / 0.0472 |
+| 5 | 0.5854 | 0.4786 / 0.2979 | 0.8236 / 0.0572 |
+| 6 | 0.5773 | 0.4828 / 0.2959 | 0.7966 / 0.0678 |
+| 7 | 0.5700 | 0.4860 / 0.2940 | 0.7694 / 0.0792 |
+
+Real, monotonic, opposite-direction drift for both token types as
+iterations accumulate: **space's write-gate rises toward the
+uninformative 0.5 midpoint** (0.24 -> 0.49, getting progressively LESS
+suppressed) and **newline's write-gate falls toward the same midpoint**
+(0.90 -> 0.77, getting progressively LESS emphasized). Both of the
+gate's sharpest, most interpretable early-iteration behaviors (heavily
+suppress filler, heavily emphasize structural markers) measurably wash
+out by the final iteration -- context-dependence does emerge from
+iteration 1 onward (std jumps from exactly 0 to 0.18-0.30 for space),
+but it erodes the gate's decisiveness rather than sharpening it further.
+
+**Plausible mechanism for the plateau gap** (correlational, not proven
+causal -- flagged as a hypothesis, not a confirmed explanation): the
+curriculum's final quarter (18.75M-25M tokens) trains EXCLUSIVELY at
+depth=8, the exact regime where this diagnostic shows the gate's
+selectivity is most washed out by the last iteration. If the gate's
+useful signal genuinely comes from its early-iteration, near-
+context-free selectivity (down-weight filler, up-weight structure), and
+that signal measurably erodes by iteration 7-8, then spending the whole
+final quarter of training exclusively in the regime where the gate is
+least decisive could plausibly explain why the mid-training advantage
+(curriculum stages 1-3, depths 2/4/6, more iterations spent using the
+gate while it's still sharp) doesn't carry through to the depth-8-only
+final stretch. Not verified as causal -- would need either an
+intervention (e.g. an iteration-depth-aware regularization term keeping
+the gate decisive at depth 8) that closes the gap, or a gate-ablation
+at fixed depth=8 across training stages, to move this from "plausible,
+evidence-backed hypothesis" to "confirmed mechanism."
