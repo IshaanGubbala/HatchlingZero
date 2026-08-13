@@ -100,3 +100,51 @@ cheap-check pattern for exactly this reason): dispatching a small-budget
 verification recipe, rather than two more full-cost runs, to see
 whether this is a consistent negative or an unlucky seed before
 formally killing B2 per the plan's own rule.
+
+## Update 1: small-budget 6-seed check CONTRADICTS the full-budget result -- not killing B2
+
+The 5M-token, 6-seed check (seeds 8-13, same curriculum shape scaled
+down: 1250000:2,2500000:4,3750000:6,5000000:8) came back the OPPOSITE
+direction from seed=7's full 25M-token run. `final_full_depth_validation_loss`,
+plain VB D/4 vs selective-write-gate:
+
+| seed | plain D/4 | selective | delta (sel-plain) | winner |
+|---|---|---|---|---|
+| 8 | 2.12891 | 2.03320 | -0.09570 | selective |
+| 9 | 2.12109 | 2.04688 | -0.07422 | selective |
+| 10 | 2.12891 | 2.05859 | -0.07031 | selective |
+| 11 | 2.10547 | 2.02344 | -0.08203 | selective |
+| 12 | 2.10742 | 2.05078 | -0.05664 | selective |
+| 13 | 2.10547 | 2.07031 | -0.03516 | selective |
+
+**Selective-write wins 6/6 at this budget**, by 0.035-0.096 -- an order
+of magnitude larger than the 0.006-0.008 gaps that separated D/2/D/3/D/4
+in the original Phase B sweep, and larger than seed=7's own full-budget
+loss margin (0.0117). Not a marginal or noisy effect at this budget.
+Windows checked for an obvious bug before reporting (parameter counts
+consistent with the full run: +512 not +129; `budget_complete=true`
+everywhere; no anomalies spot-checked in per-step loss curves) and found
+none, though this hasn't been independently re-verified on the Mac side.
+
+**This is a real contradiction, not a resolved result.** Two seed=7-vs-
+small-budget explanations both fit the data equally well right now:
+
+1. The gate helps early in training (low-depth curriculum stages, short
+   runs) and is overtaken or starts hurting only once training reaches
+   the full 25M-token/depth-8 regime.
+2. Seed=7's full-budget run was the unlucky/noisy one, and more
+   full-budget seeds would show the gate winning there too.
+
+**Not applying the kill rule.** Plan B2.7 says "kill after three seeds
+if there is no reliable improvement" -- but the small-budget signal here
+is a strong, consistent, one-directional *improvement* (6/6), so killing
+B2 off the strength of a single full-budget seed that lost would be
+premature; the honest read is the evidence so far is genuinely split by
+budget, not converged on a negative. Next step: rather than jumping
+straight to two more full 25M-token confirmation runs (the expensive
+option Windows flagged as "your call"), dispatching one or two
+intermediate-budget runs (e.g. ~10M and ~17.5M tokens, seed=7, same
+recipe) to bracket where -- or whether -- the crossover from "gate wins"
+to "gate loses" actually happens, which is a more surgical way to
+distinguish explanation (1) from (2) before committing to full-cost
+reruns.
