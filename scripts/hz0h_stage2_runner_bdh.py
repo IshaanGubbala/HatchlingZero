@@ -176,6 +176,7 @@ def main() -> None:
     parser.add_argument("--validation-batch-size", type=int, default=32)
     parser.add_argument("--milestone-tokens", type=str, default="")
     parser.add_argument("--device", choices=("auto", "cpu", "cuda", "mps"), default="auto")
+    parser.add_argument("--compile-step", action="store_true", help="torch.compile the model's forward call. Checkpoints are still saved from the ORIGINAL (uncompiled) model object -- torch.compile wraps but does not copy parameters, so this stays a plain, portable BDH state_dict, loadable by every existing eval script unchanged. Off by default; see docs/restart/hz0h_phase6_depth_curriculum_results.md for the real speed/correctness measurement this flag was validated against on CUDA before being recommended.")
     args = parser.parse_args()
 
     if args.warmup_steps < 0:
@@ -213,6 +214,11 @@ def main() -> None:
     # call. Restore it after the cast rather than skip the cast for the
     # rest of the model.
     model.attn.freqs = model.attn.freqs.to(torch.float32)
+    # torch.compile wraps model's __call__ but shares the SAME parameter
+    # tensors -- forward_model is used for every training/eval step below,
+    # while `model` itself (uncompiled) is what gets checkpointed, so saved
+    # weights stay a plain, portable BDH state_dict either way.
+    forward_model = torch.compile(model) if args.compile_step else model
 
     config_snapshot = {key: (str(value) if isinstance(value, Path) else value) for key, value in vars(args).items()}
     config_snapshot.update(sequence_length_resolved=sequence_length, effective_batch_tokens=effective_batch_tokens, total_optimizer_steps_estimate=total_optimizer_steps, resolved_device=str(device), backend="torch", architecture="bdh", parameter_count=sum(p.numel() for p in model.parameters()))
@@ -252,7 +258,7 @@ def main() -> None:
             for start in range(0, fixed_validation_tokens.shape[0], sub_batch):
                 chunk = fixed_validation_tokens[start:start + sub_batch]
                 x, y = shifted_target_batch(chunk)
-                _logits, loss = model(x, targets=y)
+                _logits, loss = forward_model(x, targets=y)
                 total += float(loss)
                 count += 1
             model.train()
@@ -264,7 +270,7 @@ def main() -> None:
             tokens = read_batch(train, args.batch_size, sequence_length, device, epoch_counter)
             x, y = shifted_target_batch(tokens)
             optimizer.zero_grad(set_to_none=True)
-            _logits, loss = model(x, targets=y)
+            _logits, loss = forward_model(x, targets=y)
             loss.backward()
             grad_norm = float(torch.linalg.vector_norm(torch.stack(torch._foreach_norm([p.grad for p in model.parameters() if p.grad is not None], 2.0))))
             last_lr = current_lr(step)
