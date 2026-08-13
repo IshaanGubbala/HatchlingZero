@@ -168,6 +168,7 @@ def main() -> None:
     parser.add_argument("--compile-step", action="store_true")
     parser.add_argument("--compile-mode", choices=("default", "reduce-overhead", "max-autotune"), default="default")
     parser.add_argument("--fused-optimizer", action="store_true")
+    parser.add_argument("--gate-reg-lambda", type=float, default=0.0, help="training-only gate-decisiveness regularizer, -lambda * mean((gate-0.5)^2) averaged over iterations, added to the LM loss during training steps only (never during validation evaluation, so final_full_depth_validation_loss stays a pure CE number, comparable across runs). See docs/restart/hz0h_phase_b2_selective_write_results.md Update 5.")
     args = parser.parse_args()
 
     if args.warmup_steps < 0:
@@ -206,7 +207,7 @@ def main() -> None:
     forward_fn = torch.compile(bdh_vb_selective_variable_depth_forward, mode=args.compile_mode) if args.compile_step else bdh_vb_selective_variable_depth_forward
 
     config_snapshot = {key: (str(value) if isinstance(value, Path) else value) for key, value in vars(args).items()}
-    config_snapshot.update(sequence_length_resolved=sequence_length, effective_batch_tokens=effective_batch_tokens, total_optimizer_steps_estimate=total_optimizer_steps, resolved_device=str(device), backend="torch", architecture="bdh_vb_selective_depth_curriculum", d_state=bdh_vb_selective_config.d_state, curriculum_stages_parsed=curriculum_stages, parameter_count=sum(p.numel() for p in model.parameters()))
+    config_snapshot.update(sequence_length_resolved=sequence_length, effective_batch_tokens=effective_batch_tokens, total_optimizer_steps_estimate=total_optimizer_steps, resolved_device=str(device), backend="torch", architecture="bdh_vb_selective_depth_curriculum", d_state=bdh_vb_selective_config.d_state, curriculum_stages_parsed=curriculum_stages, parameter_count=sum(p.numel() for p in model.parameters()), gate_reg_lambda=args.gate_reg_lambda)
     (args.run_dir / "config_snapshot.json").write_text(json.dumps(config_snapshot, indent=2, sort_keys=True), encoding="utf-8")
 
     def current_lr(at_step: int) -> float:
@@ -261,7 +262,7 @@ def main() -> None:
             tokens = read_batch(train, args.batch_size, sequence_length, device, epoch_counter)
             x, y = shifted_target_batch(tokens)
             optimizer.zero_grad(set_to_none=True)
-            _logits, loss = forward_fn(model, x, n_iterations=n_iterations, targets=y)
+            _logits, loss = forward_fn(model, x, n_iterations=n_iterations, targets=y, gate_reg_lambda=args.gate_reg_lambda)
             loss.backward()
             grad_norm = float(torch.linalg.vector_norm(torch.stack(torch._foreach_norm([p.grad for p in model.parameters() if p.grad is not None], 2.0))))
             last_lr = current_lr(step)
@@ -296,7 +297,7 @@ def main() -> None:
 
     report = {
         "backend": "torch", "device": str(device), "architecture": "bdh_vb_selective_depth_curriculum", "dtype": args.dtype,
-        "d_state": bdh_vb_selective_config.d_state,
+        "d_state": bdh_vb_selective_config.d_state, "gate_reg_lambda": args.gate_reg_lambda,
         "curriculum_stages": curriculum_stages, "final_depth": final_depth,
         "lr_schedule": args.lr_schedule, "max_lr": args.max_lr, "warmup_steps": args.warmup_steps, "lr_min_ratio": args.lr_min_ratio,
         "total_optimizer_steps_estimate": total_optimizer_steps, "final_lr": last_lr, "validation_batch_size": args.validation_batch_size,
