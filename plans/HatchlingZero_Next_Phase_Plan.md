@@ -748,6 +748,38 @@ Only reopen inference-time compute scaling with a fundamentally different object
 
 Plain next-token training already failed to make extra inference depth useful.
 
+**Update (2026-08-12): the specific, concrete first candidate for
+"RL rewarding successful additional recurrent computation," not a new
+open-ended search.** Phase 5's real failure mode, in retrospect: the
+model was optimized for eventual token loss, never explicitly told
+which recurrent iterations were actually useful. KAT-Coder-V2.5's
+asymmetric-critic idea (deployed actor sees only normally-available
+information; the CRITIC, during training only, sees privileged
+hindsight — final correctness, later trajectory outcomes) gives a
+concrete mechanism for exactly that credit-assignment gap:
+
+```text
+BDH state at iteration l
+        ↓
+   tiny actor: CONTINUE or HALT
+        (sees only current state)
+
+training-time hindsight critic sees:
+  final correctness, later loss improvement,
+  whether later iterations fixed the answer,
+  iteration count used
+```
+
+Reward `R = R_correct - lambda * C_compute`, ideally with intermediate
+credit via `delta_L_l = L_{l-1} - L_l` or verified progress. Real
+question this reopens, deliberately different from the falsified one:
+not "does a CE-trained model get smarter if run deeper" (already
+answered no), but **"can a controller learn WHICH examples benefit from
+more recurrent compute, given real credit assignment for the decision
+to keep computing."** Belongs in Phase P (Capability Post-Training)
+below, strictly after HZ-Core is proven — not a reason to touch the
+current architecture experiments.
+
 ---
 
 # 15. Phase K — Better-than-BPTT Training, Later
@@ -966,6 +998,153 @@ BlockBDH is added only if HZ-Sparse achieves its independent re-entry gate.
 
 ---
 
+# 19b. Phase P — Capability Post-Training (KAT-Coder-V2/V2.5-inspired, added 2026-08-12)
+
+**Start condition: strictly after HZ-Core is proven (post-Phase O).**
+Does NOT alter any current architecture experiment (curriculum, VB
+sweep, INT8 redesign, HZ-Core-2, scale gates) — this is what happens
+to a PROVEN small HZ model, not a substitute for proving it. KAT-Coder-V2.5
+is mostly a post-training paper, not a pretraining-architecture
+replacement: its real argument is that capability is often bottlenecked
+by training infrastructure, trajectory quality, credit assignment, and
+capability integration, not only parameter count. Relevant here because
+HZ's own stretch goal (~0.8B behaving much bigger than 0.8B) is exactly
+a capability-per-parameter problem, not just an architecture-efficiency
+one.
+
+```text
+HZ-Core pretrained model
+        ↓
+1. broad SFT
+        ↓
+2. domain specialists (math / code / reasoning / tools / general)
+        ↓
+3. verified student rollouts
+        ↓
+4. near-miss recovery
+        ↓
+5. Multi-Teacher On-Policy Distillation (MOPD)
+        ↓
+6. process-aware filtering
+        ↓
+7. RL / hindsight critic (adaptive compute, tool decisions, maybe sparse routing)
+        ↓
+unified HZ model
+```
+
+## P1. Multi-Teacher On-Policy Distillation (MOPD) — the central idea
+
+Ordinary distillation trains the student to imitate a teacher's ideal
+trajectory — states the teacher reaches, not states the small model
+actually reaches at inference. MOPD instead: student generates its OWN
+rollout, the relevant domain teacher scores the student's actual
+prefix token-by-token, student is optimized toward that teacher
+distribution at the states it genuinely visits — dense, on-policy
+correction rather than imitating an unreachable ideal.
+
+```text
+ordinary distillation:          MOPD:
+teacher generates answer        student generates its own trajectory
+        ↓                               ↓
+student imitates dataset        teacher scores student's actual prefix
+                                        ↓
+                                 dense token-level correction
+```
+
+Real, specific finding worth carrying forward: same-origin teachers
+(teachers built FROM the same model family) were reported far more
+stable than swapping in a much stronger, distributionally distant
+teacher — a stronger-but-distant teacher increased KL substantially and
+made distillation worse/unstable. Suggests, for HZ specifically:
+
+```text
+frontier teachers
+      ↓
+create HZ-family specialists (HZ-Math / HZ-Code / HZ-Agent / HZ-General)
+      ↓
+MOPD those specialists back into one unified HZ
+```
+
+rather than distilling a frontier 100B-class model directly into an
+0.8B HZ student in one hop.
+
+## P2. Hindsight-critic adaptive compute — see Phase J's update above
+
+The specific, concrete mechanism for reopening inference-time recurrent
+depth, cross-referenced from Phase J: an asymmetric critic (actor sees
+only current state; critic sees privileged hindsight during training
+only) gives real credit assignment for "was this extra iteration
+useful," which plain next-token loss never provided — the actual reason
+the original variable-depth premise failed, not a reason to distrust
+depth-scaling in general.
+
+## P3. Near-miss recovery
+
+Instead of discarding failed rollouts outright: classify near-misses,
+give a minimal teacher hint to reach a verified success, then
+regenerate the trajectory WITHOUT the hint so training data never
+contains inference-unavailable information.
+
+```text
+HZ attempts problem
+       ↓
+   passes? ──yes──→ positive trajectory
+       │no
+       ↓
+   near miss? ──yes──→ minimal teacher hint ──→ verified success
+       │no                                            ↓
+    discard                              regenerate WITHOUT hint
+                                                       ↓
+                                          train HZ on corrected trajectory
+```
+
+Real motivation specific to a small model: an 800M-class model produces
+far more "80% correct reasoning," "right file wrong edit," "right
+strategy wrong arithmetic" near-misses than a large model does, and
+those are plausibly MORE useful training signal than flawless teacher
+output, not less.
+
+## P4. Process-aware filtering
+
+Filter synthetic reasoning/code data on more than final-answer
+correctness — a passing trajectory can succeed via hacks, test
+manipulation, or brittle shortcuts. For a capacity-constrained model,
+every training token matters more than it would for a giant model, so
+retain only: correct + minimal + valid reasoning + proper verification
++ no shortcut/hack + recoverable behavior.
+
+## P5. Harness randomization (low priority, HZ-Agent only)
+
+Randomize tool names/argument formats/context ordering/truncation/noise
+across otherwise-identical tasks so an agent learns the underlying
+skill, not one fixed scaffold. Real for a future HZ-Agent capability
+phase; zero relevance to the current BDH architecture/RAM work — noted
+for completeness, not scheduled.
+
+## P6. Branching-rollout state reuse — a real, HZ-specific systems opportunity
+
+Separate from KAT-Coder-V2.5 itself: KAT-Coder-V2's "Tree Training"
+result (reported up to 6.2x training speedup by avoiding redundant
+prefix recomputation across branching agent trajectories) maps onto a
+property HZ already has for real, unlike a standard Transformer:
+**exact persistent streaming state** (H2's own real, tested chunk-
+invariance result).
+
+```text
+shared prefix processed once
+        ↓
+   snapshot BDH synaptic state
+        ↓
+ branch A    branch B    branch C
+(resume from the snapshotted state, no KV reconstruction, no prefix replay)
+```
+
+Real, concrete opportunity for HZ's own best-of-N / MOPD rollout
+generation specifically — not benchmarked or built yet, a real systems
+idea to revisit once Phase P's rollout infrastructure exists.
+
+---
+
 # 20. Things Explicitly Paused or Closed
 
 ```text
@@ -1047,3 +1226,17 @@ The central scientific question remains:
 > **Can a model with reused parameters and compact dynamic state achieve materially better capability per parameter, RAM, energy, and inference cost than a conventional dense language model?**
 
 If yes, that is HatchlingZero.
+
+---
+
+# 23. References (Phase P)
+
+- KAT-Coder-V2.5 Technical Report — asymmetric hindsight critic, near-miss
+  recovery, process-aware filtering, harness randomization. arXiv:2607.05471
+- MOPD: Multi-Teacher On-Policy Distillation for Capability Integration
+  in LLM Post-Training. arXiv:2606.30406
+- KAT-Coder-V2 Technical Report — Tree Training, the 6.2x training
+  speedup via branching-rollout prefix reuse. arXiv:2603.27703
+
+Not independently verified against the source papers by Claude at the
+time these notes were added — carried forward as reported.
