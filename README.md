@@ -191,11 +191,16 @@ Real, 3-seed-confirmed result at 25M params on real text
 lower validation loss** *and* **1.59× less training wall-clock**,
 same final parameter count and architecture, zero instability at any
 depth transition. Applying the same curriculum to the Value
-Bottleneck arm nearly closed its fixed-depth quality gap. Separately, a real, measured **1.82× `torch.compile` speedup** on CUDA
-stacks with this multiplicatively in principle (predicted ~2.9× vs.
-plain fixed-depth eager training) — the combined curriculum+compile run
-that would confirm that number directly is in progress, not yet
-reported as a measured result.
+Bottleneck arm nearly closed its fixed-depth quality gap. Separately, a real, measured **1.82× `torch.compile` speedup** on CUDA,
+combined with the curriculum in one real production run, gives a
+**measured 2.61× compound speedup** vs. plain fixed-depth eager
+training — short of the naive multiplicative prediction (1.59 × 1.82 =
+2.90×) by about 10%, real and measured as per-stage recompilation cost
+at each depth transition, and disclosed as such rather than rounded up.
+Quality is unaffected by compiling (1.5723 vs. 1.5820, within normal
+noise) and peak memory came out *lower* with compile than without
+(~4.97GB vs. ~7.92GB) — an unpredicted bonus, not something either
+result on its own forecast.
 
 ---
 

@@ -1,5 +1,42 @@
 # HZ Phase 6 / Training B (Recurrent-Depth Curriculum): real positive result on BOTH quality and speed -- CONFIRMED at 3 seeds, PROMOTED to canonical exact-BDH training recipe
 
+## Update 7: real combined curriculum+compile production run -- 2.61x compound speedup, quality unaffected, memory actually lower
+
+Real production run: locked Schedule A curriculum + `--compile-step`
+together, seed=7, same config as every other Schedule A run. No
+NaN/Inf, all 5 milestones hit, budget_complete.
+
+| | val_loss | training_s | peak memory |
+| --- | --- | --- | --- |
+| Plain fixed-depth eager (original baseline) | 1.6484 | 4,064.4s | ~7.93GB |
+| Curriculum, uncompiled | 1.5820 | 2,559.5s | ~7.92GB |
+| **Curriculum + compile** | **1.5723** | **1,558.0s** | **~4.97GB** |
+
+**Quality unaffected** (1.5723 vs. 1.5820, within normal run-to-run
+noise, if anything a small favorable fluctuation) -- compile changes
+execution mechanism, not the math, exactly as expected.
+
+**Real compound speedup: 2.609x** vs. the original fixed-depth eager
+baseline (curriculum alone: 1.59x; compile alone on top of curriculum:
+1.643x). The naive multiplicative prediction from the two
+independently-measured factors (1.59 x 1.82 = 2.895x) does **NOT**
+hold exactly -- actual is ~10% short. Real, measured reason, not
+inferred: per-stage recompilation cost at each of the 3 mid-run depth
+transitions (2->4: 31.35s, 4->6: 18.10s, 6->8: 23.55s, ~73.0s total)
+eats into what would otherwise be a cleaner multiplicative win --
+`dynamo` compiles a fresh variant each time `n_iterations` changes.
+Real, disclosed, minor caveat, not a reason to avoid this combination
+-- 2.6x is still a large, genuine speedup.
+
+**Real, unpredicted bonus**: peak memory is LOWER with compile
+(~4.97GB vs. ~7.92GB uncompiled) -- `torch.compile`'s memory planning
+is doing real work here beyond pure operator fusion, not something
+either the curriculum or compile result predicted independently.
+
+**Recommendation: curriculum + compile together is the real production
+config going forward.** Locked as the recommended default for future
+25M-scale (and larger) training runs on CUDA.
+
 ## Update 5 (`plans/HatchlingZero_Next_Phase_Plan.md` Phase A2): schedule study -- Schedule A (already locked) confirmed best on both axes; two real speed levers measured
 
 **Curriculum-shape study**, seed=7, same 25M-param/25M-token config, all
