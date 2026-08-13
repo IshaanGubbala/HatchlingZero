@@ -390,6 +390,16 @@ If `D/2` preserves much more quality than `D/4`, choose `D/2`.
 
 Do not optimize for the smallest possible state.
 
+**REAL RESULT (2026-08-12)**: see `docs/restart/hz0h_phase_b_vb_sweep_results.md`.
+D/2 and D/3 were tested (seed=7, same locked curriculum recipe) --
+**neither beats D/4**. D/4 has both the best validation loss (1.6309
+vs. D/2's 1.6367, D/3's 1.6387) AND the smallest state -- it dominates
+on both axes, no real Pareto tradeoff to make. **`D/4` is confirmed as
+the real choice, no change needed.** Real, disclosed caveat: single
+seed each for D/2/D/3, not yet confirmed to the >=3-seed bar Phase A
+used; the gap is small (0.006-0.008) and plausibly partly seed noise,
+flagged as an open (non-blocking) follow-up.
+
 ---
 
 # 6b. Phase B2 — Selective Synaptic State Writes (Enhanced-BDH/Mamba-inspired)
