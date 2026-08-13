@@ -352,3 +352,64 @@ intervention (e.g. an iteration-depth-aware regularization term keeping
 the gate decisive at depth 8) that closes the gap, or a gate-ablation
 at fixed depth=8 across training stages, to move this from "plausible,
 evidence-backed hypothesis" to "confirmed mechanism."
+
+## Update 6: fix attempt result -- gate-decisiveness regularizer made it WORSE, not better
+
+Built `--gate-reg-lambda` (`reference/hz0h_bdh_vb_selective_variable_depth_torch.py`,
+`scripts/hz0h_stage2_runner_bdh_vb_selective_depth_curriculum.py`): a
+training-only regularizer, `-lambda * mean((gate - 0.5)^2)` averaged
+over recurrence iterations, rewarding gate values far from the
+uninformative midpoint -- directly targeting the erosion diagnosed in
+Update 5. Default 0.0 preserves prior behavior exactly (regression
+test confirms bit-identical output); applied only during training
+steps, never validation, so `final_full_depth_validation_loss` stays
+pure CE and comparable. Smoke-tested locally before dispatch. Real
+25M-token seed=7 run, same recipe as the original B2 run, only
+`--gate-reg-lambda 0.1` added:
+
+| arm | final_full_depth_validation_loss | delta vs plain D/4 |
+|---|---|---|
+| plain VB D/4 + curriculum (baseline) | 1.6309 | -- |
+| selective, no regularizer (original B2) | 1.6426 | +0.0117 |
+| selective + gate-reg-lambda=0.1 (this run) | 1.6738 | +0.0429 |
+| exact BDH + curriculum (target) | 1.5820 | -0.0489 |
+
+**Wrong direction.** Lambda=0.1 moved the loss further away from both
+the plain-D4 baseline and the exact-BDH target -- the gap versus plain
+D/4 more than doubled (+0.0429 vs the original +0.0117). Run completed
+cleanly (all 5 milestones, `budget_complete=true`, no NaN/Inf);
+parameter count and peak memory unchanged as expected (regularizer adds
+no parameters). Windows proactively flagged (learned from the earlier
+milestone mixup) that this run's `best_validation_loss` (1.671875) and
+`final_full_depth_validation_loss` (1.673828125) do NOT match exactly
+this time, unlike the prior seed=7 runs -- the returned
+`_checkpoint_best.pt/.json` is a genuinely earlier snapshot than the
+run's true final state, not a stale-but-equal one; the true-final state
+would need a separate request if needed later (same fix as Update 4).
+
+**What this does and doesn't tell us.** It rules out "lambda=0.1 is a
+safe, free win" -- it isn't. It does NOT cleanly confirm or refute the
+Update 5 erosion hypothesis: either lambda=0.1 is simply too strong
+(fighting against gradient signal the model needs for reasons beyond
+gate cosmetics, over-constraining rather than helping), or the
+erosion-toward-0.5 pattern was a correlate of something else happening
+late in training rather than the actual cause -- one data point can't
+distinguish these, and no further tuning was run to find out (a
+lambda sweep, e.g. 0.01/0.03, would be the natural next probe, but
+that's more real compute for a fix that's now failed once already, not
+free).
+
+**Verdict.** B2's real evidence base as of this update: wins clearly on
+6/6 small-budget seeds and both 10M/17.5M seed=7 checks, loses at the
+full 25M budget on the one seed tested (twice now -- once with no
+regularizer, once with a regularizer that made it worse), and the one
+fix attempt aimed at the diagnosed mechanism failed. Given the plan's
+own B2.7 kill rule ("kill after three seeds if there is no reliable
+improvement") and the real, mounting compute cost of continuing to
+chase this (10 real training runs total across the B2 investigation so
+far: 1 original full run, 6 small-budget seeds, 2 crossover-bracket
+runs, this fix attempt), the honest recommendation
+is to stop investing further compute in B2 without first getting the
+user's explicit call, rather than autonomously launching a lambda
+sweep. Not yet formally killed in this doc -- bringing the fix-attempt
+result to the user for a final decision.
