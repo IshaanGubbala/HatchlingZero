@@ -232,3 +232,56 @@ if so why / can it finish the last ~1M tokens; or is this just the
 which case send the true final-step file). Holding off on any kill/
 promote/fix decision until this is resolved -- exactly the kind of
 small mismatch that would otherwise quietly corrupt the conclusion.
+
+## Update 4: discrepancy resolved, not a bug -- crossover conclusion stands, but the real story is "worse plateau," not "wins then loses"
+
+Windows checked the run directory directly. `bdh_vb_selective_depth_curriculum_stage2.json`
+(the main report, not `_checkpoint_best`) confirms the run genuinely
+trained the full 25M tokens: final step 8139, tokens_seen 25,003,008,
+all 5 milestones hit, `budget_complete=True` -- exactly matching the
+original report and the plain-D4 comparison run's own length. Root
+cause of the mismatch: `_checkpoint_best.json`'s embedded
+metrics/milestones list is a snapshot taken at whichever step last
+improved validation loss (step 7800/23.96M tokens for this run, since
+validation loss never improved again after that point) -- correct,
+intentional best-checkpoint behavior, just not flagged when the file
+was sent. Not a training bug, not an early stop. The +0.0117 crossover
+from Update 2 is real, apples-to-apples, confirmed.
+
+**Important correction to how Update 2 framed this.** Checked plain-D4's
+own trajectory near the end too (not just selective's): plain-D4 ALSO
+plateaus/slightly regresses at the finish -- its best was 1.62890625 at
+step 8000 (24.576M tokens), then ends marginally worse at 1.630859375 at
+step 8139 (25.003M tokens). So this is NOT "plain D/4 kept improving
+while selective stalled" -- both curves show the identical shape near
+the end (improve, then flatten/tiny regress in the final ~1-2%,
+consistent with LR annealing toward its floor). The real, still-
+unexplained finding is narrower than Update 2 suggested: **both
+architectures converge to a plateau, selective's plateau just lands at
+a worse value** (1.6426 vs 1.6309). Not a late-training breakdown in
+either run, not an early-training-only advantage that erodes -- a
+different final floor, mechanism unknown.
+
+## Current status: real, confirmed, unresolved finding -- decision point, not autonomously resolved
+
+What's now solid, not speculative:
+- Selective-write clearly wins on 6/6 seeds at 5M-token budget, and at
+  10M/17.5M (seed=7) -- a real, large, consistent advantage through the
+  large majority of training.
+- At the full 25M-token budget (seed=7, verified complete and correct),
+  it loses by 1.6426 vs 1.6309 -- a real, confirmed, apples-to-apples
+  result, not an artifact.
+- The mechanism for why the final plateau differs is not yet
+  understood; both runs show the same "improve then flatten" shape near
+  the end, so it isn't a dramatic breakdown, just a different
+  converged value.
+
+This is a genuine research fork, not a mechanical next step: getting to
+3 full-budget seeds per plan B2.7's kill rule costs 2 more ~26-minute
+RTX3060 runs (real but modest cost, unlike the earlier VB sweep
+concern about many large runs); alternatively, a targeted mechanism
+investigation (e.g. gate statistics over the final 10% of training, or
+a warmup/anneal on the gate itself to test whether the plateau gap is
+fixable) could resolve the "why" without more brute-force seeds.
+Bringing this to the user rather than picking one autonomously, since
+it's a real compute/direction tradeoff, not a fact I can look up.
