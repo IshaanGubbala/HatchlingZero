@@ -13,6 +13,7 @@ We do not assume the answer is yes. The first real, matched, same-hardware test 
 - [Philosophy](#philosophy)
 - [Where the project stands](#where-the-project-stands)
 - [The trusted foundation](#the-trusted-foundation)
+- [Architecture: how BDH actually works](#architecture-how-bdh-actually-works)
 - [Real evidence so far](#real-evidence-so-far)
 - [The research plan](#the-research-plan)
 - [Prior work (HZ-0A – HZ-0H, superseded direction)](#prior-work-hz-0a--hz-0h-superseded-direction)
@@ -67,6 +68,134 @@ The current evidence does **not** yet prove either target. The small pilot
 favored the Transformer on training throughput and validation loss; BDH's
 streaming decoder showed a separate long-context serving advantage. Only the
 pre-registered, integrity-gated multi-seed comparison can settle the thesis.
+
+---
+
+## Architecture: how BDH actually works
+
+Everything below is grounded directly in
+[`reference/hz0h_bdh_torch.py`](reference/hz0h_bdh_torch.py) (the
+byte-faithful oracle) and the real extensions this project has actually
+built and measured on top of it — not a description of BDH in general.
+
+### The one-sentence contrast with a Transformer
+
+| | Transformer | BDH |
+| --- | --- | --- |
+| Per-layer weights | Independent per layer (`n_layer`× the parameters) | **The literal same `encoder`/`encoder_v`/`decoder` tensors, reused every iteration** — more depth costs FLOPs, not parameters |
+| Long-context memory | KV-cache, grows **linearly** with context | Fixed-size **synaptic state**, `O(1)` in context length |
+| Activations | Dense | **Sparse, positive** (ReLU, ~50% zero measured in practice) |
+
+### One BDH iteration
+
+BDH's `forward` runs this same block `n_layer` times, **reusing the
+exact same weight tensors** each time (confirmed directly: `self.encoder`
+is not indexed by layer/iteration anywhere in the code):
+
+```mermaid
+flowchart TD
+    X["residual stream x  (D-wide)"] --> ENC["x_latent = x @ encoder"]
+    ENC --> SPARSE1["x_sparse = ReLU(x_latent)  — sparse, positive"]
+    SPARSE1 --> ROPE["RoPE-rotated Q = K = x_sparse"]
+    ROPE --> ATTN["causal attention: scores = tril(Q · Kᵀ), yKV = scores @ V   (V = x, the residual itself)"]
+    ATTN --> LN1["LayerNorm"]
+    LN1 --> ENCV["y_latent = yKV @ encoder_v"]
+    ENCV --> SPARSE2["y_sparse = ReLU(y_latent)"]
+    SPARSE1 -.gate.-> GATE["xy_sparse = x_sparse ⊙ y_sparse"]
+    SPARSE2 -.gate.-> GATE
+    GATE --> DEC["y = LayerNorm(xy_sparse @ decoder)"]
+    DEC --> ADD["x_next = LayerNorm(x + y)"]
+    ADD -->|"feed back in, SAME encoder/encoder_v/decoder"| ENC
+```
+
+The `xy_sparse = x_sparse ⊙ y_sparse` step is a real elementwise gate:
+only neurons that fired going *in* **and** fired reading the attention
+output survive to the next layer — this is where BDH's sparsity
+actually comes from, not a mask applied after the fact.
+
+### Persistent synaptic state — `O(1)` memory instead of a growing KV-cache
+
+The causal attention sum `tril(Q·Kᵀ) @ V` splits exactly (not
+approximately — this is the real algebraic identity H2 verified,
+chunk-boundary-invariant to floating-point precision) into an
+**intra-chunk** term and a **cross-chunk** term. The cross-chunk term is
+just `Qₜ @ Sₜ`, where `S` is a running accumulator:
+
+```text
+S_t = S_{t-1} + K_t^T V_t        (state shape: (batch, heads, N, D), fixed size)
+read at time t:  O_t = Q_t @ S_t
+```
+
+```mermaid
+flowchart LR
+    subgraph Transformer["Transformer KV-cache"]
+        direction TB
+        T1["token 1"] --> K1["cache: [tok 1]"]
+        T2["token 2"] --> K2["cache: [tok 1, tok 2]"]
+        T3["token 3"] --> K3["cache: [tok 1, tok 2, tok 3]"]
+        T4["... token N"] --> K4["cache: N entries — GROWS"]
+    end
+    subgraph BDH["BDH synaptic state"]
+        direction TB
+        B1["token 1"] --> S1["S (fixed size)"]
+        B2["token 2"] --> S2["S += K₂ᵀV₂  (same size)"]
+        B3["token 3"] --> S3["S += K₃ᵀV₃  (same size)"]
+        B4["... token N"] --> S4["S (still the SAME fixed size)"]
+    end
+```
+
+This is real and tested (`tests/reference/` covers `bdh_stream_chunk`
+against the dense parallel form, byte-exact) — not a theoretical
+property. It's also the one place this project found a real, un-fixed
+tension: the exact state is large (bigger than the model's own weights
+at small scale — see below), so "fixed size" alone doesn't automatically
+mean "small."
+
+### Real extensions built and measured this session
+
+**Value Bottleneck** — the state's value width is compressed from `D`
+down to a smaller `d_state` before it's written, and projected back up
+only when read:
+
+```text
+S_t = S_{t-1} + K_t^T P(V_t)     P: D → d_state
+read:  O_t = Q_t @ S_t @ O        O: d_state → D
+```
+
+At `d_state = D/4`, this gives a **measured 15.98× state-memory
+reduction** (268.4MB → 16.8MB per batch item at the 25M-param scale,
+with INT8 on top) — see [`docs/restart/hz0h_core1_efficiency_25m_results.md`](docs/restart/hz0h_core1_efficiency_25m_results.md).
+Real, disclosed tension found alongside it: under *fixed-depth*
+training this cost a measured **8-9% validation CE regression**
+relative to exact BDH — see below for what fixed it.
+
+**INT8 synaptic state** — the accumulator itself is stored in INT8
+between streaming calls instead of fp32. Works as a storage concept;
+the naive quantize/dequantize runtime cost causes a real, disclosed
+decode-speed regression at long context that hasn't been fixed yet
+(`docs/restart/hz0h_core1_efficiency_25m_results.md`).
+
+**Recurrent-depth curriculum** — the strongest clean result in the
+project so far. Since every iteration reuses the *same* weights, the
+number of iterations is a pure compute choice — train with **fewer**
+iterations early, ramping up to the full depth later, instead of paying
+for full depth from step one:
+
+```text
+tokens:      0 ────────── 6.25M ────────── 12.5M ────────── 18.75M ────────── 25M
+iterations:  │  depth = 2  │  depth = 4  │   depth = 6    │    depth = 8      │
+```
+
+Real, 3-seed-confirmed result at 25M params on real text
+(`docs/restart/hz0h_phase6_depth_curriculum_results.md`): **2.98-5.33%
+lower validation loss** *and* **1.59× less training wall-clock**,
+same final parameter count and architecture, zero instability at any
+depth transition. Applying the same curriculum to the Value
+Bottleneck arm nearly closed its fixed-depth quality gap. Separately, a real, measured **1.82× `torch.compile` speedup** on CUDA
+stacks with this multiplicatively in principle (predicted ~2.9× vs.
+plain fixed-depth eager training) — the combined curriculum+compile run
+that would confirm that number directly is in progress, not yet
+reported as a measured result.
 
 ---
 
