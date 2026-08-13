@@ -350,4 +350,4 @@ Each `docs/restart/hz0x_*_results.md` is the primary source for a specific claim
 
 ## License
 
-The vendored `GatedDeltaNet-2` reference (`archive/vendor/GatedDeltaNet-2/`) retains its original license. The remainder of the repository is intended for research use.
+All rights reserved — see [`LICENSE`](LICENSE). No use, copy, modification, or distribution of this repository or its contents is permitted without the copyright holder's prior explicit written permission. The vendored `GatedDeltaNet-2` reference (`archive/vendor/GatedDeltaNet-2/`) retains its own original license.
