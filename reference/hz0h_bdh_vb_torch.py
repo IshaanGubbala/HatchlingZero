@@ -264,3 +264,100 @@ def bdh_vb_stream_chunk_int8_state(
 
     logits = x.view(B, L, D) @ model.lm_head
     return new_states, logits
+
+
+# --- HZ Next-Phase Plan Phase D1: two-level base+delta INT8 state ---------
+# (plans/HatchlingZero_Next_Phase_Plan.md section 8). Motivation per the
+# plan: "the current issue is not that INT8 destroys quality" (confirmed --
+# docs/restart/hz0h_phase_c_int8_state_results.md measured negligible
+# drift), "the issue is repeated quantization/dequantization overhead" --
+# bdh_vb_stream_chunk_int8_state above quantizes/dequantizes on EVERY
+# chunk call, which is real work (int8 pack + fp32 unpack, both full state
+# tensors) paid every single streaming step regardless of chunk length.
+# Two-level design: S = S_base (INT8, long-term) + delta (full-precision,
+# recent updates only). Reads dequantize S_base once and add delta (cheap,
+# delta is the same shape but this avoids re-quantizing on every step);
+# writes just accumulate into delta (no quantization at all) until
+# `merge_every_k` tokens have passed, at which point delta gets folded
+# into S_base and the base is re-quantized ONCE -- amortizing the
+# quantization cost over K tokens instead of paying it every chunk.
+
+
+def init_bdh_vb_states_int8_base_delta(model: BDHVB, batch_size: int, device=None) -> list[dict]:
+    fp32_states = init_bdh_vb_states(model, batch_size, device=device, dtype=torch.float32)
+    states = []
+    for state in fp32_states:
+        q, scale = quantize_state_int8(state)
+        states.append({"base_q": q, "base_scale": scale, "delta": torch.zeros_like(state), "tokens_since_merge": 0})
+    return states
+
+
+def bdh_vb_stream_chunk_int8_base_delta_state(
+    model: BDHVB, states: list[dict], idx_chunk: torch.Tensor, start_position: int, merge_every_k: int,
+) -> tuple[list[dict], torch.Tensor]:
+    """Same real computation as bdh_vb_stream_chunk/bdh_vb_stream_chunk_int8_state,
+    with the state kept as S_base (INT8) + delta (full precision, this
+    call's and any not-yet-merged prior chunks' contributions). Every
+    call reads `dequantize(base) + delta` as the prefix state (real,
+    not approximated further beyond base's own existing quantization);
+    delta accumulates this chunk's contribution in full precision (no
+    quantization); if `tokens_since_merge` reaches `merge_every_k` after
+    this chunk, delta gets folded into base and base is re-quantized
+    once, delta reset to zero. With `merge_every_k <= idx_chunk.shape[1]`
+    (merges every call), this is numerically identical to
+    bdh_vb_stream_chunk_int8_state's every-chunk quantization. With
+    `merge_every_k` larger than the whole streamed sequence, delta never
+    merges and this is numerically identical to bdh_vb_stream_chunk's
+    plain (unquantized) state, since base stays at its all-zero initial
+    quantization the entire time and delta alone carries every update in
+    full precision."""
+    c = model.config
+    B, L = idx_chunk.shape
+    D = c.n_embd
+    nh = c.n_head
+    N = D * c.mlp_internal_dim_multiplier // nh
+    device = idx_chunk.device
+
+    x = model.embed(idx_chunk).unsqueeze(1)
+    x = model.ln(x)
+
+    positions = torch.arange(start_position, start_position + L, device=device, dtype=model.attn.freqs.dtype).view(1, 1, L, 1)
+    r_phases = positions * model.attn.freqs
+
+    new_states = []
+    for level in range(c.n_layer):
+        x_latent = x @ model.encoder
+        x_sparse = F.relu(x_latent)
+        QR = model.attn.rope(r_phases, x_sparse)
+        KR = QR
+        v_bottleneck = x @ model.P
+
+        intra = (QR @ KR.mT).tril(diagonal=-1) @ v_bottleneck
+        base = dequantize_state_int8(states[level]["base_q"], states[level]["base_scale"])
+        prefix_state = base + states[level]["delta"]
+        cross = QR @ prefix_state
+        yKV_bottleneck = intra + cross
+        yKV = yKV_bottleneck @ model.O
+        yKV = model.ln(yKV)
+
+        y_latent = yKV @ model.encoder_v
+        y_sparse = F.relu(y_latent)
+        xy_sparse = x_sparse * y_sparse
+        xy_sparse = model.drop(xy_sparse)
+        yMLP = xy_sparse.transpose(1, 2).reshape(B, 1, L, N * nh) @ model.decoder
+        y = model.ln(yMLP)
+        x = model.ln(x + y)
+
+        chunk_contribution = KR.mT @ v_bottleneck
+        new_delta = states[level]["delta"] + chunk_contribution
+        new_tokens_since_merge = states[level]["tokens_since_merge"] + L
+
+        if new_tokens_since_merge >= merge_every_k:
+            merged = base + new_delta
+            new_q, new_scale = quantize_state_int8(merged)
+            new_states.append({"base_q": new_q, "base_scale": new_scale, "delta": torch.zeros_like(new_delta), "tokens_since_merge": 0})
+        else:
+            new_states.append({"base_q": states[level]["base_q"], "base_scale": states[level]["base_scale"], "delta": new_delta, "tokens_since_merge": new_tokens_since_merge})
+
+    logits = x.view(B, L, D) @ model.lm_head
+    return new_states, logits

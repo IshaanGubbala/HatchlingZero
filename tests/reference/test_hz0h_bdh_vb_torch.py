@@ -11,7 +11,16 @@ from __future__ import annotations
 
 import torch
 
-from reference.hz0h_bdh_vb_torch import BDHVB, BDHVBConfig, bdh_vb_stream_chunk, init_bdh_vb_states
+from reference.hz0h_bdh_vb_torch import (
+    BDHVB,
+    BDHVBConfig,
+    bdh_vb_stream_chunk,
+    bdh_vb_stream_chunk_int8_state,
+    bdh_vb_stream_chunk_int8_base_delta_state,
+    init_bdh_vb_states,
+    init_bdh_vb_states_int8,
+    init_bdh_vb_states_int8_base_delta,
+)
 
 
 def _tiny_config(d_state: int = 8) -> BDHVBConfig:
@@ -104,3 +113,89 @@ def test_generate_runs_without_error():
     prompt = torch.randint(0, config.vocab_size, (1, 5))
     out = model.generate(prompt, max_new_tokens=4, top_k=1)
     assert out.shape == (1, 9)
+
+
+# --- Phase D1: two-level base+delta INT8 state ----------------------------
+
+def _stream_in_chunks(model, states, idx, chunk_length, step_fn):
+    chunks = []
+    for start in range(0, idx.shape[1], chunk_length):
+        piece = idx[:, start:start + chunk_length]
+        states, logits_piece = step_fn(model, states, piece, start_position=start)
+        chunks.append(logits_piece)
+    return states, torch.cat(chunks, dim=1)
+
+
+def test_base_delta_merging_every_chunk_matches_plain_int8_state():
+    config = _tiny_config()
+    torch.manual_seed(4)
+    model = BDHVB(config)
+    model.eval()
+    idx = torch.randint(0, config.vocab_size, (2, 16))
+
+    with torch.no_grad():
+        states_int8 = init_bdh_vb_states_int8(model, 2)
+        _states, logits_int8 = _stream_in_chunks(model, states_int8, idx, chunk_length=4, step_fn=bdh_vb_stream_chunk_int8_state)
+
+        states_bd = init_bdh_vb_states_int8_base_delta(model, 2)
+        step_fn = lambda m, s, c, start_position: bdh_vb_stream_chunk_int8_base_delta_state(m, s, c, start_position=start_position, merge_every_k=1)
+        _states, logits_bd = _stream_in_chunks(model, states_bd, idx, chunk_length=4, step_fn=step_fn)
+
+    assert torch.allclose(logits_int8, logits_bd, atol=1e-5), f"max diff {(logits_int8 - logits_bd).abs().max()}"
+
+
+def test_base_delta_never_merging_matches_plain_unquantized_state():
+    config = _tiny_config()
+    torch.manual_seed(5)
+    model = BDHVB(config)
+    model.eval()
+    idx = torch.randint(0, config.vocab_size, (2, 16))
+
+    with torch.no_grad():
+        states_plain = init_bdh_vb_states(model, 2)
+        _states, logits_plain = _stream_in_chunks(model, states_plain, idx, chunk_length=4, step_fn=bdh_vb_stream_chunk)
+
+        states_bd = init_bdh_vb_states_int8_base_delta(model, 2)
+        step_fn = lambda m, s, c, start_position: bdh_vb_stream_chunk_int8_base_delta_state(m, s, c, start_position=start_position, merge_every_k=10_000)
+        _states, logits_bd = _stream_in_chunks(model, states_bd, idx, chunk_length=4, step_fn=step_fn)
+
+    assert torch.allclose(logits_plain, logits_bd, atol=1e-5), f"max diff {(logits_plain - logits_bd).abs().max()}"
+
+
+def test_base_delta_intermediate_k_lies_between_the_two_extremes():
+    config = _tiny_config()
+    torch.manual_seed(6)
+    model = BDHVB(config)
+    model.eval()
+    idx = torch.randint(0, config.vocab_size, (2, 32))
+
+    with torch.no_grad():
+        states_plain = init_bdh_vb_states(model, 2)
+        _states, logits_plain = _stream_in_chunks(model, states_plain, idx, chunk_length=4, step_fn=bdh_vb_stream_chunk)
+
+        states_int8 = init_bdh_vb_states_int8(model, 2)
+        _states, logits_int8 = _stream_in_chunks(model, states_int8, idx, chunk_length=4, step_fn=bdh_vb_stream_chunk_int8_state)
+
+        states_bd = init_bdh_vb_states_int8_base_delta(model, 2)
+        step_fn = lambda m, s, c, start_position: bdh_vb_stream_chunk_int8_base_delta_state(m, s, c, start_position=start_position, merge_every_k=16)
+        _states, logits_bd = _stream_in_chunks(model, states_bd, idx, chunk_length=4, step_fn=step_fn)
+
+    diff_bd_vs_plain = (logits_plain - logits_bd).abs().max()
+    diff_int8_vs_plain = (logits_plain - logits_int8).abs().max()
+    assert diff_bd_vs_plain > 0, "merge_every_k=16 should introduce some real quantization error, not be exact"
+    assert diff_bd_vs_plain < diff_int8_vs_plain, "merging less often than every chunk should drift less from the unquantized state than quantizing every chunk does"
+
+
+def test_base_delta_tokens_since_merge_resets_after_a_merge():
+    config = _tiny_config()
+    torch.manual_seed(7)
+    model = BDHVB(config)
+    model.eval()
+    idx = torch.randint(0, config.vocab_size, (1, 8))
+
+    with torch.no_grad():
+        states = init_bdh_vb_states_int8_base_delta(model, 1)
+        states, _logits = bdh_vb_stream_chunk_int8_base_delta_state(model, states, idx, start_position=0, merge_every_k=4)
+
+    assert all(s["tokens_since_merge"] == 0 for s in states), "a merge should have happened (8 tokens >= merge_every_k=4) and reset the counter"
+    assert all(torch.equal(s["delta"], torch.zeros_like(s["delta"])) for s in states)
