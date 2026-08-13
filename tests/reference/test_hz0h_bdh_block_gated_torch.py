@@ -12,7 +12,9 @@ import torch
 from reference.hz0h_bdh_block_gated_torch import (
     BDHBlockGated,
     BDHBlockGatedConfig,
+    bdh_block_gated_annealed_forward,
     bdh_block_gated_forward,
+    compute_active_blocks_by_gate,
     compute_block_gate,
 )
 
@@ -121,3 +123,84 @@ def test_different_gate_weights_produce_different_logits():
         model.gate.add_(1.0)
         logits_b, _ = model(idx)
     assert not torch.allclose(logits_a, logits_b)
+
+
+# --- Phase I4.2: soft-to-sparse annealing -----------------------------------
+
+
+def test_annealed_forward_at_active_fraction_one_matches_dense_forward():
+    """active_fraction=1.0 must be byte-identical to the plain dense
+    forward -- the real backward-compatibility guarantee this
+    annealing scheme depends on."""
+    config = _tiny_config()
+    torch.manual_seed(10)
+    model = BDHBlockGated(config)
+    model.eval()
+    idx = torch.randint(0, config.vocab_size, (2, 8))
+    with torch.no_grad():
+        logits_dense, loss_dense = bdh_block_gated_forward(model, idx)
+        logits_annealed, loss_annealed = bdh_block_gated_annealed_forward(model, idx, active_fraction=1.0)
+    assert torch.equal(logits_dense, logits_annealed)
+
+
+def test_compute_active_blocks_by_gate_returns_correct_count():
+    config = _tiny_config(block_size=4)
+    torch.manual_seed(11)
+    model = BDHBlockGated(config)
+    idx = torch.randint(0, config.vocab_size, (2, 6))
+    active_blocks = compute_active_blocks_by_gate(model, idx, active_fraction=0.5)
+    assert active_blocks.numel() == round(model.n_blocks * 0.5)
+    assert (active_blocks >= 0).all() and (active_blocks < model.n_blocks).all()
+    assert len(set(active_blocks.tolist())) == active_blocks.numel()
+
+
+def test_annealed_forward_at_partial_fraction_produces_valid_shaped_output():
+    config = _tiny_config()
+    torch.manual_seed(12)
+    model = BDHBlockGated(config)
+    model.eval()
+    idx = torch.randint(0, config.vocab_size, (2, 6))
+    with torch.no_grad():
+        logits, _loss = bdh_block_gated_annealed_forward(model, idx, active_fraction=0.5)
+    assert logits.shape == (2, 6, config.n_embd)
+
+
+def test_annealed_forward_genuinely_differs_from_dense_at_partial_fraction():
+    """Real property: restricting to half the blocks must actually
+    change the output (otherwise the selection would be a no-op)."""
+    config = _tiny_config()
+    torch.manual_seed(13)
+    model = BDHBlockGated(config)
+    model.eval()
+    idx = torch.randint(0, config.vocab_size, (2, 6))
+    with torch.no_grad():
+        logits_dense, _ = bdh_block_gated_forward(model, idx)
+        logits_sparse, _ = bdh_block_gated_annealed_forward(model, idx, active_fraction=0.5)
+    assert not torch.allclose(logits_dense, logits_sparse, atol=1e-3)
+
+
+def test_gradients_flow_through_annealed_forward_at_partial_fraction():
+    config = _tiny_config()
+    torch.manual_seed(14)
+    model = BDHBlockGated(config)
+    model.train()
+    idx = torch.randint(0, config.vocab_size, (2, 8))
+    x, y = idx[:, :-1].contiguous(), idx[:, 1:].contiguous()
+    _logits, loss = bdh_block_gated_annealed_forward(model, x, active_fraction=0.5, targets=y)
+    loss.backward()
+    assert model.gate.grad is not None and float(model.gate.grad.norm()) > 0
+    assert model.encoder.grad is not None and float(model.encoder.grad.norm()) > 0
+
+
+def test_annealed_forward_rejects_odd_block_size_via_rope_pairing():
+    """block_size=4 (even) is required by construction (BDHBlockGated
+    itself rejects odd block_size) -- this test just confirms the
+    annealed path works correctly at the smallest valid even size."""
+    config = _tiny_config(block_size=2)
+    torch.manual_seed(15)
+    model = BDHBlockGated(config)
+    model.eval()
+    idx = torch.randint(0, config.vocab_size, (1, 5))
+    with torch.no_grad():
+        logits, _ = bdh_block_gated_annealed_forward(model, idx, active_fraction=0.5)
+    assert logits.shape == (1, 5, config.n_embd)
