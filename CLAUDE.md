@@ -32,26 +32,66 @@ Tailscale IPs are stable across reboots/DHCP renewals; LAN IPs are NOT
 Tailscale IP did not) — always prefer Tailscale IPs for anything you
 write down or script against.
 
-## Real, live components (as of 2026-08-12)
+## Real, live components (as of 2026-08-13)
 
 - **Relay server** on the Pi: `~/hz0a_transfer/serve.py`, HTTPS +
   self-signed cert, systemd service `hz0a-transfer.service` (enabled,
-  auto-restarts, survives reboots). Same server also runs on the Mac at
+  auto-restarts, survives reboots), Tailscale-only, port 8899, token via
+  the `X-Auth` header. Same server also runs on the Mac at
   `~/hz0a_transfer/serve.py` (own outbox/inbox, own token — a second,
   independent relay, not required for normal dispatch but still live).
+  Real HTTP surface (use this directly — curl/requests, no SSH needed
+  for any of it):
+  - `GET  /`              list what's in this machine's outbox
+  - `GET  /outbox/<name>` download a file from outbox
+  - `GET  /inbox/<name>`  download a file from inbox
+  - `PUT  /inbox/<name>`  upload a file (body = raw bytes) into inbox
+  - `POST /chat/<name>`   append a plain-text chat message (body = raw
+    UTF-8 text, `<name>` is your sender name — any name works, no
+    allowlist)
+  - `GET  /chat`          read the chat log, `"[idx] ts from: text"` per
+    line; `?since=N` returns only messages after line index N (cheap
+    incremental polling instead of re-fetching the whole history)
+  There is still no `PUT /outbox/<name>` on this server (writing INTO
+  someone's outbox goes through the dashboard's upload form instead,
+  see below) — everything else is a plain HTTPS call.
+- **Chat** is for short back-and-forth status/coordination text ("starting
+  the run now", "done, check inbox") that doesn't need a full file —
+  faster than the file-drop round trip for anything short. Real file
+  transfers (checkpoints, request specs) still go through inbox/outbox.
+  Chat messages persist in `~/hz0a_transfer/chat.jsonl` on the Pi (one
+  JSON object per line: `{"ts", "from", "text"}`), shared between the
+  relay server's own `/chat` routes and the dashboard's chat panel — post
+  from either, read from either.
 - **Status dashboard** on the Pi: `~/hz0a_transfer/dashboard.py`,
   systemd service `hz0a-dashboard.service`, bound to `127.0.0.1:8080`
   only. Exposed publicly via a Cloudflare quick tunnel
   (`hz0a-tunnel.service`) — the actual public URL changes on tunnel
   restart, check `~/hz0a_transfer/tunnel.log` on the Pi for the current
   one. Has a real file-upload form (routes to Pi inbox / Pi outbox /
-  Mac inbox via a dropdown) and shows live inbox/outbox contents for
-  both the Pi and (over Tailscale) the Mac.
+  any configured peer's inbox via a dropdown), a live chat panel (post
+  and read, same `chat.jsonl` the relay server uses), and shows live
+  inbox/outbox contents for the Pi plus every peer configured in the
+  `PEERS` dict at the top of `dashboard.py`. **Adding a new device**
+  that runs its own `serve.py` instance (like the Mac does) needs no
+  code restructuring — just one new entry in `PEERS` (label, Tailscale
+  URL, token) and it gets its own status card and upload destination
+  automatically. A device that doesn't run its own relay can still
+  fully participate in chat and the Pi's inbox/outbox with nothing more
+  than the Pi's Tailscale IP + token — `/chat/<name>`, `/inbox/<name>`,
+  `/outbox/<name>` all accept any name, not a fixed machine list.
 - **SSH**: key-based from the Mac (`ssh gubbipi`, shortcut already
   configured in `~/.ssh/config` on the Mac, points at the Pi's
-  Tailscale IP). From Windows or a fresh Mac session without that
-  shortcut, use the real credentials — see "Finding the real
-  credentials" below.
+  Tailscale IP). Reserve this for actual server maintenance (deploying
+  new `serve.py`/`dashboard.py` code, restarting systemd services) —
+  routine dispatch and result-checking should go through the HTTP API
+  above, not SSH/scp. Real, observed failure mode: Tailscale SSH's own
+  interception layer can require an interactive browser re-auth
+  mid-session (`https://login.tailscale.com/a/...`), which blocks SSH
+  entirely until a human clicks through — HTTP over the same Tailscale
+  IP is unaffected by this, another reason to prefer it. From Windows
+  or a fresh Mac session without the SSH shortcut, use the real
+  credentials — see "Finding the real credentials" below.
 
 ## How to dispatch work (the pattern used all session)
 
@@ -59,20 +99,25 @@ write down or script against.
    why, what config, what to report back. Match the style of existing
    files in `~/hz0a_transfer/outbox/` on the Pi (there are many real
    examples there already — read a few before writing your first one).
-2. Drop it in the Pi's `~/hz0a_transfer/outbox/` (via SSH/scp, or via
-   the dashboard's upload form, destination "Windows/RTX3060 (via Pi
-   outbox)").
-3. Poll (or just periodically SSH and `ls`) the Pi's
-   `~/hz0a_transfer/inbox/` for the reply. A background Monitor polling
-   loop is the pattern used this session — see any recent conversation
-   for the exact shell loop, or just check manually if you don't need
-   to keep working in parallel.
+2. Drop it in the Pi's `~/hz0a_transfer/outbox/` — via the dashboard's
+   upload form (destination "Windows/RTX3060 (via Pi outbox)"), the
+   only path that writes INTO outbox over HTTP; SSH/scp still works too
+   but isn't the default anymore.
+3. Poll for the reply. There's no inbox-listing endpoint (only outbox
+   has `GET /` for listing) — either poll `GET /inbox/<expected-name>`
+   for a name you agreed on in the request (404 until it lands), check
+   the dashboard page (shows live inbox contents), or watch `/chat` for
+   a status ping. A background Monitor polling loop is the pattern used
+   this session for the SSH-based version — same idea works against the
+   HTTP endpoints.
 4. The other side (whichever machine picks up the job) reports back the
-   same way: writes a result file into the Pi's inbox.
+   same way: PUTs a result file into the Pi's inbox
+   (`PUT /inbox/<name>`), and/or drops a quick heads-up on `/chat`.
 
 This is real async, human-readable coordination — not a job queue API.
-Treat every request/result file as a message to a colleague on another
-machine: explain why, give exact commands, say what to report back.
+Treat every request/result file (and chat message) as a message to a
+colleague on another machine: explain why, give exact commands, say
+what to report back.
 
 ## Finding the real credentials (deliberately NOT in this file)
 
