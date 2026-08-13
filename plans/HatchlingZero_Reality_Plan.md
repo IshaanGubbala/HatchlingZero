@@ -1264,3 +1264,14 @@ The ultimate scientific question is:
 If the answer is yes, that is HatchlingZero.
 
 If the answer is no, the project should determine exactly which parts fail and preserve only the mechanisms that survive controlled testing.
+
+---
+
+## Superseded (2026-08-12)
+
+This plan's active decision gates are complete and documented — see
+`plans/HZ Integrated Candidate Plan.md` (HZ-Core-1, closed with a real
+mixed result) and `docs/restart/hz0h_phase6_depth_curriculum_results.md`
+(recurrent-depth curriculum, the strongest clean positive result found).
+Successor plan: `plans/HatchlingZero_Next_Phase_Plan.md` — read that for
+current direction.

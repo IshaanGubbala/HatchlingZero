@@ -282,3 +282,11 @@ Separately, independently, not blocking anything above: `HZ-Sparse`
 lane (Step 3) may resume later if a mechanistically new stability fix
 (dense-warmup anneal or distillation, see Step 3) reaches multi-seed
 reliability.
+
+## Superseded (2026-08-12)
+
+HZ-Core-1's real 25M-scale result (state RAM win, quality miss under
+fixed-depth training that curriculum training later resolved/nearly
+resolved, see `docs/restart/hz0h_phase6_depth_curriculum_results.md`
+Update 3) is the starting evidence for `plans/HatchlingZero_Next_Phase_Plan.md`
+— read that for current direction. This plan is closed, not deleted.
