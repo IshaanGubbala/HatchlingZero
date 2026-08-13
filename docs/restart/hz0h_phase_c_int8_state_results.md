@@ -8,10 +8,24 @@ INT8 on the selected VB/selective checkpoint"): since Phase B2
 (`docs/restart/hz0h_phase_b2_selective_write_results.md`), this tests
 INT8 recurrent state on the plain VB D/4 + curriculum checkpoint --
 the locked Pareto choice from `docs/restart/hz0h_phase_b_vb_sweep_results.md`
-(seed=7, the original Phase 6 run, `best_validation_loss` 1.62890625).
-No new training needed -- the checkpoint already exists; Windows
-transferred the `.pt` via the Pi relay (a pure file transfer, first one
-done entirely over the new HTTP relay endpoints rather than SSH).
+(seed=7, the original Phase 6 run). No new training needed -- the
+checkpoint already exists; Windows transferred it via the Pi relay (a
+pure file transfer, first one done entirely over the new HTTP relay
+endpoints rather than SSH).
+
+**Real checkpoint mix-up caught by Windows proactively, before I could
+repeat it myself.** Windows sent both `_best.pt` (step 8000, tokens
+24,576,000, `best_validation_loss` 1.62890625) and `_final.pt` (step
+8139, tokens 25,003,008, `validation_loss` 1.630859125 -- the run's
+actual last step) and flagged explicitly: the `1.6309` number quoted as
+the Phase B/B2 baseline throughout this entire investigation comes from
+`_final.pt`, NOT `_best.pt` -- they're 139 steps / 427,008 tokens apart
+and correspond to two different (very close but not identical) numbers,
+exactly the same best-vs-final distinction that caused the earlier B2
+milestone confusion (Update 4). Ran the eval below on `_best.pt` first
+without noticing this, then corrected to `_final.pt` after reading
+Windows's own transfer-confirmation message -- the numbers below are
+from the correct (`_final.pt`) checkpoint.
 
 `reference/hz0h_bdh_vb_torch.py` already has INT8 state infrastructure
 (`quantize_state_int8`/`dequantize_state_int8`, reused from the exact-BDH
@@ -48,14 +62,28 @@ uses (e.g. the passkey/reassignment harness's prefix-then-query split).
 
 ## Real result
 
-`final_full_depth_validation_loss`-style comparison, 200 real held-out
-validation sequences, checkpoint `outputs/hz0h_phase6_vb_depth_curriculum/seed7`
-(`d_state=128`, the locked D/4 width):
+200 real held-out validation sequences, `_final.pt` checkpoint
+(`outputs/hz0h_phase6_vb_depth_curriculum/seed7`, `d_state=128`, the
+locked D/4 width, the checkpoint matching the `1.6309` baseline used
+throughout this investigation):
 
 | stream chunk length | FP32/BF16 state | INT8 state | drift |
 |---|---|---|---|
-| 32 | 1.40746604681015 | 1.4076818871498107 | +0.000216 |
-| 64 | 1.407466037273407 | 1.4075138568878174 | +0.0000478 |
+| 32 | 1.4029590773582459 | 1.4031902074813842 | +0.000231 |
+| 64 | 1.4029590725898742 | 1.403044219017029 | +0.0000851 |
+
+**Methodological note, so the absolute numbers here aren't confused
+with the `1.6309` figure elsewhere**: this script's FP32 loss (~1.403)
+is NOT directly comparable to the training run's own reported
+`final_full_depth_validation_loss` (1.6309) -- different validation
+sampling/batching (this script reads the first 200 sequences of the
+val jsonl directly and streams them in fixed-length chunks; the
+training runner's `evaluate_fixed_validation` used a differently-sized
+fixed validation batch fetched via `read_batch`). Same checkpoint
+weights, different eval methodology, so a different absolute number is
+expected, not a bug. The load-bearing comparison here is the FP32-vs-
+INT8 **drift**, measured under IDENTICAL sampling for both arms, not
+either arm's absolute value against the training-time number.
 
 Real, small, positive drift at both chunk lengths tested (fewer
 quantize/dequantize round trips at the longer chunk length, as
