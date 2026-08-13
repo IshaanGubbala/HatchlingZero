@@ -958,6 +958,18 @@ is exhausted per this session's own elimination discipline (3-4
 distinct failed attempts before an architecture-level verdict, this is
 attempt #1 of the continuous-gating family, not yet #3 or #4).
 
+**UPDATE: the diversity variant WORKS (2026-08-12)** -- see
+`docs/restart/hz0h_phase_i4_block_gated_results.md` Update 1. Adding
+`L = L_LM + lambda*(mean(gate)-0.5)^2` gives mean accuracy **0.93**
+across the same 5 seeds -- BEATS the hard top-k baseline (0.868), fully
+fixes the catastrophic collapse (seed 3: 0.11 -> 1.00), and improves
+the worst seed past its original baseline (seed 1: 0.60 -> 0.65). First
+genuinely positive result for this instability after 4 prior failed
+attempts across two mechanism families. Real, disclosed caveats:
+single `lambda`/`target` value tried, no sweep; still the dense phase,
+no real FLOP savings yet. **Real next step: I4.2 (soft-to-sparse
+annealing) starting from this diversity-anchored dense-gated model.**
+
 ### I4.2 Soft-to-sparse annealing
 
 After the gates become nontrivial:
