@@ -51,12 +51,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from reference.hz0h_bdh_torch import BDH, BDHConfig, bdh_stream_chunk, init_bdh_states
 from reference.hz0h_bdh_vb_torch import (
     BDHVB,
+    BDHVBConfig,
     bdh_vb_stream_chunk,
     bdh_vb_stream_chunk_int8_state,
     init_bdh_vb_states,
     init_bdh_vb_states_int8,
 )
-from reference.hz0h_state_v1 import hz_state_v1_config
 
 MARKER = 10  # '\n' -- real, common in text; used only as an input signal to attend to, not an output target
 QUERY_MARKER = 11
@@ -93,8 +93,8 @@ def load_bdh(checkpoint_pt: Path, *, n_embd: int, n_layer: int, n_head: int, mlp
     return model
 
 
-def load_bdh_vb(checkpoint_pt: Path, *, n_embd: int, n_layer: int, n_head: int, mlp_internal_dim_multiplier: int, vocab_size: int) -> BDHVB:
-    config = hz_state_v1_config(n_layer=n_layer, n_embd=n_embd, n_head=n_head, mlp_internal_dim_multiplier=mlp_internal_dim_multiplier, vocab_size=vocab_size)
+def load_bdh_vb(checkpoint_pt: Path, *, n_embd: int, n_layer: int, n_head: int, mlp_internal_dim_multiplier: int, vocab_size: int, d_state: int) -> BDHVB:
+    config = BDHVBConfig(n_layer=n_layer, n_embd=n_embd, n_head=n_head, mlp_internal_dim_multiplier=mlp_internal_dim_multiplier, vocab_size=vocab_size, dropout=0.0, d_state=d_state)
     model = BDHVB(config)
     blob = torch.load(str(checkpoint_pt), map_location="cpu", weights_only=False)
     model.load_state_dict(blob["model"])
@@ -222,6 +222,7 @@ def main() -> None:
     parser.add_argument("--mlp-internal-dim-multiplier", type=int, default=32)
     parser.add_argument("--vocab-size", type=int, default=256)
     parser.add_argument("--num-examples", type=int, default=200)
+    parser.add_argument("--d-state", type=int, default=128, help="only used for --architecture bdh_vb. Default 128 matches HZ-Core-1's original D/4 checkpoint (n_embd=512); Phase B's D/2 (256) and D/3 (round(512/3)=171) checkpoints need this set explicitly to match how they were trained (see scripts/hz0h_stage2_runner_bdh_vb_depth_curriculum.py's own --d-state-divisor).")
     args = parser.parse_args()
 
     if args.architecture == "bdh":
@@ -230,7 +231,7 @@ def main() -> None:
         reassignment = evaluate_bdh_reassignment(model, prefix_len=4, filler_len=8, value_range=8, num_reassignments=3, num_examples=args.num_examples, seed=2000)
         result = {"architecture": "bdh", "passkey": passkey, "reassignment": reassignment}
     else:
-        model = load_bdh_vb(args.checkpoint, n_embd=args.n_embd, n_layer=args.n_layer, n_head=args.n_head, mlp_internal_dim_multiplier=args.mlp_internal_dim_multiplier, vocab_size=args.vocab_size)
+        model = load_bdh_vb(args.checkpoint, n_embd=args.n_embd, n_layer=args.n_layer, n_head=args.n_head, mlp_internal_dim_multiplier=args.mlp_internal_dim_multiplier, vocab_size=args.vocab_size, d_state=args.d_state)
         passkey_fp32 = evaluate_vb_passkey(model, prefix_len=4, filler_len=16, value_range=8, num_examples=args.num_examples, seed=1000, int8=False)
         passkey_int8 = evaluate_vb_passkey(model, prefix_len=4, filler_len=16, value_range=8, num_examples=args.num_examples, seed=1000, int8=True)
         reassignment_fp32 = evaluate_vb_reassignment(model, prefix_len=4, filler_len=8, value_range=8, num_reassignments=3, num_examples=args.num_examples, seed=2000, int8=False)
