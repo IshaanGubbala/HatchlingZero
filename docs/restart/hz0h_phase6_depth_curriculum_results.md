@@ -1,5 +1,51 @@
 # HZ Phase 6 / Training B (Recurrent-Depth Curriculum): real positive result on BOTH quality and speed -- CONFIRMED at 2 seeds
 
+## Update 2: applied to HZ-Core-1's VB arm -- curriculum closes the quality gap AND beats exact BDH's fixed-depth baseline outright (pending seed-8 confirmation)
+
+Real next question after Update 1's confirmation: HZ-Core-1's value
+bottleneck showed a real, seed-confirmed quality regression under fixed
+-depth training (`docs/restart/hz0h_core1_quality_25m_results.md`,
++8.24%/+9.12% relative CE vs exact BDH). Depth scheduling and state
+compression are independent mechanisms with no a priori reason to
+compose well or badly -- tested directly via
+`reference/hz0h_bdh_vb_variable_depth_torch.py`/
+`scripts/hz0h_stage2_runner_bdh_vb_depth_curriculum.py`, same
+curriculum shape (2->4->6->8) applied to the VB architecture.
+
+**Real result, seed=7**:
+
+| | Validation loss | vs. own fixed-depth baseline |
+| --- | --- | --- |
+| BDH+VB, fixed depth=8 | 1.7988 | -- |
+| BDH+VB, curriculum | **1.6309** | **-9.34%** |
+| (reference) Exact BDH, fixed depth=8 | 1.6484 | -- |
+| (reference) Exact BDH, curriculum | 1.5820 | -4.03% |
+
+**Curriculum doesn't just close HZ-Core-1's quality gap -- VB+curriculum
+(1.6309) BEATS exact BDH's own FIXED-depth baseline (1.6484) outright,
+by 1.06%.** VB's relative gain from curriculum training (-9.34%) is
+more than double exact BDH's own gain (-4.03%) -- consistent with VB
+simply having more room to improve, having started from a worse
+fixed-depth baseline. No stage-transition instability (same clean,
+smooth pattern as the exact-BDH curriculum run). Wall-clock speedup is
+also confirmed architecture-independent: 1.59x faster for VB too
+(2,535.5s vs 4,031.5s), matching exact BDH's own curriculum speedup
+almost exactly -- the speed win is a property of the curriculum
+schedule itself, not specific to either architecture.
+
+**Real, honest remaining gap**: VB+curriculum (1.6309) is still ~3.09%
+behind exact-BDH+curriculum (1.5820) -- exact BDH combined with
+curriculum training remains the best of all four architecture x
+training-schedule combinations tried. But VB is no longer strictly
+dominated the way the fixed-depth-only comparison made it look --
+HZ-Core-1's original "quality miss" verdict was real UNDER FIXED-DEPTH
+TRAINING SPECIFICALLY, not an inherent property of the value-bottleneck
+mechanism itself.
+
+**Pending seed-8 confirmation** before treating this as fully settled,
+given how large and clean the result is -- requested, matching every
+other significant finding's confirmation discipline this session.
+
 ## Update 1: seed-8 confirmation -- the result holds
 
 Real second-seed run (seed=8, identical config), requested specifically
