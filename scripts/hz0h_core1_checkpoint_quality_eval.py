@@ -57,6 +57,12 @@ from reference.hz0h_bdh_vb_torch import (
     init_bdh_vb_states,
     init_bdh_vb_states_int8,
 )
+from reference.hz0h_bdh_vb_selective_torch import (
+    BDHVBSelective,
+    BDHVBSelectiveConfig,
+    bdh_vb_selective_stream_chunk,
+    init_bdh_vb_selective_states,
+)
 
 MARKER = 10  # '\n' -- real, common in text; used only as an input signal to attend to, not an output target
 QUERY_MARKER = 11
@@ -96,6 +102,15 @@ def load_bdh(checkpoint_pt: Path, *, n_embd: int, n_layer: int, n_head: int, mlp
 def load_bdh_vb(checkpoint_pt: Path, *, n_embd: int, n_layer: int, n_head: int, mlp_internal_dim_multiplier: int, vocab_size: int, d_state: int) -> BDHVB:
     config = BDHVBConfig(n_layer=n_layer, n_embd=n_embd, n_head=n_head, mlp_internal_dim_multiplier=mlp_internal_dim_multiplier, vocab_size=vocab_size, dropout=0.0, d_state=d_state)
     model = BDHVB(config)
+    blob = torch.load(str(checkpoint_pt), map_location="cpu", weights_only=False)
+    model.load_state_dict(blob["model"])
+    model.eval()
+    return model
+
+
+def load_bdh_vb_selective(checkpoint_pt: Path, *, n_embd: int, n_layer: int, n_head: int, mlp_internal_dim_multiplier: int, vocab_size: int, d_state: int) -> BDHVBSelective:
+    config = BDHVBSelectiveConfig(n_layer=n_layer, n_embd=n_embd, n_head=n_head, mlp_internal_dim_multiplier=mlp_internal_dim_multiplier, vocab_size=vocab_size, dropout=0.0, d_state=d_state)
+    model = BDHVBSelective(config)
     blob = torch.load(str(checkpoint_pt), map_location="cpu", weights_only=False)
     model.load_state_dict(blob["model"])
     model.eval()
@@ -212,10 +227,63 @@ def evaluate_vb_reassignment(model: BDHVB, *, prefix_len: int, filler_len: int, 
     }
 
 
+@torch.no_grad()
+def evaluate_vb_selective_passkey(model: BDHVBSelective, *, prefix_len: int, filler_len: int, value_range: int, num_examples: int, seed: int) -> dict:
+    rng = np.random.default_rng(seed)
+    real_correct, zeroed_correct = 0, 0
+    for _ in range(num_examples):
+        seq, answer = make_real_text_passkey_sequence(rng, prefix_len=prefix_len, filler_len=filler_len, value_range=value_range)
+        idx = torch.tensor([seq], dtype=torch.long)
+        prefix_idx, query_idx = idx[:, :-1], idx[:, -1:]
+
+        states = init_bdh_vb_selective_states(model, 1)
+        states, _ = bdh_vb_selective_stream_chunk(model, states, prefix_idx, start_position=0)
+        _states, real_logits = bdh_vb_selective_stream_chunk(model, states, query_idx, start_position=prefix_idx.shape[1])
+        real_pred = int(real_logits[0, -1].argmax())
+
+        empty_states = init_bdh_vb_selective_states(model, 1)
+        _zstates, zeroed_logits = bdh_vb_selective_stream_chunk(model, empty_states, query_idx, start_position=prefix_idx.shape[1])
+        zeroed_pred = int(zeroed_logits[0, -1].argmax())
+
+        real_correct += int(real_pred == answer)
+        zeroed_correct += int(zeroed_pred == answer)
+    return {"real_state_accuracy": real_correct / num_examples, "zeroed_state_accuracy": zeroed_correct / num_examples, "num_examples": num_examples}
+
+
+@torch.no_grad()
+def evaluate_vb_selective_reassignment(model: BDHVBSelective, *, prefix_len: int, filler_len: int, value_range: int, num_reassignments: int, num_examples: int, seed: int) -> dict:
+    rng = np.random.default_rng(seed)
+    real_correct, zeroed_correct, real_predicts_first_value = 0, 0, 0
+    for _ in range(num_examples):
+        seq, answer = make_real_text_reassignment_sequence(rng, prefix_len=prefix_len, filler_len=filler_len, value_range=value_range, num_reassignments=num_reassignments)
+        first_value = seq[prefix_len + 1]
+        idx = torch.tensor([seq], dtype=torch.long)
+        prefix_idx, query_idx = idx[:, :-1], idx[:, -1:]
+
+        states = init_bdh_vb_selective_states(model, 1)
+        states, _ = bdh_vb_selective_stream_chunk(model, states, prefix_idx, start_position=0)
+        _states, real_logits = bdh_vb_selective_stream_chunk(model, states, query_idx, start_position=prefix_idx.shape[1])
+        real_pred = int(real_logits[0, -1].argmax())
+
+        empty_states = init_bdh_vb_selective_states(model, 1)
+        _zstates, zeroed_logits = bdh_vb_selective_stream_chunk(model, empty_states, query_idx, start_position=prefix_idx.shape[1])
+        zeroed_pred = int(zeroed_logits[0, -1].argmax())
+
+        real_correct += int(real_pred == answer)
+        zeroed_correct += int(zeroed_pred == answer)
+        real_predicts_first_value += int(real_pred == first_value and answer != first_value)
+    return {
+        "real_state_accuracy": real_correct / num_examples,
+        "zeroed_state_accuracy": zeroed_correct / num_examples,
+        "real_state_predicts_stale_first_value_rate": real_predicts_first_value / num_examples,
+        "num_examples": num_examples,
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--checkpoint", type=Path, required=True, help="path to a *_checkpoint_best.pt or *_checkpoint.pt file")
-    parser.add_argument("--architecture", choices=("bdh", "bdh_vb"), required=True)
+    parser.add_argument("--architecture", choices=("bdh", "bdh_vb", "bdh_vb_selective"), required=True)
     parser.add_argument("--n-embd", type=int, default=512)
     parser.add_argument("--n-layer", type=int, default=8)
     parser.add_argument("--n-head", type=int, default=8)
@@ -230,7 +298,7 @@ def main() -> None:
         passkey = evaluate_bdh_passkey(model, prefix_len=4, filler_len=16, value_range=8, num_examples=args.num_examples, seed=1000)
         reassignment = evaluate_bdh_reassignment(model, prefix_len=4, filler_len=8, value_range=8, num_reassignments=3, num_examples=args.num_examples, seed=2000)
         result = {"architecture": "bdh", "passkey": passkey, "reassignment": reassignment}
-    else:
+    elif args.architecture == "bdh_vb":
         model = load_bdh_vb(args.checkpoint, n_embd=args.n_embd, n_layer=args.n_layer, n_head=args.n_head, mlp_internal_dim_multiplier=args.mlp_internal_dim_multiplier, vocab_size=args.vocab_size, d_state=args.d_state)
         passkey_fp32 = evaluate_vb_passkey(model, prefix_len=4, filler_len=16, value_range=8, num_examples=args.num_examples, seed=1000, int8=False)
         passkey_int8 = evaluate_vb_passkey(model, prefix_len=4, filler_len=16, value_range=8, num_examples=args.num_examples, seed=1000, int8=True)
@@ -241,6 +309,11 @@ def main() -> None:
             "passkey_fp32": passkey_fp32, "passkey_int8": passkey_int8,
             "reassignment_fp32": reassignment_fp32, "reassignment_int8": reassignment_int8,
         }
+    else:
+        model = load_bdh_vb_selective(args.checkpoint, n_embd=args.n_embd, n_layer=args.n_layer, n_head=args.n_head, mlp_internal_dim_multiplier=args.mlp_internal_dim_multiplier, vocab_size=args.vocab_size, d_state=args.d_state)
+        passkey = evaluate_vb_selective_passkey(model, prefix_len=4, filler_len=16, value_range=8, num_examples=args.num_examples, seed=1000)
+        reassignment = evaluate_vb_selective_reassignment(model, prefix_len=4, filler_len=8, value_range=8, num_reassignments=3, num_examples=args.num_examples, seed=2000)
+        result = {"architecture": "bdh_vb_selective", "d_state": model.config.d_state, "passkey": passkey, "reassignment": reassignment}
 
     print(json.dumps(result, indent=2))
 
