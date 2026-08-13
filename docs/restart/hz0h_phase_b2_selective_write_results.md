@@ -148,3 +148,57 @@ recipe) to bracket where -- or whether -- the crossover from "gate wins"
 to "gate loses" actually happens, which is a more surgical way to
 distinguish explanation (1) from (2) before committing to full-cost
 reruns.
+
+## Update 2: crossover-bracket result -- gate wins through 70% of training, flips only in the final stretch; own-run trajectory shows no internal instability
+
+Ran the same seed=7 recipe at two more budgets (10M and 17.5M tokens,
+curriculum scaled proportionally), plus plain-D4 at the same two
+budgets for a real apples-to-apples comparison. `final_full_depth_validation_loss`,
+seed=7, across all four budgets now available (10M/17.5M new, 25M from
+the original full run):
+
+| budget | plain D/4 | selective | delta (sel-plain) | winner |
+|---|---|---|---|---|
+| 10M | 1.85742 | 1.82422 | -0.03320 | selective |
+| 17.5M | 1.75391 | 1.70508 | -0.04883 | selective |
+| 25M | 1.63090 | 1.64258 | +0.01168 | plain |
+
+The gate wins through 70% of the budget (10M and 17.5M), by a margin
+that does NOT shrink monotonically on the way to 25M -- it's actually
+*larger* at 17.5M than at 10M, then reverses sign entirely by 25M. A
+smoothly-eroding advantage would look different from this.
+
+**Checked the selective run's OWN validation trajectory locally** (all
+39 validation checkpoints logged in the already-downloaded seed=7
+25M-token checkpoint json, no new dispatch needed) before accepting
+Windows's own read of "something goes wrong late in training":
+validation loss is monotonic and smooth for the entire run, 2.73046875
+at step 200 (614K tokens) down to 1.642578125 at step 7800 (23.96M
+tokens) -- no spike, plateau-then-drop, or any other instability
+signature anywhere in the curve, including the depth-8 stage (steps
+6200-7800) where the crossover with plain-D4 must be happening. This
+rules out "the selective run itself breaks/destabilizes late" as the
+mechanism -- whatever is happening is about how the TWO curves (plain
+vs selective) cross, not a breakdown internal to the selective run.
+Requested plain-D4's own seed=7 metrics json from Windows (data already
+sitting on disk from the original run, zero new training) to locate the
+actual crossing point precisely -- not yet returned.
+
+**Current best-supported read, pending that data**: this looks like two
+well-behaved, monotonically-improving curves with different decay
+shapes that cross somewhere in the final ~30% of the depth-8 stage,
+rather than either of the two original explanations as originally
+framed (neither "gate helps early then internally breaks late" nor
+"seed=7's full run was simply unlucky noise" fits a smooth,
+monotonic own-curve). Still not applying B2.7's kill rule -- the gate
+demonstrably outperforms plain D/4 across the large majority of
+training (10M, 17.5M, and the 6-seed 5M check all favor selective) and
+only loses right at the end at this one seed; killing outright would
+discard a real, consistent, multi-point advantage over one late-stage
+reversal that isn't yet understood. Next step once the plain-D4
+trajectory lands: identify the actual token/step where the curves
+cross and check what's different structurally between the two schedules
+at that point (e.g. LR-anneal-floor interaction, depth-8-stage duration)
+before deciding whether this is fixable (targeted regularization/warmup
+on the gate) or whether B2 gets killed as "wins mid-training, not
+reliably at the full budget."
