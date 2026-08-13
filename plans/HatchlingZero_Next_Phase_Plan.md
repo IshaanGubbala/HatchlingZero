@@ -286,6 +286,22 @@ Determine whether the win is primarily caused by:
 
 If the original quartered schedule remains best or tied, lock it and stop tuning.
 
+**DONE (2026-08-12)** — see `docs/restart/hz0h_phase6_depth_curriculum_results.md`
+Update 5. Schedule A (the original quartered shape) wins on BOTH
+quality (1.5820 vs B's 1.5859, C's 1.5879) and speed (2559.5s vs B's
+2965.2s, C's 2815.5s) -- locked, stop tuning per this section's own
+instruction. Real side finding: Schedule C's abrupt depth 4->8 jump
+caused a temporary loss spike (recovered cleanly, no instability) --
+informative for why the smooth 4-stage shape may matter, not just
+total time-at-depth.
+
+Also measured (not originally scoped in A2, a real opportunistic
+addition): `--compile-step` on CUDA gives a real, verified 1.82x
+steady-state speedup (Update 6) -- `reduce-overhead` mode tested too,
+did not beat default mode. Recommend combining compile + the locked
+curriculum for real production runs going forward (~2.9x compound vs.
+plain fixed-depth eager, not yet run as one combined job).
+
 ---
 
 # 6. Phase B — Rebuild Value Bottleneck Around the Winning Training Recipe

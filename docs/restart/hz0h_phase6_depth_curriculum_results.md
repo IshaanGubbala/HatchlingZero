@@ -1,5 +1,74 @@
 # HZ Phase 6 / Training B (Recurrent-Depth Curriculum): real positive result on BOTH quality and speed -- CONFIRMED at 3 seeds, PROMOTED to canonical exact-BDH training recipe
 
+## Update 5 (`plans/HatchlingZero_Next_Phase_Plan.md` Phase A2): schedule study -- Schedule A (already locked) confirmed best on both axes; two real speed levers measured
+
+**Curriculum-shape study**, seed=7, same 25M-param/25M-token config, all
+three schedules clean (no NaN, all 5 milestones, budget_complete):
+
+| Schedule | Shape | val_loss | train_s | tok/s |
+| --- | --- | --- | --- | --- |
+| A (locked) | 2/4/6/8 @ 25/25/25/25% | **1.5820** | **2559.5** | 9768.9 |
+| B | 2/4/6/8 @ 15/20/25/40% (more time at full depth) | 1.5859 | 2965.2 | 8432.0 |
+| C | 2/4/8 @ 25/25/50% (skip depth=6) | 1.5879 | 2815.5 | 8880.6 |
+
+**Real, clean answer: Schedule A remains best on BOTH quality and
+speed.** B and C are both slightly worse on validation loss (0.25-0.37%
+relative) AND meaningfully slower (more of the budget spent at
+expensive depth=8). The already-locked 25/25/25/25 quartered shape,
+with the depth 6->8 transition happening latest (75% through), is a
+real local optimum among the three tried -- more time at full depth
+doesn't buy quality and costs real wall-clock.
+
+Real, disclosed side finding: Schedule C's abrupt depth 4->8 jump
+(skipping the depth=6 intermediate stage) caused a real, temporary
+rough landing -- loss spiked to ~2.2-2.4 right after the jump, vs.
+A/B's smooth ~1.4-1.6 at their own depth-8 entries -- recovering
+cleanly within a few hundred steps, no instability, no NaN. Doesn't
+change the conclusion (C still worse overall) but a real data point for
+why the smoother 4-stage transition may matter beyond pure
+time-at-depth accounting.
+
+**No change to the locked recipe.** Per the plan's own "do not conduct
+a huge hyperparameter search" instruction, this closes Phase A2 -- 2
+schedules tested against the winner, both real, both losses, moving on.
+
+## Update 6: real compile-step speedup measured on CUDA -- 1.82x, default mode wins
+
+Real follow-up to the earlier MPS test that showed no speedup
+(`torch.compile`'s MPS backend is far less mature than CUDA's). Short
+500K-token runs, same seed/config, steady-state tok/s from the last
+~30 steps' wall_time deltas (excluding one-time compile warmup):
+
+| Mode | steady tok/s | vs eager | compile warmup |
+| --- | --- | --- | --- |
+| Eager (no compile) | 6,071 | -- | -- |
+| `--compile-step` (default mode) | **11,030** | **1.82x** | ~59.5s |
+| `--compile-mode reduce-overhead --fused-optimizer` | 10,951 | 1.80x | ~25.8s |
+
+**Real, large, verified win: default `--compile-step` gives 1.82x
+steady-state throughput on CUDA**, correctness confirmed (identical
+loss trajectory across all three modes, same seed/data, only execution
+mechanism differs -- 5.69 -> 2.78 in all three).
+
+**`reduce-overhead` + `fused-optimizer` did NOT beat default compile**
+(10,951 vs 11,030 tok/s, 0.72% slower -- noise-level, not a real
+difference) -- ran without any CUDA-graph errors (the static-shape/
+static-address requirement held fine for this workload), so the
+hypothesis that BDH's many-small-sequential-matmul forward pass would
+specifically benefit from launch-overhead elimination was reasonable to
+test but not confirmed here. Its one genuine advantage: compiles in
+less than half the time (25.8s vs 59.5s) -- a real, narrow case for
+short/iterative runs where compile overhead dominates, not for
+production-length runs.
+
+**Recommendation: use plain `--compile-step` (default mode) for real
+training runs going forward.** Simpler than reduce-overhead, equally
+fast in steady state, without the added CUDA-graph fragility risk.
+Combined with the locked curriculum's own 1.59x speedup, a compiled +
+curriculum production run would compound to roughly ~2.9x vs. plain
+fixed-depth eager training -- real next step, not yet run (this request
+deliberately isolated the compile-mode comparison first).
+
 ## Update 4 (`plans/HatchlingZero_Next_Phase_Plan.md` Phase A1): third seed confirms -- promotion gate MET, recurrent-depth curriculum locked as canonical
 
 Third independent seed (seed=9) for the exact-BDH depth curriculum,
