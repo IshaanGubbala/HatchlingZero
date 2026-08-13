@@ -413,3 +413,45 @@ is to stop investing further compute in B2 without first getting the
 user's explicit call, rather than autonomously launching a lambda
 sweep. Not yet formally killed in this doc -- bringing the fix-attempt
 result to the user for a final decision.
+
+## Final verdict: KILLED
+
+User's call, given the full evidence base above: kill Phase B2. Real
+summary of what was learned, for anyone picking this back up later:
+
+- The selective-write gate is a real, working, in-path-trainable
+  mechanism (verified: parallel/streaming forms are numerically
+  equivalent, gradients flow correctly, gate activations show genuine
+  per-token content-dependence from iteration 1 onward on real
+  validation text -- this is not a broken or inert mechanism).
+- It reliably WINS over plain VB D/4 through the large majority of
+  training: 6/6 small-budget (5M-token) seeds, and both 10M/17.5M
+  checkpoints on seed=7 (by a growing, not shrinking, margin).
+- It reliably LOSES to plain VB D/4 at the full 25M-token budget on the
+  one seed tested, twice (no regularizer: 1.6426 vs 1.6309; with
+  gate-reg-lambda=0.1: 1.6738 vs 1.6309, worse) -- both runs verified
+  complete and correct (all 5 milestones, `budget_complete=true`), not
+  an early-stop or measurement artifact.
+- The one targeted fix attempt, built directly from a real mechanistic
+  diagnostic (gate selectivity erodes toward the uninformative midpoint
+  as recurrence depth increases, plausibly explaining the late-training
+  loss), made the full-budget result WORSE, not better -- undermining
+  confidence that the diagnosed erosion was the actual causal mechanism
+  rather than a correlate of something else.
+- Per plan section 21 (`plans/HatchlingZero_Next_Phase_Plan.md`), step
+  6 ("promote selective writes only if they improve the VB frontier")
+  is not satisfied -- the mechanism does not reliably improve the
+  frontier at the budget that matters for real deployment (the full
+  target token count). Real next step per the plan's own execution
+  order: skip straight to step 7 ("test INT8 on the selected VB/
+  selective checkpoint"), using plain VB D/4 (the Pareto choice locked
+  in `docs/restart/hz0h_phase_b_vb_sweep_results.md`) since the
+  selective variant is killed, not the checkpoint this doc investigated.
+
+No shame in this result -- this is exactly what a real, honest
+investigation looks like: a plausible mechanism, tested rigorously
+(real diagnostics, a real targeted fix attempt, real compute spent
+checking for artifacts before trusting numbers at each step), that
+ultimately didn't clear the bar. Negative results reduce architecture
+complexity, which is itself a stated goal of this plan (section 20:
+"Negative results must reduce architecture complexity").
