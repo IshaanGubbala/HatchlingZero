@@ -970,6 +970,21 @@ single `lambda`/`target` value tried, no sweep; still the dense phase,
 no real FLOP savings yet. **Real next step: I4.2 (soft-to-sparse
 annealing) starting from this diversity-anchored dense-gated model.**
 
+**I4.2 DONE, ALL 5 SEEDS PERFECT (2026-08-12)** -- see
+`docs/restart/hz0h_phase_i4_block_gated_results.md` Update 2. Annealing
+curriculum (dense -> 75% -> 60% -> 50% active, quarters of budget) to
+REAL hard 50%-active execution (genuine `index_select` savings, same
+mechanism as the original BlockBDH): mean accuracy **1.00 across all 5
+seeds**, including seed 1 (worst performer under every prior approach
+this session, now also perfect). **This is the real resolution of
+BlockBDH's reassignment-task instability**, after 4 prior distinct
+failed attempts (3 hard-router balance-loss variants + plain continuous
+gating without diversity). Real remaining item before calling this a
+complete re-entry: wall-clock speed re-verification on this specific
+gated+annealed variant (expected to match the original BlockBDH's
+~1.95x at 50% active given the identical underlying mechanism, not yet
+re-measured).
+
 ### I4.2 Soft-to-sparse annealing
 
 After the gates become nontrivial:
