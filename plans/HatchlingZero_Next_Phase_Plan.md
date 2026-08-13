@@ -392,6 +392,143 @@ Do not optimize for the smallest possible state.
 
 ---
 
+# 6b. Phase B2 — Selective Synaptic State Writes (Enhanced-BDH/Mamba-inspired)
+
+**Start condition:** only after Phase B selects the best VB width (`D/2`, `D/3`, or `D/4`) under the locked recurrent-depth curriculum.
+
+This phase extracts one narrow hypothesis from `yarox24/enhanced-bdh`: input-dependent positive gating over BDH's sparse latent/state pathway. The external repository is **not evidence that BDH+Mamba+HRM is superior** and should not be copied wholesale. For HZ, the only near-term question is:
+
+> **If the synaptic state is compressed, can the model learn what information deserves to be written strongly into that limited state?**
+
+Current VB reduces state width but still asks the model to preserve every useful write through the same smaller state. A small content-dependent write gate may improve information allocation without restoring state size.
+
+## B2.1 Minimal selective-write formulation
+
+Keep faithful BDH + the selected VB width. Add only a small gate from the current hidden/token state:
+
+```text
+x_t
+ ↓
+small gate network
+ ↓
+g_t in [0,1]
+ ↓
+scale synaptic write
+```
+
+Candidate:
+
+```text
+g_t = sigmoid(W_g LN(x_t))
+S_t = S_{t-1} + g_t ⊙ ΔS_t
+```
+
+where `ΔS_t` is the ordinary BDH/VB state write.
+
+Alternative, if tensor shapes make it cleaner:
+
+```text
+x_sparse' = g_t ⊙ x_sparse
+```
+
+before the write-producing interaction.
+
+Do **not** initially make the full encoder matrix input-dependent. Do **not** add a Mamba block. Do **not** add slow/fast HRM branches.
+
+## B2.2 Gate granularity
+
+Keep the first sweep small:
+
+```text
+A. no gate                 control
+B. per-hidden-channel gate
+C. per-neuronal-block gate
+```
+
+Prefer block-level gates if they map naturally to the state layout, because they may later support real skipped memory traffic.
+
+## B2.3 Training
+
+Train the gate in-path from initialization using the canonical recipe:
+
+```text
+recurrent depth: 2 → 4 → 6 → 8
+budget:          25 / 25 / 25 / 25%
+exact BPTT
+compiled CUDA path
+```
+
+## B2.4 Primary comparison
+
+At the selected VB width:
+
+```text
+Exact BDH + curriculum
+VB + curriculum
+VB + selective-write gate + curriculum
+```
+
+Match parameter count where practical and keep tokenizer/data/order, optimizer, precision, token budget, seeds, GPU, and evaluation fixed.
+
+## B2.5 Promotion target
+
+Promote only if selective gating improves the **VB quality-memory frontier**:
+
+```text
+VB quality gap vs exact BDH: materially reduced
+State bytes:                 unchanged or nearly unchanged vs VB
+Training stability:          clean across >=3 seeds
+Decode cost:                 no material regression
+```
+
+A strong result would be reducing a ~2–4% VB quality gap to <=1–2% at essentially the same state size.
+
+## B2.6 Diagnostics
+
+Track:
+
+- gate mean/variance by token;
+- gate entropy;
+- fraction of near-zero writes;
+- fraction of strong writes;
+- state norm growth;
+- long-context retention;
+- passkey/reassignment/interference;
+- validation CE;
+- wall-clock;
+- joules/token when available.
+
+Failure modes:
+
+```text
+all gates ≈ constant
+all gates → 1
+```
+
+Either means selectivity is not buying useful behavior.
+
+## B2.7 Kill rule
+
+Kill after three seeds if there is no reliable improvement over plain VB. Do not escalate to elaborate Mamba-style parameter generation unless the minimal gate first shows real value.
+
+## B2.8 Why this belongs here
+
+The correct order is:
+
+```text
+first:
+find how much raw state compression HZ can tolerate
+
+then:
+test whether content-selective writes let the same compressed state
+carry more useful information
+```
+
+This preserves attribution.
+
+
+---
+
 # 7. Phase C — Separate Speed State and Memory State Modes
 
 Do not require one state precision to optimize every deployment regime.
@@ -769,6 +906,85 @@ Late:
 ```text
 hard top-k block routing
 ```
+
+
+## I4. Selective BlockBDH — continuous content gating before hard sparsity
+
+This is the second narrow idea worth carrying forward from Enhanced-BDH/Mamba-style selectivity.
+
+Current BlockBDH evidence is:
+
+```text
+hard sparse execution
+→ real 1.95x–6.20x wall-clock speedup
+→ unstable quality across seeds
+```
+
+Three balance-loss fixes did not solve the instability. Do **not** try a fourth balance-loss variant.
+
+Instead, first learn continuous input-dependent importance for neuronal blocks, then gradually convert those preferences into hard sparse execution.
+
+### I4.1 Dense gated phase
+
+Start with all blocks available:
+
+```text
+every block computed
++
+small gate g_b(x) in [0,1]
+```
+
+For block `b`:
+
+```text
+z_b' = g_b(x) * z_b
+```
+
+Train end-to-end.
+
+### I4.2 Soft-to-sparse annealing
+
+After the gates become nontrivial:
+
+```text
+dense continuous gating
+        ↓
+encourage sparsity / lower temperature
+        ↓
+top-75% blocks
+        ↓
+top-60%
+        ↓
+top-50%
+```
+
+This follows two project lessons:
+
+1. structural efficiency mechanisms should be trained in-path;
+2. abrupt hard sparsity appears to trigger unstable specialization/router lock-in.
+
+### I4.3 Hard inference
+
+Only after the continuous-gate model is stable should runtime use hard top-k block execution.
+
+Measure on the same trained model:
+
+- validation CE;
+- reassignment/interference;
+- seed stability;
+- block utilization;
+- active fraction;
+- decode throughput;
+- joules/token.
+
+### I4.4 Scope
+
+HZ is **not** adopting the full Enhanced-BDH architecture. The narrow hypothesis is:
+
+> **Content-dependent selection may be a better path into hardware sparsity than imposing a fixed hard sparsity regime from the start.**
+
+No slow/fast HRM branch and no full input-dependent encoder are introduced here.
+
 
 ### Re-entry gate
 
@@ -1209,6 +1425,8 @@ Fast weights                   PAUSED
 Separate associative memory    PAUSED
 Ternary weights                LATER
 Synthetic gradients            LATER
+Full Mamba/HRM hybrid           DO NOT ADOPT WHOLESALE
+Selective state gating          ACTIVE, narrow hypothesis only
 ```
 
 Negative results must reduce architecture complexity.
@@ -1228,28 +1446,34 @@ Negative results must reduce architecture complexity.
         ↓
 4. Select quality/memory Pareto width
         ↓
-5. Test INT8 on selected VB checkpoint
+5. Test selective synaptic writes on the selected VB width
         ↓
-6. Build base+delta INT8 streaming state
+6. Promote selective writes only if they improve the VB frontier
         ↓
-7. Run same-GPU Transformer / exact BDH / HZ comparison
+7. Test INT8 on the selected VB/selective checkpoint
         ↓
-8. Lock HZ-Core-2
+8. Build base+delta INT8 streaming state
         ↓
-9. Scale to ~100M
+9. Run same-GPU Transformer / exact BDH / HZ comparison
         ↓
-10. If quality still trails:
+10. Lock HZ-Core-2
+        ↓
+11. Scale to ~100M
+        ↓
+12. If quality still trails:
         tiny depth-specific modulation/adapters
         ↓
-11. Separately run dense→sparse BlockBDH curriculum
+13. Separately run HZ-Sparse:
+        dense→sparse curriculum
+        + selective soft→hard block gating
         ↓
-12. Graft BlockBDH only if multi-seed stable
+14. Graft BlockBDH only if multi-seed stable
         ↓
-13. Scale to ~300M
+15. Scale to ~300M
         ↓
-14. Distillation and capability training
+16. Distillation and capability training
         ↓
-15. Build ~0.8B HZ-1
+17. Build ~0.8B HZ-1
 ```
 
 ---
@@ -1277,6 +1501,28 @@ The central scientific question remains:
 > **Can a model with reused parameters and compact dynamic state achieve materially better capability per parameter, RAM, energy, and inference cost than a conventional dense language model?**
 
 If yes, that is HatchlingZero.
+
+---
+
+
+# 22b. External Architecture Idea Note — Enhanced-BDH
+
+Repository reviewed: `yarox24/enhanced-bdh`.
+
+HZ does **not** treat the repository's claims as validated evidence for language-model superiority. The relevant idea carried into this plan is limited to **input-dependent selective gating**:
+
+1. selective synaptic-state writes after the VB Pareto width is selected;
+2. continuous per-block selectivity as a possible route into stable BlockBDH sparsity.
+
+Explicitly not adopted:
+
+- the full BDH+Mamba+HRM composition;
+- the slow/fast hierarchy as evidence for HRM-style reasoning;
+- the attention `1/sqrt(N)` scaling change;
+- Sudoku headline targets as LM evidence;
+- full input-dependent encoder-matrix generation.
+
+Any HZ derivative remains explicitly labeled and must pass the inherited integrity contract and matched-baseline gates.
 
 ---
 
