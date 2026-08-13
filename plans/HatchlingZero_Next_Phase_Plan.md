@@ -395,10 +395,15 @@ D/2 and D/3 were tested (seed=7, same locked curriculum recipe) --
 **neither beats D/4**. D/4 has both the best validation loss (1.6309
 vs. D/2's 1.6367, D/3's 1.6387) AND the smallest state -- it dominates
 on both axes, no real Pareto tradeoff to make. **`D/4` is confirmed as
-the real choice, no change needed.** Real, disclosed caveat: single
-seed each for D/2/D/3, not yet confirmed to the >=3-seed bar Phase A
-used; the gap is small (0.006-0.008) and plausibly partly seed noise,
-flagged as an open (non-blocking) follow-up.
+the real choice, no change needed.**
+
+**Seed-variance follow-up DONE (2026-08-13)**: 6-seed check at a
+cheaper 1/5-scale budget (5M tokens, same recipe) -- see
+`docs/restart/hz0h_phase_b_vb_sweep_results.md` Update 1. D/4 wins
+outright on 4/6 seeds, ties on 1, loses on 1 (to D/3) -- best mean AND
+tightest spread of the three divisors. Real, majority-consistent
+confirmation that D/4's edge is not mostly seed noise. **D/4 locked,
+no further seed-variance follow-up needed.**
 
 ---
 

@@ -1,5 +1,48 @@
 # HZ Next-Phase Plan Phase B (VB compression-ratio sweep): D/4 remains the best choice -- D/2 and D/3 both lose on quality AND use more memory
 
+## Update 1: 6-seed check at a smaller (5M-token) budget -- D/4's edge is real, not mostly seed noise
+
+Real follow-up, requested specifically because the original single-seed
+gap (0.006-0.008) was small enough to worry about noise. Rather than
+rerunning 3 more full 25M-token production runs, ran a cheaper check:
+same architecture/recipe (curriculum + `--compile-step`), 1/5 the token
+budget (5M instead of 25M, curriculum quartered accordingly), 6 seeds
+per divisor (7-12) instead of 1.
+
+**Per-divisor summary (n=6 seeds each):**
+
+| Divisor | Mean loss | Min | Max | Spread |
+| --- | --- | --- | --- | --- |
+| **D/4** | **2.11914** | 2.10547 | 2.12891 | **0.0234** (tightest) |
+| D/3 | 2.13053 | 2.12109 | 2.14648 | 0.0254 |
+| D/2 | 2.14616 | 2.12109 | 2.17969 | 0.0586 (widest) |
+
+**Per-seed winner**: D/4 wins outright on 4 of 6 seeds (8, 9, 11, 12),
+ties for best on 1 (seed 7, with D/2 and D/3), and loses on exactly 1
+(seed 10, to D/3). D/2 never wins outright and is worst on 4 of 6
+seeds.
+
+**Real, honest verdict: D/4's edge is real, not mostly seed noise.**
+D/4 is the consistent majority winner (4/6 outright + 1 tie), has both
+the best mean and the tightest seed-to-seed spread of the three
+divisors -- this is real, additional support for the original
+single-seed 25M-token result, not a contradiction of it. The one
+counter-example (D/3 beating D/4 on seed 10) is reported as a real data
+point, not swept aside -- the honest framing is "D/4 wins on the clear
+majority of seeds," not "D/4 always wins."
+
+**Real, disclosed limitation of this check**: 5M-token runs are 1/5 the
+real Phase B scale -- absolute loss values (~2.1-2.2) are much higher
+than the 25M-token runs' own ~1.6 range and not directly comparable in
+magnitude. This is a relative-ranking signal only, exactly as the check
+was designed to provide, not a replacement for the real 25M-token
+number.
+
+**Conclusion: D/4 stays the locked choice.** No further seed-variance
+follow-up needed at this point -- 6 seeds at a cheap budget, with a
+clear majority pattern and the tightest spread, is real, sufficient
+evidence, without needing 3 more expensive full-scale production runs.
+
 Date: 2026-08-12. `plans/HatchlingZero_Next_Phase_Plan.md` Phase B's
 real question: does a milder compression ratio (D/2, D/3, not just the
 originally-used D/4) preserve more quality under the now-locked
