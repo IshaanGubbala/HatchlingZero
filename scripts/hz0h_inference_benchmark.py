@@ -507,6 +507,7 @@ def main() -> None:
     parser.add_argument("--d-state-divisor", type=int, default=4, help="HZ-Core-2's VB d_state = n_embd // this. Default 4 matches the locked Pareto choice, docs/restart/hz0h_phase_b_vb_sweep_results.md.")
     parser.add_argument("--merge-every-k", type=int, default=32, help="HZ-Memory mode's base+delta INT8 state merge interval. Default 32 matches the locked recommendation, docs/restart/hz0h_phase_d_base_delta_int8_results.md.")
     parser.add_argument("--context-lengths", type=str, default="128,512,2048")
+    parser.add_argument("--skip-naive-replay", action="store_true", help="Skip the O(context^2) naive-replay decode measurements (BDH and Transformer). Real, disclosed reason to use this: naive replay's own replay buffer growth hit a real WDDM shared-memory-paging stall at context_length=8192 on the RTX3060 (docs/restart/hz0h_phase_f_same_gpu_comparison_results.md) -- the real streaming-state/KV-cache paths don't have that O(context^2) buffer growth and shouldn't hit the same wall, so this flag lets long-context runs measure the paths that actually matter without the already-established-as-bad naive baseline blocking the whole sweep.")
     parser.add_argument("--decode-tokens", type=int, default=64)
     parser.add_argument("--prefill-repeats", type=int, default=5)
     parser.add_argument("--seed", type=int, default=7)
@@ -555,9 +556,11 @@ def main() -> None:
         bdh_prefill = measure_bdh_prefill(bdh_model, prompt, args.prefill_repeats, device)
         bdh_prefill["peak_memory_bytes"] = peak_memory_bytes(device)
 
-        reset_peak_memory(device)
-        bdh_decode_naive = measure_bdh_decode_naive(bdh_model, prompt, args.decode_tokens, device)
-        bdh_decode_naive["peak_memory_bytes"] = peak_memory_bytes(device)
+        bdh_decode_naive = None
+        if not args.skip_naive_replay:
+            reset_peak_memory(device)
+            bdh_decode_naive = measure_bdh_decode_naive(bdh_model, prompt, args.decode_tokens, device)
+            bdh_decode_naive["peak_memory_bytes"] = peak_memory_bytes(device)
 
         reset_peak_memory(device)
         bdh_decode_streaming = measure_bdh_decode_streaming(bdh_model, prompt, args.decode_tokens, device)
@@ -583,9 +586,11 @@ def main() -> None:
         transformer_prefill = measure_transformer_prefill(transformer_model, prompt, args.prefill_repeats, device)
         transformer_prefill["peak_memory_bytes"] = peak_memory_bytes(device)
 
-        reset_peak_memory(device)
-        transformer_decode_naive = measure_transformer_decode_naive(transformer_model, prompt, args.decode_tokens, device)
-        transformer_decode_naive["peak_memory_bytes"] = peak_memory_bytes(device)
+        transformer_decode_naive = None
+        if not args.skip_naive_replay:
+            reset_peak_memory(device)
+            transformer_decode_naive = measure_transformer_decode_naive(transformer_model, prompt, args.decode_tokens, device)
+            transformer_decode_naive["peak_memory_bytes"] = peak_memory_bytes(device)
 
         reset_peak_memory(device)
         transformer_decode_kv_cache = measure_transformer_decode_kv_cache(transformer_model, prompt, args.decode_tokens, device)
