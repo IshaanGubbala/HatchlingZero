@@ -43,10 +43,17 @@ q_t . k[s-1] . v[s-1] = sum_{s'=0}^{t-1} q_t . k[s'] . v[s']`, exactly
 BDH's own `tril(diagonal=-1)` sum). This is asserted here, not just
 argued in prose -- see the real correctness test in
 tests/reference/test_hz0h_bdh_fused_attention_torch.py, which requires
-real CUDA hardware (chunk_gla is a Triton kernel) and has NOT been run
-successfully as of this file's creation -- do not trust this
-implementation for anything until that test has actually passed on
-real hardware.
+real CUDA hardware (chunk_gla is a Triton kernel).
+
+**VERIFIED on real hardware (RTX3060, 2026-08-14)**: all 3 correctness
+tests pass, including the exact-oracle-match test (the shift trick's
+own claim, the riskiest untested part of the math argument above,
+holds under real numerical comparison, not just multiple-choice-shape
+coverage) and the forward+gradient-flow test. The forward-pass math is
+real and correct. Speed/energy has NOT yet been measured -- do not cite
+this as a proven throughput or energy win until that separate
+measurement exists; correctness and performance are two different
+claims, only the first is confirmed so far.
 
 Deliberately a SEPARATE, opt-in extension file, not a modification of
 `reference/hz0h_bdh_torch.py`'s verbatim-upstream oracle section --

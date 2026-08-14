@@ -112,3 +112,14 @@ def test_fused_forward_gradients_flow_and_roughly_match():
     assert torch.isfinite(loss_b)
     assert model_b.encoder.grad is not None and torch.isfinite(model_b.encoder.grad).all()
     assert float(model_b.encoder.grad.norm()) > 0
+
+    # Real gap caught in self-review: this test's own docstring promised
+    # a comparison against the oracle's gradients, but the assertions
+    # above only checked model_b's own gradient in isolation -- never
+    # actually compared it to model_a's. Added this real comparison;
+    # not yet re-run on real hardware since it's a new assertion (the
+    # earlier "3 passed" result predates this fix) -- loose tolerance
+    # since different kernels/accumulation orders are expected to
+    # produce close-but-not-identical gradients, same spirit as the
+    # forward-pass tolerance above, not a stricter bar.
+    assert torch.allclose(model_a.encoder.grad, model_b.encoder.grad, atol=1e-2, rtol=1e-2), f"gradient magnitudes diverge too much between the oracle and the fused path: max diff {(model_a.encoder.grad - model_b.encoder.grad).abs().max().item()}"
