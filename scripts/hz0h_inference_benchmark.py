@@ -128,19 +128,19 @@ class _PowerSampler:
         return statistics.mean(self._samples)
 
 
-def measure_bdh_prefill(model: BDH, prompt: torch.Tensor, repeats: int, device: torch.device) -> dict:
+def measure_bdh_prefill(model: BDH, prompt: torch.Tensor, repeats: int, device: torch.device, prefill_chunk_length: int) -> dict:
     with torch.no_grad():
         _sync(device)
-        model(prompt)  # warmup
+        bdh_stream_prefill_chunked(model, prompt, chunk_length=prefill_chunk_length)  # warmup
         _sync(device)
         with _PowerSampler(device) as sampler:
             started = time.perf_counter()
             for _ in range(repeats):
-                model(prompt)
+                bdh_stream_prefill_chunked(model, prompt, chunk_length=prefill_chunk_length)
             _sync(device)
             elapsed = time.perf_counter() - started
     tokens = prompt.shape[1] * repeats
-    return {"tokens_per_second": tokens / elapsed, "elapsed_seconds": elapsed, "mean_watts": sampler.mean_watts()}
+    return {"tokens_per_second": tokens / elapsed, "elapsed_seconds": elapsed, "mean_watts": sampler.mean_watts(), "path": "chunked_streaming_prefill", "chunk_length": prefill_chunk_length}
 
 
 def measure_bdh_decode_naive(model: BDH, prompt: torch.Tensor, max_new_tokens: int, device: torch.device) -> dict:
@@ -235,19 +235,19 @@ def measure_bdh_decode_kv_cache(model: BDH, prompt: torch.Tensor, max_new_tokens
     return {"tokens_per_second": max_new_tokens / elapsed, "elapsed_seconds": elapsed, "mean_watts": sampler.mean_watts()}
 
 
-def measure_vb_prefill(model: BDHVB, prompt: torch.Tensor, repeats: int, device: torch.device) -> dict:
+def measure_vb_prefill(model: BDHVB, prompt: torch.Tensor, repeats: int, device: torch.device, prefill_chunk_length: int) -> dict:
     with torch.no_grad():
         _sync(device)
-        model(prompt)  # warmup
+        bdh_vb_stream_prefill_chunked(model, prompt, chunk_length=prefill_chunk_length)  # warmup
         _sync(device)
         with _PowerSampler(device) as sampler:
             started = time.perf_counter()
             for _ in range(repeats):
-                model(prompt)
+                bdh_vb_stream_prefill_chunked(model, prompt, chunk_length=prefill_chunk_length)
             _sync(device)
             elapsed = time.perf_counter() - started
     tokens = prompt.shape[1] * repeats
-    return {"tokens_per_second": tokens / elapsed, "elapsed_seconds": elapsed, "mean_watts": sampler.mean_watts()}
+    return {"tokens_per_second": tokens / elapsed, "elapsed_seconds": elapsed, "mean_watts": sampler.mean_watts(), "path": "chunked_streaming_prefill", "chunk_length": prefill_chunk_length}
 
 
 def measure_vb_decode_streaming(model: BDHVB, prompt: torch.Tensor, max_new_tokens: int, device: torch.device, prefill_chunk_length: int) -> dict:
@@ -569,7 +569,7 @@ def main() -> None:
         prompt = torch.randint(0, args.vocab_size, (1, context_length), device=device)
 
         reset_peak_memory(device)
-        bdh_prefill = measure_bdh_prefill(bdh_model, prompt, args.prefill_repeats, device)
+        bdh_prefill = measure_bdh_prefill(bdh_model, prompt, args.prefill_repeats, device, args.prefill_chunk_length)
         bdh_prefill["peak_memory_bytes"] = peak_memory_bytes(device)
 
         bdh_decode_naive = None
@@ -587,7 +587,7 @@ def main() -> None:
         bdh_decode_kv_cache["peak_memory_bytes"] = peak_memory_bytes(device)
 
         reset_peak_memory(device)
-        vb_prefill = measure_vb_prefill(vb_model, prompt, args.prefill_repeats, device)
+        vb_prefill = measure_vb_prefill(vb_model, prompt, args.prefill_repeats, device, args.prefill_chunk_length)
         vb_prefill["peak_memory_bytes"] = peak_memory_bytes(device)
 
         reset_peak_memory(device)
