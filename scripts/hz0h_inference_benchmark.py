@@ -583,8 +583,11 @@ def main() -> None:
         bdh_decode_streaming["peak_memory_bytes"] = peak_memory_bytes(device)
 
         reset_peak_memory(device)
-        bdh_decode_kv_cache = measure_bdh_decode_kv_cache(bdh_model, prompt, args.decode_tokens, device)
-        bdh_decode_kv_cache["peak_memory_bytes"] = peak_memory_bytes(device)
+        if args.skip_naive_replay and context_length >= 16384:
+            bdh_decode_kv_cache = {"skipped_reason": "known WDDM paging stall in incremental BDH KV-cache decode at context >= 16384; bounded streaming path is the load-bearing comparison"}
+        else:
+            bdh_decode_kv_cache = measure_bdh_decode_kv_cache(bdh_model, prompt, args.decode_tokens, device)
+            bdh_decode_kv_cache["peak_memory_bytes"] = peak_memory_bytes(device)
 
         reset_peak_memory(device)
         vb_prefill = measure_vb_prefill(vb_model, prompt, args.prefill_repeats, device, args.prefill_chunk_length)
