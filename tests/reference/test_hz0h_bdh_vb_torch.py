@@ -199,3 +199,31 @@ def test_base_delta_tokens_since_merge_resets_after_a_merge():
 
     assert all(s["tokens_since_merge"] == 0 for s in states), "a merge should have happened (8 tokens >= merge_every_k=4) and reset the counter"
     assert all(torch.equal(s["delta"], torch.zeros_like(s["delta"])) for s in states)
+
+
+def test_base_delta_works_on_a_genuinely_bf16_cast_model():
+    """Real bug this test exists to catch: init_bdh_vb_states_int8_base_delta
+    used to hardcode delta to float32 regardless of the model's own
+    dtype, contradicting the plan's own D1 spec ("delta = small BF16
+    recent-update state") and causing a real RuntimeError
+    ("expected m1 and m2 to have the same dtype") the first time this
+    function was ever run against a genuinely bf16-cast model in
+    QR @ prefix_state -- every prior real run (including on real CUDA
+    hardware) happened to stay in float32 throughout (a separate,
+    also-real bug in the calling scripts, which never actually cast to
+    bf16 despite loading bf16-trained checkpoints), so this never
+    surfaced until a script was fixed to actually request bf16."""
+    config = _tiny_config()
+    torch.manual_seed(8)
+    model = BDHVB(config).to(dtype=torch.bfloat16)
+    model.attn.freqs = model.attn.freqs.to(torch.float32)
+    model.eval()
+    idx = torch.randint(0, config.vocab_size, (1, 8))
+
+    with torch.no_grad():
+        states = init_bdh_vb_states_int8_base_delta(model, 1)
+        assert all(s["delta"].dtype == torch.bfloat16 for s in states), "delta must follow the model's real working dtype, not be hardcoded to float32"
+        states, logits = bdh_vb_stream_chunk_int8_base_delta_state(model, states, idx, start_position=0, merge_every_k=4)
+
+    assert logits.dtype == torch.bfloat16
+    assert torch.isfinite(logits.float()).all()

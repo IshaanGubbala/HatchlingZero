@@ -220,7 +220,19 @@ def bdh_vb_stream_chunk_int8_state(
     d_state-wide, per 2R-B) state additionally round-tripping through
     INT8 between calls -- real, compounding quantization error on top of
     the value-bottleneck's own already-real approximation, not assumed
-    to compose for free."""
+    to compose for free.
+
+    Real dtype bug caught and fixed here: `dequantize_state_int8`
+    always returns float32 (the scale multiply is done in fp32 for
+    numerical safety) -- with a genuinely bf16-cast model, `QR` is
+    bf16, so `QR @ prefix_state` used to crash with a dtype mismatch
+    the first time this ever ran against a real bf16 model (every prior
+    real GPU run, including Phase C's, happened to stay in float32
+    throughout for an unrelated reason -- the calling script never
+    actually cast to bf16 despite loading a bf16-trained checkpoint --
+    so this was never exercised). Fixed by casting the dequantized
+    state to match `QR`'s own dtype right before the matmul -- the
+    fp32 dequantization math itself is unchanged."""
     c = model.config
     B, L = idx_chunk.shape
     D = c.n_embd
@@ -243,7 +255,7 @@ def bdh_vb_stream_chunk_int8_state(
         v_bottleneck = x @ model.P
 
         intra = (QR @ KR.mT).tril(diagonal=-1) @ v_bottleneck
-        prefix_state = dequantize_state_int8(states[level]["q"], states[level]["scale"])
+        prefix_state = dequantize_state_int8(states[level]["q"], states[level]["scale"]).to(QR.dtype)
         cross = QR @ prefix_state
         yKV_bottleneck = intra + cross
         yKV = yKV_bottleneck @ model.O
@@ -284,11 +296,32 @@ def bdh_vb_stream_chunk_int8_state(
 
 
 def init_bdh_vb_states_int8_base_delta(model: BDHVB, batch_size: int, device=None) -> list[dict]:
+    """Real dtype bug caught and fixed here: this used to build BOTH the
+    quantization intermediate AND the delta itself from the same
+    `torch.float32` state, hardcoding delta to fp32 regardless of what
+    dtype the model actually runs at -- silently contradicting the
+    plan's own D1 spec ("delta = small BF16 recent-update state",
+    `plans/HatchlingZero_Next_Phase_Plan.md` section 8) and causing a
+    real dtype-mismatch crash (`QR @ prefix_state`, bf16 vs float32) the
+    first time this function was ever exercised against a genuinely
+    bf16-cast model -- every prior real GPU run of this function
+    (Phase D1's own eval script, `scripts/hz0h_phase_d_base_delta_int8_eval.py`)
+    had silently stayed in float32 the whole time (that script's
+    `model.to(device)` never cast dtype either, a related but separate
+    bug fixed alongside this one), so the mismatch never had a chance
+    to surface. Fixed: the quantization step itself still uses a real
+    fp32 intermediate (standard practice, numerically safer than
+    quantizing directly from a low-precision tensor), but delta is now
+    constructed in the model's own actual working dtype
+    (`model.encoder.dtype`), matching the plan's design and matching
+    what a genuinely bf16-cast model requires for `QR @ prefix_state`
+    (RoPE-rotated bf16 queries) to type-check at all."""
     fp32_states = init_bdh_vb_states(model, batch_size, device=device, dtype=torch.float32)
+    model_dtype = model.encoder.dtype
     states = []
     for state in fp32_states:
         q, scale = quantize_state_int8(state)
-        states.append({"base_q": q, "base_scale": scale, "delta": torch.zeros_like(state), "tokens_since_merge": 0})
+        states.append({"base_q": q, "base_scale": scale, "delta": torch.zeros_like(state, dtype=model_dtype), "tokens_since_merge": 0})
     return states
 
 
@@ -333,7 +366,7 @@ def bdh_vb_stream_chunk_int8_base_delta_state(
         v_bottleneck = x @ model.P
 
         intra = (QR @ KR.mT).tril(diagonal=-1) @ v_bottleneck
-        base = dequantize_state_int8(states[level]["base_q"], states[level]["base_scale"])
+        base = dequantize_state_int8(states[level]["base_q"], states[level]["base_scale"]).to(QR.dtype)  # dequantize_state_int8 always returns float32 (see bdh_vb_stream_chunk_int8_state's own docstring for the real bug this pattern fixes) -- must match QR's/delta's real dtype before combining, not just delta's
         prefix_state = base + states[level]["delta"]
         cross = QR @ prefix_state
         yKV_bottleneck = intra + cross

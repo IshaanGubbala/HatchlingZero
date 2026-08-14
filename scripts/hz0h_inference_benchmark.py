@@ -431,7 +431,7 @@ def reset_peak_memory(device: torch.device) -> None:
         _mps_peak_bytes[0] = 0
 
 
-def compute_state_bytes(*, batch_size: int, n_layer: int, n_head: int, N: int, n_embd: int, context_length: int, d_state: int | None, head_dim: int, transformer_n_layer: int | None = None, transformer_n_head: int | None = None, transformer_head_dim: int | None = None, kv_dtype_bytes: int = 2, state_dtype_bytes: int = 4) -> dict:
+def compute_state_bytes(*, batch_size: int, n_layer: int, n_head: int, N: int, n_embd: int, context_length: int, d_state: int | None, head_dim: int, transformer_n_layer: int | None = None, transformer_n_head: int | None = None, transformer_head_dim: int | None = None, kv_dtype_bytes: int = 2, state_dtype_bytes: int = 4, delta_dtype_bytes: int = 4) -> dict:
     """Real, analytic (not measured) byte counts for each arch's
     persistent per-token state, at a given context length -- the
     clearest direct demonstration of this plan's core architectural
@@ -454,8 +454,18 @@ def compute_state_bytes(*, batch_size: int, n_layer: int, n_head: int, N: int, n
     last dim shrunk to d_state (< n_embd). Also independent of
     context_length.
     vb_int8_base_delta_state_bytes: base (1 byte/element, INT8) + delta
-    (state_dtype_bytes/element, full precision) -- real total for the
-    two-level design, not just the INT8 base alone.
+    (delta_dtype_bytes/element) -- real total for the two-level design,
+    not just the INT8 base alone. `delta_dtype_bytes` is a SEPARATE
+    parameter from `state_dtype_bytes` (rather than reusing it directly)
+    because `init_bdh_vb_states_int8_base_delta`
+    (reference/hz0h_bdh_vb_torch.py) constructs delta to follow the
+    model's own real working dtype (matching the plan's D1 spec, "delta
+    = small BF16 recent-update state") -- in the common case where this
+    function's caller runs everything at one uniform dtype, pass the
+    SAME value for both `state_dtype_bytes` and `delta_dtype_bytes`.
+    Kept as two parameters rather than one so a caller CAN model a
+    mixed-precision setup explicitly if one is ever built, rather than
+    baking in an assumption they're always equal.
     transformer_kv_cache_bytes: 2 (K and V) x transformer_n_layer x B x
     transformer_n_head x context_length x transformer_head_dim x
     kv_dtype_bytes -- deliberately SEPARATE transformer_n_layer/
@@ -477,7 +487,7 @@ def compute_state_bytes(*, batch_size: int, n_layer: int, n_head: int, N: int, n
     if d_state is not None:
         vb_state_elements = n_layer * batch_size * n_head * N * d_state
         vb_state_bytes = vb_state_elements * state_dtype_bytes
-        vb_int8_base_delta_state_bytes = vb_state_elements * 1 + vb_state_elements * state_dtype_bytes  # base (int8) + delta (full precision)
+        vb_int8_base_delta_state_bytes = vb_state_elements * 1 + vb_state_elements * delta_dtype_bytes  # base (int8) + delta (always fp32 by construction, see docstring)
 
     t_layer = transformer_n_layer if transformer_n_layer is not None else n_layer
     t_head = transformer_n_head if transformer_n_head is not None else n_head
@@ -511,21 +521,23 @@ def main() -> None:
     parser.add_argument("--decode-tokens", type=int, default=64)
     parser.add_argument("--prefill-repeats", type=int, default=5)
     parser.add_argument("--seed", type=int, default=7)
+    parser.add_argument("--dtype", choices=("float32", "float16", "bfloat16"), default="bfloat16", help="Real, previously-missing gap: every prior version of this script defaulted to float32 (PyTorch's own default), unlike every training runner in this project which uses bfloat16 on CUDA -- meaning every inference number measured before this flag existed was FP32, not representative of real deployment precision, and used roughly 2x the memory bf16 would (a real, disclosed factor in the WDDM long-context stall investigation, docs/restart/hz0h_phase_f_same_gpu_comparison_results.md). Defaults to bfloat16 now to match the rest of the project; pass --dtype float32 to reproduce the old (undocumented-as-such) behavior.")
     parser.add_argument("--device", choices=("auto", "cpu", "cuda", "mps"), default="auto")
     parser.add_argument("--output", type=Path, default=None)
     args = parser.parse_args()
 
     device = resolve_device(args.device)
     torch.manual_seed(args.seed)
+    torch_dtype = {"float32": torch.float32, "float16": torch.float16, "bfloat16": torch.bfloat16}[args.dtype]
 
     bdh_config = BDHConfig(n_layer=args.n_layer, n_embd=args.n_embd, n_head=args.n_head, mlp_internal_dim_multiplier=args.mlp_internal_dim_multiplier, vocab_size=args.vocab_size, dropout=0.0)
-    bdh_model = BDH(bdh_config).to(device)
-    bdh_model.attn.freqs = bdh_model.attn.freqs.to(torch.float32)
+    bdh_model = BDH(bdh_config).to(device=device, dtype=torch_dtype)
+    bdh_model.attn.freqs = bdh_model.attn.freqs.to(torch.float32)  # RoPE precision -- same fix every training runner in this project applies after a dtype cast
     bdh_model.eval()
 
     d_state = max(1, args.n_embd // args.d_state_divisor)
     vb_config = BDHVBConfig(n_layer=args.n_layer, n_embd=args.n_embd, n_head=args.n_head, mlp_internal_dim_multiplier=args.mlp_internal_dim_multiplier, vocab_size=args.vocab_size, dropout=0.0, d_state=d_state)
-    vb_model = BDHVB(vb_config).to(device)
+    vb_model = BDHVB(vb_config).to(device=device, dtype=torch_dtype)
     vb_model.attn.freqs = vb_model.attn.freqs.to(torch.float32)
     vb_model.eval()
 
@@ -533,7 +545,7 @@ def main() -> None:
     transformer_heads = args.transformer_heads if args.transformer_heads is not None else args.n_head
     transformer_head_dim = args.transformer_head_dim if args.transformer_head_dim is not None else args.n_embd // transformer_heads
     transformer_config = MatchedTransformerConfig({"vocab_size": args.vocab_size, "d_model": args.n_embd, "num_layers": transformer_layers, "num_heads": transformer_heads, "head_dim": transformer_head_dim, "d_ff": args.d_ff, "use_rope": True})
-    transformer_model = MatchedTransformerLM(transformer_config).to(device)
+    transformer_model = MatchedTransformerLM(transformer_config).to(device=device, dtype=torch_dtype)
     transformer_model.eval()
 
     bdh_params = sum(p.numel() for p in bdh_model.parameters())
@@ -596,9 +608,11 @@ def main() -> None:
         transformer_decode_kv_cache = measure_transformer_decode_kv_cache(transformer_model, prompt, args.decode_tokens, device)
         transformer_decode_kv_cache["peak_memory_bytes"] = peak_memory_bytes(device)
 
+        dtype_bytes = 4 if torch_dtype == torch.float32 else 2
         state_bytes = compute_state_bytes(
             batch_size=1, n_layer=args.n_layer, n_head=args.n_head, N=N, n_embd=args.n_embd,
             context_length=context_length, d_state=d_state, head_dim=args.n_embd // args.n_head,
+            state_dtype_bytes=dtype_bytes, kv_dtype_bytes=dtype_bytes, delta_dtype_bytes=dtype_bytes,
             transformer_n_layer=transformer_layers, transformer_n_head=transformer_heads, transformer_head_dim=transformer_head_dim,
         )
 
