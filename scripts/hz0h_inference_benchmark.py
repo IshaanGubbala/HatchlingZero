@@ -431,7 +431,7 @@ def reset_peak_memory(device: torch.device) -> None:
         _mps_peak_bytes[0] = 0
 
 
-def compute_state_bytes(*, batch_size: int, n_layer: int, n_head: int, N: int, n_embd: int, context_length: int, d_state: int | None, head_dim: int, kv_dtype_bytes: int = 2, state_dtype_bytes: int = 4) -> dict:
+def compute_state_bytes(*, batch_size: int, n_layer: int, n_head: int, N: int, n_embd: int, context_length: int, d_state: int | None, head_dim: int, transformer_n_layer: int | None = None, transformer_n_head: int | None = None, transformer_head_dim: int | None = None, kv_dtype_bytes: int = 2, state_dtype_bytes: int = 4) -> dict:
     """Real, analytic (not measured) byte counts for each arch's
     persistent per-token state, at a given context length -- the
     clearest direct demonstration of this plan's core architectural
@@ -456,10 +456,19 @@ def compute_state_bytes(*, batch_size: int, n_layer: int, n_head: int, N: int, n
     vb_int8_base_delta_state_bytes: base (1 byte/element, INT8) + delta
     (state_dtype_bytes/element, full precision) -- real total for the
     two-level design, not just the INT8 base alone.
-    transformer_kv_cache_bytes: 2 (K and V) x n_layer x B x n_head x
-    context_length x head_dim x kv_dtype_bytes -- head_dim here IS the
-    right dimension (standard multi-head K/V shape), and this term
-    genuinely scales with context_length, unlike the other three."""
+    transformer_kv_cache_bytes: 2 (K and V) x transformer_n_layer x B x
+    transformer_n_head x context_length x transformer_head_dim x
+    kv_dtype_bytes -- deliberately SEPARATE transformer_n_layer/
+    transformer_n_head/transformer_head_dim parameters (defaulting to
+    n_layer/n_head/head_dim if not given): a parameter-matched
+    Transformer often has a genuinely different layer/head count than
+    the BDH/VB arms (e.g. this session's real Phase F comparison used
+    8 layers/8 heads for BDH/VB but 6 layers/4 heads for the
+    Transformer to hit the same ~25.5M parameter target) -- reusing
+    BDH's own n_layer/n_head here would silently compute the WRONG
+    model's KV-cache size whenever the two architectures' matched
+    configs differ, which they usually do. This term genuinely scales
+    with context_length, unlike the other three."""
     bdh_state_elements = n_layer * batch_size * n_head * N * n_embd
     bdh_state_bytes = bdh_state_elements * state_dtype_bytes
 
@@ -470,7 +479,10 @@ def compute_state_bytes(*, batch_size: int, n_layer: int, n_head: int, N: int, n
         vb_state_bytes = vb_state_elements * state_dtype_bytes
         vb_int8_base_delta_state_bytes = vb_state_elements * 1 + vb_state_elements * state_dtype_bytes  # base (int8) + delta (full precision)
 
-    transformer_kv_cache_bytes = 2 * n_layer * batch_size * n_head * context_length * head_dim * kv_dtype_bytes
+    t_layer = transformer_n_layer if transformer_n_layer is not None else n_layer
+    t_head = transformer_n_head if transformer_n_head is not None else n_head
+    t_head_dim = transformer_head_dim if transformer_head_dim is not None else head_dim
+    transformer_kv_cache_bytes = 2 * t_layer * batch_size * t_head * context_length * t_head_dim * kv_dtype_bytes
 
     return {
         "context_length": context_length,
@@ -489,6 +501,9 @@ def main() -> None:
     parser.add_argument("--n-head", type=int, default=4)
     parser.add_argument("--mlp-internal-dim-multiplier", type=int, default=24)
     parser.add_argument("--d-ff", type=int, default=683)
+    parser.add_argument("--transformer-layers", type=int, default=None, help="Override the Transformer's own layer count independent of --n-layer (BDH/VB). Matched-parameter-count configs often need different layer/head counts per architecture -- e.g. this session's real Phase F comparison used 8 layers/8 heads for BDH/VB but 6 layers/4 heads for the Transformer to hit the same ~25.5M parameter target. Defaults to --n-layer for backward compatibility.")
+    parser.add_argument("--transformer-heads", type=int, default=None, help="Override the Transformer's own head count independent of --n-head (BDH/VB). Defaults to --n-head.")
+    parser.add_argument("--transformer-head-dim", type=int, default=None, help="Override the Transformer's head_dim independent of n_embd // n_head. Defaults to n_embd // transformer_heads.")
     parser.add_argument("--d-state-divisor", type=int, default=4, help="HZ-Core-2's VB d_state = n_embd // this. Default 4 matches the locked Pareto choice, docs/restart/hz0h_phase_b_vb_sweep_results.md.")
     parser.add_argument("--merge-every-k", type=int, default=32, help="HZ-Memory mode's base+delta INT8 state merge interval. Default 32 matches the locked recommendation, docs/restart/hz0h_phase_d_base_delta_int8_results.md.")
     parser.add_argument("--context-lengths", type=str, default="128,512,2048")
@@ -513,7 +528,10 @@ def main() -> None:
     vb_model.attn.freqs = vb_model.attn.freqs.to(torch.float32)
     vb_model.eval()
 
-    transformer_config = MatchedTransformerConfig({"vocab_size": args.vocab_size, "d_model": args.n_embd, "num_layers": args.n_layer, "num_heads": args.n_head, "head_dim": args.n_embd // args.n_head, "d_ff": args.d_ff, "use_rope": True})
+    transformer_layers = args.transformer_layers if args.transformer_layers is not None else args.n_layer
+    transformer_heads = args.transformer_heads if args.transformer_heads is not None else args.n_head
+    transformer_head_dim = args.transformer_head_dim if args.transformer_head_dim is not None else args.n_embd // transformer_heads
+    transformer_config = MatchedTransformerConfig({"vocab_size": args.vocab_size, "d_model": args.n_embd, "num_layers": transformer_layers, "num_heads": transformer_heads, "head_dim": transformer_head_dim, "d_ff": args.d_ff, "use_rope": True})
     transformer_model = MatchedTransformerLM(transformer_config).to(device)
     transformer_model.eval()
 
@@ -576,6 +594,7 @@ def main() -> None:
         state_bytes = compute_state_bytes(
             batch_size=1, n_layer=args.n_layer, n_head=args.n_head, N=N, n_embd=args.n_embd,
             context_length=context_length, d_state=d_state, head_dim=args.n_embd // args.n_head,
+            transformer_n_layer=transformer_layers, transformer_n_head=transformer_heads, transformer_head_dim=transformer_head_dim,
         )
 
         results["by_context_length"][context_length] = {
