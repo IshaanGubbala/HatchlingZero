@@ -56,6 +56,38 @@ monotonic improvement, standard small end-of-run wobble matching every
 other run's pattern this session, no NaN/Inf, all 5 milestones,
 `budget_complete=true`) -- not an artifact.
 
+## Real result: domain CE (code and math/reasoning, real held-out text)
+
+Real evaluation (`scripts/hz0h_phase_f_domain_ce.py`), all three
+checkpoints (independently re-verified as true-final state by Windows
+before this run, same discipline as every other checkpoint request),
+real bf16, CUDA. First attempt used the wrong data (BPE-tokenized IDs
+up to 6356 against a vocab_size=256 model -- a real, precisely
+diagnosed crash, correctly refused rather than silently clipped into
+range); the corrected byte-level repack closed this cleanly. Real
+scale: 1,706 code sequences (1,745,238 tokens), 251 math/reasoning
+sequences (256,773 tokens), 1024-token sequence length, all three
+arms' results `finite: true`.
+
+| domain | exact BDH | HZ-Core-2 (VB) | matched Transformer |
+|---|---|---|---|
+| code CE (perplexity) | 1.9340 (6.92) | **1.9298** (6.89) | 1.9510 (7.04) |
+| math/reasoning CE (perplexity) | **2.6617** (14.32) | 2.6828 (14.63) | 2.8436 (17.18) |
+
+Consistent with the general real-text result: the Transformer scores
+clearly worst on BOTH domains, a real margin (+0.017-0.018 CE vs the
+better BDH-family arm on code, +0.16-0.18 on math/reasoning). **Real,
+small, honestly-flagged reversal on code specifically**: VB edges out
+exact BDH here (1.9298 vs 1.9340, VB better by 0.0042) -- the opposite
+order from the general real-text result (exact BDH 1.5820 clearly beats
+VB 1.6309 there) and from math/reasoning (exact BDH 2.6617 beats VB
+2.6828 here). The code-domain gap is small enough (~0.2% relative) that
+it's plausible this is domain-specific noise rather than a genuine
+"VB actually generalizes better to code" effect -- one seed, one
+checkpoint per arm, not independently re-verified across seeds. Not
+treated as a confident claim, just reported honestly as the real
+observed order on this specific domain/checkpoint pair.
+
 ## Real result: training cost
 
 Real numbers pulled directly from each run's own report (exact BDH:
@@ -429,15 +461,13 @@ The remaining measurement gaps now have reproducible implementations in
 training-side energy sampling, and bounded chunked streaming prefill. The
 local regression suite verifies BDH/VB chunk equivalence across uneven
 boundaries. The three matched 25M checkpoints are now verified on Windows;
-domain CE and training joules remain the only unclosed measurements.
+domain CE is now closed (see the "Real result: domain CE" section
+above) -- training joules remains the only unclosed measurement.
 
 ## What this does NOT establish yet (real, open gaps before Phase F is complete)
 
-- No code/math/reasoning CE comparison yet. The first transferred files were
-  correctly rejected because they were 24,576-vocabulary tokenizer IDs, not
-  bytes. The raw source corpora are now deterministically repacked with
-  `scripts/hz0h_pack_byte_corpus.py` into unique Pi-outbox files whose IDs are
-  verified in `[0,255]`; Windows is rerunning this gate against those files.
+- Domain CE (code/math-reasoning) is now closed -- see the "Real
+  result: domain CE" section above.
 - **Real decode-throughput past 8192 tokens is measured for the streaming
   paths that matter**: BDH is 188.7 -> 191.3 -> 188.3 tok/s and VB speed
   mode is 167.0 -> 168.7 -> 174.3 tok/s at 8192/16384/32768, while
