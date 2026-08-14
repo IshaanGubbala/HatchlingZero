@@ -1,5 +1,24 @@
 # HZ Next-Phase Plan Phase D1: base+delta INT8 state -- real, substantial quality win over full-every-chunk INT8; GPU throughput pending
 
+**CORRECTION (read this before trusting anything below the Setup section)**:
+every throughput/memory number in this doc, including the "real GPU"
+RTX3060 numbers, was measured under a real, disclosed bug --
+`load_bdh_vb` never actually cast the model to bf16 despite loading a
+bf16-trained checkpoint (`.to(device)` only moves device, not dtype;
+`load_state_dict` silently preserves the target tensor's own existing
+dtype, fp32 by default). Every number labeled "plain_bf16_fp32_state"
+below was actually measured in FP32, not BF16 -- the label's own
+hedge ("BF16/FP32") was more honest than the surrounding prose, which
+repeatedly treated it as the real BF16-Speed-mode baseline. This
+directly affects Phase E's locked HZ-Core-2 definition, which cites
+this doc's throughput conclusion. Both the root cause (a real dtype
+bug in `reference/hz0h_bdh_vb_torch.py` itself -- delta was hardcoded
+to float32, contradicting the plan's own "BF16 delta" spec, which
+would have crashed on a genuinely bf16-cast model) and this script's
+own missing dtype cast are now fixed. See the "Real correction" section
+at the end of this doc for the full account and, once available, the
+re-verified real-bf16 numbers.
+
 ## Setup
 
 Per `plans/HatchlingZero_Next_Phase_Plan.md` section 8 (Phase D):
@@ -149,3 +168,78 @@ option if closing the remaining BF16 gap further ever becomes a
 priority; not pursued now since the plan explicitly calls it secondary
 to the base+delta design and the current result already satisfies a
 real Memory-mode use case as-is.
+
+## Real correction (found while extending Phase F's inference benchmark, not this doc's own investigation)
+
+**How this was found**: while adding real `--dtype` handling to
+`scripts/hz0h_inference_benchmark.py` (a separate, later Phase F task),
+casting a genuinely bf16-loaded model produced a real `RuntimeError`
+(`expected m1 and m2 to have the same dtype`) inside
+`bdh_vb_stream_chunk_int8_base_delta_state`'s `QR @ prefix_state`. That
+error could only happen if the model was ACTUALLY bf16 -- which meant
+every prior real run of this exact mechanism (including this doc's own
+Windows-dispatched RTX3060 K-sweep) must never have hit it because the
+model was, despite every appearance otherwise, still float32 the whole
+time.
+
+**Root causes, both real, both fixed**:
+
+1. `reference/hz0h_bdh_vb_torch.py`'s `init_bdh_vb_states_int8_base_delta`
+   hardcoded the delta component to `torch.float32` regardless of the
+   model's actual dtype -- directly contradicting the plan's own D1
+   spec ("`delta = small BF16 recent-update state`",
+   `plans/HatchlingZero_Next_Phase_Plan.md` section 8). The companion
+   full-INT8 function (`bdh_vb_stream_chunk_int8_state`) had the same
+   underlying issue: `dequantize_state_int8` always returns float32 by
+   design (the scale multiply is done in fp32 for numerical safety),
+   and that fp32 result was combined directly with a real bf16 `QR` in
+   the matmul with no cast in between. Fixed: delta now follows the
+   model's real working dtype
+   (`model.encoder.dtype`), and the dequantized state is explicitly
+   cast to match `QR`'s dtype right before use, in both functions. A
+   new regression test (`test_base_delta_works_on_a_genuinely_bf16_cast_model`,
+   `tests/reference/test_hz0h_bdh_vb_torch.py`) casts a tiny model to
+   real bf16 and confirms the full streaming call succeeds with correct
+   dtypes throughout -- the test that should have existed from the
+   start and would have caught this immediately.
+2. This script's own `load_bdh_vb` only ever did `.to(device)` -- never
+   `.to(device=..., dtype=...)` -- so even after fix (1), nothing would
+   have changed: `load_state_dict` preserves the target tensor's own
+   existing dtype (float32, from construction) when loading weights
+   into it, regardless of what dtype those weights were originally
+   saved in. Fixed: added an explicit `--dtype` flag (default
+   `bfloat16`, matching real training/deployment precision) and an
+   actual `.to(device=device, dtype=dtype)` cast.
+
+**Why neither bug was caught until now**: no test in this project's
+suite ever ran the base+delta or full-INT8 VB streaming functions
+against a genuinely bf16-cast model before today -- every existing
+correctness test used the framework's fp32 default, and every real GPU
+dispatch script (Phase C's `hz0h_phase_c_int8_state_quality_eval.py`
+too, checked directly -- also has no dtype handling at all, runs
+CPU-only fp32 throughout, though that script's OWN framing already
+correctly said "FP32 state" rather than claiming BF16, so it does not
+need the same retraction) had the same "only moves device, never casts
+dtype" gap. The bug and the blind spot that hid it were the same root
+cause.
+
+**What this means for the numbers already in this doc**: the RELATIVE
+comparisons (base+delta beats full-INT8 on both quality and speed;
+quality drift shrinks and speed improves as K grows) were measured
+consistently across all arms under the same accidental FP32 precision,
+so the qualitative conclusions are likely still directionally correct
+-- FP32 has more headroom before quantization error dominates, so
+absolute drift numbers were probably measured SMALLER than real BF16
+deployment would show, and FP32 compute is real slower per-FLOP than
+BF16 on tensor-core hardware, so absolute throughput numbers
+(seconds/1000 tokens, the "21-39% slower than BF16" headline claim)
+are NOT the real BF16-vs-BF16 comparison the "do not claim INT8 as a
+throughput win over BF16" recommendation above was actually based on --
+that recommendation compared BF16-labeled-but-actually-FP32 numbers
+against other FP32 numbers, not real BF16 numbers at all. **Not
+retracting the qualitative recommendation** (promote base+delta over
+naive full-INT8) since that comparison stayed internally consistent,
+but **the specific magnitude numbers in the "Real GPU result" section
+above need re-verification at genuine BF16** before being cited as
+authoritative -- a real BF16 rerun has been dispatched to Windows;
+this doc will be updated with the corrected numbers once it returns.
