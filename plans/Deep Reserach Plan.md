@@ -604,6 +604,32 @@ and have two candidate heads or a controlled second candidate constructed from t
 
 Pathway explicitly has separate candidate construction and ranking; this gives you the same public system capability without assuming its hidden implementation. citeturn15view2
 
+### HZ-CQ-150M tokenizer lock
+
+For the first HZ-CQ 150M reproduction, lock the tokenizer to the existing
+byte-level interface:
+
+```text
+vocab_size = 256
+tokenizer   = raw bytes
+embedding   = unchanged from the BDH-compatible baseline
+```
+
+Do not increase the vocabulary during the reproduction or the initial ARC
+curriculum. ARC inputs are naturally expressible as a small set of structured
+symbols, and keeping the byte vocabulary preserves compatibility with the
+public BDH formulation and avoids making tokenizer efficiency a confound in
+the reasoning experiment. Spend the parameter budget on the contextual state
+bank, structured workspace, and tied latent reasoning cycles instead.
+
+This is a CQ-specific lock, not a permanent HZ language-model tokenizer
+decision. After the 150M reasoning baseline is stable, run a controlled
+constant-parameter sweep over `V=256, 4K, 8K, 16K, 32K`. Record ARC quality,
+quality per parameter, quality per training FLOP, quality per joule, bytes per
+recurrent step, and reasoning quality per recurrent step. If the general
+language HZ line later needs shorter sequences, evaluate an 8K-16K
+byte-fallback tokenizer separately rather than changing the CQ reproduction.
+
 ## Experimental program from toy proof to 150M match
 
 Do this as a **funnel**. Do not scale a model merely because its training loss decreases.
