@@ -63,6 +63,7 @@ from reference.hz0h_bdh_vb_selective_torch import (
     bdh_vb_selective_stream_chunk,
     init_bdh_vb_selective_states,
 )
+from reference.hz0a_matched_transformer import MatchedTransformerConfig, MatchedTransformerLM
 
 MARKER = 10  # '\n' -- real, common in text; used only as an input signal to attend to, not an output target
 QUERY_MARKER = 11
@@ -280,10 +281,101 @@ def evaluate_vb_selective_reassignment(model: BDHVBSelective, *, prefix_len: int
     }
 
 
+def load_matched_transformer(checkpoint_pt: Path, *, n_embd: int, n_layer: int, n_head: int, d_ff: int, vocab_size: int) -> MatchedTransformerLM:
+    config = MatchedTransformerConfig({"vocab_size": vocab_size, "d_model": n_embd, "num_layers": n_layer, "num_heads": n_head, "head_dim": n_embd // n_head, "d_ff": d_ff, "use_rope": True})
+    model = MatchedTransformerLM(config)
+    blob = torch.load(str(checkpoint_pt), map_location="cpu", weights_only=False)
+    model.load_state_dict(blob["model"])
+    model.eval()
+    return model
+
+
+def _content_free_prefix(rng: np.random.Generator, length: int) -> list[int]:
+    """Same alphabet as the passkey/reassignment prefix filler (bytes
+    0-9), same length, but no MARKER/value/QUERY_MARKER structure at
+    all -- carries no information about any passkey value. Used as the
+    Transformer's "zeroed" ablation prefix instead of a literally empty
+    KV-cache: `MatchedTransformerBlock.forward` derives RoPE position
+    purely from `kv_cache["k"].shape[2]` (real, checked directly against
+    the code before trusting this), so an empty cache would put the
+    query token at position 0 instead of its true absolute position --
+    a real, uncontrolled confound (wrong position, not just "no
+    content") that a literal empty-cache ablation would introduce. This
+    keeps the query at the correct real position (same prefix length)
+    while still removing the actual informative content, the real
+    intent behind BDH-family's zeroed-state ablation."""
+    return [int(rng.integers(0, 10)) for _ in range(length)]
+
+
+@torch.no_grad()
+def evaluate_transformer_passkey(model: MatchedTransformerLM, *, prefix_len: int, filler_len: int, value_range: int, num_examples: int, seed: int) -> dict:
+    """No persistent recurrent state exists for a Transformer -- its
+    real KV-cache (populated by streaming the prefix through
+    model.forward(kv_cache=...)) plays the same real, functional role
+    the BDH-family harness's `states` does: it's what the model
+    actually carries forward from the prefix into the query. See
+    `_content_free_prefix`'s docstring for why the "zeroed" ablation
+    here is a same-length content-free prefix, not a literally empty
+    cache."""
+    rng = np.random.default_rng(seed)
+    real_correct, zeroed_correct = 0, 0
+    for _ in range(num_examples):
+        seq, answer = make_real_text_passkey_sequence(rng, prefix_len=prefix_len, filler_len=filler_len, value_range=value_range)
+        idx = torch.tensor([seq], dtype=torch.long)
+        prefix_idx, query_idx = idx[:, :-1], idx[:, -1:]
+
+        cache = model.new_kv_cache()
+        model(prefix_idx, kv_cache=cache)
+        real_logits = model(query_idx, kv_cache=cache)
+        real_pred = int(real_logits[0, -1].argmax())
+
+        zeroed_prefix = torch.tensor([_content_free_prefix(rng, prefix_idx.shape[1])], dtype=torch.long)
+        zeroed_cache = model.new_kv_cache()
+        model(zeroed_prefix, kv_cache=zeroed_cache)
+        zeroed_logits = model(query_idx, kv_cache=zeroed_cache)
+        zeroed_pred = int(zeroed_logits[0, -1].argmax())
+
+        real_correct += int(real_pred == answer)
+        zeroed_correct += int(zeroed_pred == answer)
+    return {"real_state_accuracy": real_correct / num_examples, "zeroed_state_accuracy": zeroed_correct / num_examples, "num_examples": num_examples}
+
+
+@torch.no_grad()
+def evaluate_transformer_reassignment(model: MatchedTransformerLM, *, prefix_len: int, filler_len: int, value_range: int, num_reassignments: int, num_examples: int, seed: int) -> dict:
+    rng = np.random.default_rng(seed)
+    real_correct, zeroed_correct, real_predicts_first_value = 0, 0, 0
+    for _ in range(num_examples):
+        seq, answer = make_real_text_reassignment_sequence(rng, prefix_len=prefix_len, filler_len=filler_len, value_range=value_range, num_reassignments=num_reassignments)
+        first_value = seq[prefix_len + 1]
+        idx = torch.tensor([seq], dtype=torch.long)
+        prefix_idx, query_idx = idx[:, :-1], idx[:, -1:]
+
+        cache = model.new_kv_cache()
+        model(prefix_idx, kv_cache=cache)
+        real_logits = model(query_idx, kv_cache=cache)
+        real_pred = int(real_logits[0, -1].argmax())
+
+        zeroed_prefix = torch.tensor([_content_free_prefix(rng, prefix_idx.shape[1])], dtype=torch.long)
+        zeroed_cache = model.new_kv_cache()
+        model(zeroed_prefix, kv_cache=zeroed_cache)
+        zeroed_logits = model(query_idx, kv_cache=zeroed_cache)
+        zeroed_pred = int(zeroed_logits[0, -1].argmax())
+
+        real_correct += int(real_pred == answer)
+        zeroed_correct += int(zeroed_pred == answer)
+        real_predicts_first_value += int(real_pred == first_value and answer != first_value)
+    return {
+        "real_state_accuracy": real_correct / num_examples,
+        "zeroed_state_accuracy": zeroed_correct / num_examples,
+        "real_state_predicts_stale_first_value_rate": real_predicts_first_value / num_examples,
+        "num_examples": num_examples,
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--checkpoint", type=Path, required=True, help="path to a *_checkpoint_best.pt or *_checkpoint.pt file")
-    parser.add_argument("--architecture", choices=("bdh", "bdh_vb", "bdh_vb_selective"), required=True)
+    parser.add_argument("--architecture", choices=("bdh", "bdh_vb", "bdh_vb_selective", "transformer"), required=True)
     parser.add_argument("--n-embd", type=int, default=512)
     parser.add_argument("--n-layer", type=int, default=8)
     parser.add_argument("--n-head", type=int, default=8)
@@ -291,6 +383,7 @@ def main() -> None:
     parser.add_argument("--vocab-size", type=int, default=256)
     parser.add_argument("--num-examples", type=int, default=200)
     parser.add_argument("--d-state", type=int, default=128, help="only used for --architecture bdh_vb. Default 128 matches HZ-Core-1's original D/4 checkpoint (n_embd=512); Phase B's D/2 (256) and D/3 (round(512/3)=171) checkpoints need this set explicitly to match how they were trained (see scripts/hz0h_stage2_runner_bdh_vb_depth_curriculum.py's own --d-state-divisor).")
+    parser.add_argument("--d-ff", type=int, default=2048, help="only used for --architecture transformer. Default 2048 matches Phase F's matched-Transformer config, configs/hz0h_transformer_matched_25m.json.")
     args = parser.parse_args()
 
     if args.architecture == "bdh":
@@ -309,11 +402,16 @@ def main() -> None:
             "passkey_fp32": passkey_fp32, "passkey_int8": passkey_int8,
             "reassignment_fp32": reassignment_fp32, "reassignment_int8": reassignment_int8,
         }
-    else:
+    elif args.architecture == "bdh_vb_selective":
         model = load_bdh_vb_selective(args.checkpoint, n_embd=args.n_embd, n_layer=args.n_layer, n_head=args.n_head, mlp_internal_dim_multiplier=args.mlp_internal_dim_multiplier, vocab_size=args.vocab_size, d_state=args.d_state)
         passkey = evaluate_vb_selective_passkey(model, prefix_len=4, filler_len=16, value_range=8, num_examples=args.num_examples, seed=1000)
         reassignment = evaluate_vb_selective_reassignment(model, prefix_len=4, filler_len=8, value_range=8, num_reassignments=3, num_examples=args.num_examples, seed=2000)
         result = {"architecture": "bdh_vb_selective", "d_state": model.config.d_state, "passkey": passkey, "reassignment": reassignment}
+    else:
+        model = load_matched_transformer(args.checkpoint, n_embd=args.n_embd, n_layer=args.n_layer, n_head=args.n_head, d_ff=args.d_ff, vocab_size=args.vocab_size)
+        passkey = evaluate_transformer_passkey(model, prefix_len=4, filler_len=16, value_range=8, num_examples=args.num_examples, seed=1000)
+        reassignment = evaluate_transformer_reassignment(model, prefix_len=4, filler_len=8, value_range=8, num_reassignments=3, num_examples=args.num_examples, seed=2000)
+        result = {"architecture": "transformer", "passkey": passkey, "reassignment": reassignment}
 
     print(json.dumps(result, indent=2))
 
