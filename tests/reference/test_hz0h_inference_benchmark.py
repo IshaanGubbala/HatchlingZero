@@ -65,7 +65,7 @@ def _assert_sane_measurement(result: dict) -> None:
 def test_bdh_prefill_measurement_is_sane():
     model = _tiny_bdh()
     prompt = torch.randint(0, 32, (1, 16))
-    _assert_sane_measurement(measure_bdh_prefill(model, prompt, repeats=2, device=torch.device("cpu")))
+    _assert_sane_measurement(measure_bdh_prefill(model, prompt, repeats=2, device=torch.device("cpu"), prefill_chunk_length=4))
 
 
 def test_bdh_decode_naive_measurement_is_sane():
@@ -116,7 +116,7 @@ def test_bdh_streaming_decode_produces_same_tokens_as_naive_decode():
 def test_vb_prefill_and_decode_measurements_are_sane():
     model = _tiny_vb()
     prompt = torch.randint(0, 32, (1, 8))
-    _assert_sane_measurement(measure_vb_prefill(model, prompt, repeats=2, device=torch.device("cpu")))
+    _assert_sane_measurement(measure_vb_prefill(model, prompt, repeats=2, device=torch.device("cpu"), prefill_chunk_length=4))
     _assert_sane_measurement(measure_vb_decode_streaming(model, prompt, max_new_tokens=4, device=torch.device("cpu"), prefill_chunk_length=4))
     _assert_sane_measurement(measure_vb_decode_int8_base_delta(model, prompt, max_new_tokens=4, device=torch.device("cpu"), merge_every_k=2, prefill_chunk_length=4))
 

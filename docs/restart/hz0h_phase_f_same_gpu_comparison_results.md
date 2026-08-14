@@ -303,16 +303,35 @@ disclosed rather than silently retried around**:
    kill the rest of the sweep; recorded in-place as a real error string,
    not silently skipped.
 2. `bdh_decode_kv_cache` (the alternative, non-streaming decode path)
-   doesn't throw an exception at 16384+ at all -- it hangs (99% GPU
-   util, 150-170W, confirmed via repeated real `nvidia-smi` sampling
-   in a fresh process with no prior CUDA history, ruling out
+   doesn't throw an exception at long context at all -- it hangs (99%
+   GPU util, 150-170W, confirmed via repeated real `nvidia-smi`
+   sampling in a fresh process with no prior CUDA history, ruling out
    fragmentation from an earlier OOM in the same run) in the same WDDM
    shared-memory-paging pattern seen earlier this session. Can't be
    caught with try/except since no exception is ever raised -- skipped
-   explicitly for this one measurement at ctx>=16384, recorded as a
-   real, labeled skip reason in the JSON, not silently omitted. Real,
-   disclosed gap: no `bdh_decode_kv_cache` throughput number exists at
-   16384/32768 on this hardware (have it at 8192: 35.7 tok/s).
+   explicitly and recorded as a real, labeled skip reason, not
+   silently omitted.
+
+   **Real, honest regression, not a fixed threshold**: this section
+   originally reported the stall starting at ctx>=16384 (had a real
+   35.7 tok/s number at 8192). A follow-up run reproduced the SAME
+   stall at ctx=8192 -- TWICE, including on the exact tracked script
+   with zero local modifications -- so the threshold isn't a fixed
+   architectural constant. Likely cause (not confirmed, flagged as a
+   real open question): running the new chunked-prefill measurements
+   FIRST in the same process appears to leave enough resident/reserved
+   GPU memory that `bdh_decode_kv_cache`'s own (unchanged) incremental
+   cache growth now hits the WDDM wall earlier than it used to in
+   isolation. The skip threshold is now a real CLI parameter,
+   `--skip-kv-cache-decode-above` (default 8192, matching the most
+   recently reproduced real threshold), rather than a hardcoded
+   `>= 16384` -- exactly because this turned out to be a moving,
+   process-dependent target, not a fixed one. Real, disclosed gap: no
+   `bdh_decode_kv_cache` throughput number exists at 8192/16384/32768
+   as of the latest real run (the number quoted above, 35.7 tok/s at
+   8192, is from an EARLIER run and should not be assumed to still
+   hold under the same process-ordering conditions that caused the
+   regression).
 
 **One more real, unexplained asymmetry**: `transformer_prefill`
 (architecturally similar in spirit to `bdh_prefill`) did NOT OOM at

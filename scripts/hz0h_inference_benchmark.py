@@ -521,6 +521,7 @@ def main() -> None:
     parser.add_argument("--merge-every-k", type=int, default=32, help="HZ-Memory mode's base+delta INT8 state merge interval. Default 32 matches the locked recommendation, docs/restart/hz0h_phase_d_base_delta_int8_results.md.")
     parser.add_argument("--context-lengths", type=str, default="128,512,2048")
     parser.add_argument("--skip-naive-replay", action="store_true", help="Skip the O(context^2) naive-replay decode measurements (BDH and Transformer). Real, disclosed reason to use this: naive replay's own replay buffer growth hit a real WDDM shared-memory-paging stall at context_length=8192 on the RTX3060 (docs/restart/hz0h_phase_f_same_gpu_comparison_results.md) -- the real streaming-state/KV-cache paths don't have that O(context^2) buffer growth and shouldn't hit the same wall, so this flag lets long-context runs measure the paths that actually matter without the already-established-as-bad naive baseline blocking the whole sweep.")
+    parser.add_argument("--skip-kv-cache-decode-above", type=int, default=8192, help="Skip measure_bdh_decode_kv_cache above this context length (only takes effect when --skip-naive-replay is also set). Real, moving target, not a fixed architectural constant: the incremental KV-cache decode path's own WDDM paging stall was first reproduced at context=16384, then (in the same real investigation, a later run) reproduced at context=8192 -- apparently a process-level memory-residency interaction with the chunked-prefill measurements run earlier in the same process, not a hard property of this one context length. Default 8192 matches the most recent real reproduction (confirmed twice, including on this exact tracked script with no local modifications); override if your own run's threshold differs.")
     parser.add_argument("--decode-tokens", type=int, default=64)
     parser.add_argument("--prefill-chunk-length", type=int, default=1024, help="Maximum chunk passed to streaming prefill; bounds BDH/VB intra-chunk attention for contexts beyond 8192.")
     parser.add_argument("--prefill-repeats", type=int, default=5)
@@ -583,8 +584,8 @@ def main() -> None:
         bdh_decode_streaming["peak_memory_bytes"] = peak_memory_bytes(device)
 
         reset_peak_memory(device)
-        if args.skip_naive_replay and context_length >= 16384:
-            bdh_decode_kv_cache = {"skipped_reason": "known WDDM paging stall in incremental BDH KV-cache decode at context >= 16384; bounded streaming path is the load-bearing comparison"}
+        if args.skip_naive_replay and context_length >= args.skip_kv_cache_decode_above:
+            bdh_decode_kv_cache = {"skipped_reason": f"known WDDM paging stall in incremental BDH KV-cache decode at context >= {args.skip_kv_cache_decode_above} (real, reproduced threshold has moved between runs -- see --skip-kv-cache-decode-above's own help text); bounded streaming path is the load-bearing comparison"}
         else:
             bdh_decode_kv_cache = measure_bdh_decode_kv_cache(bdh_model, prompt, args.decode_tokens, device)
             bdh_decode_kv_cache["peak_memory_bytes"] = peak_memory_bytes(device)
