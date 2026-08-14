@@ -238,16 +238,43 @@ VB compression's memory/inference benefits (Phase B, this doc's
 crossover-context table) come with a real, consistent quality-per-step
 cost relative to exact BDH, not just a final-loss gap.
 
+## Real result: memory/retrieval tasks (passkey, reassignment) -- all three arms
+
+Real trained matched-Transformer checkpoint pulled from Windows (the
+true-final state, step 8139, independently verified by Windows against
+both candidates on disk before sending -- exact match to 1.741998, the
+best-checkpoint snapshot at 1.739472 was correctly NOT sent since the
+request asked for true-final specifically). Evaluated with the newly-built
+`--architecture transformer` support, 200 examples, same real-text
+methodology as the existing BDH/VB numbers
+(`docs/restart/hz0h_core1_quality_25m_results.md`):
+
+| | Exact BDH | HZ-Core-1/HZ-Core-2 (VB) | matched Transformer |
+|---|---|---|---|
+| Passkey, real context | 4.5% | 0.0% | 0.0% |
+| Passkey, zeroed/content-free context | 0.0% | 0.0% | 0.0% |
+| Reassignment, real context | 4.0% | 1.5% | 0.5% |
+| Reassignment, zeroed/content-free context | 0.0% | 0.0% | 0.0% |
+
+Consistent with the rest of this doc's quality story: the Transformer
+scores at or below VB on both tasks (tied at 0.0% on passkey; 0.5% vs
+1.5% on reassignment, both far below exact BDH's 4.0%). Real, if very
+thin, signal that its KV-cache context does carry SOME real
+information the content-free ablation lacks (0.5% > 0%, 1 correct
+example out of 200), but the absolute gap over the zeroed condition is
+the smallest of the three arms -- one flipped example out of 200 is
+close enough to the edge of measurement noise that this shouldn't be
+read as a confident "Transformer retrieval capability" claim, just as
+a real data point consistent with (not independently proving) the
+weaker overall real-text quality already established. All three arms'
+absolute numbers stay well below chance-level floors (12.5%/33% for
+8-way/3-way choice) at this light 25M-token budget, same caveat as the
+original BDH/VB result.
+
 ## What this does NOT establish yet (real, open gaps before Phase F is complete)
 
 - No code/math/reasoning/structured-data CE comparison -- only
   general real-text validation loss.
-- **Memory/retrieval task (passkey/reassignment) support for the
-  Transformer arm is now built** (`scripts/hz0h_core1_checkpoint_quality_eval.py`,
-  `--architecture transformer`, using the Transformer's real KV-cache as
-  its "state" -- a real subtlety caught and fixed along the way, see
-  that script's own commit) but not yet RUN against the real trained
-  matched-Transformer checkpoint (still need to pull it from Windows).
 - No inference measurement at context lengths beyond 2048 -- the real
   WDDM stall at 8192 was not worked around (disclosed above). The
   decode-throughput crossover WAS directly observed within 512-2048
