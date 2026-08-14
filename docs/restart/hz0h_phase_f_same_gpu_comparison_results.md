@@ -194,14 +194,60 @@ directly; `peak_mem_bytes` is real total device memory pressure,
 `state_bytes` isolates just the one tensor this whole comparison is
 about.
 
+## Real result: time-to-target-loss
+
+Real per-step validation trajectories pulled for all three arms (exact
+BDH and matched Transformer via a pure file transfer -- no new
+training; Windows independently double-checked the exact-BDH file
+against a similarly-named but numerically distinct compiled run before
+sending, confirmed the right one by matching `1.58203125` exactly). Wall-clock
+seconds to first cross each loss threshold:
+
+| threshold | exact BDH | HZ-Core-2 (VB D/4) | matched Transformer |
+|---|---|---|---|
+| 2.5 | 52.6s | 79.4s | **35.9s** |
+| 2.0 | 260.1s | 353.8s | **223.4s** |
+| 1.8 | 659.5s | 704.5s | **375.9s** |
+| 1.75 | 710.1s | 969.5s | **446.5s** |
+| 1.7 | 977.1s | 1,267.0s | never |
+| 1.65 | 1,277.4s | 1,971.2s | never |
+| 1.64 | 1,352.6s | 1,971.2s | never |
+| 1.63 | 1,427.7s | 2,465.2s | never |
+
+**Real, clean, complete answer to the open question this doc raised
+earlier**: BOTH things are true, at different thresholds. Down to
+~1.75, the Transformer reaches every target substantially faster in
+wall-clock (up to ~1.9x faster than VB, ~1.6x faster than exact BDH at
+the 1.8 threshold) -- its raw training speed genuinely does let it hit
+"easy" loss levels sooner. But the Transformer's final loss this run
+is 1.741998 and its trajectory never crosses 1.7 at any point -- past
+that threshold, BDH-family are the ONLY arms that ever get there, at
+any wall-clock cost, within this fixed 25M-token budget. Whether more
+tokens would eventually let the Transformer cross 1.7 is a real,
+different, unanswered question (not tested here -- this data only
+covers the fixed 25M-token trajectory each arm actually ran).
+
+Also real and worth noting: exact BDH consistently beats HZ-Core-2 (VB
+D/4) on wall-clock time-to-threshold at every level tested (e.g. 977.1s
+vs 1,267.0s at 1.7; 1,427.7s vs 2,465.2s at 1.63), despite the two
+arms' TOTAL training wall-clock being nearly identical (2,557.9s vs
+2,534.2s) -- exact BDH's per-step loss is systematically lower
+throughout training (not just at the final step), so it crosses every
+absolute threshold sooner even at a comparable per-step time cost. The
+VB compression's memory/inference benefits (Phase B, this doc's
+crossover-context table) come with a real, consistent quality-per-step
+cost relative to exact BDH, not just a final-loss gap.
+
 ## What this does NOT establish yet (real, open gaps before Phase F is complete)
 
 - No code/math/reasoning/structured-data CE comparison -- only
   general real-text validation loss.
-- No memory/retrieval task comparison (passkey/reassignment-style)
-  across all three arms -- only BDH/VB have been evaluated on these
-  this session (`docs/restart/hz0h_core1_quality_25m_results.md`), the
-  Transformer arm has not.
+- **Memory/retrieval task (passkey/reassignment) support for the
+  Transformer arm is now built** (`scripts/hz0h_core1_checkpoint_quality_eval.py`,
+  `--architecture transformer`, using the Transformer's real KV-cache as
+  its "state" -- a real subtlety caught and fixed along the way, see
+  that script's own commit) but not yet RUN against the real trained
+  matched-Transformer checkpoint (still need to pull it from Windows).
 - No inference measurement at context lengths beyond 2048 -- the real
   WDDM stall at 8192 was not worked around (disclosed above). The
   decode-throughput crossover WAS directly observed within 512-2048
