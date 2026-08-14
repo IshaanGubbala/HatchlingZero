@@ -1,4 +1,4 @@
-# HZ Next-Phase Plan Phase F: same-GPU comparison (partial) -- BDH-family wins decisively on quality, Transformer wins decisively on compute cost
+# HZ Next-Phase Plan Phase F: same-GPU comparison (closed) -- BDH-family wins on quality, Transformer wins on compute cost
 
 ## Scope, read this before the numbers
 
@@ -8,13 +8,11 @@ reasoning CE, structured-data CE, memory/retrieval tasks), training
 (time to target loss, wall-clock, tokens/sec, peak VRAM, joules/token),
 and inference (prefill throughput, decode throughput, latency/token,
 total RAM, state/KV memory, joules/generated token). **This result
-covers only real-text validation CE and the training-side metrics.**
-Code/math/reasoning/structured-data CE, memory/retrieval tasks,
-joules/token, and every inference-side metric are NOT yet measured for
-any of the three arms at this matched recipe. This is a real, solid
-partial slice, not the plan's own "decisive claim gate" in full --
-treat it as strong evidence on the two axes it covers, not a completed
-Phase F.
+covers real-text validation CE, code/math/reasoning CE, memory/retrieval
+probes, training cost, sampled training energy, and inference throughput,
+latency, and memory through 32768-token streaming contexts. Time-to-target-loss
+remains a separate open follow-up, and the ordinary BDH KV-cache path is
+explicitly unavailable above its reproducible WDDM stall threshold.
 
 ## Setup
 
@@ -495,9 +493,10 @@ training-side energy sampling, and bounded chunked streaming prefill. The
 local regression suite verifies BDH/VB chunk equivalence across uneven
 boundaries. The three matched 25M checkpoints are now verified on Windows;
 domain CE is now closed (see the "Real result: domain CE" section
-above) -- training joules remains the only unclosed measurement.
+above), and all three training-energy runs are now closed with
+`energy_available=true`.
 
-## What this does NOT establish yet (real, open gaps before Phase F is complete)
+## Remaining Limits And Follow-Ups
 
 - Domain CE (code/math-reasoning) is now closed -- see the "Real
   result: domain CE" section above.
@@ -516,7 +515,8 @@ above) -- training joules remains the only unclosed measurement.
   512/2048 are consistent with it but the specific absolute numbers at
   512/2048 haven't been re-measured).
 - Training energy is now measured for all three arms -- see the "Real
-  result: training-side energy" section above.
+  result: training-side energy" section above. It is sampled GPU power
+  integration, not a board energy-counter reading.
 - Time-to-target-loss (as opposed to loss-at-fixed-token-budget) not
   measured -- given the Transformer trains ~5.3x faster in wall-clock,
   it's a real open question whether it could reach BDH-family's final
