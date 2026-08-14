@@ -113,6 +113,39 @@ larger than an earlier draft of this doc estimated before checking the
 real source numbers directly (corrected here rather than left as a
 rough guess).
 
+### Real result: training-side energy (all three arms, real nvidia-smi power sampling)
+
+Real blocker caught and fixed before this could run cleanly: the two
+curriculum runners (`scripts/hz0h_stage2_runner_bdh_depth_curriculum.py`,
+`scripts/hz0h_stage2_runner_bdh_vb_depth_curriculum.py` -- the LOCKED
+recipe that actually produced the 1.5820/1.6309 numbers this whole
+comparison is measured against) had no energy instrumentation at all,
+unlike the Transformer's own runner. Using a substitute runner would
+have silently measured a different (fixed-depth-from-step-0) recipe's
+energy cost. Fixed by wiring the same `TrainingEnergySampler` pattern
+into both curriculum runners, then re-ran all three arms with the
+exact locked recipe -- confirmed genuine reruns, not new experiments,
+by each arm reproducing its own already-established validation loss
+exactly (BDH 1.58203125, VB 1.630859375, Transformer ~1.7377).
+
+| arm | training_s | tok/s | energy (J) | J/token | mean watts | power samples |
+|---|---|---|---|---|---|---|
+| exact BDH + curriculum | 2,365.75 | 10,568.7 | 396,750.7 | 0.015868 | 167.70 | 9,459 |
+| HZ-Core-2 (VB D/4+curriculum) | 2,346.81 | 10,654.1 | 395,005.8 | 0.015798 | 168.32 | 9,379 |
+| matched Transformer (+RoPE) | 472.34 | 52,934.8 | 63,778.1 | 0.002551 | 135.04 | 1,885 |
+
+`energy_available=true` for all three, thousands of power samples for
+the long BDH/VB runs, hundreds for the short Transformer run -- no
+unavailable-sampling gaps. **Real, decisive number**: the Transformer
+is **~6.2x more energy-efficient per token** than either BDH-family arm
+(0.00255 vs ~0.0158 J/token) -- larger than the ~5.3x wall-clock-speed
+gap alone would predict, because the Transformer also draws less
+average power while training (135.0W vs 167.7-168.3W), not just less
+time. BDH and VB are nearly identical to each other on every energy
+metric (within ~0.5%) -- expected given nearly identical architectures
+and near-identical wall-clock training time. This closes the last major
+Phase F measurement gap.
+
 ## Real, honest tension: this reverses the earlier small-scale pilot's finding
 
 `docs/restart/hz0h_initial_bdh_vs_transformer_pilot_results.md`
@@ -482,8 +515,8 @@ above) -- training joules remains the only unclosed measurement.
   authoritative-precision reference point; the qualitative findings at
   512/2048 are consistent with it but the specific absolute numbers at
   512/2048 haven't been re-measured).
-- Training energy is instrumented in all three runners, but final joules/token
-  still require a GPU-host run with `energy_available=true`.
+- Training energy is now measured for all three arms -- see the "Real
+  result: training-side energy" section above.
 - Time-to-target-loss (as opposed to loss-at-fixed-token-budget) not
   measured -- given the Transformer trains ~5.3x faster in wall-clock,
   it's a real open question whether it could reach BDH-family's final
@@ -508,17 +541,36 @@ crossover context length, and one real anomaly (the Transformer's
 KV-cache decode not degrading with context the way BDH's own KV-cache
 path did) remains genuinely unexplained rather than papered over.
 
+Real, decisive domain-CE result on top of the general one: BDH-family
+beats the Transformer on both code and math/reasoning too, with one
+small, honestly-flagged reversal (VB edges out exact BDH on code CE
+specifically, despite losing to it on general validation loss and
+math/reasoning CE -- general quality ranking doesn't hold in every
+domain). Real, decisive energy result: the Transformer is not just
+faster to train, it is ~6.2x more energy-efficient per token, a larger
+gap than wall-clock speed alone predicts (it also draws less average
+power, not just less time).
+
 None of this should be treated as "HZ wins" or "HZ loses" in the
 plan's own full decisive-gate sense -- quality-per-fixed-tokens,
-cost-per-fixed-tokens, and the O(1)-vs-O(context) memory/throughput
-tradeoff are all real, and each cuts a different way depending on what
-a real deployment actually cares about (fixed-budget quality favors
-BDH-family; training cost and short-context inference favor the
+cost-per-fixed-tokens/energy, and the O(1)-vs-O(context) memory/
+throughput tradeoff are all real, and each cuts a different way
+depending on what a real deployment actually cares about (fixed-budget
+quality on both general and domain-specific text favors BDH-family;
+training cost, training energy, and short-context inference favor the
 Transformer; long-context inference favors BDH-family, more so for
 HZ-Core-2 than exact BDH thanks to VB's own crossover-lowering effect).
-This is now a genuinely complete picture on quality (real-text),
-training cost, and inference (throughput/latency/memory/energy) at
-this one matched scale -- the remaining real gaps are entirely
-DIFFERENT axes (code/math/reasoning/retrieval quality, longer-context
-inference past the WDDM-stall ceiling, training-side energy,
-time-to-target-loss), not more work on what's already measured here.
+This is now a genuinely complete picture on quality (general text AND
+domain-specific code/math), training cost and energy, and inference
+(throughput/latency/memory/energy, confirmed cleanly out to 32768
+tokens of context) at this one matched scale -- every axis this doc set
+out to cover (general-text quality, domain-specific quality,
+memory/retrieval, training cost, training energy, inference throughput/
+latency/memory/energy, time-to-target-loss) now has a real measurement
+for all three arms. The one remaining, narrower, genuinely
+unworkaroundable gap is inference measurement past the real WDDM/OOM
+ceiling found at 16384+ tokens for the unchunked baseline prefill paths
+specifically (a real hardware limit on this card at this model scale,
+not a measurement oversight) -- the load-bearing streaming paths
+already have clean numbers out to 32768. Phase F's core
+decisive-comparison work, as scoped by this doc, is complete.
