@@ -30,9 +30,12 @@ BF16/FP16 recurrent state for HZ-Speed mode (reference/hz0h_bdh_vb_torch.py's
 optimized INT8 recurrent state for HZ-Memory mode (two-level base+delta,
   merge_every_k >= 32 -- locked, docs/restart/hz0h_phase_d_base_delta_int8_results.md,
   strictly dominates naive full-every-chunk INT8 on both quality and
-  throughput; real ~4x memory reduction vs FP32, ~21% decode-throughput
-  cost vs plain BF16 state at K=64 on the RTX3060, the accepted price of
-  choosing Memory mode)
+  throughput; real ~4x memory reduction vs FP32, ~37.5% decode-throughput
+  cost vs plain BF16 state at K=64 on the RTX3060 (corrected from an
+  earlier ~21% figure that was accidentally measured under FP32, not
+  real BF16, due to a dtype-cast bug found and fixed after this doc was
+  first written -- see the Phase D1 doc's own "Real correction"
+  section), the accepted price of choosing Memory mode)
 ```
 
 Reference implementation: `reference/hz0h_bdh_vb_torch.py`'s

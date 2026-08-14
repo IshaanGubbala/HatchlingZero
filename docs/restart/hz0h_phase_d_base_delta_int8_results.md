@@ -243,3 +243,42 @@ but **the specific magnitude numbers in the "Real GPU result" section
 above need re-verification at genuine BF16** before being cited as
 authoritative -- a real BF16 rerun has been dispatched to Windows;
 this doc will be updated with the corrected numbers once it returns.
+
+## Real BF16 rerun: relative conclusion holds, but the real magnitude is WORSE than the buggy FP32 numbers suggested, not better
+
+Real RTX3060 run, `--dtype bfloat16` explicit, same checkpoint, same
+K sweep:
+
+| arm | validation loss | sec/1000 tok | speed vs plain | speed vs full-INT8 |
+|---|---|---|---|---|
+| plain BF16 state | 1.40359375 | 0.4748 | 1.00x | -- |
+| full-INT8 (every chunk) | 1.40578125 | 0.7487 | 1.577x slower | -- |
+| base+delta K=8 | 1.40578125 | 0.8337 | 1.756x slower | 1.114x SLOWER than full-INT8 |
+| base+delta K=16 | 1.40406250 | 0.7306 | 1.539x slower | 0.976x (~2.4% faster) |
+| base+delta K=32 | 1.40437500 | 0.6786 | 1.429x slower | 0.906x (~9.4% faster) |
+| base+delta K=64 | 1.40343750 | 0.6528 | 1.375x slower | 0.872x (~12.8% faster) |
+
+**Relative conclusions hold under real precision**: base+delta still
+beats full-INT8 starting at K=16 (0.976 -> 0.906 -> 0.872 as K grows),
+K=8 is still the one real exception (1.114x slower than full-INT8, same
+zero-amortization-at-K=chunk-length pattern as before). Quality drift
+stayed genuinely tiny either way (all <0.0022 vs plain).
+
+**But the real, honest correction, worth stating plainly**: this is
+NOT simply "everything got faster by the same factor." Plain BF16 got
+almost 2x faster in absolute terms (0.4748 vs the old buggy FP32 run's
+0.8923 sec/1000tok) -- real tensor-core benefit for the unquantized
+path. The INT8 paths did NOT speed up proportionally as much, so
+RELATIVE to the new, correct, faster baseline, quantization overhead
+is now a LARGER fraction of runtime than the earlier (wrong) numbers
+suggested: full-INT8's speed-vs-plain ratio went from 1.392 (buggy
+FP32) to 1.577 (real BF16) -- worse, not better. Same direction at
+every K: base+delta's best case (K=64) is now 1.375x slower than plain
+(vs the earlier reported 1.214x). **The original "21.4% slower than
+BF16 at K=64" headline number understated the real cost** -- the real
+number is closer to 37.5% slower. The qualitative Memory-mode-vs-Speed-mode
+tradeoff framing still holds (base+delta remains the right choice
+within the INT8 family, and choosing Memory mode still means accepting
+a real throughput cost vs plain BF16) -- but the actual size of that
+accepted cost is larger than what was previously reported, a real,
+material correction, not a rounding difference.

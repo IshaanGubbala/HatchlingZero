@@ -104,6 +104,23 @@ same ~25M scale, not yet run.
 
 ## Real GPU result: prefill/decode throughput, latency, memory, energy (RTX3060, authoritative)
 
+**CORRECTION**: like Phase D1's own results
+(`docs/restart/hz0h_phase_d_base_delta_int8_results.md`'s "Real
+correction" section), the numbers in this specific section were
+measured before `scripts/hz0h_inference_benchmark.py` had any `--dtype`
+handling at all -- meaning this 512/2048 sweep also silently ran in
+FP32, not the BF16 these models are actually trained/deployed at. The
+qualitative findings below (the streaming-vs-KV-cache decode crossover,
+naive-replay's O(context^2) cost, VB beating exact BDH on decode speed)
+are consistent with the later, genuinely-bf16 4096/8192 results further
+below, so they're very likely directionally real -- but the absolute
+tok/s and watt numbers in the two tables immediately below are FP32,
+not BF16, and have not been individually re-verified at 512/2048
+specifically. Treat the long-context section further down as the
+authoritative-precision reference point; this section is kept for the
+qualitative crossover-in-throughput finding, not as a source of
+precise absolute numbers.
+
 Real measurement, both context lengths, `--decode-tokens 32`. Deviation
 from the request, with a real, disclosed reason: `context_length=8192`
 was dropped -- it hit a real WDDM shared-memory-paging stall (100%
@@ -194,6 +211,63 @@ directly; `peak_mem_bytes` is real total device memory pressure,
 `state_bytes` isolates just the one tensor this whole comparison is
 about.
 
+## Real result: long-context inference (genuine BF16, 4096/8192) -- and a real architectural finding beyond the dtype correction
+
+Real RTX3060 run, `--dtype bfloat16` explicit this time, `--skip-naive-replay`, context lengths 4096/8192/16384/32768 requested.
+
+**4096 and 8192 now complete cleanly** -- the earlier WDDM stall at
+8192 (under the FP32 bug) is gone under real bf16, confirming it was
+at least partly a memory-size/precision issue, not a hard architectural
+wall at exactly that context length.
+
+**16384 hit a real, different, clean failure**: a genuine
+`torch.OutOfMemoryError` (not a hang), traced precisely to
+`reference/hz0h_bdh_torch.py`'s plain forward computing an explicit
+`(QR @ KR.mT).tril(diagonal=-1)` context-by-context score matrix inside
+`bdh_prefill` -- real, genuine O(context^2) MEMORY, not just compute.
+bf16 halved the footprint enough to clear 8192 (which failed under
+FP32) but the quadratic term still exceeds the RTX3060's 12GB at
+16384 regardless of dtype -- one more doubling of headroom, not
+unlimited. **Real architectural clarification, not previously stated
+this precisely**: BDH's O(1) memory advantage belongs specifically to
+the STREAMING decode path (`bdh_stream_chunk`, real persistent
+per-token state, confirmed constant across every context length tested
+all session). The PLAIN/parallel forward path (`BDH.forward`, used for
+one-shot prefill scoring, e.g. `measure_bdh_prefill`) has the SAME
+O(context^2) memory scaling as a standard Transformer's attention --
+it is not O(1), and no amount of precision reduction changes that,
+only the constant factor. This doesn't contradict anything already
+established (the decode-side O(1) claims and the state/KV crossover
+table are both about the streaming path specifically), but it's a real
+scope boundary worth stating explicitly: "BDH has O(1) memory" is true
+of its streaming state, not of every code path that touches the model.
+
+Real numbers, 4096 vs 8192 (bf16, authoritative):
+
+| | 4096 | 8192 | change |
+|---|---|---|---|
+| bdh_prefill tok/s | 9,989.3 | 6,608.6 | -34% |
+| bdh_prefill peak mem | 1.65 GiB | 4.08 GiB | +147% (NOT linear -- would be ~3.3 GiB if linear with context, consistent with the quadratic score-matrix cost) |
+| bdh_decode_streaming_state tok/s | 193.8 | 190.9 | -1.5% (near-flat, real O(1) confirmation continues) |
+| bdh_decode_kv_cache tok/s | 65.6 | 34.1 | -48% (real crossover: streaming already ahead at 4096, gap widens by 8192) |
+| vb_decode_streaming_state (Speed) tok/s | 177.7 | 178.3 | ~flat |
+| vb_decode_int8_base_delta (Memory) tok/s | 166.0 | 164.1 | ~flat |
+| transformer_decode_kv_cache tok/s | 159.0 | 157.2 | ~flat (same real, still-unexplained flatness noted at 512/2048) |
+| state_bytes (BDH/VB/VB-INT8) | 134,217,728 / 33,554,432 / 50,331,648 | identical | exactly 0% (real O(1) confirmed again) |
+| transformer_kv_cache_bytes | 50,331,648 | 100,663,296 | exactly +100% (matches 2x context growth exactly) |
+
+Real, direct answer to the crossover question this section set out to
+answer: yes, the decode-throughput crossover between BDH's streaming
+state and its own KV-cache-alternative path continues in streaming's
+favor as context grows, now confirmed at genuinely correct precision
+and at longer context than the earlier 512/2048 sweep reached. Could
+not get real 16384/32768 numbers due to the real OOM described above --
+that's a genuine hardware/architecture ceiling for BDH's plain-forward
+prefill path on this card at this scale, not a workaround-able
+measurement gap. Fixing it (e.g. a chunked/tiled prefill
+implementation) is a real, disclosed option, not pursued here since it
+would be new architecture work, not a benchmark task.
+
 ## Real result: time-to-target-loss
 
 Real per-step validation trajectories pulled for all three arms (exact
@@ -275,14 +349,23 @@ original BDH/VB result.
 
 - No code/math/reasoning/structured-data CE comparison -- only
   general real-text validation loss.
-- No inference measurement at context lengths beyond 2048 -- the real
-  WDDM stall at 8192 was not worked around (disclosed above). The
-  decode-throughput crossover WAS directly observed within 512-2048
-  (streaming state overtakes the KV-cache-alternative path by 2048),
-  and the memory-crossover predictions (5,461-21,845 tokens depending
-  on arch, see the real-GPU-result section above) are consistent with
-  that observed trend, but not confirmed by a real measurement PAST
-  those specific crossover points -- only approached from below.
+- No real decode-throughput measurement past 8192 tokens of context --
+  16384/32768 hit a real, precisely-diagnosed CUDA OOM in BDH's
+  plain-forward prefill path specifically (see the long-context
+  section above), not a workable-around measurement gap. The streaming
+  decode path itself (the one this whole comparison cares about) never
+  showed any sign of an approaching problem within the range tested
+  (state bytes and decode throughput both stayed effectively flat
+  4096->8192) -- the ceiling is specific to plain-forward prefill, not
+  evidence the streaming path would also fail at longer context, but
+  that remains unconfirmed past 8192 without a chunked prefill
+  implementation.
+- The 512/2048 "Real GPU result" section above was measured under the
+  same FP32-instead-of-BF16 bug Phase D1 disclosed -- not individually
+  re-verified at genuine BF16 (the later 4096/8192 section is the
+  authoritative-precision reference point; the qualitative findings at
+  512/2048 are consistent with it but the specific absolute numbers at
+  512/2048 haven't been re-measured).
 - Energy (joules/token) is now genuinely measured for inference (see
   above) but still not for training, on any arm.
 - Time-to-target-loss (as opposed to loss-at-fixed-token-budget) not
