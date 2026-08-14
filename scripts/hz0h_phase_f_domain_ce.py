@@ -18,8 +18,8 @@ import torch.nn.functional as F
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from reference.hz0h_bdh_torch import BDH, BDHConfig
-from reference.hz0h_bdh_vb_torch import BDHVB, BDHVBConfig
+from reference.hz0h_bdh_torch import BDH, BDHConfig, bdh_stream_prefill_chunked
+from reference.hz0h_bdh_vb_torch import BDHVB, BDHVBConfig, bdh_vb_stream_prefill_chunked
 from reference.hz0a_matched_transformer import MatchedTransformerConfig, MatchedTransformerLM
 
 
@@ -71,7 +71,7 @@ def load_arm(name: str, checkpoint: Path, device: torch.device, dtype: torch.dty
 
 
 @torch.inference_mode()
-def evaluate(model, sequences: list[list[int]], *, batch_size: int, device: torch.device) -> dict:
+def evaluate(model, sequences: list[list[int]], *, batch_size: int, device: torch.device, prefill_chunk_length: int) -> dict:
     total_nll = 0.0
     total_tokens = 0
     started = time.perf_counter()
@@ -80,15 +80,20 @@ def evaluate(model, sequences: list[list[int]], *, batch_size: int, device: torc
         batch = sequences[offset:offset + batch_size]
         width = min(len(row) for row in batch)
         tokens = torch.tensor([row[:width] for row in batch], dtype=torch.long, device=device)
-        output = model(tokens)
-        logits = output[0] if isinstance(output, tuple) else output
+        if isinstance(model, BDH):
+            _, logits = bdh_stream_prefill_chunked(model, tokens, chunk_length=prefill_chunk_length)
+        elif isinstance(model, BDHVB):
+            _, logits = bdh_vb_stream_prefill_chunked(model, tokens, chunk_length=prefill_chunk_length)
+        else:
+            output = model(tokens)
+            logits = output[0] if isinstance(output, tuple) else output
         loss = F.cross_entropy(logits[:, :-1].float().reshape(-1, logits.shape[-1]), tokens[:, 1:].reshape(-1), reduction="sum")
         total_nll += float(loss)
         total_tokens += tokens.shape[0] * (width - 1)
     elapsed = max(time.perf_counter() - started, 1e-9)
     peak = torch.cuda.max_memory_allocated(device) if device.type == "cuda" else peak_before
     ce = total_nll / total_tokens
-    return {"tokens": total_tokens, "cross_entropy": ce, "perplexity": math.exp(min(ce, 80.0)), "seconds": elapsed, "tokens_per_second": total_tokens / elapsed, "peak_memory_bytes": peak, "finite": math.isfinite(ce)}
+    return {"tokens": total_tokens, "cross_entropy": ce, "perplexity": math.exp(min(ce, 80.0)), "seconds": elapsed, "tokens_per_second": total_tokens / elapsed, "peak_memory_bytes": peak, "finite": math.isfinite(ce), "bdh_prefill_path": "chunked_streaming" if isinstance(model, (BDH, BDHVB)) else "plain_forward"}
 
 
 def main() -> None:
@@ -100,6 +105,7 @@ def main() -> None:
     parser.add_argument("--math-data", type=Path, default=DOMAIN_FILES["math_reasoning"])
     parser.add_argument("--max-sequences", type=int, default=None)
     parser.add_argument("--batch-size", type=int, default=1)
+    parser.add_argument("--prefill-chunk-length", type=int, default=256, help="Chunk size for bounded BDH/VB streaming CE evaluation; Transformer CE remains plain forward.")
     parser.add_argument("--device", default="auto")
     parser.add_argument("--dtype", choices=("float32", "bfloat16", "float16"), default="float32")
     parser.add_argument("--out", type=Path, required=True)
@@ -119,7 +125,7 @@ def main() -> None:
         report["domains"][domain] = {"path": str(args.code_data if domain == "code" else args.math_data), "sequences": len(sequences), "sequence_length": len(sequences[0])}
     for name, checkpoint in checkpoints.items():
         model = load_arm(name, checkpoint, device, dtype)
-        report["arms"][name] = {"checkpoint": str(checkpoint), "domains": {domain: evaluate(model, sequences, batch_size=args.batch_size, device=device) for domain, sequences in domains.items()}}
+        report["arms"][name] = {"checkpoint": str(checkpoint), "domains": {domain: evaluate(model, sequences, batch_size=args.batch_size, device=device, prefill_chunk_length=args.prefill_chunk_length) for domain, sequences in domains.items()}}
         del model
         if device.type == "cuda":
             torch.cuda.empty_cache()
