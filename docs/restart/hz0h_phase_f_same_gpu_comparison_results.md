@@ -345,29 +345,31 @@ absolute numbers stay well below chance-level floors (12.5%/33% for
 8-way/3-way choice) at this light 25M-token budget, same caveat as the
 original BDH/VB result.
 
+## Gap-closure implementation (2026-08-14)
+
+The remaining measurement gaps now have reproducible implementations in
+`docs/restart/hz0h_phase_f_gap_closure.md`: domain CE evaluation,
+training-side energy sampling, and bounded chunked streaming prefill. The
+local regression suite verifies BDH/VB chunk equivalence across uneven
+boundaries. The three matched 25M checkpoint artifacts are not present in this
+checkout, so final domain CE and training joules are intentionally still
+pending a GPU-host run rather than being invented here.
+
 ## What this does NOT establish yet (real, open gaps before Phase F is complete)
 
 - No code/math/reasoning/structured-data CE comparison -- only
   general real-text validation loss.
-- No real decode-throughput measurement past 8192 tokens of context --
-  16384/32768 hit a real, precisely-diagnosed CUDA OOM in BDH's
-  plain-forward prefill path specifically (see the long-context
-  section above), not a workable-around measurement gap. The streaming
-  decode path itself (the one this whole comparison cares about) never
-  showed any sign of an approaching problem within the range tested
-  (state bytes and decode throughput both stayed effectively flat
-  4096->8192) -- the ceiling is specific to plain-forward prefill, not
-  evidence the streaming path would also fail at longer context, but
-  that remains unconfirmed past 8192 without a chunked prefill
-  implementation.
+- No real decode-throughput measurement past 8192 tokens has been claimed
+  yet. The benchmark now has a bounded chunked-prefill path; 16K and 32K must
+  still complete on the RTX3060 before this gate is marked measured.
 - The 512/2048 "Real GPU result" section above was measured under the
   same FP32-instead-of-BF16 bug Phase D1 disclosed -- not individually
   re-verified at genuine BF16 (the later 4096/8192 section is the
   authoritative-precision reference point; the qualitative findings at
   512/2048 are consistent with it but the specific absolute numbers at
   512/2048 haven't been re-measured).
-- Energy (joules/token) is now genuinely measured for inference (see
-  above) but still not for training, on any arm.
+- Training energy is instrumented in all three runners, but final joules/token
+  still require a GPU-host run with `energy_available=true`.
 - Time-to-target-loss (as opposed to loss-at-fixed-token-budget) not
   measured -- given the Transformer trains ~5.3x faster in wall-clock,
   it's a real open question whether it could reach BDH-family's final

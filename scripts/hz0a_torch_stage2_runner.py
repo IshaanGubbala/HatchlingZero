@@ -77,6 +77,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from reference.hz0a_torch_model import HZ0AConfig, HZ0AModel
 from reference.hz0a_matched_transformer import MatchedTransformerConfig, MatchedTransformerLM, compute_activation_diagnostics
+from reference.hz0h_energy import TrainingEnergySampler
 
 
 def read_batch(handle, batch_size: int, sequence_length: int, device, epoch_counter: list[int] | None = None) -> torch.Tensor:
@@ -343,6 +344,8 @@ def main() -> None:
 
     last_lr = current_lr(step)
     started = time.perf_counter()
+    energy_sampler = TrainingEnergySampler()
+    energy_sampler.start()
     epoch_counter = [epoch_or_data_pass]
 
     train_step_fn = model
@@ -546,6 +549,7 @@ def main() -> None:
         "training_seconds": time.perf_counter() - started, "tokens_per_second": tokens_seen / max(time.perf_counter() - started, 1e-9),
         "peak_memory_bytes": peak_memory_bytes(device),
     }
+    report.update(energy_sampler.stop(tokens=tokens_seen))
     (args.run_dir / "torch_stage2.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(json.dumps(report, indent=2))
 

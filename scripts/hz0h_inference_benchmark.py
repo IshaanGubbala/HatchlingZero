@@ -57,11 +57,12 @@ import torch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from reference.hz0a_matched_transformer import MatchedTransformerConfig, MatchedTransformerLM
-from reference.hz0h_bdh_torch import BDH, BDHConfig, bdh_kv_cache_step, bdh_stream_chunk, init_bdh_states, new_bdh_kv_cache
+from reference.hz0h_bdh_torch import BDH, BDHConfig, bdh_kv_cache_step, bdh_stream_chunk, bdh_stream_prefill_chunked, init_bdh_states, new_bdh_kv_cache
 from reference.hz0h_bdh_vb_torch import (
     BDHVB,
     BDHVBConfig,
     bdh_vb_stream_chunk,
+    bdh_vb_stream_prefill_chunked,
     bdh_vb_stream_chunk_int8_base_delta_state,
     init_bdh_vb_states,
     init_bdh_vb_states_int8_base_delta,
@@ -155,7 +156,7 @@ def measure_bdh_decode_naive(model: BDH, prompt: torch.Tensor, max_new_tokens: i
     return {"tokens_per_second": max_new_tokens / elapsed, "elapsed_seconds": elapsed, "mean_watts": sampler.mean_watts()}
 
 
-def measure_bdh_decode_streaming(model: BDH, prompt: torch.Tensor, max_new_tokens: int, device: torch.device) -> dict:
+def measure_bdh_decode_streaming(model: BDH, prompt: torch.Tensor, max_new_tokens: int, device: torch.device, prefill_chunk_length: int) -> dict:
     """The real O(1)-state decode path (bdh_stream_chunk), not the naive
     full-replay one. Prefill (processing the prompt into the initial
     state) happens ONCE, OUTSIDE the timed region -- a real bug in an
@@ -169,7 +170,7 @@ def measure_bdh_decode_streaming(model: BDH, prompt: torch.Tensor, max_new_token
     with torch.no_grad():
         def prefill() -> tuple[list[torch.Tensor], torch.Tensor]:
             states = init_bdh_states(model, prompt.shape[0], device=device)
-            states, logits = bdh_stream_chunk(model, states, prompt, start_position=0)
+            states, logits = bdh_stream_prefill_chunked(model, prompt, chunk_length=prefill_chunk_length, states=states)
             token = torch.argmax(logits[:, -1, :], dim=-1, keepdim=True)
             return states, token
 
@@ -249,7 +250,7 @@ def measure_vb_prefill(model: BDHVB, prompt: torch.Tensor, repeats: int, device:
     return {"tokens_per_second": tokens / elapsed, "elapsed_seconds": elapsed, "mean_watts": sampler.mean_watts()}
 
 
-def measure_vb_decode_streaming(model: BDHVB, prompt: torch.Tensor, max_new_tokens: int, device: torch.device) -> dict:
+def measure_vb_decode_streaming(model: BDHVB, prompt: torch.Tensor, max_new_tokens: int, device: torch.device, prefill_chunk_length: int) -> dict:
     """HZ-Core-2's HZ-Speed mode: plain BF16/FP32 recurrent state
     (bdh_vb_stream_chunk), same real O(1)-per-token streaming mechanism
     as measure_bdh_decode_streaming, just with the value-bottleneck-
@@ -258,7 +259,7 @@ def measure_vb_decode_streaming(model: BDHVB, prompt: torch.Tensor, max_new_toke
     with torch.no_grad():
         def prefill() -> tuple[list[torch.Tensor], torch.Tensor]:
             states = init_bdh_vb_states(model, prompt.shape[0], device=device)
-            states, logits = bdh_vb_stream_chunk(model, states, prompt, start_position=0)
+            states, logits = bdh_vb_stream_prefill_chunked(model, prompt, chunk_length=prefill_chunk_length, states=states)
             token = torch.argmax(logits[:, -1, :], dim=-1, keepdim=True)
             return states, token
 
@@ -284,7 +285,7 @@ def measure_vb_decode_streaming(model: BDHVB, prompt: torch.Tensor, max_new_toke
     return {"tokens_per_second": max_new_tokens / elapsed, "elapsed_seconds": elapsed, "mean_watts": sampler.mean_watts()}
 
 
-def measure_vb_decode_int8_base_delta(model: BDHVB, prompt: torch.Tensor, max_new_tokens: int, device: torch.device, merge_every_k: int) -> dict:
+def measure_vb_decode_int8_base_delta(model: BDHVB, prompt: torch.Tensor, max_new_tokens: int, device: torch.device, merge_every_k: int, prefill_chunk_length: int) -> dict:
     """HZ-Core-2's HZ-Memory mode: two-level base+delta INT8 recurrent
     state (bdh_vb_stream_chunk_int8_base_delta_state), locked in
     docs/restart/hz0h_phase_d_base_delta_int8_results.md at
@@ -297,7 +298,9 @@ def measure_vb_decode_int8_base_delta(model: BDHVB, prompt: torch.Tensor, max_ne
     with torch.no_grad():
         def prefill() -> tuple[list[dict], torch.Tensor]:
             states = init_bdh_vb_states_int8_base_delta(model, prompt.shape[0], device=device)
-            states, logits = bdh_vb_stream_chunk_int8_base_delta_state(model, states, prompt, start_position=0, merge_every_k=merge_every_k)
+            logits = None
+            for offset in range(0, prompt.shape[1], prefill_chunk_length):
+                states, logits = bdh_vb_stream_chunk_int8_base_delta_state(model, states, prompt[:, offset:offset + prefill_chunk_length], start_position=offset, merge_every_k=merge_every_k)
             token = torch.argmax(logits[:, -1, :], dim=-1, keepdim=True)
             return states, token
 
@@ -519,6 +522,7 @@ def main() -> None:
     parser.add_argument("--context-lengths", type=str, default="128,512,2048")
     parser.add_argument("--skip-naive-replay", action="store_true", help="Skip the O(context^2) naive-replay decode measurements (BDH and Transformer). Real, disclosed reason to use this: naive replay's own replay buffer growth hit a real WDDM shared-memory-paging stall at context_length=8192 on the RTX3060 (docs/restart/hz0h_phase_f_same_gpu_comparison_results.md) -- the real streaming-state/KV-cache paths don't have that O(context^2) buffer growth and shouldn't hit the same wall, so this flag lets long-context runs measure the paths that actually matter without the already-established-as-bad naive baseline blocking the whole sweep.")
     parser.add_argument("--decode-tokens", type=int, default=64)
+    parser.add_argument("--prefill-chunk-length", type=int, default=1024, help="Maximum chunk passed to streaming prefill; bounds BDH/VB intra-chunk attention for contexts beyond 8192.")
     parser.add_argument("--prefill-repeats", type=int, default=5)
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--dtype", choices=("float32", "float16", "bfloat16"), default="bfloat16", help="Real, previously-missing gap: every prior version of this script defaulted to float32 (PyTorch's own default), unlike every training runner in this project which uses bfloat16 on CUDA -- meaning every inference number measured before this flag existed was FP32, not representative of real deployment precision, and used roughly 2x the memory bf16 would (a real, disclosed factor in the WDDM long-context stall investigation, docs/restart/hz0h_phase_f_same_gpu_comparison_results.md). Defaults to bfloat16 now to match the rest of the project; pass --dtype float32 to reproduce the old (undocumented-as-such) behavior.")
@@ -575,7 +579,7 @@ def main() -> None:
             bdh_decode_naive["peak_memory_bytes"] = peak_memory_bytes(device)
 
         reset_peak_memory(device)
-        bdh_decode_streaming = measure_bdh_decode_streaming(bdh_model, prompt, args.decode_tokens, device)
+        bdh_decode_streaming = measure_bdh_decode_streaming(bdh_model, prompt, args.decode_tokens, device, args.prefill_chunk_length)
         bdh_decode_streaming["peak_memory_bytes"] = peak_memory_bytes(device)
 
         reset_peak_memory(device)
@@ -587,11 +591,11 @@ def main() -> None:
         vb_prefill["peak_memory_bytes"] = peak_memory_bytes(device)
 
         reset_peak_memory(device)
-        vb_decode_streaming = measure_vb_decode_streaming(vb_model, prompt, args.decode_tokens, device)
+        vb_decode_streaming = measure_vb_decode_streaming(vb_model, prompt, args.decode_tokens, device, args.prefill_chunk_length)
         vb_decode_streaming["peak_memory_bytes"] = peak_memory_bytes(device)
 
         reset_peak_memory(device)
-        vb_decode_int8_base_delta = measure_vb_decode_int8_base_delta(vb_model, prompt, args.decode_tokens, device, args.merge_every_k)
+        vb_decode_int8_base_delta = measure_vb_decode_int8_base_delta(vb_model, prompt, args.decode_tokens, device, args.merge_every_k, args.prefill_chunk_length)
         vb_decode_int8_base_delta["peak_memory_bytes"] = peak_memory_bytes(device)
 
         reset_peak_memory(device)

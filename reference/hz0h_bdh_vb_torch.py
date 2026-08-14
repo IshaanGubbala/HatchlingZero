@@ -197,6 +197,31 @@ def bdh_vb_stream_chunk(
     return new_states, logits
 
 
+@torch.no_grad()
+def bdh_vb_stream_prefill_chunked(
+    model: BDHVB,
+    idx: torch.Tensor,
+    *,
+    chunk_length: int,
+    states: list[torch.Tensor] | None = None,
+    start_position: int = 0,
+) -> tuple[list[torch.Tensor], torch.Tensor]:
+    """Bounded-memory VB prefill; see ``bdh_stream_prefill_chunked``."""
+    if idx.ndim != 2 or idx.shape[1] == 0:
+        raise ValueError("idx must have shape (batch, non-empty sequence)")
+    if chunk_length < 1:
+        raise ValueError("chunk_length must be positive")
+    running_states = states if states is not None else init_bdh_vb_states(model, idx.shape[0], idx.device, model.encoder.dtype)
+    logits_parts = []
+    for offset in range(0, idx.shape[1], chunk_length):
+        chunk = idx[:, offset:offset + chunk_length]
+        running_states, logits = bdh_vb_stream_chunk(
+            model, running_states, chunk, start_position=start_position + offset
+        )
+        logits_parts.append(logits)
+    return running_states, torch.cat(logits_parts, dim=1)
+
+
 # --- Phase 2R-E: combine 2R-B (value bottleneck) with Phase 3's INT8 ------
 # state quantization (docs/restart/hz0h_phase3_state_quantization_results.md)
 # -- both already independently validated (0% measured degradation each),
