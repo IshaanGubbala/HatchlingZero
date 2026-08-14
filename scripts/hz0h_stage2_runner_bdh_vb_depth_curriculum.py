@@ -41,6 +41,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from reference.hz0h_bdh_train_torch import build_optimizer, shifted_target_batch
 from reference.hz0h_bdh_vb_torch import BDHVB, BDHVBConfig
 from reference.hz0h_bdh_vb_variable_depth_torch import bdh_vb_variable_depth_forward
+from reference.hz0h_energy import TrainingEnergySampler
 
 
 def parse_curriculum(spec: str, target_tokens: int) -> list[tuple[int, int]]:
@@ -258,6 +259,8 @@ def main() -> None:
 
     last_lr = current_lr(step)
     started = time.perf_counter()
+    energy_sampler = TrainingEnergySampler()
+    energy_sampler.start()
     epoch_counter = [epoch_or_data_pass]
 
     with args.data.open() as train, args.validation_data.open() as validation:
@@ -333,6 +336,7 @@ def main() -> None:
         "training_seconds": time.perf_counter() - started, "tokens_per_second": tokens_seen / max(time.perf_counter() - started, 1e-9),
         "peak_memory_bytes": peak_memory_bytes(device),
     }
+    report.update(energy_sampler.stop(tokens=tokens_seen))
     (args.run_dir / "bdh_vb_depth_curriculum_stage2.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(json.dumps(report, indent=2))
 
