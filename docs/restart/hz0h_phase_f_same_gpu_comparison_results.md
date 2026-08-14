@@ -409,30 +409,24 @@ The remaining measurement gaps now have reproducible implementations in
 `docs/restart/hz0h_phase_f_gap_closure.md`: domain CE evaluation,
 training-side energy sampling, and bounded chunked streaming prefill. The
 local regression suite verifies BDH/VB chunk equivalence across uneven
-boundaries. The three matched 25M checkpoint artifacts are not present in this
-checkout, so final domain CE and training joules are intentionally still
-pending a GPU-host run rather than being invented here.
+boundaries. The three matched 25M checkpoints are now verified on Windows;
+domain CE and training joules remain the only unclosed measurements.
 
 ## What this does NOT establish yet (real, open gaps before Phase F is complete)
 
-- No code/math/reasoning/structured-data CE comparison yet. The
-  infrastructure exists (`scripts/hz0h_phase_f_domain_ce.py`) but is
-  genuinely blocked -- `data/packed/external/code_validation.jsonl` and
-  `.../mathematical_and_structured_validation.jsonl` don't exist
-  anywhere on the dispatch machine (confirmed via `ls`, not a missing
-  single file). Needs the data transferred or its generation recipe
-  before this gate can close -- real, disclosed, not worked around with
-  synthetic data.
-- **Real decode-throughput past 8192 tokens is now measured for the
-  streaming paths that matter** (the "Update" above: 8192/16384/32768,
-  O(1) crossover confirmed cleanly). Two real, narrower gaps remain,
-  both precisely diagnosed: the unchunked `bdh_prefill`/`vb_prefill`
-  baseline measurements still OOM at 16384+ (real, structural, the
-  `--prefill-chunk-length` flag was never meant to fix the standalone
-  one-shot baseline, only the streaming paths' internal prefill), and
-  `bdh_decode_kv_cache` (the non-streaming alternative decode path)
-  hangs rather than erroring at 16384+, so it has no real
-  tokens_per_second number past 8192 on this hardware.
+- No code/math/reasoning CE comparison yet. The first transferred files were
+  correctly rejected because they were 24,576-vocabulary tokenizer IDs, not
+  bytes. The raw source corpora are now deterministically repacked with
+  `scripts/hz0h_pack_byte_corpus.py` into unique Pi-outbox files whose IDs are
+  verified in `[0,255]`; Windows is rerunning this gate against those files.
+- **Real decode-throughput past 8192 tokens is measured for the streaming
+  paths that matter**: BDH is 188.7 -> 191.3 -> 188.3 tok/s and VB speed
+  mode is 167.0 -> 168.7 -> 174.3 tok/s at 8192/16384/32768, while
+  Transformer KV-cache decode degrades 157.1 -> 102.6 -> 56.9 tok/s.
+  The old report's unchunked BDH/VB prefill OOM and non-streaming BDH
+  KV-cache WDDM stall are explicit diagnostic outcomes, not silently treated
+  as streaming failures. Commit `13fc7ce` now measures bounded BDH/VB
+  prefill and records the known KV-cache skip instead of hanging.
 - The 512/2048 "Real GPU result" section above was measured under the
   same FP32-instead-of-BF16 bug Phase D1 disclosed -- not individually
   re-verified at genuine BF16 (the later 4096/8192 section is the
