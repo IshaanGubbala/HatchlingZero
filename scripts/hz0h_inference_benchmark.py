@@ -58,6 +58,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from reference.hz0a_matched_transformer import MatchedTransformerConfig, MatchedTransformerLM
 from reference.hz0h_bdh_torch import BDH, BDHConfig, bdh_kv_cache_step, bdh_stream_chunk, init_bdh_states, new_bdh_kv_cache
+from reference.hz0h_bdh_vb_torch import (
+    BDHVB,
+    BDHVBConfig,
+    bdh_vb_stream_chunk,
+    bdh_vb_stream_chunk_int8_base_delta_state,
+    init_bdh_vb_states,
+    init_bdh_vb_states_int8_base_delta,
+)
 
 
 def resolve_device(name: str) -> torch.device:
@@ -226,6 +234,95 @@ def measure_bdh_decode_kv_cache(model: BDH, prompt: torch.Tensor, max_new_tokens
     return {"tokens_per_second": max_new_tokens / elapsed, "elapsed_seconds": elapsed, "mean_watts": sampler.mean_watts()}
 
 
+def measure_vb_prefill(model: BDHVB, prompt: torch.Tensor, repeats: int, device: torch.device) -> dict:
+    with torch.no_grad():
+        _sync(device)
+        model(prompt)  # warmup
+        _sync(device)
+        with _PowerSampler(device) as sampler:
+            started = time.perf_counter()
+            for _ in range(repeats):
+                model(prompt)
+            _sync(device)
+            elapsed = time.perf_counter() - started
+    tokens = prompt.shape[1] * repeats
+    return {"tokens_per_second": tokens / elapsed, "elapsed_seconds": elapsed, "mean_watts": sampler.mean_watts()}
+
+
+def measure_vb_decode_streaming(model: BDHVB, prompt: torch.Tensor, max_new_tokens: int, device: torch.device) -> dict:
+    """HZ-Core-2's HZ-Speed mode: plain BF16/FP32 recurrent state
+    (bdh_vb_stream_chunk), same real O(1)-per-token streaming mechanism
+    as measure_bdh_decode_streaming, just with the value-bottleneck-
+    compressed state. Same prefill-outside-timed-region discipline as
+    every other decode measurement in this file."""
+    with torch.no_grad():
+        def prefill() -> tuple[list[torch.Tensor], torch.Tensor]:
+            states = init_bdh_vb_states(model, prompt.shape[0], device=device)
+            states, logits = bdh_vb_stream_chunk(model, states, prompt, start_position=0)
+            token = torch.argmax(logits[:, -1, :], dim=-1, keepdim=True)
+            return states, token
+
+        def decode(states: list[torch.Tensor], token: torch.Tensor, n_tokens: int) -> None:
+            position = prompt.shape[1]
+            for _ in range(n_tokens):
+                states, logits = bdh_vb_stream_chunk(model, states, token, start_position=position)
+                token = torch.argmax(logits[:, -1, :], dim=-1, keepdim=True)
+                position += 1
+
+        _sync(device)
+        states, token = prefill()
+        decode(states, token, 4)  # warmup
+        _sync(device)
+
+        states, token = prefill()
+        _sync(device)
+        with _PowerSampler(device) as sampler:
+            started = time.perf_counter()
+            decode(states, token, max_new_tokens)
+            _sync(device)
+            elapsed = time.perf_counter() - started
+    return {"tokens_per_second": max_new_tokens / elapsed, "elapsed_seconds": elapsed, "mean_watts": sampler.mean_watts()}
+
+
+def measure_vb_decode_int8_base_delta(model: BDHVB, prompt: torch.Tensor, max_new_tokens: int, device: torch.device, merge_every_k: int) -> dict:
+    """HZ-Core-2's HZ-Memory mode: two-level base+delta INT8 recurrent
+    state (bdh_vb_stream_chunk_int8_base_delta_state), locked in
+    docs/restart/hz0h_phase_d_base_delta_int8_results.md at
+    merge_every_k>=32. Same real O(1)-per-token streaming shape as the
+    plain-state path, with the state itself compressed 4x (INT8 base)
+    at a real, previously-measured decode-throughput cost relative to
+    the plain-state path (~21% slower at K=64 on the RTX3060) -- this
+    function measures that same tradeoff at whatever context length/
+    scale this benchmark run uses, not a re-derivation of that number."""
+    with torch.no_grad():
+        def prefill() -> tuple[list[dict], torch.Tensor]:
+            states = init_bdh_vb_states_int8_base_delta(model, prompt.shape[0], device=device)
+            states, logits = bdh_vb_stream_chunk_int8_base_delta_state(model, states, prompt, start_position=0, merge_every_k=merge_every_k)
+            token = torch.argmax(logits[:, -1, :], dim=-1, keepdim=True)
+            return states, token
+
+        def decode(states: list[dict], token: torch.Tensor, n_tokens: int) -> None:
+            position = prompt.shape[1]
+            for _ in range(n_tokens):
+                states, logits = bdh_vb_stream_chunk_int8_base_delta_state(model, states, token, start_position=position, merge_every_k=merge_every_k)
+                token = torch.argmax(logits[:, -1, :], dim=-1, keepdim=True)
+                position += 1
+
+        _sync(device)
+        states, token = prefill()
+        decode(states, token, 4)  # warmup
+        _sync(device)
+
+        states, token = prefill()
+        _sync(device)
+        with _PowerSampler(device) as sampler:
+            started = time.perf_counter()
+            decode(states, token, max_new_tokens)
+            _sync(device)
+            elapsed = time.perf_counter() - started
+    return {"tokens_per_second": max_new_tokens / elapsed, "elapsed_seconds": elapsed, "mean_watts": sampler.mean_watts()}
+
+
 def measure_transformer_prefill(model: MatchedTransformerLM, prompt: torch.Tensor, repeats: int, device: torch.device) -> dict:
     with torch.no_grad():
         _sync(device)
@@ -334,6 +431,56 @@ def reset_peak_memory(device: torch.device) -> None:
         _mps_peak_bytes[0] = 0
 
 
+def compute_state_bytes(*, batch_size: int, n_layer: int, n_head: int, N: int, n_embd: int, context_length: int, d_state: int | None, head_dim: int, kv_dtype_bytes: int = 2, state_dtype_bytes: int = 4) -> dict:
+    """Real, analytic (not measured) byte counts for each arch's
+    persistent per-token state, at a given context length -- the
+    clearest direct demonstration of this plan's core architectural
+    claim: BDH/VB state is O(1) in context length (shape doesn't
+    depend on context_length at all), a Transformer's KV cache is
+    O(context) (grows linearly with every token generated). Real
+    numbers, not a peak-allocator sample that also includes transient
+    compute buffers -- this isolates just the persistent state tensor
+    itself.
+
+    bdh_state_bytes: shape (B, n_head, N, n_embd) per
+    reference/hz0h_bdh_torch.py's init_bdh_states -- the state's last
+    dimension is the FULL n_embd, not head_dim (real, easy mistake to
+    make: this is exactly what the Value Bottleneck project exists to
+    shrink -- caught before trusting an earlier draft of this function
+    that used head_dim here). Independent of context_length by
+    construction.
+    vb_state_bytes: shape (B, n_head, N, d_state) per
+    reference/hz0h_bdh_vb_torch.py's init_bdh_vb_states -- same shape,
+    last dim shrunk to d_state (< n_embd). Also independent of
+    context_length.
+    vb_int8_base_delta_state_bytes: base (1 byte/element, INT8) + delta
+    (state_dtype_bytes/element, full precision) -- real total for the
+    two-level design, not just the INT8 base alone.
+    transformer_kv_cache_bytes: 2 (K and V) x n_layer x B x n_head x
+    context_length x head_dim x kv_dtype_bytes -- head_dim here IS the
+    right dimension (standard multi-head K/V shape), and this term
+    genuinely scales with context_length, unlike the other three."""
+    bdh_state_elements = n_layer * batch_size * n_head * N * n_embd
+    bdh_state_bytes = bdh_state_elements * state_dtype_bytes
+
+    vb_state_bytes = None
+    vb_int8_base_delta_state_bytes = None
+    if d_state is not None:
+        vb_state_elements = n_layer * batch_size * n_head * N * d_state
+        vb_state_bytes = vb_state_elements * state_dtype_bytes
+        vb_int8_base_delta_state_bytes = vb_state_elements * 1 + vb_state_elements * state_dtype_bytes  # base (int8) + delta (full precision)
+
+    transformer_kv_cache_bytes = 2 * n_layer * batch_size * n_head * context_length * head_dim * kv_dtype_bytes
+
+    return {
+        "context_length": context_length,
+        "bdh_state_bytes": bdh_state_bytes,
+        "vb_state_bytes": vb_state_bytes,
+        "vb_int8_base_delta_state_bytes": vb_int8_base_delta_state_bytes,
+        "transformer_kv_cache_bytes": transformer_kv_cache_bytes,
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--vocab-size", type=int, default=256)
@@ -342,6 +489,8 @@ def main() -> None:
     parser.add_argument("--n-head", type=int, default=4)
     parser.add_argument("--mlp-internal-dim-multiplier", type=int, default=24)
     parser.add_argument("--d-ff", type=int, default=683)
+    parser.add_argument("--d-state-divisor", type=int, default=4, help="HZ-Core-2's VB d_state = n_embd // this. Default 4 matches the locked Pareto choice, docs/restart/hz0h_phase_b_vb_sweep_results.md.")
+    parser.add_argument("--merge-every-k", type=int, default=32, help="HZ-Memory mode's base+delta INT8 state merge interval. Default 32 matches the locked recommendation, docs/restart/hz0h_phase_d_base_delta_int8_results.md.")
     parser.add_argument("--context-lengths", type=str, default="128,512,2048")
     parser.add_argument("--decode-tokens", type=int, default=64)
     parser.add_argument("--prefill-repeats", type=int, default=5)
@@ -358,15 +507,25 @@ def main() -> None:
     bdh_model.attn.freqs = bdh_model.attn.freqs.to(torch.float32)
     bdh_model.eval()
 
+    d_state = max(1, args.n_embd // args.d_state_divisor)
+    vb_config = BDHVBConfig(n_layer=args.n_layer, n_embd=args.n_embd, n_head=args.n_head, mlp_internal_dim_multiplier=args.mlp_internal_dim_multiplier, vocab_size=args.vocab_size, dropout=0.0, d_state=d_state)
+    vb_model = BDHVB(vb_config).to(device)
+    vb_model.attn.freqs = vb_model.attn.freqs.to(torch.float32)
+    vb_model.eval()
+
     transformer_config = MatchedTransformerConfig({"vocab_size": args.vocab_size, "d_model": args.n_embd, "num_layers": args.n_layer, "num_heads": args.n_head, "head_dim": args.n_embd // args.n_head, "d_ff": args.d_ff, "use_rope": True})
     transformer_model = MatchedTransformerLM(transformer_config).to(device)
     transformer_model.eval()
 
     bdh_params = sum(p.numel() for p in bdh_model.parameters())
+    vb_params = sum(p.numel() for p in vb_model.parameters())
     transformer_params = sum(p.numel() for p in transformer_model.parameters())
 
+    N = args.n_embd * args.mlp_internal_dim_multiplier // args.n_head
+
     results: dict = {
-        "device": str(device), "bdh_parameter_count": bdh_params, "transformer_parameter_count": transformer_params,
+        "device": str(device), "bdh_parameter_count": bdh_params, "vb_parameter_count": vb_params, "transformer_parameter_count": transformer_params,
+        "vb_d_state": d_state, "vb_merge_every_k": args.merge_every_k,
         "decode_tokens": args.decode_tokens, "prefill_repeats": args.prefill_repeats, "seed": args.seed,
         "by_context_length": {},
     }
@@ -391,6 +550,18 @@ def main() -> None:
         bdh_decode_kv_cache["peak_memory_bytes"] = peak_memory_bytes(device)
 
         reset_peak_memory(device)
+        vb_prefill = measure_vb_prefill(vb_model, prompt, args.prefill_repeats, device)
+        vb_prefill["peak_memory_bytes"] = peak_memory_bytes(device)
+
+        reset_peak_memory(device)
+        vb_decode_streaming = measure_vb_decode_streaming(vb_model, prompt, args.decode_tokens, device)
+        vb_decode_streaming["peak_memory_bytes"] = peak_memory_bytes(device)
+
+        reset_peak_memory(device)
+        vb_decode_int8_base_delta = measure_vb_decode_int8_base_delta(vb_model, prompt, args.decode_tokens, device, args.merge_every_k)
+        vb_decode_int8_base_delta["peak_memory_bytes"] = peak_memory_bytes(device)
+
+        reset_peak_memory(device)
         transformer_prefill = measure_transformer_prefill(transformer_model, prompt, args.prefill_repeats, device)
         transformer_prefill["peak_memory_bytes"] = peak_memory_bytes(device)
 
@@ -402,14 +573,23 @@ def main() -> None:
         transformer_decode_kv_cache = measure_transformer_decode_kv_cache(transformer_model, prompt, args.decode_tokens, device)
         transformer_decode_kv_cache["peak_memory_bytes"] = peak_memory_bytes(device)
 
+        state_bytes = compute_state_bytes(
+            batch_size=1, n_layer=args.n_layer, n_head=args.n_head, N=N, n_embd=args.n_embd,
+            context_length=context_length, d_state=d_state, head_dim=args.n_embd // args.n_head,
+        )
+
         results["by_context_length"][context_length] = {
             "bdh_prefill": bdh_prefill,
             "bdh_decode_naive_replay": bdh_decode_naive,
             "bdh_decode_streaming_state": bdh_decode_streaming,
             "bdh_decode_kv_cache": bdh_decode_kv_cache,
+            "vb_prefill": vb_prefill,
+            "vb_decode_streaming_state_speed_mode": vb_decode_streaming,
+            "vb_decode_int8_base_delta_state_memory_mode": vb_decode_int8_base_delta,
             "transformer_prefill": transformer_prefill,
             "transformer_decode_naive_replay": transformer_decode_naive,
             "transformer_decode_kv_cache": transformer_decode_kv_cache,
+            "state_bytes": state_bytes,
         }
 
     output_text = json.dumps(results, indent=2)
