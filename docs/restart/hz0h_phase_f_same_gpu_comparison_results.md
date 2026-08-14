@@ -110,13 +110,39 @@ same ~25M scale, not yet run.
   across all three arms -- only BDH/VB have been evaluated on these
   this session (`docs/restart/hz0h_core1_quality_25m_results.md`), the
   Transformer arm has not.
-- No inference-side comparison at all: prefill throughput, decode
-  throughput, latency/token, total RAM, state/KV memory, joules/token
-  are all plan-required and all unmeasured for this specific matched
-  triple. The Transformer's real KV-cache growth (unbounded with
-  context length) vs BDH-family's O(1) streaming state is exactly the
-  kind of asymmetry this plan exists to quantify and hasn't been
-  measured here yet.
+- Prefill/decode throughput, latency/token, and joules/token are all
+  plan-required and unmeasured for this matched triple -- a real GPU
+  benchmark has been dispatched to Windows
+  (`hz0h_phase_f_inference_benchmark_request.txt`, extends
+  `scripts/hz0h_inference_benchmark.py` with HZ-Core-2's decode paths,
+  see that script's own commits), not yet returned.
+- **State/KV memory has a real, precise, already-computed answer** (pure
+  arithmetic, `scripts/hz0h_inference_benchmark.py`'s
+  `compute_state_bytes`, verified against real tensor sizes before
+  trusting it -- see that script's own commit history for a bug caught
+  and fixed along the way): at THIS model scale (~25.5M params,
+  n_embd=512), BDH/VB's O(1) state is NOT unconditionally smaller than
+  the Transformer's KV cache -- it only wins past a real crossover
+  context length, below which the Transformer's KV cache is actually
+  smaller:
+
+  | arch | constant state size | crosses below Transformer's KV cache at |
+  |---|---|---|
+  | exact BDH | 256 MB | ~21,845 tokens |
+  | HZ-Core-2, HZ-Speed mode (VB, plain state) | 64 MB | ~5,461 tokens |
+  | HZ-Core-2, HZ-Memory mode (VB, INT8 base+delta) | 80 MB | ~6,827 tokens |
+
+  (Transformer KV cache: 12,288 bytes/token at this matched config --
+  6 layers, 4 heads, head_dim=128, bf16.) This is a real, precise,
+  useful nuance a hand-wavy "BDH is O(1), Transformer is O(context),
+  therefore BDH wins on memory" framing would have missed: the
+  asymptotic advantage is real, but "asymptotic" is doing real work in
+  that sentence -- for genuinely short contexts, BDH-family's constant
+  overhead can lose. HZ-Core-2's own value bottleneck lowers its own
+  crossover point substantially versus exact BDH (5,461-6,827 tokens vs
+  21,845) -- a real, additional, previously-undocumented benefit of the
+  VB compression beyond the quality/memory tradeoff already established
+  in Phase B.
 - No joules/token (energy) measurement for either training or
   inference on any arm.
 - Time-to-target-loss (as opposed to loss-at-fixed-token-budget) not
@@ -136,6 +162,14 @@ result in the opposite direction: the Transformer is far cheaper to
 train to this token budget. Neither result should be treated as "HZ
 wins" or "HZ loses" in the plan's own full decisive-gate sense --
 quality-per-fixed-tokens and cost-per-fixed-tokens are both real,
-neither is the whole picture the plan asks for, and the inference-side
-metrics (arguably the most HZ-relevant ones, given the architecture's
-whole premise is O(1) streaming state) are entirely unmeasured so far.
+neither is the whole picture the plan asks for. The state/KV memory
+sub-question now HAS a real, precise answer (the crossover-context
+table above) even though prefill/decode throughput and joules/token
+are still pending the real GPU run. Local CPU build-sanity check (not
+authoritative, just confirming the new decode paths work and behave
+sensibly) is internally consistent with everything else established
+this session: VB's streaming decode is faster than exact BDH's own
+streaming decode (87.15 vs 45.91 tok/s at context=512, smaller state =
+less per-step compute), and VB's INT8 base+delta decode is slower than
+VB's plain streaming decode (70.82 vs 87.15 tok/s), matching Phase
+D1's already-established real INT8 decode-overhead finding.
