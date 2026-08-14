@@ -404,6 +404,19 @@ Transformer baseline) being more memory-efficient than BDH's
 hand-written `QR @ KR.mT` scores matmul. Flagged, not investigated
 further.
 
+**Follow-up, now investigated and closed**: built a real fused-kernel
+alternative to BDH's raw attention (`chunk_gla` from
+`flash_linear_attention`, BDH's raw/undecayed/self-exclusive attention
+being the zero-decay special case of GLA) to test whether a fused kernel
+closes the training speed/energy gap to the Transformer. Correctness
+verified exactly on real hardware; real Phase F-matched benchmark result
+is decisively NEGATIVE -- ~49x slower, ~20x more J/token, 67% more peak
+memory than BDH's existing raw matmul path, likely a VRAM-ceiling/WDDM
+artifact at this N, not proof the fused-kernel idea is fundamentally
+dead. Full writeup: `docs/restart/hz0h_bdh_fused_attention_results.md`.
+The Transformer's efficiency advantage over BDH stands; this fix attempt
+did not close it.
+
 (See the "Gap-closure implementation" section below for the
 chunked-prefill/domain-CE/energy infrastructure this update's real
 result was produced with.)
