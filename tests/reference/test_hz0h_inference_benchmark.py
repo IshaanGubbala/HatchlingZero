@@ -77,7 +77,7 @@ def test_bdh_decode_naive_measurement_is_sane():
 def test_bdh_decode_streaming_measurement_is_sane():
     model = _tiny_bdh()
     prompt = torch.randint(0, 32, (1, 8))
-    _assert_sane_measurement(measure_bdh_decode_streaming(model, prompt, max_new_tokens=4, device=torch.device("cpu")))
+    _assert_sane_measurement(measure_bdh_decode_streaming(model, prompt, max_new_tokens=4, device=torch.device("cpu"), prefill_chunk_length=4))
 
 
 def test_transformer_prefill_and_decode_measurements_are_sane():
@@ -117,8 +117,8 @@ def test_vb_prefill_and_decode_measurements_are_sane():
     model = _tiny_vb()
     prompt = torch.randint(0, 32, (1, 8))
     _assert_sane_measurement(measure_vb_prefill(model, prompt, repeats=2, device=torch.device("cpu")))
-    _assert_sane_measurement(measure_vb_decode_streaming(model, prompt, max_new_tokens=4, device=torch.device("cpu")))
-    _assert_sane_measurement(measure_vb_decode_int8_base_delta(model, prompt, max_new_tokens=4, device=torch.device("cpu"), merge_every_k=2))
+    _assert_sane_measurement(measure_vb_decode_streaming(model, prompt, max_new_tokens=4, device=torch.device("cpu"), prefill_chunk_length=4))
+    _assert_sane_measurement(measure_vb_decode_int8_base_delta(model, prompt, max_new_tokens=4, device=torch.device("cpu"), merge_every_k=2, prefill_chunk_length=4))
 
 
 def test_vb_streaming_decode_produces_deterministic_argmax_tokens():

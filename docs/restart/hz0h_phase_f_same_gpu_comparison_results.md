@@ -268,6 +268,64 @@ measurement gap. Fixing it (e.g. a chunked/tiled prefill
 implementation) is a real, disclosed option, not pursued here since it
 would be new architecture work, not a benchmark task.
 
+### Update: chunked prefill built, real 8192/16384/32768 decode crossover now confirmed cleanly
+
+The "not pursued here" option above WAS pursued (see "Gap-closure
+implementation" below): `--prefill-chunk-length` (default 1024) now
+routes the STREAMING decode paths' internal prefill through bounded
+chunks, carrying absolute position and state across chunk boundaries.
+Real GPU rerun, `--context-lengths 8192,16384,32768`, `--skip-naive-replay`:
+
+**Real headline result -- the O(1)-state decode crossover holds
+cleanly across a 4x context range, including the two lengths where the
+unchunked baseline can't even run**:
+
+| path | 8192 | 16384 | 32768 |
+|---|---|---|---|
+| bdh_decode_streaming_state (O(1) state) | 188.7 tok/s | 191.3 tok/s | 188.3 tok/s |
+| vb_decode_streaming_state (Speed mode) | 167.0 tok/s | 168.7 tok/s | 174.3 tok/s |
+| transformer_decode_kv_cache (grows with context) | 157.1 tok/s | 102.6 tok/s | 56.9 tok/s |
+
+Both BDH-family streaming paths stay flat within noise across the
+entire range; the Transformer's real KV-cache decode degrades hard,
+roughly tracking context growth, exactly the predicted shape. `state_bytes`
+again matches the analytical prediction exactly at every length (BDH/VB/VB-INT8
+constant, Transformer KV growing linearly) -- no discrepancy.
+
+**Two more real, honestly-isolated failure modes at long context, both
+disclosed rather than silently retried around**:
+
+1. `--prefill-chunk-length` only chunks the STREAMING paths' internal
+   prefill -- the standalone `bdh_prefill`/`vb_prefill` measurements are
+   deliberately unchunked (they exist to measure the naive one-shot
+   baseline) and still hit the same real O(context^2) OOM at 16384
+   documented above. Each measurement was wrapped so one OOM doesn't
+   kill the rest of the sweep; recorded in-place as a real error string,
+   not silently skipped.
+2. `bdh_decode_kv_cache` (the alternative, non-streaming decode path)
+   doesn't throw an exception at 16384+ at all -- it hangs (99% GPU
+   util, 150-170W, confirmed via repeated real `nvidia-smi` sampling
+   in a fresh process with no prior CUDA history, ruling out
+   fragmentation from an earlier OOM in the same run) in the same WDDM
+   shared-memory-paging pattern seen earlier this session. Can't be
+   caught with try/except since no exception is ever raised -- skipped
+   explicitly for this one measurement at ctx>=16384, recorded as a
+   real, labeled skip reason in the JSON, not silently omitted. Real,
+   disclosed gap: no `bdh_decode_kv_cache` throughput number exists at
+   16384/32768 on this hardware (have it at 8192: 35.7 tok/s).
+
+**One more real, unexplained asymmetry**: `transformer_prefill`
+(architecturally similar in spirit to `bdh_prefill`) did NOT OOM at
+16384/32768 where `bdh_prefill`/`vb_prefill` did -- likely PyTorch's
+fused/flash `scaled_dot_product_attention` kernel (used by the
+Transformer baseline) being more memory-efficient than BDH's
+hand-written `QR @ KR.mT` scores matmul. Flagged, not investigated
+further.
+
+(See the "Gap-closure implementation" section below for the
+chunked-prefill/domain-CE/energy infrastructure this update's real
+result was produced with.)
+
 ## Real result: time-to-target-loss
 
 Real per-step validation trajectories pulled for all three arms (exact
@@ -357,11 +415,24 @@ pending a GPU-host run rather than being invented here.
 
 ## What this does NOT establish yet (real, open gaps before Phase F is complete)
 
-- No code/math/reasoning/structured-data CE comparison -- only
-  general real-text validation loss.
-- No real decode-throughput measurement past 8192 tokens has been claimed
-  yet. The benchmark now has a bounded chunked-prefill path; 16K and 32K must
-  still complete on the RTX3060 before this gate is marked measured.
+- No code/math/reasoning/structured-data CE comparison yet. The
+  infrastructure exists (`scripts/hz0h_phase_f_domain_ce.py`) but is
+  genuinely blocked -- `data/packed/external/code_validation.jsonl` and
+  `.../mathematical_and_structured_validation.jsonl` don't exist
+  anywhere on the dispatch machine (confirmed via `ls`, not a missing
+  single file). Needs the data transferred or its generation recipe
+  before this gate can close -- real, disclosed, not worked around with
+  synthetic data.
+- **Real decode-throughput past 8192 tokens is now measured for the
+  streaming paths that matter** (the "Update" above: 8192/16384/32768,
+  O(1) crossover confirmed cleanly). Two real, narrower gaps remain,
+  both precisely diagnosed: the unchunked `bdh_prefill`/`vb_prefill`
+  baseline measurements still OOM at 16384+ (real, structural, the
+  `--prefill-chunk-length` flag was never meant to fix the standalone
+  one-shot baseline, only the streaming paths' internal prefill), and
+  `bdh_decode_kv_cache` (the non-streaming alternative decode path)
+  hangs rather than erroring at 16384+, so it has no real
+  tokens_per_second number past 8192 on this hardware.
 - The 512/2048 "Real GPU result" section above was measured under the
   same FP32-instead-of-BF16 bug Phase D1 disclosed -- not individually
   re-verified at genuine BF16 (the later 4096/8192 section is the
