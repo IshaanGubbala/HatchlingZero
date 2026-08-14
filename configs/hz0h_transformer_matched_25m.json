@@ -1,0 +1,21 @@
+{
+  "name": "hz0h_transformer_matched_25m",
+  "description": "Parameter-matched to exact-BDH (25,427,968 params) and VB D/4+curriculum (25,559,040 params) for the Phase F same-GPU comparison (plans/HatchlingZero_Next_Phase_Plan.md section 10). vocab_size=256 matches the byte-level real-text pipeline used throughout this session's BDH/VB work (data/packed/hz0h_bytes_25m_train.jsonl), not HZ-0A's original 24576-token BPE tokenizer.",
+  "vocab_size": 256,
+  "d_model": 512,
+  "num_layers": 6,
+  "num_heads": 4,
+  "head_dim": 128,
+  "d_ff": 2048,
+  "target_bdh_params": 25427968,
+  "target_vb_d4_params": 25559040,
+  "parameter_count": 25343488,
+  "relative_parameter_difference_vs_bdh": 0.00337,
+  "relative_parameter_difference_vs_vb_d4": 0.00845,
+  "sequence_length": 256,
+  "precision": "bfloat16_cuda_target",
+  "optimizer": "AdamW",
+  "learning_rate": 0.001,
+  "weight_decay": 0.1,
+  "use_rope": true
+}
