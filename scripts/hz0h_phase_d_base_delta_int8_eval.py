@@ -54,12 +54,22 @@ def resolve_device(name: str) -> torch.device:
     return torch.device(name)
 
 
-def load_bdh_vb(checkpoint_pt: Path, *, n_embd: int, n_layer: int, n_head: int, mlp_internal_dim_multiplier: int, vocab_size: int, d_state: int, device: torch.device) -> BDHVB:
+def load_bdh_vb(checkpoint_pt: Path, *, n_embd: int, n_layer: int, n_head: int, mlp_internal_dim_multiplier: int, vocab_size: int, d_state: int, device: torch.device, dtype: torch.dtype = torch.float32) -> BDHVB:
+    """Real gap, disclosed rather than silently carried forward: every
+    prior version of this function only did `.to(device)` (device only,
+    no dtype), so every real GPU run of this script -- despite loading
+    a checkpoint trained/saved in bf16 -- silently stayed in float32
+    the entire time (`load_state_dict` preserves the target tensor's
+    OWN existing dtype, which defaults to fp32 on construction, unless
+    called with `assign=True`, which this never did). Fixed by
+    accepting an explicit `dtype` and actually casting to it. See
+    docs/restart/hz0h_phase_d_base_delta_int8_results.md for the
+    real, disclosed consequence this had on already-published numbers."""
     config = BDHVBConfig(n_layer=n_layer, n_embd=n_embd, n_head=n_head, mlp_internal_dim_multiplier=mlp_internal_dim_multiplier, vocab_size=vocab_size, dropout=0.0, d_state=d_state)
     model = BDHVB(config)
     blob = torch.load(str(checkpoint_pt), map_location="cpu", weights_only=False)
     model.load_state_dict(blob["model"])
-    model.to(device)
+    model.to(device=device, dtype=dtype)
     model.attn.freqs = model.attn.freqs.to(torch.float32).to(device)
     model.eval()
     return model
@@ -127,6 +137,7 @@ def main() -> None:
     parser.add_argument("--stream-chunk-length", type=int, default=8, help="must be <= the smallest --merge-every-k value, or that K (and any other K <= stream_chunk_length) ends up merging on every single chunk call regardless of K, making the sweep meaningless -- default 8 matches the smallest K in the plan's own D1 test list (8, 16, 32, 64)")
     parser.add_argument("--merge-every-k-values", type=str, default="8,16,32,64", help="comma-separated K values to sweep, per plan section 8 D1's own test list")
     parser.add_argument("--device", choices=("auto", "cpu", "cuda", "mps"), default="auto", help="the plan's real 'decode throughput' gate cares about production CUDA numbers -- CPU/MPS timing here is useful for build-time sanity only, see module docstring")
+    parser.add_argument("--dtype", choices=("float32", "float16", "bfloat16"), default="bfloat16", help="Real, previously-missing gap: this script used to only do model.to(device), never casting dtype, so every prior real GPU run silently stayed float32 despite loading a bf16-trained checkpoint -- see load_bdh_vb's own docstring. Defaults to bfloat16 now to match how the checkpoint was actually trained/deployed; pass --dtype float32 to reproduce the old (undocumented-as-such) behavior.")
     args = parser.parse_args()
 
     if args.stream_chunk_length >= args.sequence_length:
@@ -141,9 +152,10 @@ def main() -> None:
     if device.type == "mps" and not torch.backends.mps.is_available():
         raise RuntimeError("--device mps requested but MPS is unavailable")
 
+    torch_dtype = {"float32": torch.float32, "float16": torch.float16, "bfloat16": torch.bfloat16}[args.dtype]
     model = load_bdh_vb(
         args.checkpoint, n_embd=args.n_embd, n_layer=args.n_layer, n_head=args.n_head,
-        mlp_internal_dim_multiplier=args.mlp_internal_dim_multiplier, vocab_size=args.vocab_size, d_state=args.d_state, device=device,
+        mlp_internal_dim_multiplier=args.mlp_internal_dim_multiplier, vocab_size=args.vocab_size, d_state=args.d_state, device=device, dtype=torch_dtype,
     )
     sequences = load_validation_sequences(args.validation_data, args.num_sequences, args.sequence_length)
 
@@ -166,7 +178,7 @@ def main() -> None:
             "speed_ratio_vs_full_int8": bd_speed / int8_speed,
         }
 
-    print(json.dumps({"checkpoint": str(args.checkpoint), "d_state": args.d_state, "num_sequences": len(sequences), "stream_chunk_length": args.stream_chunk_length, "device": str(device), "results": results}, indent=2))
+    print(json.dumps({"checkpoint": str(args.checkpoint), "d_state": args.d_state, "num_sequences": len(sequences), "stream_chunk_length": args.stream_chunk_length, "device": str(device), "dtype": args.dtype, "results": results}, indent=2))
 
 
 if __name__ == "__main__":
