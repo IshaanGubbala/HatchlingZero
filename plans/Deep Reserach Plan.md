@@ -782,6 +782,13 @@ If either inequality fails, record the miss and continue research; do not
 replace it with training compile speed, a no-cache Transformer, or a
 state-only estimate.
 
+The machine-readable checker is
+`scripts/hz0h_phase_f_target_gate.py`; it returns nonzero unless both execution
+thresholds and the parameter-count gate pass, and it always reports
+`claim_eligible: false` because quality/seeds/frozen-evaluation gates are
+separate. Its regression tests are in
+`tests/reference/test_hz0h_phase_f_target_gate.py`.
+
 Then freeze:
 
 ```text
