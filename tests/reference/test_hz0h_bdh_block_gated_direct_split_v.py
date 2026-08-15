@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import copy
 import torch
 
 from reference.hz0h_bdh_block_gated_torch import (
-    BDHBlockGated, BDHBlockGatedConfig, bdh_block_gated_annealed_direct_split_v_chunk_gla_forward, bdh_block_gated_annealed_direct_split_v_forward,
+    BDHBlockGated, BDHBlockGatedConfig, bdh_block_gated_annealed_direct_split_v_chunk_gla_forward, bdh_block_gated_annealed_direct_split_v_compact_gate_forward, bdh_block_gated_annealed_direct_split_v_forward,
     bdh_block_gated_forward,
 )
 
@@ -43,3 +44,18 @@ def test_gated_chunk_gla_refuses_non_cuda():
         assert False, "expected CUDA requirement"
     except RuntimeError as exc:
         assert "CUDA/Triton" in str(exc)
+
+
+def test_compact_gate_matches_legacy_logits_loss_and_gradients():
+    torch.manual_seed(22)
+    legacy = _model()
+    compact = copy.deepcopy(legacy)
+    idx = torch.randint(0, 32, (2, 9))
+    legacy_logits, legacy_loss = bdh_block_gated_annealed_direct_split_v_forward(legacy, idx, 0.5, targets=idx)
+    compact_logits, compact_loss = bdh_block_gated_annealed_direct_split_v_compact_gate_forward(compact, idx, 0.5, targets=idx)
+    torch.testing.assert_close(compact_logits, legacy_logits, rtol=1e-5, atol=1e-6)
+    torch.testing.assert_close(compact_loss, legacy_loss, rtol=1e-5, atol=1e-6)
+    legacy_loss.backward(); compact_loss.backward()
+    for (name, old), (_, new) in zip(legacy.named_parameters(), compact.named_parameters()):
+        assert name
+        torch.testing.assert_close(new.grad, old.grad, rtol=1e-4, atol=1e-5)

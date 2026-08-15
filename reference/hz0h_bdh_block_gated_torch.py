@@ -300,6 +300,54 @@ def bdh_block_gated_annealed_direct_split_v_forward(model: "BDHBlockGated", idx:
     return logits, loss
 
 
+def bdh_block_gated_annealed_direct_split_v_compact_gate_forward(model: "BDHBlockGated", idx: torch.Tensor, active_fraction: float, targets: torch.Tensor | None = None):
+    """Direct Split-V with an algebraically compact shared block gate.
+
+    The gate is shared by heads, so it remains ``(B,1,T,N)`` through Q/score
+    construction instead of being expanded to ``(B,H,T,N)``. Values broadcast
+    scores to heads exactly as in the legacy path; the final latent product
+    likewise broadcasts the shared gated activation. This is a derivative,
+    and parity with the legacy implementation must be checked before use.
+    """
+    if active_fraction >= 1.0:
+        # Dense gate training uses the established differentiable path; direct
+        # values only matter once this experimental model enters sparse mode.
+        return bdh_block_gated_forward(model, idx, targets=targets)
+    C = model.config
+    B, T = idx.size()
+    D, nh, N = C.n_embd, C.n_head, C.n_embd * C.mlp_internal_dim_multiplier // C.n_head
+    if D % nh:
+        raise ValueError("direct Split-V requires n_embd divisible by n_head")
+    active = compute_active_blocks_by_gate(model, idx, active_fraction)
+    columns = (active.view(-1, 1) * C.block_size + torch.arange(C.block_size, device=idx.device)).reshape(-1)
+    n_active, Dh = columns.numel(), D // nh
+    encoder = model.encoder.index_select(2, columns)
+    encoder_v = model.encoder_v.index_select(2, columns)
+    decoder = model.decoder.reshape(nh, N, D).index_select(1, columns).reshape(nh * n_active, D)
+    freqs = model.attn.freqs.index_select(-1, columns)
+    x = model.ln(model.embed(idx).unsqueeze(1))
+    for _ in range(C.n_layer):
+        x_sparse = F.relu(x @ encoder)
+        full_gate = compute_block_gate(model, x)
+        selected_gate = full_gate.index_select(-1, active)
+        # Gate is shared across heads. Retaining the singleton head dimension
+        # avoids materializing H copies for Q/score formation.
+        gate = selected_gate.unsqueeze(1).unsqueeze(-1).expand(B, 1, T, active.numel(), C.block_size).reshape(B, 1, T, n_active)
+        x_sparse = x_sparse * gate
+        phases = torch.arange(T, device=idx.device, dtype=freqs.dtype).view(1, 1, -1, 1) * freqs
+        q = model.attn.rope(phases, x_sparse)
+        scores = (q @ q.mT).tril(diagonal=-1)
+        values = x.squeeze(1).view(B, T, nh, Dh).transpose(1, 2)
+        ykv = (scores @ values).transpose(1, 2).reshape(B, 1, T, D)
+        ykv = model.ln(ykv)
+        y_sparse = F.relu(ykv @ encoder_v)
+        y = model.ln((model.drop(x_sparse * y_sparse)).transpose(1, 2).reshape(B, 1, T, n_active * nh) @ decoder)
+        x = model.ln(x + y)
+    logits = x.view(B, T, D) @ model.lm_head
+    loss = None if targets is None else F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1))
+    return logits, loss
+
+
 def bdh_block_gated_annealed_direct_split_v_chunk_gla_forward(model: "BDHBlockGated", idx: torch.Tensor, active_fraction: float, targets: torch.Tensor | None = None):
     """CUDA/Triton fused sparse phase of learned-gate Direct Split-V.
 
@@ -329,7 +377,8 @@ def bdh_block_gated_annealed_direct_split_v_chunk_gla_forward(model: "BDHBlockGa
     for _ in range(C.n_layer):
         x_sparse = F.relu(x @ encoder)
         selected_gate = compute_block_gate(model, x).index_select(-1, active)
-        gate = selected_gate.unsqueeze(1).unsqueeze(-1).expand(B, nh, T, active.numel(), C.block_size).reshape(B, nh, T, n_active)
+        # Gate is head-shared; retain singleton H so FLA broadcasts scores to values.
+        gate = selected_gate.unsqueeze(1).unsqueeze(-1).expand(B, 1, T, active.numel(), C.block_size).reshape(B, 1, T, n_active)
         x_sparse = x_sparse * gate
         values = x.squeeze(1).view(B, T, nh, Dh).transpose(1, 2)
         ykv = bdh_fused_attention(x_sparse, values, freqs).transpose(1, 2).reshape(B, 1, T, D)

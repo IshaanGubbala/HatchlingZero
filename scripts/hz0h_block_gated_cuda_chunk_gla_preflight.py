@@ -10,7 +10,7 @@ from pathlib import Path
 import torch
 from reference.hz0a_matched_transformer import MatchedTransformerConfig, MatchedTransformerLM
 from reference.hz0h_bdh_block_gated_torch import (BDHBlockGated, BDHBlockGatedConfig,
-    bdh_block_gated_annealed_direct_split_v_chunk_gla_forward, bdh_block_gated_annealed_direct_split_v_forward)
+    bdh_block_gated_annealed_direct_split_v_chunk_gla_forward, bdh_block_gated_annealed_direct_split_v_compact_gate_forward)
 
 
 def sha256(path: Path):
@@ -25,7 +25,7 @@ def make(config,state,dtype):
 
 
 def call(model,x,y,fraction,fused):
-    fn=bdh_block_gated_annealed_direct_split_v_chunk_gla_forward if fused else bdh_block_gated_annealed_direct_split_v_forward
+    fn=bdh_block_gated_annealed_direct_split_v_chunk_gla_forward if fused else bdh_block_gated_annealed_direct_split_v_compact_gate_forward
     return fn(model,x,fraction,targets=y)
 
 
