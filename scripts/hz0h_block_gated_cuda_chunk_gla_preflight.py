@@ -5,9 +5,12 @@ This clones the supplied checkpoint for parity/timing; it never mutates it and
 never treats synthetic-step timing as trained quality evidence.
 """
 from __future__ import annotations
-import argparse, hashlib, json, time
+import argparse, hashlib, json, sys, time
 from pathlib import Path
 import torch
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 from reference.hz0a_matched_transformer import MatchedTransformerConfig, MatchedTransformerLM
 from reference.hz0h_bdh_block_gated_torch import (BDHBlockGated, BDHBlockGatedConfig,
     bdh_block_gated_annealed_direct_split_v_chunk_gla_forward, bdh_block_gated_annealed_direct_split_v_compact_gate_forward)
