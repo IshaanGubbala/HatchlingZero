@@ -97,7 +97,13 @@ Your current repository also has two major developments that materially improve 
 1. **HZ-Core-2 is now locked.** It is faithful BDH + the `2→4→6→8` curriculum + D/4 Value Bottleneck + BF16 speed-state mode / base+delta INT8 memory-state mode. fileciteturn12file0
 2. **BlockBDH's original training-instability problem is no longer simply “unresolved.”** Soft-to-sparse training with diversity pressure and a `100%→75%→60%→50%` active-block curriculum produced **1.00 reassignment accuracy on all five seeds** at final hard 50%-active execution. The remaining problem is scale and speed+quality validation on the same larger trained model. fileciteturn13file0
 
-My recommendation is therefore to **finish the currently pending Phase F inference measurements, freeze that result, and then start an HZ-CQ branch immediately rather than continuing to invent more language-model state compression mechanisms.**
+The raw Phase F inference sweep is now complete and frozen in
+`docs/restart/hz0h_phase_f_target_gate_results.md`. It demonstrates the
+context-qualified execution crossover, but it does **not** close the overall
+objective: trained-checkpoint quality matching, multi-seed replication, and
+full end-to-end RAM/latency accounting remain required before HZ-CQ or any
+other derivative can be called superior. Do not use the raw untrained sweep as
+a substitute for those gates.
 
 The architecture I would aim for is:
 
@@ -740,7 +746,10 @@ Do this as a **funnel**. Do not scale a model merely because its training loss d
 
 ### Immediate checkpoint before CQ work
 
-Finish the already-dispatched Phase F inference run first.
+The raw Phase F inference run is complete and frozen. The next Phase F gate is
+not another cherry-picked context sweep; it is a trained, quality-matched
+replication on the same GPU with at least three seeds and explicit end-to-end
+latency/RAM accounting.
 
 Required outputs:
 
@@ -762,7 +771,11 @@ HZ-Core-2 memory mode
 matched Transformer
 ```
 
-Phase F already has the validated state/KV crossover calculation and the training-side comparison; the missing real GPU inference/energy axes are explicitly documented. fileciteturn14file0
+Phase F now has the validated state/KV crossover calculation, training-side
+comparison, and raw BF16 GPU inference sweep. The remaining missing axes are
+trained-checkpoint quality matching, multi-seed replication, and full
+end-to-end application timing; these are explicitly open rather than inferred
+from the raw sweep.
 
 ### Phase F acceptance gate
 
