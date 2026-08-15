@@ -109,3 +109,27 @@ def test_loss_computed_when_targets_given():
     x, y = idx[:, :-1].contiguous(), idx[:, 1:].contiguous()
     _logits, loss = bdh_blocksparse_forward(model, x, active_blocks, block_size=32, targets=y)
     assert loss is not None and torch.isfinite(loss)
+
+
+def test_cheap_proxy_router_is_deterministic_and_returns_valid_blocks():
+    config = _tiny_config()
+    torch.manual_seed(6)
+    model = BDH(config)
+    idx = torch.randint(0, config.vocab_size, (2, 12))
+    first = compute_active_blocks(model, idx, block_size=32, active_fraction=0.25, method="cheap_proxy")
+    second = compute_active_blocks(model, idx, block_size=32, active_fraction=0.25, method="cheap_proxy")
+    assert torch.equal(first, second)
+    assert len(first) == 2
+    assert int(first.min()) >= 0 and int(first.max()) < 8
+    logits, _ = bdh_blocksparse_forward(model, idx, first, block_size=32)
+    assert torch.isfinite(logits).all()
+
+
+def test_router_rejects_unknown_method():
+    model = BDH(_tiny_config())
+    idx = torch.randint(0, 32, (1, 8))
+    try:
+        compute_active_blocks(model, idx, block_size=32, active_fraction=0.5, method="unknown")
+        assert False, "expected method validation"
+    except ValueError as exc:
+        assert "unknown routing method" in str(exc)

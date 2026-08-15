@@ -187,6 +187,7 @@ def main() -> None:
     parser.add_argument("--active-fraction", type=float, default=0.5, help="Fraction of blocks selected each batch (0,1].")
     parser.add_argument("--balance-loss-weight", type=float, default=0.0, help="Optional encoder block-load balance auxiliary-loss weight.")
     parser.add_argument("--router-exploration-noise", type=float, default=0.0, help="Gumbel score noise used only while training.")
+    parser.add_argument("--router-method", choices=("activation", "cheap_proxy"), default="activation", help="activation materializes the original dense routing latent; cheap_proxy is an experimental pooled-input encoder-prototype route.")
     args = parser.parse_args()
 
     if args.warmup_steps < 0:
@@ -255,7 +256,8 @@ def main() -> None:
 
     def routed_forward(inputs: torch.Tensor, targets: torch.Tensor | None = None, *, training: bool = False):
         active = compute_active_blocks(model, inputs, args.block_size, args.active_fraction,
-            exploration_noise=args.router_exploration_noise if training else 0.0)
+            exploration_noise=args.router_exploration_noise if training else 0.0,
+            method=args.router_method)
         if targets is None:
             logits, loss = bdh_blocksparse_forward(model, inputs, active, args.block_size, targets=None)
         else:
@@ -376,7 +378,8 @@ def main() -> None:
         "backend": "torch", "device": str(device), "hardware_id": hardware_id, "effective_batch_tokens": effective_batch_tokens,
         "compile_step": args.compile_step, "compile_mode": args.compile_mode if args.compile_step else None, "fused_optimizer": args.fused_optimizer,
         "architecture": "block_bdh_derivative", "exact_bdh": False, "claim_eligible": False, "dtype": args.dtype,
-        "block_size": args.block_size, "active_fraction": args.active_fraction, "balance_loss_weight": args.balance_loss_weight, "router_exploration_noise": args.router_exploration_noise,
+        "block_size": args.block_size, "active_fraction": args.active_fraction, "router_method": args.router_method,
+        "balance_loss_weight": args.balance_loss_weight, "router_exploration_noise": args.router_exploration_noise,
         "route_summary": route_summary,
         "lr_schedule": args.lr_schedule, "max_lr": args.max_lr, "warmup_steps": args.warmup_steps, "lr_min_ratio": args.lr_min_ratio,
         "total_optimizer_steps_estimate": total_optimizer_steps, "final_lr": last_lr, "validation_batch_size": args.validation_batch_size,

@@ -40,13 +40,18 @@ import torch.nn.functional as F
 from reference.hz0h_bdh_torch import BDH, BDHConfig
 
 
-def compute_active_blocks(model: BDH, idx: torch.Tensor, block_size: int, active_fraction: float, exploration_noise: float = 0.0) -> torch.Tensor:
+def compute_active_blocks(model: BDH, idx: torch.Tensor, block_size: int, active_fraction: float, exploration_noise: float = 0.0, method: str = "activation") -> torch.Tensor:
     """Cheap router: one forward-ish pass computing x_sparse for the
     FIRST layer only (reusing the model's own encoder, no extra learned
     router parameters -- the cheapest possible real router), aggregates
     mean activation magnitude per block across the whole batch/sequence,
     and returns the indices of the top-k active blocks. Real, coarse,
     call-level granularity (not per-token) -- see module docstring.
+
+    `method="activation"` is the original activation-magnitude router.
+    `method="cheap_proxy"` is a separately labelled O(D*N) pooled-input /
+    encoder-prototype score that avoids the original router's full latent
+    materialization. It must earn its own quality evidence.
 
     `exploration_noise`: real, disclosed fix for a diagnosed failure
     mode (`docs/restart/hz0h_phase4_blocksparse_results.md`'s Update 5):
@@ -72,9 +77,23 @@ def compute_active_blocks(model: BDH, idx: torch.Tensor, block_size: int, active
         n_active = max(1, round(n_blocks * active_fraction))
 
         x = model.ln(model.embed(idx).unsqueeze(1))
-        x_latent = x @ model.encoder
-        x_sparse = F.relu(x_latent)  # (B, nh, T, N)
-        block_scores = x_sparse.reshape(*x_sparse.shape[:-1], n_blocks, block_size).abs().mean(dim=(0, 1, 2, 4))  # (n_blocks,)
+        if method == "activation":
+            # Exact original router: meaningful activation scores, but it
+            # materializes a full B×heads×T×N latent merely to choose columns.
+            x_latent = x @ model.encoder
+            x_sparse = F.relu(x_latent)
+            block_scores = x_sparse.reshape(*x_sparse.shape[:-1], n_blocks, block_size).abs().mean(dim=(0, 1, 2, 4))
+        elif method == "cheap_proxy":
+            # O(D*N) proxy, not O(B*heads*T*D*N): pool the current input and
+            # correlate it with each block's encoder prototype. This is an
+            # explicit routing-policy derivative, not a faithful replacement
+            # for activation top-k. It avoids materializing the tensor whose
+            # columns the sparse forward is intended to skip.
+            pooled_x = x.mean(dim=(0, 1, 2))  # (D,)
+            prototypes = model.encoder.abs().reshape(nh, D, n_blocks, block_size).mean(dim=(0, 3))  # (D, blocks)
+            block_scores = pooled_x.abs() @ prototypes
+        else:
+            raise ValueError(f"unknown routing method {method!r}; expected activation or cheap_proxy")
         if exploration_noise > 0:
             uniform = torch.rand_like(block_scores).clamp_min(1e-9)
             gumbel = -torch.log(-torch.log(uniform))

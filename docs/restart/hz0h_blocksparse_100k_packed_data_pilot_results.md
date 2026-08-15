@@ -65,6 +65,28 @@ The apparently favorable short fixed-batch CE values at shallow depth are not
 a license to choose depth after observing validation: 100K tokens, one seed,
 and four sequences are insufficient for a trained-quality conclusion.
 
+## Cheap-proxy router sweep
+
+The original activation router materializes a full latent solely to score
+blocks. `router_method=cheap_proxy` instead pools the input and scores
+encoder-block prototypes in O(D*N). It is an explicit routing-policy
+experimental derivative; it is not evidence that the original activation
+router has become cheaper.
+
+| depth | active fraction | router | tok/s | speed / Transformer | best validation CE | allocator ratio |
+|---:|---:|---|---:|---:|---:|---:|
+| 1 | 6.25% | activation | 5,609.95 | 1.216x | 2.578125 | 1.028x |
+| 1 | 6.25% | cheap_proxy | 5,734.50 | 1.243x | 2.546875 | 1.028x |
+| 1 | 3.125% | cheap_proxy | 5,768.39 | **1.250x** | 2.578125 | 1.029x |
+| target | n/a | n/a | >=5,997.77 | >=1.300x | quality-matched | <=0.700x |
+
+The second cheap-proxy reduction gained only 0.6%; this is a plateau, not a
+credible extrapolation to the 1.30x target. It also became highly sticky:
+6.25% had 20 distinct route sets but 0.928 exact-repeat fraction; 3.125% had
+11 sets and 0.962 exact-repeat fraction. Its apparent short fixed-batch CE is
+not quality evidence. Do not use it for a full run absent a mechanism that
+trains/regularizes the router and a pre-registered quality test.
+
 ## Fair compiler-policy sweep
 
 Both the depth-1/6.25%-active BlockBDH arm and the matched Transformer arm were
