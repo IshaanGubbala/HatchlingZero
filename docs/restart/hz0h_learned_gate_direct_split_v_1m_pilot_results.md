@@ -19,6 +19,11 @@ only in its hard-sparse stages.
 | learned-gate Direct Split-V | 50% | **2.265625** | 1,815.24 | 212,616,192 B |
 | matched RoPE Transformer | n/a | 2.385744 | 4,905.69 | 199,704,832 B |
 
+The portable MPS checkpoint/report artifact is retained outside git at
+`outputs/hz0h_learned_gate_direct_split_v_1m_mps/seed7/`; its manifest pins
+checkpoint SHA256 `f02c1b88a10e11f210ad75f39ae58aa96e96b6451debc4d1466bf1e3b0e31323`.
+That is the sole checkpoint eligible for the documented CUDA parity preflight.
+
 The candidate improved consistently across stages: CE 3.0156 (dense, 128K),
 2.9375 (75%, 256K), 2.6719 (75%, 384K), 2.6094 (60%, 512K), 2.3906 (60%,
 640K), 2.3438 (50%, 768K), 2.3281 (50%, 896K), and 2.2656 at 1M. Gate standard
