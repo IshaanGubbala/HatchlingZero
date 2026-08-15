@@ -1,4 +1,4 @@
-# BlockBDH-versus-dense-BDH CUDA training preflight (RTX3060)
+# BlockBDH CUDA training preflight (RTX3060): beats dense BDH, does not close the Phase F Transformer gap
 
 Follow-up to `docs/restart/hz0h_phase_f_training_target_gate_results.md`
 ("route 2": trained-in-path BlockBDH at real scale is one of three
@@ -66,10 +66,48 @@ matched validation, checkpoint provenance, and a fair Transformer comparison
 is required before the requested 30%-RAM / 30%-faster training target can be
 claimed.
 
+## Real Transformer-ratio result (2026-08-15): decisively negative
+
+The missing piece above -- BlockBDH's real ratio against the actual
+matched Transformer, not just against dense BDH -- now exists (RTX3060,
+same 25.4M-param config, all three arms in one script, eager mode
+throughout, `compile_step: false` for all three):
+
+| | dense BDH | BlockBDH (50% active) | matched Transformer |
+|---|---:|---:|---:|
+| tok/s | 6,941.0 | 12,947.3 | **74,635.5** |
+| peak mem | 7,931,383,808 B (7.39 GiB) | 4,558,258,688 B (4.25 GiB) | **737,625,600 B (0.69 GiB)** |
+
+BlockBDH-over-dense-BDH: **1.865x speed, 0.575x peak memory** -- consistent
+with every earlier CUDA measurement above, real and reproducible.
+
+BlockBDH-over-**Transformer**: **0.173x speed** (BlockBDH is ~5.78x
+*slower*, not comparable) and **6.180x peak memory** (~6.18x *more*,
+not less). Decisively negative on both axes simultaneously, not a
+close miss.
+
+**This corrects the "promising lead" framing used earlier in this doc
+and in `README.md`.** BlockBDH's real, substantial systems win over
+dense BDH does not translate into closing the Phase F gap to the
+actual Transformer baseline at this (untrained, synthetic-step,
+50%-active, block_size=16) configuration -- it remains dramatically
+behind on both training speed and training memory. Real caveat this
+run itself discloses: this comparison is eager-mode only
+(`compile_step: false`) -- not compiled-vs-compiled, so it doesn't
+rule out compilation changing the picture, only that the current
+uncompiled numbers are decisively unfavorable.
+
 ## Status
 
-Real, positive systems-level signal on the actual target hardware
-(CUDA, not just MPS). Motivates prioritizing a real trained-in-path
-BlockBDH run at Phase F scale (real data, real curriculum/training
-loop, matched validation loss against exact BDH/VB/Transformer) as the
-concrete next step to actually clear "route 2" -- not yet run.
+Closed as a systems screen. BlockBDH is a real, reproducible,
+substantial improvement over dense BDH on real CUDA hardware (speed
+and memory both), but does **not** close the Phase F gap to the
+matched Transformer -- it remains ~5.78x slower and ~6.18x more
+memory-hungry, decisively, not narrowly. Route 2 (trained-in-path
+BlockBDH at real scale) is not motivated as strongly as this doc
+previously suggested; a real trained-in-path run would still need to
+close roughly an order of magnitude on two axes simultaneously to have
+any chance of clearing the 30%-RAM/30%-faster training target, which
+the raw systems numbers here make look unlikely without a further,
+separately justified intervention (e.g. a fused/compiled BlockBDH
+path, not yet measured).

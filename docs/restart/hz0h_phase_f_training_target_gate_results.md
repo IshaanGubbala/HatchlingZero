@@ -48,3 +48,19 @@ signal, not a pass of this Transformer-comparison gate; see
 `docs/restart/hz0h_blocksparse_cuda_training_preflight_results.md`. Route 2
 is not cleared until a trained-in-path run has quality evidence and a matched
 Transformer report.
+
+**Update 2026-08-15, real BlockBDH-vs-Transformer ratio, route 2 weakened**:
+the missing direct comparison now exists on real CUDA hardware, same
+parameter-matched config, all three arms in one script. Result is
+decisively negative: BlockBDH-over-Transformer speed ratio **0.173**
+(~5.78x slower, not the required ≥1.30) and peak-memory ratio **6.180**
+(~6.18x more, not the required ≤0.70) -- both axes fail by roughly an
+order of magnitude, not narrowly. BlockBDH's real win over dense BDH
+(1.865x speed, 0.575x RAM, reproduced again in this run) does not
+translate into closing this gate's actual target. See
+`docs/restart/hz0h_blocksparse_cuda_training_preflight_results.md`'s own
+"Real Transformer-ratio result" section. Route 2 is not disproven (a
+trained-in-path run with compilation could still change the picture,
+and this comparison was eager-mode only) but is no longer the
+strongest-looking open route based on current evidence -- the raw
+systems gap to close is now known to be large, not small.
