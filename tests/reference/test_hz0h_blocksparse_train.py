@@ -24,6 +24,9 @@ def test_blocksparse_real_corpus_runner_smoke(tmp_path: Path):
     assert report["architecture"] == "block_bdh_derivative"
     assert report["exact_bdh"] is False
     assert report["claim_eligible"] is False
+    assert report["compile_step"] is False
+    assert report["effective_batch_tokens"] == 8
+    assert report["hardware_id"] == "CPU"
     assert report["budget_complete"] is True
     assert report["best_validation_loss"] > 0
     assert report["metrics"][-1]["active_block_count"] == 4

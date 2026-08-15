@@ -205,6 +205,7 @@ def main() -> None:
         raise RuntimeError("--device cuda requested but CUDA is unavailable")
     if device.type == "mps" and not torch.backends.mps.is_available():
         raise RuntimeError("--device mps requested but MPS is unavailable")
+    hardware_id = torch.cuda.get_device_name(device) if device.type == "cuda" else ("Apple MPS" if device.type == "mps" else "CPU")
 
     args.run_dir.mkdir(parents=True, exist_ok=True)
     memory_log = args.run_dir / "block_bdh_memory.jsonl"
@@ -343,7 +344,9 @@ def main() -> None:
                         milestones_hit.append(target)
 
     report = {
-        "backend": "torch", "device": str(device), "architecture": "block_bdh_derivative", "exact_bdh": False, "claim_eligible": False, "dtype": args.dtype,
+        "backend": "torch", "device": str(device), "hardware_id": hardware_id, "effective_batch_tokens": effective_batch_tokens,
+        "compile_step": False, "compile_mode": None, "fused_optimizer": args.fused_optimizer,
+        "architecture": "block_bdh_derivative", "exact_bdh": False, "claim_eligible": False, "dtype": args.dtype,
         "block_size": args.block_size, "active_fraction": args.active_fraction, "balance_loss_weight": args.balance_loss_weight, "router_exploration_noise": args.router_exploration_noise,
         "lr_schedule": args.lr_schedule, "max_lr": args.max_lr, "warmup_steps": args.warmup_steps, "lr_min_ratio": args.lr_min_ratio,
         "total_optimizer_steps_estimate": total_optimizer_steps, "final_lr": last_lr, "validation_batch_size": args.validation_batch_size,

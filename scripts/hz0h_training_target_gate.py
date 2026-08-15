@@ -12,22 +12,32 @@ from pathlib import Path
 
 
 def evaluate(candidate: dict, transformer: dict, *, ram_limit: float = 0.70, speed_floor: float = 1.30) -> dict:
+    # These fields are deliberately required rather than assumed. A ratio from
+    # different GPUs, batch-token counts, or compile/optimizer policies is not
+    # a fair training-efficiency measurement.
+    required_execution_fields = (
+        "device", "hardware_id", "effective_batch_tokens", "compile_step",
+        "compile_mode", "fused_optimizer",
+    )
     checks = {
         "parameter_ratio": candidate["parameter_count"] / transformer["parameter_count"],
         "token_budget_equal": candidate.get("target_tokens") == transformer.get("target_tokens") and candidate.get("tokens_seen") == transformer.get("tokens_seen"),
         "dtype_equal": candidate.get("dtype") == transformer.get("dtype"),
     }
+    for field in required_execution_fields:
+        checks[f"{field}_equal"] = field in candidate and field in transformer and candidate[field] == transformer[field]
     checks["parameter_match"] = checks["parameter_ratio"] <= 1.01
     throughput_ratio = candidate["tokens_per_second"] / transformer["tokens_per_second"]
     time_ratio = candidate["training_seconds"] / transformer["training_seconds"]
     ram_ratio = candidate["peak_memory_bytes"] / transformer["peak_memory_bytes"]
-    same_conditions = checks["parameter_match"] and checks["token_budget_equal"] and checks["dtype_equal"]
+    same_conditions = all(checks.values())
     result = {
         "candidate_parameters": candidate["parameter_count"],
         "transformer_parameters": transformer["parameter_count"],
         "parameter_ratio": checks["parameter_ratio"],
         "token_budget_equal": checks["token_budget_equal"],
         "dtype_equal": checks["dtype_equal"],
+        "execution_conditions": {key: value for key, value in checks.items() if key.endswith("_equal") and key not in ("token_budget_equal", "dtype_equal")},
         "training_throughput_ratio": throughput_ratio,
         "training_time_ratio": time_ratio,
         "peak_training_ram_ratio": ram_ratio,
