@@ -183,3 +183,50 @@ def bdh_blocksparse_forward(model: BDH, idx: torch.Tensor, active_blocks: torch.
     if targets is not None:
         loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1))
     return logits, loss
+
+
+def bdh_blocksparse_split_v_forward(model, idx: torch.Tensor, active_blocks: torch.Tensor, block_size: int, targets: torch.Tensor | None = None):
+    """BlockBDH forward for the explicit :class:`BDHSplitV` derivative.
+
+    It combines two independent architectural changes: coarse selected latent
+    columns as in :func:`bdh_blocksparse_forward`, and Split-V's disjoint
+    D/head value subspaces.  In particular, this does *not* use vanilla BDH's
+    `scores @ x` broadcast over every head: `scores @ v_split` has value width
+    D/head, then the concatenated heads pass through Split-V's shared `w_o`.
+    This is intentionally not an exact-BDH code path.
+    """
+    if block_size % 2:
+        raise ValueError(f"block_size must be even (RoPE pairs adjacent indices) -- got {block_size}")
+    C = model.config
+    B, T = idx.size()
+    D, nh = C.n_embd, C.n_head
+    if D % nh:
+        raise ValueError(f"Split-V requires n_embd ({D}) divisible by n_head ({nh})")
+    N = D * C.mlp_internal_dim_multiplier // nh
+    column_indices = (active_blocks.view(-1, 1) * block_size + torch.arange(block_size, device=idx.device)).reshape(-1)
+    if column_indices.numel() == 0 or int(column_indices.max()) >= N:
+        raise ValueError("active block index is outside the latent width")
+    n_active_cols, value_width = column_indices.numel(), D // nh
+    encoder_sparse = model.encoder.index_select(2, column_indices)
+    encoder_v_sparse = model.encoder_v.index_select(2, column_indices)
+    decoder_sparse = model.decoder.reshape(nh, N, D).index_select(1, column_indices).reshape(nh * n_active_cols, D)
+    sparse_freqs = model.attn.freqs.index_select(-1, column_indices)
+
+    x = model.ln(model.embed(idx).unsqueeze(1))
+    for _level in range(C.n_layer):
+        x_sparse = F.relu(x @ encoder_sparse)
+        v_full = x @ model.w_v
+        v_split = v_full.view(B, T, nh, value_width).transpose(1, 2)
+        r_phases = torch.arange(0, T, device=idx.device, dtype=sparse_freqs.dtype).view(1, 1, -1, 1) * sparse_freqs
+        qr = model.attn.rope(r_phases, x_sparse)
+        scores = (qr @ qr.mT).tril(diagonal=-1)
+        ykv_split = scores @ v_split
+        ykv = ykv_split.transpose(1, 2).reshape(B, 1, T, D) @ model.w_o
+        ykv = model.ln(ykv)
+        y_sparse = F.relu(ykv @ encoder_v_sparse)
+        xy_sparse = model.drop(x_sparse * y_sparse)
+        y = model.ln(xy_sparse.transpose(1, 2).reshape(B, 1, T, n_active_cols * nh) @ decoder_sparse)
+        x = model.ln(x + y)
+    logits = x.view(B, T, D) @ model.lm_head
+    loss = None if targets is None else F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1))
+    return logits, loss

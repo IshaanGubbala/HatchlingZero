@@ -40,8 +40,13 @@ claim. It does justify the next real-data experiment. The reproducible probe
 is `scripts/hz0h_bdh_blocksparse_training_benchmark.py`; its output is always
 marked `claim_eligible: false`. The real-corpus runner and preregistered
 comparison protocol are `scripts/hz0h_blocksparse_train.py` and
-`docs/restart/hz0h_blocksparse_real_corpus_pilot_plan.md` respectively. The
-short packed-data eager MPS preflight retained BlockBDH/dense-BDH throughput
+`docs/restart/hz0h_blocksparse_real_corpus_pilot_plan.md` respectively. A
+first combined BlockSplit-V + BlockBDH MPS optimizer-step probe was negative
+(0.970x vanilla BlockBDH); see
+`docs/restart/hz0h_blocksplit_v_preflight_results.md`. Do not scale that
+configuration without a new shape/kernel rationale.
+
+The short packed-data eager MPS preflight retained BlockBDH/dense-BDH throughput
 ratios of 1.787x (50% active), 2.600x (25%), and 3.309x (12.5%), but did not
 establish a RAM win or Transformer comparison; see
 `docs/restart/hz0h_blocksparse_packed_data_preflight_results.md`. A longer
