@@ -1,4 +1,4 @@
-# BlockBDH training-speed preflight: real CUDA numbers (RTX3060)
+# BlockBDH-versus-dense-BDH CUDA training preflight (RTX3060)
 
 Follow-up to `docs/restart/hz0h_phase_f_training_target_gate_results.md`
 ("route 2": trained-in-path BlockBDH at real scale is one of three
@@ -45,23 +45,26 @@ scale, the CUDA number (1.944x) lands close to the MPS session's own
 toy-scale number (1.93x) -- the toy-scale CUDA/MPS gap mostly closes
 once measured at the scale that actually matters.
 
-## Real result: this preflight passes both training-target gate thresholds
+## What the CUDA preflight clears—and what it does not
 
-Checked directly against `scripts/hz0h_training_target_gate.py`'s
-stated thresholds (throughput ratio >=1.30, peak RAM ratio <=0.70),
-computed from the Phase F-scale numbers above:
+Against its **dense-BDH** control, this untrained probe clears the numerical
+screening thresholds:
 
-- speed ratio 1.944 >= 1.30 -> **PASSES**
-- peak-memory ratio 0.579 <= 0.70 -> **PASSES**
+- BlockBDH/dense-BDH speed ratio 1.944 >= 1.30;
+- BlockBDH/dense-BDH peak-memory ratio 0.579 <= 0.70.
 
-This is the first candidate this session to clear both real-CUDA
-training-target thresholds, where exact BDH and VB D/4 both decisively
-failed (`docs/restart/hz0h_phase_f_training_target_gate_results.md`:
-0.200x throughput, 10.7x more RAM). Real caveat, same as everywhere
-else in this doc: **untrained weights only**. This does not satisfy
-"route 2" from the frozen gate-results doc on its own -- that requires
-a real trained-in-path run with matched quality and wall-clock
-measurement, not just an untrained systems probe, however positive.
+This is promising real-CUDA evidence that routing can cut BDH's own training
+cost. It is **not** an invocation or pass of
+`scripts/hz0h_training_target_gate.py`: that gate requires a
+parameter-matched Transformer report and matching hardware, batch-token,
+compile, and optimizer metadata. Dense BDH is not a substitute for that
+control. The weights are also untrained, so the probe provides no
+quality-compatible trained-path evidence.
+
+Therefore route 2 remains open. A real trained-in-path BlockBDH run with
+matched validation, checkpoint provenance, and a fair Transformer comparison
+is required before the requested 30%-RAM / 30%-faster training target can be
+claimed.
 
 ## Status
 
