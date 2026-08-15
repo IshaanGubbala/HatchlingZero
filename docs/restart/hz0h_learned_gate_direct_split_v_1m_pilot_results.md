@@ -111,10 +111,13 @@ RTX preflight is the deciding raw/fused CUDA screen.
 The paired result is reproducible across the preregistered three MPS seeds:
 each candidate CE is 0.318–0.348 below its exact matched Transformer control.
 This establishes only a fixed-batch MPS quality screen, not frozen capability,
-CUDA quality, or an efficiency success. It is the first quality-positive
-large-pilot sparse mechanism and the only justified architecture for the next
-CUDA fused-kernel screen. The runner
-now exposes that derivative only as:
+CUDA quality, or an efficiency success. It was the first quality-positive
+large-pilot sparse mechanism and was sent to the CUDA fused-kernel screen. The
+returned native RTX 3060 artifact fails both systems thresholds (raw 0.337×
+Transformer speed/3.011× RAM; fused 0.225×/4.030×); this path is closed for the
+requested target. See
+`docs/restart/hz0h_learned_gate_direct_split_v_cuda_preflight_results.md`.
+The runner exposes the experimental derivative only as:
 
 ```bash
 python scripts/hz0h_block_gated_train.py ... \

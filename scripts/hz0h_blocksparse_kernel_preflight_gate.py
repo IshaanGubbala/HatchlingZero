@@ -32,7 +32,7 @@ def evaluate(report: dict, *, speed_floor: float = 1.30, ram_limit: float = 0.70
         "checks": checks,
         "kernel_preflight_pass": all(checks.values()),
         "claim_eligible": False,
-        "reason": "untrained fixed-route kernel screen only; trained quality, full budget, seeds, and contamination-controlled evaluation remain mandatory",
+        "reason": "synthetic-step kernel screen only; full-budget trained quality, seeds, and contamination-controlled evaluation remain mandatory",
     }
 
 
