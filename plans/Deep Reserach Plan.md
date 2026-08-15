@@ -80,7 +80,10 @@ the explicit 100→75→60→50% learned-gate Direct-Split-V 1M curriculum is th
 first paired three-seed quality-positive sparse pilot (candidate CE
 2.276±0.018 vs matched Transformer 2.609±0.009, a 0.333±0.015 paired
 advantage), but only at its trained 50% floor and with raw systems failure;
-see `docs/restart/hz0h_learned_gate_direct_split_v_1m_pilot_results.md`. See
+see `docs/restart/hz0h_learned_gate_direct_split_v_1m_pilot_results.md`.
+Its three-seed frozen external code/math CE screen also favors the candidate
+with zero exact-record overlaps against the packed train corpus, but is not a
+broad capability suite or a systems pass. See
 `docs/restart/hz0h_blocksparse_100k_packed_data_pilot_results.md`.
 A different
 CUDA result alone is not a rationale to claim success: it needs raw reports

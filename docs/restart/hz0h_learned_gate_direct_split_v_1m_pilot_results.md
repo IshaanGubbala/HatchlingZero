@@ -2,8 +2,9 @@
 
 Date: 2026-08-14. Candidate seeds 7, 8, and 9 use a fixed 32-sequence
 validation batch. This is a paired candidate/control multi-seed quality screen,
-not a systems target or capability claim: frozen contamination-checked
-capability evaluation remains absent.
+not a systems target or broad capability claim. It now includes an
+exact-record contamination-checked external-domain CE screen, but that does
+not replace a broad frozen capability suite.
 
 ## Candidate and matched control
 
@@ -38,6 +39,30 @@ SHA256 values are respectively
 `099b14362bef08935c6920c5da9705b249a9949f9cddad8bb838f6e254d12fdb`.
 Each manifest pins its report and checkpoint. They are candidate-quality
 artifacts, not CUDA parity artifacts.
+
+## Frozen external-domain CE screen
+
+All three paired checkpoints were evaluated at the trained 50% fraction on
+frozen byte-packed streams: code (720 × 1,024-token records, SHA256
+`46f41658dfe09fdbe512ccbc0c994b4173c3b19cf8ec1707119b347cbe8e148d`) and
+math/reasoning (89 × 1,024-token records, SHA256
+`91c323fbc99c28dac09fba7345374c9309d73befcb79478a63df1154e3e9c020`).
+The train source SHA256 is
+`1366d23cfcd5981b4302bd59575198bf887b8ae5fe6904f5ed6973caf7d57d3f`.
+Exact canonical JSON token-record hashes had 0 overlap for both streams
+against 333,347 unique train records. This check does **not** rule out token
+substrings or source-level contamination.
+
+| domain | candidate CE, mean ± sample SD | Transformer CE, mean ± sample SD | paired CE advantage |
+|---|---:|---:|---:|
+| code | **3.807815 ± 0.111264** | 4.404250 ± 0.106051 | **0.596435 ± 0.144414** |
+| math/reasoning | **3.584599 ± 0.098064** | 4.235658 ± 0.129070 | **0.651058 ± 0.226301** |
+
+Raw reports are outside git at
+`outputs/hz0h_learned_gate_direct_split_v_1m_mps/frozen_domain_seed{7,8,9}.json`.
+They explicitly label this derivative and `claim_eligible: false`. This is a
+frozen external-domain CE screen, not a broad capability suite, nor a native
+CUDA speed/RAM evaluation.
 
 The candidate improved consistently across stages: CE 3.0156 (dense, 128K),
 2.9375 (75%, 256K), 2.6719 (75%, 384K), 2.6094 (60%, 512K), 2.3906 (60%,
