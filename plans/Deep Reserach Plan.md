@@ -66,7 +66,10 @@ regressed, and all routes were nearly static (see
 `docs/restart/hz0h_direct_split_v_1m_mps_pilot_results.md`). CUDA `chunk_gla`
 with direct Split-V at N_active << T remains only an untrained kernel screen;
 its correctness wiring and JSON gate cannot rehabilitate this quality-failed
-architecture without a new routing/quality intervention. See
+architecture without a new routing/quality intervention. A first real-corpus
+learned-gate + Direct-Split-V 100K annealing smoke was itself unstable at the
+hard 3.125% transition; see
+`docs/restart/hz0h_block_gated_direct_split_v_anneal_smoke.md`. See
 `docs/restart/hz0h_blocksparse_100k_packed_data_pilot_results.md`. A different
 CUDA result alone is not a rationale to claim success: it needs raw reports
 and the full matched quality gate.

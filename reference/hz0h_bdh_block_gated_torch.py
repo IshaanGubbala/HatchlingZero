@@ -254,3 +254,47 @@ def bdh_block_gated_annealed_forward(model: "BDHBlockGated", idx: torch.Tensor, 
     if targets is not None:
         loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1))
     return logits, loss
+
+
+def bdh_block_gated_annealed_direct_split_v_forward(model: "BDHBlockGated", idx: torch.Tensor, active_fraction: float, targets: torch.Tensor | None = None):
+    """Hard selected learned-gate execution with direct per-head values.
+
+    This deliberately combines two architectural deltas: a gate trained while
+    dense and then used to select blocks, plus direct Split-V values. It is not
+    exact BDH and has no quality claim until trained on real corpus data.
+    """
+    if active_fraction >= 1.0:
+        # Dense gate training uses the established differentiable path; direct
+        # values only matter once this experimental model enters sparse mode.
+        return bdh_block_gated_forward(model, idx, targets=targets)
+    C = model.config
+    B, T = idx.size()
+    D, nh, N = C.n_embd, C.n_head, C.n_embd * C.mlp_internal_dim_multiplier // C.n_head
+    if D % nh:
+        raise ValueError("direct Split-V requires n_embd divisible by n_head")
+    active = compute_active_blocks_by_gate(model, idx, active_fraction)
+    columns = (active.view(-1, 1) * C.block_size + torch.arange(C.block_size, device=idx.device)).reshape(-1)
+    n_active, Dh = columns.numel(), D // nh
+    encoder = model.encoder.index_select(2, columns)
+    encoder_v = model.encoder_v.index_select(2, columns)
+    decoder = model.decoder.reshape(nh, N, D).index_select(1, columns).reshape(nh * n_active, D)
+    freqs = model.attn.freqs.index_select(-1, columns)
+    x = model.ln(model.embed(idx).unsqueeze(1))
+    for _ in range(C.n_layer):
+        x_sparse = F.relu(x @ encoder)
+        full_gate = compute_block_gate(model, x)
+        selected_gate = full_gate.index_select(-1, active)
+        gate = selected_gate.unsqueeze(1).unsqueeze(-1).expand(B, nh, T, active.numel(), C.block_size).reshape(B, nh, T, n_active)
+        x_sparse = x_sparse * gate
+        phases = torch.arange(T, device=idx.device, dtype=freqs.dtype).view(1, 1, -1, 1) * freqs
+        q = model.attn.rope(phases, x_sparse)
+        scores = (q @ q.mT).tril(diagonal=-1)
+        values = x.squeeze(1).view(B, T, nh, Dh).transpose(1, 2)
+        ykv = (scores @ values).transpose(1, 2).reshape(B, 1, T, D)
+        ykv = model.ln(ykv)
+        y_sparse = F.relu(ykv @ encoder_v)
+        y = model.ln((model.drop(x_sparse * y_sparse)).transpose(1, 2).reshape(B, 1, T, n_active * nh) @ decoder)
+        x = model.ln(x + y)
+    logits = x.view(B, T, D) @ model.lm_head
+    loss = None if targets is None else F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1))
+    return logits, loss
