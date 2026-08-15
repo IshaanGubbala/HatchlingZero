@@ -200,8 +200,6 @@ def main() -> None:
     latent_width = args.n_embd * args.mlp_internal_dim_multiplier // args.n_head
     if latent_width % args.block_size:
         raise ValueError(f"--block-size ({args.block_size}) must divide latent width N={latent_width}")
-    if args.compile_step:
-        raise ValueError("--compile-step is not supported for dynamic BlockBDH routing; do not compare a compiled dense arm against this eager derivative")
 
     device = resolve_device(args.device)
     if device.type == "cuda" and not torch.cuda.is_available():
@@ -240,18 +238,29 @@ def main() -> None:
     # tensors -- forward_model is used for every training/eval step below,
     # while `model` itself (uncompiled) is what gets checkpointed, so saved
     # weights stay a plain, portable BDH state_dict either way.
-    # Dynamic index selection is deliberately eager; compile is rejected above.
+    # Routing stays eager (its top-k set is intentionally data-dependent), but
+    # selected-column forwards have static shapes at fixed batch/sequence/active
+    # fraction. Compiled code receives indices at runtime rather than baking a
+    # stale route. Fairness still requires the same compile policy for controls.
     forward_model = model
 
     config_snapshot = {key: (str(value) if isinstance(value, Path) else value) for key, value in vars(args).items()}
     config_snapshot.update(sequence_length_resolved=sequence_length, effective_batch_tokens=effective_batch_tokens, total_optimizer_steps_estimate=total_optimizer_steps, resolved_device=str(device), backend="torch", architecture="bdh", parameter_count=sum(p.numel() for p in model.parameters()))
     (args.run_dir / "config_snapshot.json").write_text(json.dumps(config_snapshot, indent=2, sort_keys=True), encoding="utf-8")
 
+    def sparse_forward(inputs: torch.Tensor, targets: torch.Tensor, active: torch.Tensor):
+        return bdh_blocksparse_forward(model, inputs, active, args.block_size, targets=targets)
+
+    compiled_sparse_forward = torch.compile(sparse_forward, mode=args.compile_mode) if args.compile_step else sparse_forward
+
     def routed_forward(inputs: torch.Tensor, targets: torch.Tensor | None = None, *, training: bool = False):
         active = compute_active_blocks(model, inputs, args.block_size, args.active_fraction,
             exploration_noise=args.router_exploration_noise if training else 0.0)
-        logits, lm_loss = bdh_blocksparse_forward(model, inputs, active, args.block_size, targets=targets)
-        return logits, lm_loss, active
+        if targets is None:
+            logits, loss = bdh_blocksparse_forward(model, inputs, active, args.block_size, targets=None)
+        else:
+            logits, loss = compiled_sparse_forward(inputs, targets, active)
+        return logits, loss, active
 
     def current_lr(at_step: int) -> float:
         if args.lr_schedule == "constant":
@@ -365,7 +374,7 @@ def main() -> None:
     }
     report = {
         "backend": "torch", "device": str(device), "hardware_id": hardware_id, "effective_batch_tokens": effective_batch_tokens,
-        "compile_step": False, "compile_mode": None, "fused_optimizer": args.fused_optimizer,
+        "compile_step": args.compile_step, "compile_mode": args.compile_mode if args.compile_step else None, "fused_optimizer": args.fused_optimizer,
         "architecture": "block_bdh_derivative", "exact_bdh": False, "claim_eligible": False, "dtype": args.dtype,
         "block_size": args.block_size, "active_fraction": args.active_fraction, "balance_loss_weight": args.balance_loss_weight, "router_exploration_noise": args.router_exploration_noise,
         "route_summary": route_summary,

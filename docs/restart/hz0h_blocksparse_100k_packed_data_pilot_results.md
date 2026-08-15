@@ -65,6 +65,27 @@ The apparently favorable short fixed-batch CE values at shallow depth are not
 a license to choose depth after observing validation: 100K tokens, one seed,
 and four sequences are insufficient for a trained-quality conclusion.
 
+## Fair compiler-policy sweep
+
+Both the depth-1/6.25%-active BlockBDH arm and the matched Transformer arm were
+then run with the same BF16/MPS/data/batch/token settings and `torch.compile`
+policy. Reported end-to-end times include graph compilation startup, which is
+appropriate for this short pilot; late-run steady intervals were examined
+separately as a diagnostic.
+
+| policy | BlockBDH tok/s | Transformer tok/s | overall speed ratio | Block/Transformer allocator snapshot |
+|---|---:|---:|---:|---:|
+| eager | 5,609.95 | 4,613.67 | 1.216x | 1.028x |
+| compile `default` | 4,689.47 | 3,861.83 | 1.214x | 1.140x |
+| compile `reduce-overhead` | 5,064.05 | 4,167.91 | 1.215x | 1.140x |
+
+The default compiled late interval was 5,834 versus 4,727 tok/s (1.234x),
+and reduce-overhead's was 5,781 versus 5,043 (1.146x). Neither comes close to
+the required 1.30x. The validation losses remained finite and near their
+uncompiled short-run values, but this is not quality evidence. Conclusion:
+compilation is available and must remain fair, but it is not the intervention
+that closes the current BlockBDH/Transformer gap on this backend.
+
 ## Router telemetry
 
 The BlockBDH runner logged 79 distinct selected-block sets over 391 steps.

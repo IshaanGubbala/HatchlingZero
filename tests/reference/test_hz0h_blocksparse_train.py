@@ -38,11 +38,13 @@ def test_blocksparse_real_corpus_runner_smoke(tmp_path: Path):
     assert (run_dir / "block_bdh_checkpoint.pt").exists()
 
 
-def test_blocksparse_runner_rejects_unfair_compile():
-    command = [sys.executable, "scripts/hz0h_blocksparse_train.py", "--data", "x", "--validation-data", "y", "--run-dir", "/tmp/nope", "--compile-step"]
-    outcome = subprocess.run(command, capture_output=True, text=True)
-    assert outcome.returncode != 0
-    assert "dynamic BlockBDH routing" in outcome.stderr
+def test_blocksparse_runner_compiles_selected_column_forward(tmp_path: Path):
+    run_dir = tmp_path / "compiled"
+    command = [sys.executable, "scripts/hz0h_blocksparse_train.py", "--data", "data/packed/hz0h_bytes_25m_train.jsonl", "--validation-data", "data/packed/hz0h_bytes_25m_val.jsonl", "--run-dir", str(run_dir), "--target-tokens", "8", "--batch-size", "1", "--validation-batch-size", "1", "--sequence-length", "8", "--n-embd", "16", "--n-layer", "1", "--n-head", "2", "--mlp-internal-dim-multiplier", "4", "--block-size", "4", "--active-fraction", "0.5", "--checkpoint-interval", "1", "--validation-interval", "1", "--device", "cpu", "--dtype", "float32", "--warmup-steps", "0", "--compile-step"]
+    subprocess.run(command, check=True, capture_output=True, text=True, timeout=120)
+    report = json.loads((run_dir / "block_bdh_training.json").read_text())
+    assert report["compile_step"] is True
+    assert report["compile_mode"] == "default"
 
 
 def test_blocksparse_runner_rejects_nondividing_block_size():
