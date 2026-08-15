@@ -38,7 +38,9 @@ real per-step BlockBDH routing plus 50%-active sparse matmuls measured about
 probe, and its allocator peak was not a valid RAM win, so it cannot support a
 claim. It does justify the next real-data experiment. The reproducible probe
 is `scripts/hz0h_bdh_blocksparse_training_benchmark.py`; its output is always
-marked `claim_eligible: false`.
+marked `claim_eligible: false`. The real-corpus runner and preregistered
+comparison protocol are `scripts/hz0h_blocksparse_train.py` and
+`docs/restart/hz0h_blocksparse_real_corpus_pilot_plan.md` respectively.
 
 The latest genuine-BF16 long-context inference measurements are also below the
 full target: at 8,192 tokens, exact BDH streaming reached about 188.7 tok/s
