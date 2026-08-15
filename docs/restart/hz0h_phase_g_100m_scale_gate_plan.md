@@ -1,8 +1,18 @@
-# HZ Phase G: 100M scale gate — execution plan (draft, not yet dispatched)
+# HZ Phase G: 100M scale gate — execution plan (pilot stage closed)
 
 Per `plans/HatchlingZero_Next_Phase_Plan.md` section 11. Pre-registering
 configs and metrics before running, same discipline as Phase F's own
-setup section — this is a plan, not a result; nothing below has been run.
+setup section.
+
+**Stage G-pilot is closed as of 2026-08-14** — real result:
+`docs/restart/hz0h_phase_g_100m_scale_gate_pilot_results.md`. Both
+BDH-family arms (exact BDH, VB D/4) hit a real WDDM memory-ceiling wall
+at `batch=12` exactly at the curriculum's depth 2→4 transition; the
+matched Transformer completed cleanly with ~5.7x less peak memory.
+Stage G-full (below) is **not** cleared to dispatch at the originally
+planned `batch=12` for the BDH-family arms until a smaller-batch recipe
+is found and tested — see the results doc's own disclosed open
+question.
 
 ## Why now
 
@@ -106,6 +116,9 @@ full here, see `plans/HatchlingZero_Next_Phase_Plan.md` section 11.
 
 ## Status
 
-Draft only. Not dispatched. Before Stage G-pilot goes out to Windows:
-real repack of the 100M+ token corpus, and explicit confirmation of the
-G-full token budget given the real multi-day cost estimate above.
+**Stage G-pilot: closed, real result** — see
+`docs/restart/hz0h_phase_g_100m_scale_gate_pilot_results.md`.
+**Stage G-full: blocked**, not dispatched — both BDH-family arms need a
+smaller-batch recipe (untested how small) before a full run at this
+param count is viable on this hardware; the corpus repack and G-full
+token-budget sign-off noted above still apply once that's resolved.
