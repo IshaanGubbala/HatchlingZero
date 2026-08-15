@@ -332,6 +332,41 @@ exact-BDH checkpoint — that decides whether a single shared \(S\), or the
 shared-plus-private-residual fallback in "Value Bottleneck for S, not
 H", is the better starting point.
 
+\(H\) above was written as a single vector for simplicity, but nothing
+requires that. Pathway's own paper calls the CQ workspace a
+"structured multi-vector workspace" when contrasting it with
+Coconut-style single continuous thoughts (see "Dynamic workspace
+slots" below for the concrete multi-slot design this motivates) --
+worth building \(H\in\mathbb R^{M\times d}\) (multiple slots) from
+the start rather than retrofitting it after a single-vector version is
+validated, since the two may have different failure modes.
+
+A real, cheap efficiency property worth building in from the start:
+inference-time memory for the reasoning loop need not grow with \(R\).
+With two alternating buffers (`h_a`, `h_b`, `for r in range(R): h_b =
+F(h_a, S); h_a, h_b = h_b, h_a`), runtime activation storage stays
+\(O(S+2H)\) regardless of how large \(R\) gets, instead of
+\(O(R\cdot S_{\text{BDH}})\) if each reasoning step's state were
+naively retained. Training with BPTT still needs either the
+intermediate \(H_r\) or activation recomputation/checkpointing to get
+gradients through the loop -- ping-pong buffering is an inference-time
+property, not a free training-time one.
+
+Real scoping correction: HatchlingZero's own earlier variable-depth
+experiment (comparison matrix row "Latent test-time compute": "Old
+ordinary-depth extrapolation failed") ran plain vanilla-BDH sequence
+state at increasing recurrent depth and found no reasoning-accuracy
+gain. That is real evidence against "more vanilla BDH depth alone
+produces reasoning scaling" -- it is *not* evidence against the S/H
+mechanism this section describes, which differs on every relevant axis
+(separate persistent \(S\) vs. ephemeral \(H\), training explicitly
+across multiple effort levels, conditioning \(F_\theta\) on \(S\)
+rather than just recursing on the sequence state, only decoding after
+the full reasoning loop). Keep the old result labeled precisely as
+"naive extra depth doesn't help," not "latent recurrent reasoning
+doesn't work" -- conflating the two would wrongly discourage the CQ-0
+build below before it's even tried.
+
 ### Training and data
 
 The disclosed training objective is episodic: the model predicts target outputs **after preceding examples have already been incorporated into its recurrent context**. The complete training recipe is proprietary. citeturn16view1
@@ -360,6 +395,16 @@ The stratified generator goes further: it conditions generation on an anchor pro
 This is useful but should not become your sole ground truth. Pathway's own appendix says its generated cohorts contain some quality limitations: manual review found at least one task whose stated output contradicted the demonstrations' rule; independent mechanic labels agreed with requested labels on 82.9% of a labeled subset; and deduplication removed 24% of a merged generated pool. citeturn16view3
 
 For training, I would therefore combine LLM-generated diversity with **executable procedural tasks**. Google's ARC-GEN repository is particularly useful because it exposes procedural generators and reports that its validation command reproduces all 400 ARC-AGI-1 generator targets with 400 passing and zero failing. citeturn20search0turn20search2
+
+Real, useful framing this implies for HatchlingZero's own 150M target:
+the 29.5% model is not a general-purpose 150M language model that
+happens to also solve ARC tasks -- it is trained almost entirely on
+ARC-style procedural/curated data, i.e. a specialized ARC reasoning
+machine, not a broad-knowledge LM. That means HZ-CQ-150M does not need
+to spend parameter budget on broad world knowledge either -- essentially
+the whole budget can go to visual/grid representation, contextual
+binding (\(S\)), latent reasoning (\(H\)), and output construction,
+the same allocation Pathway's own training mixture implies.
 
 ### The Pathway performance target
 
@@ -765,6 +810,14 @@ not another cherry-picked context sweep; it is a trained, quality-matched
 replication on the same GPU with at least three seeds and explicit end-to-end
 latency/RAM accounting.
 
+The training gate is equally blocking. Do **not** advance to HZ-CQ or present
+long-context decode as the project-wide efficiency result until a trained BDH
+or derivative has either met the 1.30x/0.70 training thresholds or produced a
+fully disclosed negative result after the authorized optimization lanes
+(compile applied to both arms, activation-memory reduction, and trained-in-path
+BlockBDH) have been tested. CQ is not a way to silently redefine “run” as
+inference-only.
+
 Required outputs:
 
 ```text
@@ -953,6 +1006,73 @@ R=8 > R=4 > R=2
 
 That is far stronger evidence of learned test-time computation than a single final accuracy.
 
+### Where Pathway's own system is weakest -- a real target list, not a guess (added 2026-08-14)
+
+The paper's own mechanic-stratified generated cohort (1,131 tasks)
+reports per-mechanic solve rates -- effectively a research roadmap for
+where HatchlingZero could beat the aggregate score without needing
+uniform superiority:
+
+| Mechanic | Solve rate |
+|---|---:|
+| Flood fill | 68.6% |
+| Denoising | 56.9% |
+| Scaling | 53.7% |
+| Cropping/extraction | 44.6% |
+| Translation | 35.6% |
+| Tiling/repetition | 34.2% |
+| Line drawing | 29.8% |
+| Rotation | 25.3% |
+| Recolor property | 25.3% |
+| Sorting/rank | 19.1% |
+| Counting | 18.6% |
+| Reflection | 16.7% |
+| Symmetry completion | 16.4% |
+| Occlusion repair | 16.1% |
+| Panel set operation | 10.4% |
+| Gravity/stacking | 2.9% |
+
+The task ladder above should weight generation toward the weak end
+(gravity/stacking, panel operations, occlusion, symmetry, reflection,
+counting, sorting) rather than spending curriculum budget on mechanics
+CQ already solves well (flood fill, denoising, scaling).
+
+The paper's own appendix failure analysis sharpens WHY several of these
+are hard, with direct design implications:
+
+- **Conditional rule dispatch**: a fixed rule with a varying marker
+  scores 40/40, but genuinely *selecting between two rules* from a cue
+  scores only 68/120 (56.7%) -- a real, specific weakness in
+  conditional branching, not rule execution itself. Motivates the
+  "candidate rule slots + gating" extension already proposed under
+  "Dynamic workspace slots" below, now with concrete supporting
+  evidence rather than being purely speculative.
+- **Parameterized rules**: if a shift parameter was directly
+  demonstrated, 12/40; if the required value was absent from the
+  demonstrations (interpolation required), 0/120. A real, large target:
+  train \(H\) to learn rule-plus-parameter jointly, not memorize
+  discrete demonstrated operator settings.
+- **Panel operations**: two separated panels 26/40, three panels 1/40,
+  two *touching* panels 3/40 -- the paper itself attributes this to a
+  likely segmentation limitation. Direct, concrete evidence (not just
+  speculation) for the object-slot design under "Dynamic workspace
+  slots" below.
+- **Dependency chains**: accuracy declines 80% -> 67.5% -> 52.5% ->
+  27.5% as support-chain depth increases -- exactly the shape of task
+  where additional reasoning iterations \(R\) should theoretically
+  help, making this a strong, targeted test for the CQ-0 effort-scaling
+  gate above.
+- **Composition is NOT the bottleneck by itself**: four axis-aligned
+  operations in sequence score 38/40, three independently moving
+  objects 40/40, counting 10-12 objects 34/40 -- raw step count or
+  object count isn't what makes a task hard. Real implication for
+  curriculum design: the "Synthetic task ladder" difficulty variables
+  above (path length, object count, nesting depth, composed-operator
+  count) should be weighted by **dependency depth specifically**
+  (how much each step's correctness depends on a prior step's output),
+  not by raw size/count -- a real refinement to how those generators
+  should be parameterized, not just a longer list of variables.
+
 ### Reasoning curriculum
 
 Do not train the first model at \(R=16\) from initialization.
@@ -1087,6 +1207,28 @@ for every demonstration and test pair.
 
 That prevents the student from learning from internally contradictory examples.
 
+### Report two scores, not one: HZ-CQ-Core vs. HZ-CQ-System (added 2026-08-14)
+
+Pathway's own paper says the evaluated system includes input
+transformations, candidate construction, candidate ranking, and the
+inference pipeline around the neural model -- so the headline 29.5%
+pass@2 is a system score, not "one forward pass of a naked 150M network
+emitted a grid." Comparing HZ's own naked-decoder output directly
+against that number would be an apples-to-oranges comparison in HZ's
+own favor or disfavor depending on what HZ's pipeline does. Every CQ
+run's report (the JSON schema below) should therefore emit both:
+
+- **HZ-CQ-Core**: raw single-candidate decoder output, no ranking, no
+  augmentation, no candidate construction pipeline.
+- **HZ-CQ-System**: HZ's own full inference pipeline (candidate
+  construction/ranking, if and when built), the number that's actually
+  comparable to Pathway's reported pass@2.
+
+Do not report only the more favorable of the two, and do not let
+"HZ-CQ-System" quietly become the only number tracked once a pipeline
+exists -- the Core number stays useful as a measure of the underlying
+model's own capability, independent of pipeline engineering.
+
 ### Exact metrics to collect
 
 Every CQ run should emit one JSON report containing:
@@ -1184,6 +1326,58 @@ peak VRAM
 ## Variants with a credible path to beating Pathway
 
 Do not run all of these simultaneously. First reproduce S/H behavior. Then introduce **one axis at a time**.
+
+### CQ-0: the concrete first build, before any efficiency variant (added 2026-08-14)
+
+The priority ordering above ("First reproduce S/H behavior. Then
+introduce ONE axis at a time.") deserves a concrete first build, not
+just a rule. Real motivation: everything this document has established
+about Pathway's disclosed CQ interface -- separate persistent \(S\)
+and ephemeral \(H\), a structured multi-vector workspace, training
+explicitly across multiple reasoning-effort levels -- is a REASONING
+MECHANISM, not an efficiency property. FoldBDH, Split-V, Value
+Bottleneck, INT8, and BlockBDH (several already built this session,
+see below) all make BDH cheaper or smaller; none of them test whether
+HatchlingZero can reproduce CQ's actual reasoning-scaling behavior.
+Building efficiency variants first, before CQ-0 exists, risks optimizing
+an architecture whose central mechanism hasn't been validated yet.
+
+Minimal build: demonstrations -> a BDH-style contextual encoder ->
+persistent \(S\); query -> \(H_0\) initialized as \(M\) latent
+slots (start with \(M=16\)); a shared reasoning block run \(R\)
+times, \(H_{r+1}=H_r+F_\theta(H_r,\operatorname{Read}(H_r,S))\), not
+writing to \(S\) during the loop (matches this document's own
+\(\partial S/\partial r=0\) invariant under "Proposed S/H entity
+model"); a grid decoder reading \(H_R\).
+
+Train with \(R\) sampled from \(\{1,2,4,8\}\) **in-path** (same
+curriculum-training discipline this document's own "Reasoning
+curriculum" section and HatchlingZero's own successful depth curriculum
+already establish) on the synthetic task ladder below, with a real
+dependency-depth axis, not just task size. Then evaluate the SAME
+checkpoint at \(R=1,2,4,8\).
+
+The decisive gate, restated precisely: \(\partial\text{accuracy}/
+\partial R>0\), and specifically GROWING as task dependency depth
+increases (not a flat or uniform effort benefit across all
+difficulties) -- this is what would constitute recreating CQ's actual
+behavioral signature, not merely "the loss went down." Only after this
+gate passes would Fold/Split-V/VB/INT8/BlockBDH variants be applied to
+the validated CQ-0 architecture, per the existing "Variants" ordering
+below.
+
+Where today's already-built efficiency work fits: `chunk_gla`/Fold-0
+(closed, negative), FoldBDH's design and the n_head-sweep diagnostic,
+and the real Split-V module (`reference/hz0h_bdh_split_v_torch.py`,
+correctness-tested, quality/throughput comparison pending) are all
+correctly-labeled PRE-CQ infrastructure work on BDH's own attention
+efficiency -- valid and useful on their own terms, sequenced ahead of
+CQ-0 in practice this session because a real, concrete efficiency
+question (does BDH's attention need a fused kernel, does per-head value
+splitting help) came up before CQ-0 was scheduled. That is fine as
+opportunistic infrastructure work, but none of it should be read as
+progress on, or a substitute for, the CQ-0 reasoning-mechanism gate
+above.
 
 ### Freeze-once quantized contextual memory
 
@@ -1656,6 +1850,20 @@ what output am I building?
 
 This is speculative but tightly aligned with Pathway's description of a “structured” multi-vector latent workspace. citeturn15view2
 
+Real, concrete evidence for this now exists, not just alignment with a
+descriptive phrase (added 2026-08-14): the paper's own appendix failure
+analysis found panel-operation accuracy collapsing sharply with panel
+count/adjacency (two separated panels 26/40, three panels 1/40, two
+*touching* panels 3/40), which the authors themselves attribute to a
+likely segmentation limitation -- direct support for object slots
+specifically, not just multi-slot structure in general. Similarly,
+conditional rule dispatch (selecting between two rules from a cue)
+scored only 56.7% versus 100% for a fixed rule with a varying marker --
+direct support for the "global rule slots" idea above needing an
+explicit selection/gating mechanism, not just more capacity. See "Where
+Pathway's own system is weakest" under "Synthetic task ladder" for the
+full appendix breakdown these two points are drawn from.
+
 ### Learned halting only after fixed effort works
 
 Pathway currently exposes discrete effort modes. citeturn21view2
@@ -2033,6 +2241,21 @@ and:
 ```
 
 then estimate the point at which another unit of training compute stops buying useful ARC accuracy.
+
+### A real cost-accounting inconsistency worth knowing about, not resolving (added 2026-08-14)
+
+The paper's own headline cost (0.85 H200-GPU-seconds/task, priced at
+$0.00070/task) does not obviously reconcile with a separate figure
+elsewhere in the same paper (Section 6.6): full ARC evaluation costs of
+$0.00088399/task (MIN, 111/400) and $0.00265246/task (STANDARD,
+118/400) -- 1.26x and 3.79x the headline number respectively, with the
+reconciliation between the two accounting regimes not made explicit in
+the paper. Real, practical implication for HatchlingZero: benchmark and
+report raw hardware quantities first -- GPU-seconds/task and
+joules/task -- rather than converting to a dollar figure and trying to
+match Pathway's own $/task number, since which of Pathway's own two
+cost regimes that figure corresponds to isn't clear from the paper
+itself.
 
 ### Match and beat gates
 
