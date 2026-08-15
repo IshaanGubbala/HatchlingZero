@@ -1145,6 +1145,30 @@ are hard, with direct design implications:
   not by raw size/count -- a real refinement to how those generators
   should be parameterized, not just a longer list of variables.
 
+### Sudoku Extreme as a real benchmark, before full ARC scaling (added 2026-08-15)
+
+Pathway's site reports 97.4% top-1 on ~250,000 Extreme Sudoku puzzles,
+no chain-of-thought, no backtracking -- Pathway-internal evaluation, so
+treat as a Pathway claim, same discipline as every other Pathway-
+reported number in this document, not independently verified evidence.
+
+Real reason to prioritize this over more ARC scaling: unlike ARC (many
+rules, few examples per task, hard to diagnose why a failure happened),
+Sudoku gives one rule, effectively unlimited instances, an automatic
+verifier, adjustable difficulty, and known dependency depth -- exactly
+the properties the "Synthetic task ladder" above already asks for, at
+a real scale (~250K puzzles) instead of a small procedural generator.
+Real, concrete test this unlocks: accuracy vs. reasoning depth \(R\)
+(`R in {1,2,4,8,16,32}`) crossed with puzzle difficulty (easy/medium/
+hard/extreme). The predicted CQ signature: \(R_{\text{optimal}}\)
+increases with difficulty -- the same "does effort scaling actually
+help, more on harder tasks" gate the Synthetic task ladder section
+already defines, just on a real, large, verifiable dataset instead of
+a small synthetic one. Recommended sequencing: after the synthetic
+task ladder proves the S/H mechanism works at all, before scaling ARC
+task generation further -- Sudoku's verifier and difficulty control
+make it a cheaper, cleaner place to find R-scaling bugs than ARC.
+
 ### Reasoning curriculum
 
 Do not train the first model at \(R=16\) from initialization.
@@ -1451,6 +1475,37 @@ opportunistic infrastructure work, but none of it should be read as
 progress on, or a substitute for, the CQ-0 reasoning-mechanism gate
 above.
 
+### Revised staged roadmap after CQ-0 (added 2026-08-15)
+
+CQ-0's own gate above (does accuracy scale with R, more on harder
+tasks) is the entry point, not the whole plan. Real, disclosed staging
+for what comes after it passes -- each stage adds ONE real axis, same
+"introduce one axis at a time" discipline as the rest of this document,
+informed by the Pathway "Equations of Reasoning" additions above:
+
+```text
+CQ-0: S (persistent) + multi-slot H + R in {1,2,4,8}
+      -> synthetic rule induction -> Sudoku Extreme -> fresh arc-task-gen
+
+CQ-1: S_fast + S_slow (real timescale split, corroborated by Pathway's
+      own fast-neuronal/slow-synaptic framing)
+      + activity-dependent synaptic forgetting (lambda_t)
+
+CQ-2: Adaptive BlockBDH -- surprise/novelty-dependent compute
+      (12.5% <-> 100% active, not a fixed fraction)
+
+CQ-3: excitatory/inhibitory H+/H- (later, lower priority -- only after
+      CQ-0 through CQ-2 are validated)
+      + multi-candidate H
+      + stability-diagram-informed adaptive halting
+      (||H_{r+1}-H_r|| < epsilon, replacing arbitrary LOW/MEDIUM/HIGH)
+```
+
+Do not skip ahead to CQ-2/CQ-3 mechanisms before CQ-0's own gate
+passes -- same risk this document already flags for efficiency variants
+in general (see CQ-0's own text above): each later stage assumes the
+prior stage's mechanism is real and validated, not just plausible.
+
 ### Freeze-once quantized contextual memory
 
 This is my highest-priority HZ-specific innovation.
@@ -1590,6 +1645,87 @@ depth \(R\), and the slow state's sparse update cadence also reduces
 state-write bandwidth cost, not just storage — a plausible eventual
 target rather than a near-term build, tried only after the simpler
 single-\(S\) and shared-base variants are validated.
+
+### Pathway's "Equations of Reasoning" page (2026-08-06): real corroboration for fast/slow S, plus synaptic forgetting (added 2026-08-15)
+
+Pathway's own site describes BDH's real computation as having two
+distinct timescales: sequential "acquisition loops" (one per fact/
+observation) each containing multiple internal fast neuronal-variable
+update steps (their own notation: \(X,A,Y\)), operating on top of a
+slower synaptic variable \(\sigma\) that persists and accumulates
+across acquisitions. This is real, disclosed corroboration -- not just
+alignment with a vague phrase -- for the fast/slow \(S\) split already
+proposed above: their own conceptual framing is explicitly a timescale
+hierarchy, not an incidental detail.
+
+Concretely, extend the fast/slow \(S\) variant above into a real
+three-part loop, \(S_{\text{fast}}\), \(S_{\text{slow}}\), \(H\):
+
+```python
+for observation in sequence:
+    S_fast = fast_update(S_fast, observation)
+    if consolidation_condition:
+        S_slow = consolidate(S_slow, S_fast)
+    H = initialize(observation, S_fast, S_slow)
+    for r in reasoning_steps:
+        H = reason(H, S_fast, S_slow)
+```
+
+`consolidation_condition` is deliberately left open -- candidates:
+every \(N\) tokens (simplest), a surprise/novelty threshold (see
+"Adaptive BlockBDH" below, same underlying signal could gate both
+consolidation AND compute), or a fixed schedule matching the existing
+recurrent-depth curriculum's own token-boundary pattern.
+
+**Synaptic forgetting**: Pathway's local equations also include a
+weakening/decay operation on synaptic state as part of the memory-read
+round -- reciprocal activity strengthens useful connections, inactive
+one-way connections weaken. HatchlingZero's own streaming state
+(\(S_t=S_{t-1}+k_t^\top v_t\)) only accumulates, never forgets --
+plausible real problem at long context/persistent sessions (32K-128K+,
+see the BABILong gate below), where irrelevant ancient associations
+never decay. Generalize to
+\(S_t=\lambda_t\odot S_{t-1}+k_t^\top v_t\), three real variants to
+test, cheapest first: (A) per-head scalar \(\lambda_h\); (B) per-state-
+channel \(\lambda_d\); (C) activity-dependent \(\lambda_t=f(x_t,S_t)\).
+Not yet built or tested -- a real, disclosed proposal, same status as
+the rest of this section.
+
+### Adaptive BlockBDH: surprise/novelty-dependent sparsity, not a fixed fraction (added 2026-08-15)
+
+Real motivation, also from Pathway's own site: they describe activity
+becoming sparser specifically when input is predictable -- repeated/
+low-information inputs cause less activity and less state change, not
+sparsity as a fixed architectural constant. HatchlingZero's own
+BlockBDH (see "Block-diagonal (folded) synaptic state" below and
+`reference/hz0h_bdh_blocksparse_torch.py`) currently always activates a
+FIXED fraction (e.g. 50%) regardless of input -- a real, disclosed
+mismatch with what Pathway's own description suggests their real
+efficiency story actually is: compute tracks novelty, not a constant.
+
+Proposed real experiment, not yet built: compute a cheap surprise/
+novelty signal per step -- candidates, cheapest first: prediction error
+\(z_t=\|x_t-\hat x_t\|\), state-update magnitude
+\(z_t=\|\Delta S_t\|\) (directly available, no extra computation,
+since \(\Delta S_t\) is already computed every step), or output
+entropy \(z_t=H(p_t)\). Map \(z_t\) to an active-fraction level from a
+small discrete set (e.g. `{12.5%, 25%, 50%, 75%, 100%}`), rather than a
+learned router from scratch (the existing cheap-proxy/learned-gate
+routing experiments this session found real instability -- see the
+BlockBDH results docs -- a measurable, non-learned signal like
+\(\|\Delta S_t\|\) sidesteps that specific failure mode, at least as a
+first real test). Real, disclosed distinction from the failed router
+experiments: this is deliberately NOT another learned gate -- it is a
+fixed function of an already-computed, interpretable quantity.
+
+If this works, it attacks training FLOPs, inference FLOPs, energy, and
+memory bandwidth simultaneously, and reframes the whole efficiency
+story: not "make a permanently-50%-active BlockBDH retain quality" (the
+approach that failed this session -- BlockBDH's real 1.87x-CUDA win
+over dense BDH never closed the gap to the Transformer, see
+`docs/restart/hz0h_blocksparse_cuda_training_preflight_results.md`),
+but "be ~10% active most of the time, spike to ~100% exactly when
+something novel arrives." Not yet built or tested.
 
 ### Block-sparse reasoning workspace
 
@@ -1936,6 +2072,64 @@ explicit selection/gating mechanism, not just more capacity. See "Where
 Pathway's own system is weakest" under "Synthetic task ladder" for the
 full appendix breakdown these two points are drawn from.
 
+### Real corroboration for multi-slot H, and a later excitatory/inhibitory extension (added 2026-08-15)
+
+Pathway's own Sudoku discussion repeatedly emphasizes reasoning in a
+richer internal space that preserves multiple candidate possibilities
+rather than serializing everything into language -- real, concrete
+corroboration (not just the "structured multi-vector workspace" phrase
+already cited above) for building \(H\) as genuinely multiple slots
+from the start, `H in R^{M x D}`, not a single vector retrofitted
+later. Real, concrete test: sweep `M in {1, 4, 8, 16, 32}` at fixed
+total parameter count, on the Sudoku benchmark above specifically
+(multiple simultaneous candidate-digit hypotheses per cell is exactly
+the kind of structure a single vector would have to serialize/overwrite,
+while a real multi-slot `H` could represent directly) -- not yet run.
+
+**Later-stage extension, explicitly lower priority than S/H
+reproduction itself**: Pathway's full local equations distinguish
+excitatory and inhibitory gate variables (`G_x^e, G_x^i, G_y^e, G_y^i`
+in their notation) and compute positive neuronal activity from the
+difference between them. Not proposing to copy the biological framing,
+but computationally this suggests a real, testable idea: split \(H\)
+(or \(S\)) into \(H^+\) and \(H^-\), combine as
+\(H=\operatorname{ReLU}(H^+-H^-)\) -- lets the model represent
+"evidence FOR hypothesis A" separately from "evidence AGAINST
+hypothesis A," which constraint-satisfaction tasks (Sudoku: "cell may
+be 5" vs. "cell cannot be 3") plausibly need and a single positive-only
+representation cannot cleanly express. Sequenced explicitly AFTER basic
+S/H reproduction works (CQ-0 through the Sudoku gate), not before --
+real risk of premature complexity if added before the base mechanism is
+validated.
+
+### Stability phase diagram: measure more than accuracy vs. R (added 2026-08-15)
+
+Pathway's "Equations of Reasoning" page frames their own future
+analysis around memory accumulation, memory decay, sparsity collapse,
+perturbation propagation, and stable-vs-unstable regimes as model size
+and reasoning time increase -- directly relevant, since this project has
+already observed cases where deeper recurrence hurts (the naive old
+variable-depth extrapolation result; see "A concrete BDH instantiation"
+above for why that's a different question from the CQ-0 gate).
+
+Real, concrete metrics to track alongside accuracy vs. \(R\) (not
+instead of it): \(\|H_r\|\) (workspace norm per step),
+\(\|H_{r+1}-H_r\|\) (step-to-step change -- does it shrink,
+i.e. converge, or blow up/oscillate), activation sparsity, state
+entropy, a Jacobian spectral-radius estimate if cheap to compute, and
+output confidence vs. \(R\). Goal: a real phase diagram (model size x
+reasoning depth -> stable / useful / diverges), not just a single
+accuracy-vs-R curve, to catch instability before it shows up as a
+silent accuracy regression at some untested depth/scale combination.
+
+Real, concrete payoff: a principled adaptive-halting rule,
+\(\|H_{r+1}-H_r\|<\epsilon\) (stop reasoning once the workspace stops
+changing meaningfully), instead of the arbitrary fixed LOW/MEDIUM/HIGH
+effort buckets Pathway's own disclosed interface uses (see "The
+Pathway performance target" above) -- see "Learned halting only after
+fixed effort works" immediately below for the existing halting
+proposal this would replace/inform. Not yet built or tested.
+
 ### Learned halting only after fixed effort works
 
 Pathway currently exposes discrete effort modes. citeturn21view2
@@ -2171,6 +2365,36 @@ HatchlingZero/
         └── results/
 ```
 
+### State transplant and interpolation: does S encode a rule, or just examples? (added 2026-08-15)
+
+Pathway's own description of CQ is stronger than "store context":
+demonstrations update memory, then the model solves the query using
+that updated state with no gradient updates or per-task retraining --
+and their homepage goes further, describing the system as changing its
+reasoning rules during use. Marketing framing aside, this gives a real,
+testable scientific question this project can actually answer: does
+HatchlingZero's own \(S\) encode an inferred rule/algorithm, or merely
+a lossy summary of the specific examples it saw?
+
+**State transplant**: train/demonstrate model A on rule \(R_A\)
+(\(S_A=U(D_A)\)) and model B on rule \(R_B\) (\(S_B=U(D_B)\)), same
+architecture/weights, different demonstrations only. Then evaluate
+three conditions on a query for \(R_A\): `query_A + S_A` (control),
+`query_A + S_B` (transplant -- wrong rule's state), `query_A + zero
+state` (ablation). If behavior tracks the transplanted state (produces
+\(R_B\)-consistent output despite the query being an \(R_A\) query),
+that is real, strong evidence \(S\) contains task/rule information, not
+just example residue.
+
+**State interpolation**: \(S_\alpha=\alpha S_A+(1-\alpha)S_B\), sweep
+\(\alpha\) from 0 to 1, check whether output behavior transitions
+systematically (smoothly interpolates between \(R_A\)-like and
+\(R_B\)-like) or breaks discontinuously. A smooth transition would be
+real, interesting evidence about how rule information is actually
+encoded in \(S\)'s geometry -- not required for the core CQ-0 gate,
+but a real, cheap follow-up once transplant itself works. Neither test
+built or run yet.
+
 ### Non-negotiable CQ tests
 
 Before a result counts:
@@ -2328,6 +2552,51 @@ joules/task -- rather than converting to a dollar figure and trying to
 match Pathway's own $/task number, since which of Pathway's own two
 cost regimes that figure corresponds to isn't clear from the paper
 itself.
+
+### BABILong: a mandatory long-context reasoning gate, not just RAM/tok-s (added 2026-08-15)
+
+The single biggest gap this document had before this addition: every
+long-context result in this project so far (the BF16 streaming-decode
+target gate, `docs/restart/hz0h_phase_f_target_gate_results.md`) measures
+raw execution -- RAM, throughput -- on UNTRAINED weights. It has never
+measured whether HatchlingZero actually retains and reasons over useful
+information at long context, only whether it can execute fast and small
+there. Pathway's own site now reports a 134M BDH model reaching 95%
+(32K context) and 82% (128K context) on BABILong QA1-QA5 -- Pathway
+states explicitly these results are still pending contamination checks,
+independent validation, and leaderboard review, so treat as a Pathway
+claim, same discipline as every other Pathway number here, not
+established fact.
+
+This tests exactly the combination this project claims BDH should be
+good at (`long context + persistent memory + reasoning`) that pure
+RAM/tok-s benchmarks cannot. Adding as a mandatory 150M gate:
+
+```text
+HZ Long Memory Gate
+
+BABILong QA1-QA5, context lengths 8K / 16K / 32K / 64K / 128K
+
+measure per context length:
+  accuracy
+  peak RAM
+  tok/s
+  joules
+  state bytes
+
+compare:
+  Transformer 150M
+  exact BDH 150M
+  HZ 150M
+```
+
+Real reason this could become one of the project's strongest results,
+not just another benchmark: the Transformer's KV-cache keeps growing
+with context (already the documented, real weakness driving this whole
+project's long-context RAM/speed advantage), while HZ's synaptic state
+can stay bounded -- BABILong is the test of whether that structural
+advantage survives contact with an actual reasoning task, not just a
+synthetic throughput probe. Not yet run.
 
 ### Match and beat gates
 
@@ -2519,6 +2788,32 @@ Falsifiable, concrete, and bounded.
 \text{win over Luna Low on the locked private arc-task-gen set}
 }
 \]
+
+### The real 150M composite gate, updated (added 2026-08-15)
+
+Given BABILong and Sudoku above, the 150M final gate is now a
+composite, not a single ARC number:
+
+```text
+ARC-AGI-1        >29.5% (parity), >34.2% (beat Luna Low, primary target)
+Sudoku Extreme    approach Pathway's own reported 97.4% (Pathway claim,
+                  not yet independently established -- see "Sudoku
+                  Extreme as a real benchmark" above)
+BABILong QA1-QA5  32K and 128K context (Pathway claim: 95%/82% -- see
+                  "BABILong: a mandatory long-context reasoning gate"
+                  above)
+private ARC       locked, unseen arc-task-gen set (existing gate,
+                  unchanged)
+
+plus, unchanged from the existing systems targets:
+  peak RAM, throughput, joules/token, all matched-condition
+```
+
+None of these replace each other -- a model that hits ARC parity but
+fails BABILong at 32K+ has not actually demonstrated the
+"long-context + persistent memory + reasoning" combination this whole
+project's thesis rests on, and vice versa. Report all four, not the
+most favorable one.
 
 ### Timeline
 
