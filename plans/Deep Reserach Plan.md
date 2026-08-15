@@ -44,7 +44,10 @@ comparison protocol are `scripts/hz0h_blocksparse_train.py` and
 short packed-data eager MPS preflight retained BlockBDH/dense-BDH throughput
 ratios of 1.787x (50% active), 2.600x (25%), and 3.309x (12.5%), but did not
 establish a RAM win or Transformer comparison; see
-`docs/restart/hz0h_blocksparse_packed_data_preflight_results.md`.
+`docs/restart/hz0h_blocksparse_packed_data_preflight_results.md`. A longer
+100K-token MPS preflight kept the 12.5%-active candidate at 3.565x dense-BDH
+throughput with a non-divergent but not quality-eligible validation trajectory;
+see `docs/restart/hz0h_blocksparse_100k_packed_data_pilot_results.md`.
 
 The latest genuine-BF16 long-context inference measurements are also below the
 full target: at 8,192 tokens, exact BDH streaming reached about 188.7 tok/s

@@ -1,0 +1,53 @@
+# BlockBDH 100K-token packed-data pilot
+
+Date: 2026-08-14. This follows the short active-fraction sweep in
+`hz0h_blocksparse_packed_data_preflight_results.md`. It is a candidate-rejection
+pilot, **not** a Transformer target-gate, trained-checkpoint quality study, or
+peak-RAM result.
+
+## Matched configuration
+
+Dense BDH and experimental BlockBDH used the same packed byte train/validation
+files, seed 7, MPS, BF16, eager execution, AdamW/cosine schedule (10 warmup
+steps), batch 1 x 256 tokens, D=512, 8 recurrent levels, 8 heads, multiplier
+32, and 100,096 actual tokens / 391 optimizer steps. Both have 25,427,968
+parameters. BlockBDH used a 16-column block and 12.5% active fraction (16 of
+128 blocks). Validation used a fixed four-sequence held-out batch at steps 100,
+200,300,391.
+
+| Arm | train seconds | tokens/s | speed ratio | best validation CE | MPS allocator snapshot |
+|---|---:|---:|---:|---:|---:|
+| Dense BDH | 114.829 | 871.70 | 1.000x | 2.828125 | 208,375,552 B |
+| BlockBDH 12.5% | 32.209 | 3,107.66 | **3.565x** | 2.859375 | 206,569,984 B |
+
+BlockBDH validation CE at the four checkpoints was 3.09375, 2.9375, 2.890625,
+and 2.859375; dense BDH's was 3.078125, 2.890625, 2.953125, and 2.828125.
+The 0.03125 final difference on this tiny fixed validation batch and only
+100K tokens is not a quality-equivalence test. It is enough to show neither
+loss diverged or became non-finite in this preflight.
+
+## Router telemetry
+
+The BlockBDH runner logged 79 distinct selected-block sets over 391 steps.
+Mean consecutive-route Jaccard overlap was 0.916 (range 0.333--1.000). The
+last 91 steps had 13 distinct sets and mean overlap 0.942. Thus routing became
+sticky but was not a total immediate single-set lock-in; a longer run must
+report these telemetry fields and may test the separately labelled balance-loss
+ablation if actual quality/reassignment evidence shows collapse.
+
+## Decision
+
+Keep 12.5%-active BlockBDH as the first CUDA full-pilot candidate: it is well
+above the 1.30x *dense-BDH* preflight speed threshold and did not fail the
+short-loss/router screen. This says nothing about the requested target because:
+
+- MPS sampled allocator memory is not a native peak metric and shows no 30% RAM
+  reduction anyway;
+- the comparison is against dense BDH, not the parameter-matched Transformer;
+- 100K/25M tokens, one seed, and four validation sequences cannot establish
+  quality compatibility;
+- CUDA can change `index_select`/GEMM crossover behavior materially.
+
+Only the full matched CUDA three-arm protocol and
+`scripts/hz0h_training_target_gate.py` can decide the training RAM/speed
+objective.
