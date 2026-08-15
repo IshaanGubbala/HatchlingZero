@@ -47,7 +47,10 @@ establish a RAM win or Transformer comparison; see
 `docs/restart/hz0h_blocksparse_packed_data_preflight_results.md`. A longer
 100K-token MPS preflight kept the 12.5%-active candidate at 3.565x dense-BDH
 throughput with a non-divergent but not quality-eligible validation trajectory;
-see `docs/restart/hz0h_blocksparse_100k_packed_data_pilot_results.md`.
+see `docs/restart/hz0h_blocksparse_100k_packed_data_pilot_results.md`. That
+same-host matched-Transformer diagnostic was only 0.674x Transformer training
+throughput and had no sampled-memory win, so the current BlockBDH configuration
+still fails the target pending a materially different CUDA result.
 
 The latest genuine-BF16 long-context inference measurements are also below the
 full target: at 8,192 tokens, exact BDH streaming reached about 188.7 tok/s
