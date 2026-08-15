@@ -30,6 +30,15 @@ rejects `--mixer gdn2_fix --fla-recurrence`. Replacing it with old GDN-2 would
 change the quality-supported architecture and cannot be presented as a
 successor.
 
+The installed Flash Linear Attention package was inspected for a shortcut.
+Its `delta_rule`/`gated_delta_rule` kernels do implement a related state
+correction, but accept scalar per-head `beta` and decay `g`. GDN-2 Fix has
+vector `alpha`, `erase`, and `write` gates at each key/value dimension (and
+its state layout is transposed). Mapping those vectors to scalars would alter
+the recurrence, so these APIs cannot be substituted under an “exact kernel”
+label. They may inform a future custom-kernel implementation only after direct
+oracle parity tests.
+
 The existing quality signal for GDN-2 Fix is from a different 301M setup, not
 this 25M byte corpus/B12×T256 target. Existing compiled sequential recurrence
 also has no matched target measurement. Therefore it is not justified to
