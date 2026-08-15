@@ -41,6 +41,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from reference.hz0h_bdh_train_torch import build_optimizer, shifted_target_batch
 from reference.hz0h_bdh_vb_torch import BDHVB, BDHVBConfig
 from reference.hz0h_bdh_vb_variable_depth_torch import bdh_vb_variable_depth_forward
+from reference.hz0h_bdh_vb_checkpointed_torch import bdh_vb_variable_depth_forward_checkpointed
 from reference.hz0h_energy import TrainingEnergySampler
 
 
@@ -186,6 +187,7 @@ def main() -> None:
     parser.add_argument("--compile-step", action="store_true", help="torch.compile bdh_vb_variable_depth_forward, same dynamo-per-n_iterations-specialization behavior as scripts/hz0h_stage2_runner_bdh_depth_curriculum.py's own flag.")
     parser.add_argument("--compile-mode", choices=("default", "reduce-overhead", "max-autotune"), default="default")
     parser.add_argument("--fused-optimizer", action="store_true", help="AdamW(..., fused=True), CUDA-only, mathematically identical update rule.")
+    parser.add_argument("--activation-checkpointing", action="store_true", help="Use reference/hz0h_bdh_vb_checkpointed_torch.py's bdh_vb_variable_depth_forward_checkpointed instead of the plain bdh_vb_variable_depth_forward -- VB analog of scripts/hz0h_stage2_runner_bdh_depth_curriculum.py's own flag. Same math, correctness-tested exactly (tests/reference/test_hz0h_bdh_vb_checkpointed_torch.py). Real motivation: docs/restart/hz0h_phase_g_100m_scale_gate_pilot_results.md documented VB D/4 also hitting a WDDM wall at the same depth transition as exact BDH; exact BDH's own version of this wall was confirmed fixed by checkpointing (docs/restart/hz0h_phase_g_checkpointed_retry_results.md) -- this flag is the real test of whether that transfers to VB, not assumed. Off by default.")
     args = parser.parse_args()
 
     if args.warmup_steps < 0:
@@ -228,7 +230,8 @@ def main() -> None:
     )
     model = BDHVB(bdh_vb_config).to(device=device, dtype=torch_dtype)
     model.attn.freqs = model.attn.freqs.to(torch.float32)
-    forward_fn = torch.compile(bdh_vb_variable_depth_forward, mode=args.compile_mode) if args.compile_step else bdh_vb_variable_depth_forward
+    base_forward_fn = bdh_vb_variable_depth_forward_checkpointed if args.activation_checkpointing else bdh_vb_variable_depth_forward
+    forward_fn = torch.compile(base_forward_fn, mode=args.compile_mode) if args.compile_step else base_forward_fn
 
     config_snapshot = {key: (str(value) if isinstance(value, Path) else value) for key, value in vars(args).items()}
     config_snapshot.update(sequence_length_resolved=sequence_length, effective_batch_tokens=effective_batch_tokens, total_optimizer_steps_estimate=total_optimizer_steps, resolved_device=str(device), backend="torch", architecture="bdh_vb_depth_curriculum", d_state=bdh_vb_config.d_state, curriculum_stages_parsed=curriculum_stages, parameter_count=sum(p.numel() for p in model.parameters()))
