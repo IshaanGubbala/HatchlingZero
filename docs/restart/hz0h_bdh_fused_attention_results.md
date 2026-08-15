@@ -105,11 +105,46 @@ actually being hit — not necessarily a fundamental inefficiency in
 `chunk_gla`'s compute itself. **Not profiled to confirm** — out of scope
 for this benchmark request.
 
-Possible real follow-up (not yet run, not currently planned unless
-prioritized): smaller `N` (larger `mlp_internal_dim_multiplier` divisor,
-or smaller batch) to see if the fused path's relative performance
-improves once its memory footprint drops below the VRAM ceiling — would
-distinguish "VRAM-ceiling artifact" from "algorithmic overhead."
+## Follow-up: VRAM-ceiling hypothesis tested and CONFIRMED as dominant
+
+Same config, `--batch-size 4` instead of 12 (everything else identical:
+`n_embd=512, n_layer=8, n_head=8, mlp_internal_dim_multiplier=32,
+seq=256`, bf16, seed=7, 20 timed steps, real energy sampling on both
+paths):
+
+| | batch=12 (original) | batch=4 (follow-up) |
+|---|---|---|
+| fused peak memory | 13.35 GiB (> 12 GiB card) | 4.61 GiB (comfortable margin) |
+| speedup_tokens_per_second | 0.0203 (~49x slower) | 0.3818 (~2.6x slower) |
+| memory_ratio_fused_over_raw | 1.673 | 1.631 |
+| joules_per_token_ratio | 20.19x | 3.037x |
+
+The memory *ratio* (fused uses ~1.6-1.7x raw's peak memory) stayed
+essentially constant across both batch sizes — what changed was whether
+that memory crossed this card's physical 12 GB ceiling. At batch=12 it
+did (13.35 GiB requested), triggering the WDDM paging pathology and the
+catastrophic ~49x slowdown. At batch=4 it didn't, and the slowdown
+shrinks to a real but far more modest ~2.6x, consistent with genuine
+per-call Triton kernel launch/state-tensor overhead in `chunk_gla` at
+this `N=2048`/head scale — not a memory-paging artifact.
+
+Two separable, both-real findings:
+
+1. With enough VRAM headroom for fused's ~1.6x memory overhead, the
+   fused kernel is *still* slower than raw matmul at this `N` scale
+   (~2.6x, real algorithmic/launch overhead) — doesn't currently deliver
+   on the Transformer-parity hypothesis even in the good case.
+2. Without that headroom (this card at the real Phase F batch=12), the
+   result is catastrophically worse (~49x) due to WDDM paging — a
+   separate failure mode, not a linear continuation of finding 1.
+
+Bottom line unchanged: still doesn't close the Transformer energy/speed
+gap at the real Phase F config on this card, but now with a precise,
+tested explanation (VRAM ceiling dominates at batch=12; real but smaller
+kernel-launch overhead remains even once the ceiling isn't hit). A card
+with more VRAM, or a smaller `mlp_internal_dim_multiplier`, might change
+the picture — untested, no longer just a guess about which factor
+matters most.
 
 ## Status
 
