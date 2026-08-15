@@ -32,6 +32,9 @@ def test_blocksparse_real_corpus_runner_smoke(tmp_path: Path):
     assert report["metrics"][-1]["active_block_count"] == 4
     assert len(report["metrics"][-1]["active_block_indices"]) == 4
     assert report["metrics"][0]["route_jaccard_previous"] is None
+    assert report["route_summary"]["n_blocks"] == 8
+    assert 0 < report["route_summary"]["selected_block_coverage"] <= 1
+    assert report["route_summary"]["unique_route_sets"] >= 1
     assert (run_dir / "block_bdh_checkpoint.pt").exists()
 
 

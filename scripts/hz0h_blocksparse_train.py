@@ -351,11 +351,24 @@ def main() -> None:
                         snapshot_checkpoint(checkpoint, checkpoint.parent / f"{checkpoint.name}_milestone_{target}")
                         milestones_hit.append(target)
 
+    routed_metrics = [item for item in metrics if "active_block_indices" in item]
+    routed_sets = {tuple(item["active_block_indices"]) for item in routed_metrics}
+    routed_union = set().union(*(set(item["active_block_indices"]) for item in routed_metrics)) if routed_metrics else set()
+    jaccards = [item["route_jaccard_previous"] for item in routed_metrics if item["route_jaccard_previous"] is not None]
+    n_blocks = latent_width // args.block_size
+    route_summary = {
+        "n_blocks": n_blocks,
+        "unique_route_sets": len(routed_sets),
+        "selected_block_coverage": len(routed_union) / n_blocks,
+        "mean_jaccard_previous": None if not jaccards else sum(jaccards) / len(jaccards),
+        "exact_repeat_fraction": None if not jaccards else sum(value == 1.0 for value in jaccards) / len(jaccards),
+    }
     report = {
         "backend": "torch", "device": str(device), "hardware_id": hardware_id, "effective_batch_tokens": effective_batch_tokens,
         "compile_step": False, "compile_mode": None, "fused_optimizer": args.fused_optimizer,
         "architecture": "block_bdh_derivative", "exact_bdh": False, "claim_eligible": False, "dtype": args.dtype,
         "block_size": args.block_size, "active_fraction": args.active_fraction, "balance_loss_weight": args.balance_loss_weight, "router_exploration_noise": args.router_exploration_noise,
+        "route_summary": route_summary,
         "lr_schedule": args.lr_schedule, "max_lr": args.max_lr, "warmup_steps": args.warmup_steps, "lr_min_ratio": args.lr_min_ratio,
         "total_optimizer_steps_estimate": total_optimizer_steps, "final_lr": last_lr, "validation_batch_size": args.validation_batch_size,
         "steps": step, "epoch_or_data_pass": epoch_counter[0],

@@ -53,7 +53,9 @@ For dense BDH, BlockBDH, and the matched RoPE/KV-cache Transformer, retain:
 - total tokens, batch tokens, dtype, hardware, eager/compile policy;
 - training seconds, tokens/s, native CUDA peak allocated bytes;
 - validation loss/checkpoint provenance and finite gradient logs;
-- BlockBDH active fraction/block size and route diversity across steps.
+- BlockBDH active fraction/block size and route diversity across steps,
+  including the runner's `route_summary` (coverage, unique route sets, mean
+  consecutive Jaccard overlap, and exact-repeat fraction).
 
 A BlockBDH-versus-dense speed gain alone is not success. Promotion requires
 quality-compatible training and subsequent fair Transformer gate evidence:
