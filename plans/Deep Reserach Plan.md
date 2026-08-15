@@ -72,7 +72,11 @@ hard 3.125% transition; see
 `docs/restart/hz0h_block_gated_direct_split_v_anneal_smoke.md`. A corrected
 100K frozen-Transformer logits-distillation smoke also failed (student CE
 3.094 vs teacher 1.742); see
-`docs/restart/hz0h_sparse_direct_split_v_distillation_smoke.md`. See
+`docs/restart/hz0h_sparse_direct_split_v_distillation_smoke.md`. In contrast,
+the explicit 100→75→60→50% learned-gate Direct-Split-V 1M curriculum is the
+first quality-positive sparse pilot (CE 2.266 vs matched Transformer 2.386),
+but only at its trained 50% floor and with raw systems failure; see
+`docs/restart/hz0h_learned_gate_direct_split_v_1m_pilot_results.md`. See
 `docs/restart/hz0h_blocksparse_100k_packed_data_pilot_results.md`.
 A different
 CUDA result alone is not a rationale to claim success: it needs raw reports
