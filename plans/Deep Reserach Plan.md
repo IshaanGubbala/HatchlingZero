@@ -60,13 +60,13 @@ saturated at 1.216x Transformer throughput with no sampled-memory win; fair
 `torch.compile` default/reduce-overhead sweeps also remained about 1.21x. An
 experimental cheap-proxy router reached 1.25x but plateaued below target and
 was highly route-sticky. Direct Split-V value slices also reached only 1.255x
-at the same point. A larger 1M-token MPS direct-Split-V pilot remained only
-1.23x Transformer speed, had no sampled-memory win, a 0.231 CE deficit, and
-nearly static routes; it is closed in raw form (see
-`docs/restart/hz0h_direct_split_v_1m_mps_pilot_results.md`). The only untested
-sparse-kernel lane is CUDA `chunk_gla` with direct Split-V at N_active << T;
-it has correctness wiring and an untrained JSON gate but no performance or
-quality result. See
+at the same point. A 1M-token MPS direct-Split-V depth sweep is closed: depth 1 was only 1.23x
+Transformer speed; quality-best depth 4 still had a 0.153 CE deficit; depth 8
+regressed, and all routes were nearly static (see
+`docs/restart/hz0h_direct_split_v_1m_mps_pilot_results.md`). CUDA `chunk_gla`
+with direct Split-V at N_active << T remains only an untrained kernel screen;
+its correctness wiring and JSON gate cannot rehabilitate this quality-failed
+architecture without a new routing/quality intervention. See
 `docs/restart/hz0h_blocksparse_100k_packed_data_pilot_results.md`. A different
 CUDA result alone is not a rationale to claim success: it needs raw reports
 and the full matched quality gate.
