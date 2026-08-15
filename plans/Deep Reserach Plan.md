@@ -41,9 +41,10 @@ is `scripts/hz0h_bdh_blocksparse_training_benchmark.py`; its output is always
 marked `claim_eligible: false`. The real-corpus runner and preregistered
 comparison protocol are `scripts/hz0h_blocksparse_train.py` and
 `docs/restart/hz0h_blocksparse_real_corpus_pilot_plan.md` respectively. The
-short packed-data eager MPS preflight retained a 1.787x BlockBDH/dense-BDH
-throughput ratio but did not establish a RAM win or Transformer comparison;
-see `docs/restart/hz0h_blocksparse_packed_data_preflight_results.md`.
+short packed-data eager MPS preflight retained BlockBDH/dense-BDH throughput
+ratios of 1.787x (50% active), 2.600x (25%), and 3.309x (12.5%), but did not
+establish a RAM win or Transformer comparison; see
+`docs/restart/hz0h_blocksparse_packed_data_preflight_results.md`.
 
 The latest genuine-BF16 long-context inference measurements are also below the
 full target: at 8,192 tokens, exact BDH streaming reached about 188.7 tok/s

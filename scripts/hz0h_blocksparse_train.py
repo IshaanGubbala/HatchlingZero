@@ -302,6 +302,7 @@ def main() -> None:
 
         reset_peak_memory(device)
         model.train()
+        previous_active_blocks: set[int] | None = None
         while tokens_seen < args.target_tokens:
             tokens = read_batch(train, args.batch_size, sequence_length, device, epoch_counter)
             x, y = shifted_target_batch(tokens)
@@ -318,7 +319,11 @@ def main() -> None:
             step += 1
             batch_index += 1
             tokens_seen += args.batch_size * sequence_length
-            item = {"step": step, "tokens_seen": tokens_seen, "loss": float(loss.detach()), "lm_loss": float(lm_loss.detach()), "balance_loss": None if balance_loss is None else float(balance_loss.detach()), "active_block_count": int(active_blocks.numel()), "gradient_norm": grad_norm, "lr": last_lr, "wall_time": time.perf_counter() - started, "epoch_or_data_pass": epoch_counter[0], "peak_memory_bytes": peak_memory_bytes(device)}
+            active_block_indices = [int(value) for value in active_blocks.detach().cpu().tolist()]
+            active_block_set = set(active_block_indices)
+            route_jaccard_previous = None if previous_active_blocks is None else len(active_block_set & previous_active_blocks) / len(active_block_set | previous_active_blocks)
+            previous_active_blocks = active_block_set
+            item = {"step": step, "tokens_seen": tokens_seen, "loss": float(loss.detach()), "lm_loss": float(lm_loss.detach()), "balance_loss": None if balance_loss is None else float(balance_loss.detach()), "active_block_count": int(active_blocks.numel()), "active_block_indices": active_block_indices, "route_jaccard_previous": route_jaccard_previous, "gradient_norm": grad_norm, "lr": last_lr, "wall_time": time.perf_counter() - started, "epoch_or_data_pass": epoch_counter[0], "peak_memory_bytes": peak_memory_bytes(device)}
 
             is_new_best = False
             if step % args.validation_interval == 0 or tokens_seen >= args.target_tokens:

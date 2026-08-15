@@ -30,6 +30,8 @@ def test_blocksparse_real_corpus_runner_smoke(tmp_path: Path):
     assert report["budget_complete"] is True
     assert report["best_validation_loss"] > 0
     assert report["metrics"][-1]["active_block_count"] == 4
+    assert len(report["metrics"][-1]["active_block_indices"]) == 4
+    assert report["metrics"][0]["route_jaccard_previous"] is None
     assert (run_dir / "block_bdh_checkpoint.pt").exists()
 
 
