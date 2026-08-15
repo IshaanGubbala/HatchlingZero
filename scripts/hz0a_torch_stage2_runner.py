@@ -242,6 +242,7 @@ def main() -> None:
     parser.add_argument("--fla-recurrence", action="store_true", help="Replace the GDN-2 recurrence with `flash_linear_attention`'s `chunk_gla` Triton kernel (requires `pip install flash-linear-attention`), via an EXACT (not approximate) reduction: GDN-2's `state=decay*(1-erase)*state+write*v(x)k` has the same form as GLA's `state=exp(g)*state+k(x)v` with `g=log(decay*(1-erase))` and `v` pre-scaled by `write`. Unlike `--chunked-scan` (this project's own closed-form derivation, measured unsafe under real weights), this uses a widely-used external library's kernel -- verified against the sequential loop under this layer's actual bias-initialized regime (not just synthetic decay values) to ~0.2-0.3 percent mean relative gradient error in float32 and ~0.7-1.1 percent in bfloat16, with no NaN/Inf and no systematic bias, the same magnitude class already accepted for `--compile-step`'s own bf16 noise. Also drops the need for `--chunk-length`/`--truncate-backward` bookkeeping for the recurrence itself (processes the full sequence in one call), though `--truncate-backward` still applies to the rest of the model if set. Off by default pending a full training-trajectory validation run, same as every other math-changing flag here; incompatible with `--chunked-scan` and with `--compile-step`'s own GDN-2 compilation (this replaces that code path, not stacks with it).")
     parser.add_argument("--activation-checkpoint", action="store_true", help="Recompute each hybrid-architecture block's MLP during backward instead of keeping its activations resident, trading compute for memory. Bit-exact with the non-checkpointed path (changes WHEN the MLP forward runs, not what it computes -- verified 0.0 diff), unlike `--compile-step`/`--chunked-scan` this carries no numerical caveat. MEASURED NET NEGATIVE end-to-end on this RTX 3060 at the batch sizes tried (e.g. 3807 tok/s at batch-size 288 vs 4260 tok/s at batch-size 256 without it) -- the extra recompute cost outweighed the larger-batch headroom it freed, unlike the native Mac/MLX runner's own `--activation-checkpoint` (which regressed 16 percent for a different reason -- a different framework/kernel). Kept as an available, verified-correct option in case a different batch/chunk combination benefits, but not recommended as-is. Off by default.")
     parser.add_argument("--optimizer", choices=("adamw", "adamw8bit"), default="adamw", help="`adamw8bit` uses bitsandbytes' block-wise-quantized AdamW, storing the exp_avg/exp_avg_sq moment buffers in 8-bit instead of float32 (~2.4GB->~600MB for this ~300M-param model), freeing VRAM for a larger `--batch-size`. This is NOT an in-house numerical experiment like `--chunked-scan` -- bitsandbytes' 8-bit Adam is a widely-used, independently-maintained implementation with its own established convergence track record across many models, not something whose correctness rests on this project's own testing. Still: it is a genuinely different optimizer (quantized moments), not a bit-exact stand-in for float32 AdamW, so loss curves will differ somewhat (not just bf16-rounding-sized) -- verify convergence looks sane for your own run rather than assuming exact parity with `adamw`.")
+    parser.add_argument("--fused-optimizer", action="store_true", help="Use CUDA fused AdamW. This is the same AdamW update rule, but must be enabled for every fair control arm.")
     parser.add_argument("--gradient-accumulation-chunks", type=int, default=1)
     parser.add_argument("--max-lr", type=float, default=1e-4)
     parser.add_argument("--warmup-steps", type=int, default=100)
@@ -266,6 +267,10 @@ def main() -> None:
         raise RuntimeError("--device cuda requested but CUDA is unavailable")
     if device.type == "mps" and not torch.backends.mps.is_available():
         raise RuntimeError("--device mps requested but MPS is unavailable")
+    if args.fused_optimizer and args.optimizer != "adamw":
+        raise ValueError("--fused-optimizer requires --optimizer adamw")
+    if args.fused_optimizer and device.type != "cuda":
+        raise ValueError("--fused-optimizer requires --device cuda")
     hardware_id = torch.cuda.get_device_name(device) if device.type == "cuda" else ("Apple MPS" if device.type == "mps" else "CPU")
 
     args.run_dir.mkdir(parents=True, exist_ok=True)
@@ -329,7 +334,7 @@ def main() -> None:
         import bitsandbytes as bnb
         optimizer = bnb.optim.AdamW8bit(model.parameters(), lr=current_lr(0), weight_decay=args.weight_decay)
     else:
-        optimizer = torch.optim.AdamW(model.parameters(), lr=current_lr(0), weight_decay=args.weight_decay)
+        optimizer = torch.optim.AdamW(model.parameters(), lr=current_lr(0), weight_decay=args.weight_decay, fused=args.fused_optimizer)
     metrics, step, tokens_seen, batch_index = [], 0, 0, 0
     microbatch_count, epoch_or_data_pass = 0, 0
     best_validation_loss, milestones_hit = None, []
@@ -540,7 +545,7 @@ def main() -> None:
     report = {
         "backend": "torch", "device": str(device), "hardware_id": hardware_id,
         "effective_batch_tokens": effective_batch_tokens, "compile_step": args.compile_step,
-        "compile_mode": "default" if args.compile_step else None, "fused_optimizer": False,
+        "compile_mode": "default" if args.compile_step else None, "fused_optimizer": args.fused_optimizer,
         "architecture": args.architecture, "dtype": args.dtype,
         "chunk_length": args.chunk_length, "gradient_accumulation_chunks": args.gradient_accumulation_chunks,
         "lr_schedule": args.lr_schedule, "max_lr": args.max_lr, "warmup_steps": args.warmup_steps, "lr_min_ratio": args.lr_min_ratio,

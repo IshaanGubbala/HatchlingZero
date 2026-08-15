@@ -56,7 +56,7 @@ below has 25,343,488 (ratio 1.0033). All are eager, BF16, batch 12 x 256,
 COMMON='--data data/packed/hz0h_bytes_25m_train.jsonl \
   --validation-data data/packed/hz0h_bytes_25m_val.jsonl \
   --target-tokens 25000000 --batch-size 12 --validation-batch-size 12 \
-  --sequence-length 256 --device cuda --dtype bfloat16 \
+  --sequence-length 256 --device cuda --dtype bfloat16 --fused-optimizer \
   --warmup-steps 100 --checkpoint-interval 200 --validation-interval 200'
 
 python scripts/hz0h_stage2_runner_bdh.py $COMMON \
