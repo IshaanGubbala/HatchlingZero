@@ -1364,6 +1364,93 @@ alternating block permutations if \(G=4\) loses quality -> combine with
 Value Bottleneck only after FoldBDH alone survives on its own -> then
 INT8.
 
+### Split-V BDH: the corrected first real Fold experiment (added 2026-08-14, built same session)
+
+The n_head sweep result above sharpens what a real first Fold experiment
+has to test. Vanilla BDH's real asymmetry: \(Q\)/\(K\) split across
+heads, but \(V\) stays one full-\(D\)-wide copy broadcast to every
+head. That means naive block-diagonal FoldBDH (splitting \(N\) and
+\(D\) together into \(G\) blocks) also needs to verify its FLOP
+accounting carefully: within one chunk, \(QK^\top\) cost is
+\(G\times T^2(N/G)=T^2N\) (unchanged by folding) and \(\text{scores}
+\times V\) is \(G\times T^2(D/G)=T^2D\) (also unchanged) -- simple
+Fold mainly reduces *persistent/streaming* state size
+(\(G(N/G)(D/G)=ND/G\)) and the recurrent state read/write
+(\(qS\), \(K^\top V\)), not necessarily full-sequence dense
+attention FLOPs. That distinction matters for what to expect from any
+Fold variant before building it.
+
+The more targeted, smaller, and more directly testable first
+experiment: **Split-V**. Keep `n_head` as-is (e.g. 8). Instead of
+broadcasting one full-\(D\) \(V\) to every head, learn
+\(V=xW_v\) (\(D\to D\)), reshape into \(H\) heads of \(D/H\)
+each (`V_h`, each head owns a disjoint, independently-learned value
+subspace -- collectively still spanning the full \(D\), unlike VB
+where every head compresses the SAME full-\(D\) signal into a shared
+`d_state`), then `scores_h @ V_h`, concatenate heads, and mix once with
+a shared cheap output projection \(W_o\) (\(D\to D\)) before
+continuing into the rest of BDH's forward unchanged. This makes
+`scores@V`'s cost \(H\cdot T^2(D/H)=T^2D\) (independent of \(H\),
+unlike vanilla's \(H\cdot T^2D\)), and persistent state
+\(H\cdot N\cdot(D/H)=ND\) instead of vanilla's \(H\cdot N\cdot D\)
+-- a real \(H\times\) reduction (e.g. \(8\times\) at `n_head=8`).
+
+**Built same session**: `reference/hz0h_bdh_split_v_torch.py`
+(`BDHSplitV`), a real new architecture (not a math-equivalent kernel
+swap like the fused-attention file -- it adds real new parameters,
+`w_v`/`w_o`, shared across depth like BDH's other weights, `2*D*D`
+extra params, ~2% at `D=512`). Reuses `reference/hz0h_bdh_torch.py`'s
+own `Attention` module unchanged (V's width doesn't affect the RoPE/
+scores computation, so a narrower per-head V plugs in directly with no
+reimplementation). Correctness-tested (shape, gradient flow through
+every parameter including the new ones, real parameter-count formula
+verified against an instantiated model, and a direct check that the
+per-head V is genuinely narrow, not silently degenerating back to
+vanilla's full-width broadcast) -- `tests/reference/
+test_hz0h_bdh_split_v_torch.py`, 6/6 passing.
+
+**Real local Mac/MPS smoke-test result, same session**: trains cleanly
+(loss decreases, no NaN, both arms), real param count matches the
+formula exactly (25,952,256 vs. exact BDH's 25,427,968 -- the disclosed
++524,288, `2*512*512`). But throughput was a real, disclosed surprise:
+at `n_head=8` (same as exact BDH), Split-V measured **~18% SLOWER**
+(3180.5 vs. 3898.1 tok/s), not faster, despite `scores@V`'s FLOP count
+being theoretically lower at this `n_head` (Split-V's
+\\(O(H\\cdot T^2\\cdot D/H)=O(T^2D)\\) vs. vanilla's
+\\(O(H\\cdot T^2\\cdot D)\\), an ~8x reduction in that one term at
+`H=8`). The two new `D`x`D` matmuls (`w_v`, `w_o`) plus the
+reshape/transpose for per-head splitting apparently cost more in real
+wall-clock than the attention-term FLOPs saved -- same general pattern
+as the n_head sweep's own MPS kernel-shape sensitivity above, not yet
+profiled to confirm which specific op dominates. This is a real result
+to sit with, not explain away: a naive FLOP count did not predict
+measured wall-clock here either, same lesson as the fused-attention
+investigation's own profiler-vs-assumption gap. Still no real quality
+comparison (CE/passkey/reassignment) -- this smoke test only confirms
+trainability and gives a first (currently unfavorable) throughput
+number, not a verdict on the architecture.
+
+Real caveat on the n_head-sweep-derived "tile-friendly `d_v` in
+32-128" heuristic from the response to this proposal: that range was
+extrapolated from a cliff measured in \(N\)/head (Q/K width shrinking
+via `n_head`), not confirmed for \(V\)/head's own (different) matmul
+shape in Split-V -- worth measuring directly for Split-V rather than
+assuming it transfers.
+
+Proposed order once Split-V's own real quality/throughput numbers land:
+F0 (n_head sweep, done, negative-but-informative) -> **F1 Split-V
+(built, correctness-tested, quality/throughput comparison pending)** ->
+F2 (fold `encoder_v` to read `D/H -> N` per head instead of `D -> N`) ->
+F3 (fold `decoder` to write `N -> D/H` per head, concatenate, cheap
+mix -- "true Head-Folded BDH", each head a genuinely narrow lane
+end-to-end) -> F4 (only then reconsider increasing head/fold count,
+choosing `H` so `D/H` stays in a real, hardware-verified tile-friendly
+range rather than maximizing head count for its own sake). Real 4-arm
+comparison to run once dispatched (exact BDH; VB D/4 control; Split-V;
+Split-V + folded decoder), all trained from scratch, same depth
+curriculum, same data/token budget, measuring validation CE, state
+bytes, training tok/s, prefill/decode tok/s, passkey, reassignment.
+
 ### Tiny per-reasoning-step adapters
 
 BDH's tied weights are parameter-efficient but may make every reasoning iteration behave too similarly.
