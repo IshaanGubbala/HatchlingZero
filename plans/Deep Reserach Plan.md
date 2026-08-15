@@ -61,8 +61,8 @@ saturated at 1.216x Transformer throughput with no sampled-memory win; fair
 experimental cheap-proxy router reached 1.25x but plateaued below target and
 was highly route-sticky. Direct Split-V value slices also reached only 1.255x
 at the same point. The only untested sparse-kernel lane is CUDA `chunk_gla`
-with direct Split-V at N_active << T; it has correctness wiring but no
-performance or quality result. See
+with direct Split-V at N_active << T; it has correctness wiring and an
+untrained JSON gate but no performance or quality result. See
 `docs/restart/hz0h_blocksparse_100k_packed_data_pilot_results.md`. A different
 CUDA result alone is not a rationale to claim success: it needs raw reports
 and the full matched quality gate.

@@ -106,10 +106,19 @@ identity, selected route, and an explicit `claim_eligible: false`. It also runs
 the parameter-matched RoPE
 Transformer under the same BF16/fused-AdamW/no-compile step policy and emits
 fused/Transformer speed and peak-memory ratios. Retain that JSON outside git
-alongside the host's CUDA/PyTorch versions. This remains only an untrained,
-fixed-route kernel screen: a fused result cannot be called a win from FLOPs,
-CUDA availability, or this preflight; it needs measured end-to-end
-RAM/speed and trained quality.
+alongside the host's CUDA/PyTorch versions. Gate it mechanically:
+
+```bash
+python scripts/hz0h_blocksparse_kernel_preflight_gate.py \
+  outputs/hz0h_blocksparse_pilot/chunk_gla_preflight.json
+```
+
+The gate requires CUDA provenance, <=1.01 parameter ratio, finite raw/fused
+steps, bounded logits/loss/encoder-gradient drift, fused/Transformer speed
+>=1.30x, and peak-RAM ratio <=0.70. It always outputs `claim_eligible: false`.
+This remains only an untrained, fixed-route kernel screen: a fused result
+cannot be called a win from FLOPs, CUDA availability, or this preflight; it
+needs measured end-to-end RAM/speed and trained quality.
 
 Example candidate invocation (not yet an approved target claim):
 
