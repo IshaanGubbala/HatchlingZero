@@ -40,3 +40,11 @@ The remaining authorized routes are:
 
 Until one route passes both training gates, the project must not claim the
 30%-RAM/30%-faster objective for training.
+
+**Update, real CUDA preflight for route 2**: an untrained BlockBDH
+systems probe on the actual RTX3060 at this exact scale passes both
+thresholds (speed 1.944x >= 1.30, peak RAM ratio 0.579 <= 0.70) --
+see `docs/restart/hz0h_blocksparse_cuda_training_preflight_results.md`.
+Real, positive signal, but untrained weights only (`claim_eligible:
+false`) -- route 2 is not yet cleared until a real trained-in-path run
+with matched quality exists.
