@@ -31,6 +31,15 @@ BDH-family training throughput around 0.20x the Transformer (about 5x slower).
 Those numbers are disclosed blockers, not evidence of superiority. Phase F inference measurements must report the same fair control
 with a real RoPE and KV cache before any RAM/speed claim is eligible.
 
+A new MPS systems probe provides one concrete optimization lead: at the
+25.4M-parameter shape (D=512, 8 recurrent levels, BF16, batch 1, sequence 128),
+real per-step BlockBDH routing plus 50%-active sparse matmuls measured about
+1.93x the dense BDH training-step throughput. This is an untrained execution
+probe, and its allocator peak was not a valid RAM win, so it cannot support a
+claim. It does justify the next real-data experiment. The reproducible probe
+is `scripts/hz0h_bdh_blocksparse_training_benchmark.py`; its output is always
+marked `claim_eligible: false`.
+
 The latest genuine-BF16 long-context inference measurements are also below the
 full target: at 8,192 tokens, exact BDH streaming reached about 188.7 tok/s
 versus 157.1 tok/s for the Transformer KV-cache, approximately 1.20x (20%)
