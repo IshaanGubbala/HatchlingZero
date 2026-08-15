@@ -94,6 +94,56 @@ built and measured on top of it — not a description of BDH in general.
 | Long-context memory | KV-cache, grows **linearly** with context | Fixed-size **synaptic state**, `O(1)` in context length |
 | Activations | Dense | **Sparse, positive** (ReLU, ~50% zero measured in practice) |
 
+### Side by side: one Transformer block vs. one BDH iteration
+
+Both sides below are grounded directly in code — Transformer from
+[`reference/hz0a_matched_transformer.py`](reference/hz0a_matched_transformer.py)'s
+`MatchedTransformerBlock` (RMSNorm, fused QKV projection, real fused
+`scaled_dot_product_attention` with a growing KV-cache, SwiGLU FFN, all
+**independent per-layer weights**), BDH from
+[`reference/hz0h_bdh_torch.py`](reference/hz0h_bdh_torch.py)'s `BDH.forward`
+(diagrammed in full below this one):
+
+```mermaid
+flowchart LR
+    subgraph TF["Transformer block — fresh weights every layer"]
+        direction TB
+        TX["x"] --> TLN1["RMSNorm"]
+        TLN1 --> TQKV["q,k,v = x · W_qkv  (layer-owned weights)"]
+        TQKV --> TATT["scaled_dot_product_attention(q,k,v)\nsoftmax, reads GROWING KV-cache"]
+        TATT --> TWO["· W_attn_out"]
+        TWO --> TADD1["x = x + attn_out"]
+        TADD1 --> TLN2["RMSNorm"]
+        TLN2 --> TFFN["SwiGLU FFN: down(silu(gate(y)) ⊙ up(y))\n(layer-owned weights)"]
+        TFFN --> TADD2["x_next = x + ffn_out"]
+        TADD2 -.->|"layer i+1: NEW W_qkv/W_attn_out/gate/up/down"| TX2(["..."])
+    end
+    subgraph BDH["BDH iteration — SAME weights every time"]
+        direction TB
+        BX["x"] --> BENC["x_latent = x · encoder"]
+        BENC --> BSP1["x_sparse = ReLU(x_latent)  — sparse, positive"]
+        BSP1 --> BATT["yKV = tril(Q·Kᵀ) · V\nNO softmax, reads fixed-size state S"]
+        BATT --> BLN1["LayerNorm"]
+        BLN1 --> BENCV["y_latent = yKV · encoder_v"]
+        BENCV --> BSP2["y_sparse = ReLU(y_latent)"]
+        BSP1 -.gate.-> BGATE["xy_sparse = x_sparse ⊙ y_sparse"]
+        BSP2 -.gate.-> BGATE
+        BGATE --> BDEC["y = LayerNorm(xy_sparse · decoder)"]
+        BDEC --> BADD["x_next = LayerNorm(x + y)"]
+        BADD -.->|"iteration i+1: SAME encoder/encoder_v/decoder"| BX2(["..."])
+    end
+```
+
+The two structural differences that matter most in practice, both
+measured (not assumed) elsewhere in this README: BDH's attention has
+**no softmax and no growing cache** (fixed-size state instead — see
+below), and its per-iteration cost is **pure FLOPs, not new parameters**
+(same three tensors reused every time). The real, measured cost of that
+trade — BDH's raw attention doesn't get a fused kernel the way
+`scaled_dot_product_attention` does, and a `chunk_gla`-based fused
+alternative made it *worse*, not better — is in "Real extensions built
+and measured this session" below.
+
 ### One BDH iteration
 
 BDH's `forward` runs this same block `n_layer` times, **reusing the
@@ -209,6 +259,70 @@ Quality is unaffected by compiling (1.5723 vs. 1.5820, within normal
 noise) and peak memory came out *lower* with compile than without
 (~4.97GB vs. ~7.92GB) — an unpredicted bonus, not something either
 result on its own forecast.
+
+**BlockBDH — real skipped compute, not just a sparsity mask.** BDH's
+own ReLU activations are already sparse (measured, not assumed:
+~13-53% zero depending on layer). BlockBDH turns that into FLOPs
+actually skipped: a cheap router (reuses the model's own first-layer
+`encoder`, no extra learned parameters) picks the top-k active *blocks*
+of the `N`-dimension once per forward call, and only those columns of
+`encoder`/`encoder_v`/`decoder` are ever multiplied — a real, smaller
+matmul via `index_select`, not a full computation with a mask applied
+after:
+
+```mermaid
+flowchart TD
+    X["x"] --> ROUTE["cheap router: top-k active blocks of N\n(reuses encoder, no new params)"]
+    ROUTE --> SEL["index_select: only ACTIVE columns of\nencoder / encoder_v / decoder"]
+    SEL --> REST["...same BDH iteration as above,\nbut every matmul is now (D → active_N) not (D → N)"]
+```
+
+Real, measured, CUDA (RTX3060), 50%-active blocks, Phase F's own
+25.4M-param/batch=12/seq=256 config, **against dense BDH**:
+**1.944× training-step speedup, 0.579× peak training RAM** — see
+[`docs/restart/hz0h_blocksparse_cuda_training_preflight_results.md`](docs/restart/hz0h_blocksparse_cuda_training_preflight_results.md).
+Real, disclosed limits: this is an **untrained-weights systems
+preflight** (`claim_eligible: false`), measured against dense BDH, not
+against the matched Transformer — it does not by itself satisfy this
+project's own training-target gate
+(`scripts/hz0h_training_target_gate.py`, which additionally requires
+matched hardware/token-budget/optimizer metadata against a real
+Transformer report). A real trained-in-path run with matched quality
+is the required next step before any claim.
+
+**Split-V — per-head value subspaces ("folding" BDH's own attention).**
+A real, measured finding motivated this: shrinking BDH's attention
+purely via more heads (`n_head` 8→64, which only narrows `Q`/`K`, not
+`V` — vanilla BDH broadcasts one full-`D`-wide `V` to *every* head) made
+raw-matmul attention **~95× slower**, not faster, on Mac/MPS, because
+`scores @ V`'s cost scales directly with `n_head` when `V` never
+shrinks. Split-V instead gives each head its own learned `D/H`-wide
+value subspace — heads collectively still span the full `D` (a
+different bet than Value Bottleneck, where every head compresses the
+*same* signal into a shared `d_state`):
+
+```mermaid
+flowchart TD
+    X["x"] --> VFULL["V_full = x · W_v   (NEW: D → D, shared across depth)"]
+    VFULL --> VSPLIT["reshape → V_h, one D/H-wide slice per head\n(vs. vanilla: same full-D V broadcast to every head)"]
+    VSPLIT --> ATT["scores_h @ V_h   (same Attention module, unchanged)"]
+    ATT --> CAT["concat heads → D"]
+    CAT --> MIX["· W_o   (NEW: D → D, shared cheap output mixer)"]
+    MIX --> REST["...same BDH iteration as above from LayerNorm onward"]
+```
+
+Built as [`reference/hz0h_bdh_split_v_torch.py`](reference/hz0h_bdh_split_v_torch.py)
+(`BDHSplitV`), correctness-tested (6/6: shapes, gradient flow through
+every parameter including the new `w_v`/`w_o`, real parameter-count
+formula, narrow-per-head-V behavioral check). Real local Mac/MPS
+smoke-test result at `n_head=8` (same as exact BDH): trains cleanly, no
+NaN, but **~18% SLOWER** (3180.5 vs. 3898.1 tok/s), not faster —
+despite `scores @ V`'s FLOP count being theoretically ~8× lower at this
+`n_head`, the two new `D×D` matmuls plus reshape overhead cost more in
+real wall-clock than the attention savings. No quality comparison yet
+— correctness and trainability only. Full writeup:
+[`plans/Deep Reserach Plan.md`](plans/Deep%20Reserach%20Plan.md)'s
+"Split-V BDH" section.
 
 ---
 
