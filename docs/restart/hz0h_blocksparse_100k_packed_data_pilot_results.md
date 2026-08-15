@@ -38,6 +38,33 @@ and took 1.485x its wall-clock time. Its sampled MPS allocator ratio was
 1.035x the Transformer, not <=0.70. Thus the current 12.5%-active derivative
 fails both requested training-system thresholds in this MPS diagnostic.
 
+## Depth and active-fraction boundary sweep
+
+The same protocol was then used to test whether reducing recurrent work while
+keeping the shared-weight parameter count fixed could clear the actual speed
+threshold. Every BlockBDH row below has 25,427,968 parameters; the Transformer
+has 25,343,488. These are short-run diagnostic values only.
+
+| BlockBDH depth | active fraction | tok/s | speed / Transformer | best validation CE | allocator ratio / Transformer |
+|---:|---:|---:|---:|---:|---:|
+| 8 | 12.5% | 3,107.66 | 0.674x | 2.859375 | 1.035x |
+| 4 | 12.5% | 4,106.65 | 0.890x | 2.593750 | 1.037x |
+| 2 | 12.5% | 4,976.77 | 1.079x | 2.578125 | 1.038x |
+| 1 | 12.5% | 5,533.00 | 1.199x | 2.562500 | 1.045x |
+| 1 | 6.25% | 5,609.95 | **1.216x** | 2.578125 | 1.028x |
+| target | n/a | >=5,997.77 | >=1.300x | quality-matched | <=0.700x |
+
+The 6.25%-active depth-1 point is the fastest tested configuration, but it
+still misses the speed target and has no sampled-memory win. Going from 12.5%
+to 6.25% active at depth 1 gained only 1.4%, indicating substantial fixed
+router/embedding/optimizer or remaining-attention cost. Do not infer that
+further naive active-fraction reduction will reach 1.30x; any continuation
+needs a concrete kernel or architectural change and a quality test.
+
+The apparently favorable short fixed-batch CE values at shallow depth are not
+a license to choose depth after observing validation: 100K tokens, one seed,
+and four sequences are insufficient for a trained-quality conclusion.
+
 ## Router telemetry
 
 The BlockBDH runner logged 79 distinct selected-block sets over 391 steps.
