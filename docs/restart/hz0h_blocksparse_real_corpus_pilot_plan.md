@@ -102,11 +102,13 @@ python scripts/hz0h_blocksparse_cuda_chunk_gla_preflight.py \
 
 It writes raw/fused numerical differences, finite-gradient results, native
 CUDA peak allocation, throughput, device identity, selected route, and an
-explicit `claim_eligible: false`. Retain that JSON outside git alongside the
-host's CUDA/PyTorch versions. Then compare to the raw kernel and run the same
-Transformer control under the identical compile/optimizer policy. A fused
-result cannot be called a win from FLOPs, CUDA availability, or a dense-kernel
-result; it needs measured end-to-end RAM/speed and trained quality.
+explicit `claim_eligible: false`. It also runs the parameter-matched RoPE
+Transformer under the same BF16/fused-AdamW/no-compile step policy and emits
+fused/Transformer speed and peak-memory ratios. Retain that JSON outside git
+alongside the host's CUDA/PyTorch versions. This remains only an untrained,
+fixed-route kernel screen: a fused result cannot be called a win from FLOPs,
+CUDA availability, or this preflight; it needs measured end-to-end
+RAM/speed and trained quality.
 
 Example candidate invocation (not yet an approved target claim):
 
