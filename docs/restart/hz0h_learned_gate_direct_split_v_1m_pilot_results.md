@@ -1,28 +1,43 @@
 # Learned-gate Direct Split-V: 1M-token quality pilot
 
-Date: 2026-08-14. This is one MPS seed and a fixed 32-sequence validation batch;
-it is a quality-screen result, not a systems target, multi-seed, or capability
-claim.
+Date: 2026-08-14. Candidate seeds 7, 8, and 9 use a fixed 32-sequence
+validation batch. This is a paired candidate/control multi-seed quality screen,
+not a systems target or capability claim: frozen contamination-checked
+capability evaluation remains absent.
 
 ## Candidate and matched control
 
 The experimental derivative has D=512, depth 4, 8 heads, multiplier 32,
 16-column blocks, 25,493,504 parameters (the learned gate adds 65,536); the
 matched RoPE Transformer has 25,343,488 (ratio **1.0059**). Both use the same
-byte-packed corpus, seed 7, BF16/MPS, batch 1x256, cosine schedule, and
-1,000,192 loaded tokens. The candidate follows an explicit 0%:100%-dense,
+byte-packed corpus, seeds 7/8/9, BF16/MPS, batch 1x256, AdamW (LR 1e-3,
+weight decay 0.1), cosine schedule with 100 warmup steps, and 1,000,192
+loaded tokens. The candidate follows an explicit 0%:100%-dense,
 25%:75%, 50%:60%, 75%:50% token-threshold curriculum and uses Direct Split-V
 only in its hard-sparse stages.
 
-| model | final hard fraction | best fixed validation CE | MPS tok/s | sampled allocator |
-|---|---:|---:|---:|---:|
-| learned-gate Direct Split-V | 50% | **2.265625** | 1,815.24 | 212,616,192 B |
-| matched RoPE Transformer | n/a | 2.385744 | 4,905.69 | 199,704,832 B |
+| seed | learned-gate Direct Split-V CE (50%) | matched RoPE Transformer CE | paired CE advantage |
+|---:|---:|---:|---:|
+| 7 | 2.265625 | 2.599258 | 0.333633 |
+| 8 | 2.296875 | 2.614701 | 0.317826 |
+| 9 | 2.265625 | 2.613516 | 0.347891 |
+| mean ± sample SD | **2.276042 ± 0.018042** | 2.609158 ± 0.008595 | **0.333117 ± 0.015039** |
 
-The portable MPS checkpoint/report artifact is retained outside git at
-`outputs/hz0h_learned_gate_direct_split_v_1m_mps/seed7/`; its manifest pins
-checkpoint SHA256 `f02c1b88a10e11f210ad75f39ae58aa96e96b6451debc4d1466bf1e3b0e31323`.
-That is the sole checkpoint eligible for the documented CUDA parity preflight.
+Candidate throughput is 1,907.73 tok/s mean and its sampled MPS allocator is
+212,616,192 B. The matched Transformer is 4,850.97 tok/s mean and
+199,704,832 B. Therefore, even though the quality screen is positive, raw MPS
+training is only 0.393x Transformer and samples 1.065x its allocation: it
+fails both requested systems thresholds.
+
+The portable MPS checkpoints/reports are retained outside git at
+`outputs/hz0h_learned_gate_direct_split_v_1m_mps/seed{7,8,9}/`, with
+matched controls in `matched_transformer_seed{7,8,9}/`. Candidate checkpoint
+SHA256 values are respectively
+`f02c1b88a10e11f210ad75f39ae58aa96e96b6451debc4d1466bf1e3b0e31323`,
+`a6730965d3a22ec218086528f23af231a3719ac7ceb9357f9bf4005a215f5888`, and
+`099b14362bef08935c6920c5da9705b249a9949f9cddad8bb838f6e254d12fdb`.
+Each manifest pins its report and checkpoint. They are candidate-quality
+artifacts, not CUDA parity artifacts.
 
 The candidate improved consistently across stages: CE 3.0156 (dense, 128K),
 2.9375 (75%, 256K), 2.6719 (75%, 384K), 2.6094 (60%, 512K), 2.3906 (60%,
@@ -52,8 +67,12 @@ sampled allocator is 1.065x, so this does not meet either systems target.
 
 ## Decision
 
-This is the first quality-positive large-pilot sparse mechanism and is the
-only justified architecture for the next CUDA fused-kernel screen. The runner
+The paired result is reproducible across the preregistered three MPS seeds:
+each candidate CE is 0.318–0.348 below its exact matched Transformer control.
+This establishes only a fixed-batch MPS quality screen, not frozen capability,
+CUDA quality, or an efficiency success. It is the first quality-positive
+large-pilot sparse mechanism and the only justified architecture for the next
+CUDA fused-kernel screen. The runner
 now exposes that derivative only as:
 
 ```bash
