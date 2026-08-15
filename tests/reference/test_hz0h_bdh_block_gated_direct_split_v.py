@@ -3,7 +3,7 @@ from __future__ import annotations
 import torch
 
 from reference.hz0h_bdh_block_gated_torch import (
-    BDHBlockGated, BDHBlockGatedConfig, bdh_block_gated_annealed_direct_split_v_forward,
+    BDHBlockGated, BDHBlockGatedConfig, bdh_block_gated_annealed_direct_split_v_chunk_gla_forward, bdh_block_gated_annealed_direct_split_v_forward,
     bdh_block_gated_forward,
 )
 
@@ -33,3 +33,13 @@ def test_sparse_direct_value_gate_path_has_finite_gradients_including_gate():
     assert model.gate.grad is not None and torch.isfinite(model.gate.grad).all()
     assert float(model.gate.grad.norm()) > 0
     assert model.encoder.grad is not None and torch.isfinite(model.encoder.grad).all()
+
+
+def test_gated_chunk_gla_refuses_non_cuda():
+    model = _model()
+    idx = torch.randint(0, 32, (1, 8))
+    try:
+        bdh_block_gated_annealed_direct_split_v_chunk_gla_forward(model, idx, 0.5)
+        assert False, "expected CUDA requirement"
+    except RuntimeError as exc:
+        assert "CUDA/Triton" in str(exc)

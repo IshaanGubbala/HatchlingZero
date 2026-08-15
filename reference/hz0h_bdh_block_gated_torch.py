@@ -298,3 +298,45 @@ def bdh_block_gated_annealed_direct_split_v_forward(model: "BDHBlockGated", idx:
     logits = x.view(B, T, D) @ model.lm_head
     loss = None if targets is None else F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1))
     return logits, loss
+
+
+def bdh_block_gated_annealed_direct_split_v_chunk_gla_forward(model: "BDHBlockGated", idx: torch.Tensor, active_fraction: float, targets: torch.Tensor | None = None):
+    """CUDA/Triton fused sparse phase of learned-gate Direct Split-V.
+
+    Dense gate warmup deliberately retains its established differentiable
+    forward. Once ``active_fraction < 1``, this is mathematically the direct
+    value path above except attention is delegated to the existing strict
+    causal ``chunk_gla`` adapter. No non-CUDA fallback is allowed.
+    """
+    if active_fraction >= 1.0:
+        return bdh_block_gated_forward(model, idx, targets=targets)
+    if idx.device.type != "cuda":
+        raise RuntimeError("learned-gate chunk_gla path requires CUDA/Triton")
+    C = model.config
+    B, T = idx.size()
+    D, nh, N = C.n_embd, C.n_head, C.n_embd * C.mlp_internal_dim_multiplier // C.n_head
+    if D % nh:
+        raise ValueError("direct Split-V requires n_embd divisible by n_head")
+    active = compute_active_blocks_by_gate(model, idx, active_fraction)
+    columns = (active.view(-1, 1) * C.block_size + torch.arange(C.block_size, device=idx.device)).reshape(-1)
+    n_active, Dh = columns.numel(), D // nh
+    encoder = model.encoder.index_select(2, columns)
+    encoder_v = model.encoder_v.index_select(2, columns)
+    decoder = model.decoder.reshape(nh, N, D).index_select(1, columns).reshape(nh * n_active, D)
+    freqs = model.attn.freqs.index_select(-1, columns)
+    from reference.hz0h_bdh_fused_attention_torch import bdh_fused_attention
+    x = model.ln(model.embed(idx).unsqueeze(1))
+    for _ in range(C.n_layer):
+        x_sparse = F.relu(x @ encoder)
+        selected_gate = compute_block_gate(model, x).index_select(-1, active)
+        gate = selected_gate.unsqueeze(1).unsqueeze(-1).expand(B, nh, T, active.numel(), C.block_size).reshape(B, nh, T, n_active)
+        x_sparse = x_sparse * gate
+        values = x.squeeze(1).view(B, T, nh, Dh).transpose(1, 2)
+        ykv = bdh_fused_attention(x_sparse, values, freqs).transpose(1, 2).reshape(B, 1, T, D)
+        ykv = model.ln(ykv)
+        y_sparse = F.relu(ykv @ encoder_v)
+        y = model.ln((model.drop(x_sparse * y_sparse)).transpose(1, 2).reshape(B, 1, T, n_active * nh) @ decoder)
+        x = model.ln(x + y)
+    logits = x.view(B, T, D) @ model.lm_head
+    loss = None if targets is None else F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1))
+    return logits, loss

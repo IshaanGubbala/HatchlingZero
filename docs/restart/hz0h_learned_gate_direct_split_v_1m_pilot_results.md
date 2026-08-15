@@ -48,8 +48,18 @@ sampled allocator is 1.065x, so this does not meet either systems target.
 ## Decision
 
 This is the first quality-positive large-pilot sparse mechanism and is the
-only justified architecture for the next CUDA fused-kernel screen. The next
-experiment must use the exact 50% curriculum, raw-vs-fused gradient parity,
-native CUDA peak accounting, and the matched Transformer control. Passing an
-untrained kernel screen still does not establish trained quality, three-seed
-stability, or the requested target.
+only justified architecture for the next CUDA fused-kernel screen. The runner
+now exposes that derivative only as:
+
+```bash
+python scripts/hz0h_block_gated_train.py ... \
+  --value-path direct_split_v --attention-kernel chunk_gla
+```
+
+Its dense warmup remains the regular differentiable learned-gate forward; only
+hard sparse stages dispatch CUDA `chunk_gla`. Before a long run, save the raw
+50%-trained checkpoint and compare raw/fused logits and gradients at the same
+active blocks on CUDA, then measure native peak allocation and the matched
+Transformer under the same optimizer/compile policy. Passing an untrained
+kernel screen still does not establish trained quality, three-seed stability,
+or the requested target.

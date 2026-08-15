@@ -12,6 +12,7 @@ import numpy as np
 import torch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from reference.hz0h_bdh_block_gated_torch import (BDHBlockGated, BDHBlockGatedConfig,
+    bdh_block_gated_annealed_direct_split_v_chunk_gla_forward,
     bdh_block_gated_annealed_direct_split_v_forward, bdh_block_gated_annealed_forward,
     compute_active_blocks_by_gate, compute_block_gate)
 from reference.hz0h_bdh_train_torch import shifted_target_batch
@@ -80,6 +81,7 @@ def main():
     p.add_argument('--n-embd',type=int,default=512);p.add_argument('--n-layer',type=int,default=8);p.add_argument('--n-head',type=int,default=8);p.add_argument('--mlp-internal-dim-multiplier',type=int,default=32);p.add_argument('--vocab-size',type=int,default=256);p.add_argument('--block-size',type=int,default=16)
     p.add_argument('--curriculum-stages',default='0:1.0,6250000:0.75,12500000:0.6,18750000:0.5')
     p.add_argument('--value-path',choices=('vanilla','direct_split_v'),default='vanilla',help='direct_split_v is an equal-parameter experimental derivative, not exact BDH')
+    p.add_argument('--attention-kernel',choices=('raw','chunk_gla'),default='raw',help='chunk_gla is CUDA-only and requires direct_split_v')
     p.add_argument('--max-lr',type=float,default=1e-3);p.add_argument('--warmup-steps',type=int,default=100);p.add_argument('--weight-decay',type=float,default=.1);p.add_argument('--dtype',choices=('float32','bfloat16','float16'),default='bfloat16');p.add_argument('--device',choices=('auto','cpu','mps','cuda'),default='auto');p.add_argument('--seed',type=int,default=7)
     p.add_argument('--checkpoint-interval',type=int,default=200);p.add_argument('--validation-interval',type=int,default=200);p.add_argument('--fused-optimizer',action='store_true');p.add_argument('--resume',action='store_true')
     a=p.parse_args();stages=parse_stages(a.curriculum_stages)
@@ -90,6 +92,8 @@ def main():
     if dev.type=='cuda' and not torch.cuda.is_available():raise RuntimeError('CUDA unavailable')
     if dev.type=='mps' and not torch.backends.mps.is_available():raise RuntimeError('MPS unavailable')
     if a.fused_optimizer and dev.type!='cuda':raise ValueError('fused optimizer requires CUDA')
+    if a.attention_kernel=='chunk_gla' and a.value_path!='direct_split_v':raise ValueError('chunk_gla requires direct_split_v')
+    if a.attention_kernel=='chunk_gla' and dev.type!='cuda':raise ValueError('chunk_gla requires CUDA')
     hardware=torch.cuda.get_device_name(dev) if dev.type=='cuda' else 'Apple MPS' if dev.type=='mps' else 'CPU'
     dtype={'float32':torch.float32,'bfloat16':torch.bfloat16,'float16':torch.float16}[a.dtype]
     a.run_dir.mkdir(parents=True,exist_ok=True);checkpoint=a.run_dir/'block_gated_checkpoint';log=a.run_dir/'block_gated_memory.jsonl'
@@ -99,7 +103,7 @@ def main():
     step=tokens=batch_index=0;metrics=[];best=None;epochs=[0]
     if a.resume and Path(str(checkpoint)+'.pt').exists():
         blob=torch.load(str(checkpoint)+'.pt',map_location=dev,weights_only=False);model.load_state_dict(blob['model']);opt.load_state_dict(blob['optimizer']);meta=json.loads(Path(str(checkpoint)+'.json').read_text());step,tokens,batch_index,metrics,best=meta['step'],meta['tokens_seen'],meta['batch_index'],meta['metrics'],meta.get('best_validation_loss')
-    gated_forward = bdh_block_gated_annealed_direct_split_v_forward if a.value_path == 'direct_split_v' else bdh_block_gated_annealed_forward
+    gated_forward = bdh_block_gated_annealed_direct_split_v_chunk_gla_forward if a.attention_kernel == 'chunk_gla' else bdh_block_gated_annealed_direct_split_v_forward if a.value_path == 'direct_split_v' else bdh_block_gated_annealed_forward
     def forward(x,y=None,fraction=None): return gated_forward(model,x,fraction_at(stages,tokens) if fraction is None else fraction,targets=y)
     def save():
         torch.save({'model':model.state_dict(),'optimizer':opt.state_dict()},str(checkpoint)+'.pt');Path(str(checkpoint)+'.json').write_text(json.dumps({'step':step,'tokens_seen':tokens,'batch_index':batch_index,'metrics':metrics,'best_validation_loss':best}))
@@ -122,6 +126,6 @@ def main():
             metrics.append(item)
             with log.open('a') as h:h.write(json.dumps(item)+'\n')
             if step%a.checkpoint_interval==0 or tokens>=a.target_tokens:save()
-    report={'backend':'torch','device':str(dev),'hardware_id':hardware,'effective_batch_tokens':a.batch_size*a.sequence_length,'compile_step':False,'compile_mode':None,'fused_optimizer':a.fused_optimizer,'architecture':'block_gated_bdh_direct_split_v_derivative' if a.value_path == 'direct_split_v' else 'block_gated_bdh_derivative','exact_bdh':False,'claim_eligible':False,'value_path':a.value_path,'dtype':a.dtype,'parameter_count':sum(p.numel() for p in model.parameters()),'block_size':a.block_size,'curriculum_stages':stages,'steps':step,'tokens_seen':tokens,'target_tokens':a.target_tokens,'budget_complete':tokens>=a.target_tokens,'best_validation_loss':best,'metrics':metrics,'checkpoint':str(checkpoint),'training_seconds':time.perf_counter()-started,'tokens_per_second':tokens/max(time.perf_counter()-started,1e-9),'peak_memory_bytes':peak(dev),'initialization_seed':a.seed,'final_parameter_sha256':fingerprint(model)}
+    report={'backend':'torch','device':str(dev),'hardware_id':hardware,'effective_batch_tokens':a.batch_size*a.sequence_length,'compile_step':False,'compile_mode':None,'fused_optimizer':a.fused_optimizer,'architecture':'block_gated_bdh_direct_split_v_chunk_gla_derivative' if a.attention_kernel == 'chunk_gla' else 'block_gated_bdh_direct_split_v_derivative' if a.value_path == 'direct_split_v' else 'block_gated_bdh_derivative','exact_bdh':False,'claim_eligible':False,'value_path':a.value_path,'attention_kernel':a.attention_kernel,'dtype':a.dtype,'parameter_count':sum(p.numel() for p in model.parameters()),'block_size':a.block_size,'curriculum_stages':stages,'steps':step,'tokens_seen':tokens,'target_tokens':a.target_tokens,'budget_complete':tokens>=a.target_tokens,'best_validation_loss':best,'metrics':metrics,'checkpoint':str(checkpoint),'training_seconds':time.perf_counter()-started,'tokens_per_second':tokens/max(time.perf_counter()-started,1e-9),'peak_memory_bytes':peak(dev),'initialization_seed':a.seed,'final_parameter_sha256':fingerprint(model)}
     report.update(sampler.stop(tokens=tokens));(a.run_dir/'block_gated_training.json').write_text(json.dumps(report,indent=2));print(json.dumps(report,indent=2))
 if __name__=='__main__':main()

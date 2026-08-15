@@ -24,3 +24,9 @@ def test_block_gated_runner_labels_direct_value_path(tmp_path: Path):
     report=json.loads((run_dir/'block_gated_training.json').read_text())
     assert report['architecture']=='block_gated_bdh_direct_split_v_derivative'
     assert report['value_path']=='direct_split_v'
+
+
+def test_block_gated_runner_rejects_chunk_gla_off_cuda(tmp_path: Path):
+    result=subprocess.run([sys.executable,'scripts/hz0h_block_gated_train.py','--data','x','--validation-data','y','--run-dir',str(tmp_path/'run'),'--value-path','direct_split_v','--attention-kernel','chunk_gla','--device','cpu'],capture_output=True,text=True)
+    assert result.returncode != 0
+    assert 'chunk_gla requires CUDA' in result.stderr
