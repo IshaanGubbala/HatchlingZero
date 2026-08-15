@@ -188,8 +188,10 @@ def test_successor_plan_inherits_integrity_and_claim_gates():
 def test_deep_research_plan_keeps_ram_and_speed_gates():
     plan = (ROOT / "plans/Deep Reserach Plan.md").read_text()
     assert "at most **70%" in plan
-    assert "1.30x end-to-end inference" in plan
+    assert "1.30x end-to-end" in plan and "inference" in plan
     assert "peak inference RAM <= 0.70" in plan
     assert "decode throughput >= 1.30" in plan
+    assert "Training acceptance gate" in plan
+    assert "scripts/hz0h_training_target_gate.py" in plan
     assert "real KV cache" in plan
     assert "compile-only speedup" in plan

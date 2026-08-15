@@ -61,9 +61,11 @@ The non-negotiable integrity and comparison rules are in
 They pin the upstream source, verify shared iterative BDH structure and real
 next-token training, and block superiority claims unless the Transformer has
 matched positional encoding, parameter/data/compute budgets, and KV-cached
-inference. The project's stated targets are **≥30% lower peak inference RAM at
-matched quality** and **≥3.0× a frozen composite code/math/reasoning score at
-matched size and budget**; these are unproven targets, never assumed results.
+inference. The project's systems targets are **≥30% lower peak inference RAM,
+≥30% lower peak training RAM, ≥1.30× inference throughput, and ≥1.30× training
+throughput** under matched conditions; the capability target is **≥3.0×** a
+frozen composite code/math/reasoning score at matched size and budget. These
+are unproven targets, never assumed results.
 The current evidence does **not** yet prove either target. The small pilot
 favored the Transformer on training throughput and validation loss; BDH's
 streaming decoder showed a separate long-context serving advantage. Only the

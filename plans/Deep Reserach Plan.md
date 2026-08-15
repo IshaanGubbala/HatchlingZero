@@ -6,24 +6,29 @@
 
 The primary systems objective is explicit:
 
-- **RAM:** BDH/HZ must use at most **70% of a fair Transformer’s peak
-  inference RAM** (30% less RAM) at the same total parameter count, quality
-  target, context, dtype, batch size, and hardware.
-- **Speed:** BDH/HZ must achieve at least **1.30x end-to-end inference
-  throughput** (or at most 70% of the Transformer’s latency) under those same
-  conditions. Training throughput is a separate reported axis and may not be
-  substituted for inference speed.
+- **Inference RAM:** BDH/HZ must use at most **70% of a fair Transformer’s
+  peak inference RAM** (30% less RAM) at the same total parameter count,
+  quality target, context, dtype, batch size, and hardware.
+- **Inference speed:** BDH/HZ must achieve at least **1.30x end-to-end
+  inference throughput** (or at most 70% of the Transformer’s latency) under
+  those same conditions.
+- **Training RAM:** BDH/HZ must use at most **70% of the Transformer’s peak
+  training RAM** at matched parameter count, dtype, token budget, batch-token
+  count, and hardware.
+- **Training speed:** BDH/HZ must achieve at least **1.30x training
+  throughput** and no more than 70% of the Transformer’s wall-clock time at
+  the same token budget. Compile must be applied fairly to both arms.
 
 The “300% more intelligent” objective remains a separate frozen capability
 hypothesis: at least 3.0x the pre-registered composite code/math/reasoning score
 at matched size and training budget. It is not established by language-model
 cross-entropy alone.
 
-**Current measured status: targets are not met.** The latest matched 25M-scale
-comparison reports BDH-family peak training VRAM around 7.3–7.9 GiB versus
-approximately 0.69 GiB for the Transformer, and Transformer training throughput
-around 5.3x higher. Those numbers are disclosed blockers, not evidence of
-superiority. Phase F inference measurements must report the same fair control
+**Current measured status: the full targets are not met.** The latest matched
+25M-scale comparison reports BDH-family peak training VRAM around 7.3–7.9 GiB
+versus approximately 0.69 GiB for the Transformer (about 10.6x more), and
+BDH-family training throughput around 0.20x the Transformer (about 5x slower).
+Those numbers are disclosed blockers, not evidence of superiority. Phase F inference measurements must report the same fair control
 with a real RoPE and KV cache before any RAM/speed claim is eligible.
 
 The latest genuine-BF16 long-context inference measurements are also below the
@@ -35,6 +40,15 @@ persistent state was about 33.6 MB versus 100.7 MB for the Transformer KV cache
 (about 66.7% lower), but state bytes are not total peak process RAM and cannot
 be reported as the RAM target. The missing total-RAM measurement and the speed
 gap remain open blockers.
+
+### Training acceptance gate
+
+Use `scripts/hz0h_training_target_gate.py` on the exact-BDH/HZ and Transformer
+training JSON reports. It requires equal token budgets and dtype, parameter
+ratio ≤1.01, peak-training-RAM ratio ≤0.70, and candidate throughput ratio
+≥1.30 with wall-clock ratio ≤0.70. A compile speedup measured only for BDH is
+not eligible; if compilation is used, it must be enabled and reported for both
+architectures. The gate always leaves quality/seed eligibility separate.
 
 No derivative (HZ-Core-2, Value Bottleneck, BlockBDH, or HZ-CQ) may be called
 “exact BDH” or promoted as superior unless it passes the pinned oracle integrity
