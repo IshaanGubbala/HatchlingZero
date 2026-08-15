@@ -15,10 +15,15 @@ Real config (matches the scale where the wall was hit):
 - bf16 dtype (actual training precision)
 - n_iterations=8 (the deepest curriculum stage that caused OOM)
 
-Important disclaimer: This runs on MPS (Mac GPU), not CUDA/WDDM. MPS memory
-behavior and fragmentation patterns differ from CUDA, so this measures
-"does checkpointing reduce peak memory at all" not "does it fix the Windows
-WDDM-specific bug." The real fix verification needs to run on the Windows RTX 3060.
+Device-agnostic: auto-detects CUDA or MPS. Real, disclosed platform gap
+found running this: on MPS it measured checkpointing as WORSE (more
+memory, slower); on real CUDA hardware (RTX 3060, where the original
+100M-param WDDM wall was hit) it measured checkpointing as decisively
+BETTER (81.5% less peak memory, ~2x faster) at this same config -- MPS's
+own memory accounting is known-unreliable versus CUDA's real
+`torch.cuda.max_memory_allocated()`, don't assume one platform's result
+generalizes to the other. See docs/restart/hz0h_activation_checkpointing_results.md
+for both real numbers.
 
 Output: JSON report with peak memory (MB) and tokens/sec for both runs.
 """
@@ -127,7 +132,7 @@ def run_benchmark() -> dict:
     reset_peak_memory(device_type)
     if device_type == "cuda":
         torch.cuda.reset_peak_memory_stats()
-    torch.synchronize() if device_type == "cuda" else None
+    torch.cuda.synchronize() if device_type == "cuda" else None
 
     # For MPS, measure memory before and after
     mem_before = measure_peak_memory(device_type)
@@ -138,7 +143,7 @@ def run_benchmark() -> dict:
     loss.backward()
     optimizer.step()
     optimizer.zero_grad()
-    torch.synchronize() if device_type == "cuda" else None
+    torch.cuda.synchronize() if device_type == "cuda" else None
     end_time = time.perf_counter()
 
     if device_type == "cuda":
@@ -170,7 +175,7 @@ def run_benchmark() -> dict:
     reset_peak_memory(device_type)
     if device_type == "cuda":
         torch.cuda.reset_peak_memory_stats()
-    torch.synchronize() if device_type == "cuda" else None
+    torch.cuda.synchronize() if device_type == "cuda" else None
 
     # For MPS, measure memory before and after
     mem_before = measure_peak_memory(device_type)
@@ -183,7 +188,7 @@ def run_benchmark() -> dict:
     loss.backward()
     optimizer.step()
     optimizer.zero_grad()
-    torch.synchronize() if device_type == "cuda" else None
+    torch.cuda.synchronize() if device_type == "cuda" else None
     end_time = time.perf_counter()
 
     if device_type == "cuda":
@@ -204,7 +209,12 @@ def run_benchmark() -> dict:
     memory_reduction_mb = peak_memory_uncheckpointed - peak_memory_checkpointed
     memory_reduction_pct = (memory_reduction_mb / peak_memory_uncheckpointed) * 100 if peak_memory_uncheckpointed > 0 else 0
 
-    slowdown_ratio = elapsed_checkpointed / elapsed_uncheckpointed if elapsed_uncheckpointed > 0 else float('inf')
+    # Elapsed-time ratio, NOT a "speed" ratio: <1.0 means checkpointed was
+    # FASTER (less elapsed time), >1.0 means checkpointed was SLOWER. Real,
+    # disclosed naming confusion caught during CUDA verification -- kept the
+    # field name for backward compatibility with the MPS-run JSON already
+    # committed, but the meaning is elapsed-time ratio, read it that way.
+    checkpointed_elapsed_time_ratio = elapsed_checkpointed / elapsed_uncheckpointed if elapsed_uncheckpointed > 0 else float('inf')
 
     print("\n" + "=" * 60)
     print("RESULTS")
@@ -215,7 +225,7 @@ def run_benchmark() -> dict:
     print(f"\nThroughput (tok/s):")
     print(f"  Without checkpointing: {tokens_per_sec_uncheckpointed:.0f}")
     print(f"  With checkpointing:    {tokens_per_sec_checkpointed:.0f}")
-    print(f"  Slowdown ratio: {slowdown_ratio:.2f}x")
+    print(f"  Checkpointed/uncheckpointed elapsed-time ratio: {checkpointed_elapsed_time_ratio:.2f}x ({'FASTER' if checkpointed_elapsed_time_ratio < 1.0 else 'SLOWER'})")
 
     report = {
         "device": device_type,
@@ -239,13 +249,17 @@ def run_benchmark() -> dict:
         "throughput": {
             "tok_per_sec_uncheckpointed": tokens_per_sec_uncheckpointed,
             "tok_per_sec_checkpointed": tokens_per_sec_checkpointed,
-            "slowdown_ratio": slowdown_ratio,
+            "checkpointed_elapsed_time_ratio": checkpointed_elapsed_time_ratio,
         },
         "disclaimer": (
-            "Runs on MPS (Mac GPU), not CUDA. MPS memory behavior differs "
-            "from CUDA/WDDM, so this measures 'does checkpointing help at all' "
-            "not 'does it fix the Windows-specific OOM bug'. Real fix verification "
-            "requires running on the Windows RTX 3060 where the original wall was hit."
+            f"Ran on {device_type}. On MPS, checkpointing measured WORSE "
+            "(more memory, slower) than uncheckpointed -- MPS memory "
+            "accounting is known-unreliable versus CUDA's real "
+            "torch.cuda.max_memory_allocated(). On real CUDA hardware "
+            "(the RTX 3060 where the original 100M-param WDDM wall was "
+            "hit), results can differ substantially -- always check the "
+            "'device' field above before comparing across runs, this "
+            "text no longer assumes MPS."
         ),
     }
 

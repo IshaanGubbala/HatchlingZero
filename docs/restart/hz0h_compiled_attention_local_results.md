@@ -139,8 +139,37 @@ nearly *doubles* peak memory (356 MB -> 614 MB) for that ~flat speed. Real,
 clean, isolated result -- narrowly compiling just the attention step does not
 help on MPS either, at the real production scale.
 
+## Real CUDA result (2026-08-15, RTX 3060): small, real, positive -- unlike CPU/MPS
+
+Dispatched the same benchmark to real target hardware, real Phase F
+config (`n_embd=512, n_layer=8, n_head=8, mult=32, batch=12, seq=256,
+bf16`, 5 warmup + 15 timed steps), no code changes needed:
+
+```
+eager:    peak_mem 7,982.2 MB, 6,640.8 tok/s
+compiled: peak_mem 8,137.4 MB, 7,032.2 tok/s
+speedup_ratio_compiled_over_eager: 1.059x
+```
+
+**~5.9% real speedup on CUDA** -- small, but genuinely different from
+flat-everywhere on CPU (-0.19%) and MPS (+0.91%, within noise). Real
+tradeoff disclosed: compiled path uses ~1.9% more memory (8,137.4 vs
+7,982.2 MB), not free. This is the first platform where narrowly
+compiling just the attention step shows a real, non-noise win --
+consistent with CUDA being where `torch.compile`'s Inductor backend is
+most mature (matches the earlier full-model 1.82x CUDA compile result,
+though that's a different, broader scope than this narrow isolation).
+
 ## Conclusion
 
-`torch.compile` on BDH's attention mechanism is **working correctly** (byte-identical outputs, gradients intact) on both CPU and MPS, but provides **no meaningful performance benefit on either platform tested** -- flat on CPU (-0.19%), flat on MPS (+0.91%, within noise) while roughly doubling peak memory on MPS. The hypothesis (kernel fusion via torch.compile helps BDH's unfused attention ops) is not supported by real evidence on this machine's hardware. CUDA remains untested for this narrow, attention-only isolation (full-model compilation on CUDA has shown a real 1.82x win elsewhere, but that's a different, broader scope than isolating just the attention step).
-
-This is a **complete, negative result on both tested platforms**: a real, disclosed finding, not a code bug, and not swept under the rug.
+`torch.compile` on BDH's attention mechanism is **working correctly**
+(byte-identical outputs, gradients intact) on all three platforms
+tested. Performance: flat on CPU (-0.19%), flat on MPS (+0.91%, within
+noise, ~2x memory), and a small but real **+5.9% on CUDA** (+1.9%
+memory). The hypothesis (kernel fusion helps BDH's unfused attention
+ops) holds only on CUDA, and only modestly -- not comparable in
+magnitude to the full-model compile win (1.82x) or to activation
+checkpointing's much larger CUDA win (see
+`docs/restart/hz0h_activation_checkpointing_results.md`). A real,
+positive, but minor result -- worth keeping, not a priority lever on
+its own.

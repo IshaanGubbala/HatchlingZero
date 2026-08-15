@@ -134,7 +134,12 @@ def profile_model(
             "count": op.count,
         }
         if device.type == "cuda":
-            op_dict["cuda_time_ms"] = op.cuda_time_total / 1000.0
+            # PyTorch renamed CUDA-specific profiler fields to be
+            # device-agnostic in recent versions (cuda_time_total ->
+            # device_time_total). Real bug caught running this on CUDA
+            # (PyTorch 2.7.1+cu118 only has device_time_total) -- try the
+            # new name first, fall back to the old one for older installs.
+            op_dict["cuda_time_ms"] = getattr(op, "device_time_total", getattr(op, "cuda_time_total", 0.0)) / 1000.0
         top_ops.append(op_dict)
 
     return {

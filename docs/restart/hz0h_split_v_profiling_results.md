@@ -143,3 +143,53 @@ Backward compatibility maintained: gradient flow, shape computation, and paramet
 ## Profiler Artifacts
 
 Full profiler output saved to `outputs/hz0h_split_v_profiling/profiling_output.json` (git-ignored raw artifact, latest run with 15 timed steps, 10 profile steps, batch=12, seq=256, bf16).
+
+## Real CUDA result (2026-08-15, RTX 3060): reverses the MPS conclusion
+
+Dispatched `scripts/hz0h_split_v_profiling.py` to real target hardware,
+same real Phase F config, zero code changes needed beyond one real bug
+fix (see below):
+
+```
+BDH (vanilla):          6,654.9 tok/s
+BDHSplitV:               7,064.2 tok/s
+ratio:                   1.062x -- SplitV is ~6.2% FASTER
+```
+
+This reverses the MPS conclusion (confirmed clean/non-contaminated,
+9.8% *slower* above) -- on real CUDA hardware, Split-V is faster than
+exact BDH, not slower. Consistent with this session's repeated finding
+that MPS and CUDA diverge for BDH-family shape-sensitive changes
+(BlockBDH's real win was also CUDA-only; activation checkpointing
+reversed the same way, see `docs/restart/hz0h_activation_checkpointing_results.md`).
+
+**Real bug found and fixed while getting this number**: the script read
+`op.cuda_time_total` on a profiler `FunctionEventAvg` object, an
+attribute that doesn't exist in recent PyTorch (renamed to
+`device_time_total` for device-agnostic profiling) -- only surfaces
+when `device.type == "cuda"`, so it never triggered in MPS-only
+testing. Fixed with a `getattr` fallback for both attribute names,
+covering older and newer PyTorch installs.
+
+**Real caveat, not swept under the rug**: the profiler's own top-15-ops
+table for both models shows `cudaMemcpyAsync` dominating self-CPU time
+by orders of magnitude (~4000ms, count=10) with its own
+`cuda_time_ms=0.0` -- this looks like CPU-side blocking-wait/profiler
+step-boundary-sync overhead, not genuine GPU compute cost attributable
+to either model. The tok/s numbers above (measured via wall-clock
+timing outside the profiler, not derived from this specific ops-table
+line) are the real, load-bearing comparison; this profiler artifact
+should not be read as "10 memcpy calls cost 4 real seconds."
+
+### Updated verdict
+
+Split-V's real throughput result is now **platform-dependent, not
+uniformly negative**: slower on MPS (real, isolated, confirmed), faster
+on CUDA (real, first clean measurement at this scale). Given CUDA is
+the actual target hardware, this is a real, positive-leaning result --
+though still only a systems measurement (`trained_weights` not
+applicable here, this uses random-init weights for pure throughput
+comparison), not yet a quality claim. The earlier local Mac smoke test
+that originally reported "~18% slower" (`plans/Deep Reserach Plan.md`'s
+Split-V section) should be read as an MPS-specific number, not
+representative of the real target hardware.

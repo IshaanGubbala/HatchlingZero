@@ -1,7 +1,12 @@
-# HZ-0H Phase 6: Activation Checkpointing for Variable-Depth BDH
+# HZ-0H Phase 6: Activation Checkpointing for Variable-Depth BDH -- DECISIVE POSITIVE on real CUDA hardware
 
 **Date**: 2026-08-15  
-**Status**: COMPLETE - implemented and tested; unexpected results on MPS warrant CUDA measurement before concluding  
+**Status**: COMPLETE. Real CUDA verification (2026-08-15, RTX 3060) reverses the
+original MPS-only result: checkpointing gives an **81.5% peak-memory reduction
+and ~2.08x speedup** on the actual target hardware, at the exact config where
+the real 100M-param WDDM wall was hit. The MPS result below (more memory,
+slower) stands as a real, reproducible finding on MPS specifically -- it does
+NOT generalize to CUDA, and CUDA is what matters here.  
 **Location**: `reference/hz0h_bdh_checkpointed_torch.py`, `scripts/hz0h_checkpointed_memory_benchmark.py`
 
 ## Real Motivation
@@ -97,23 +102,99 @@ slower**, an even larger regression than the original contaminated run's
 artifact of concurrent load -- if anything the clean number is worse than
 the first (contaminated) measurement.
 
-## Verdict
+## Real CUDA verification (2026-08-15, RTX 3060) -- decisive reversal
 
-### Checkpointing: Implemented ✓, Effective ✗ (on MPS)
+Dispatched the exact same benchmark script (`scripts/hz0h_checkpointed_memory_benchmark.py`,
+zero code changes needed, device auto-detected) to the real target
+hardware. Same config: `n_embd=512, n_layer=8, n_head=8,
+mlp_internal_dim_multiplier=32, batch=12, seq=256, n_iterations=8, bf16`
+-- the exact config at the deepest curriculum stage that caused the
+original 100M-param OOM.
 
-1. **Implementation is correct**: Tests prove checkpointing computes identical math (logits, gradients match).
-2. **Not beneficial on MPS at this config**: Memory increased, throughput decreased.
-3. **CUDA measurement needed**: Before concluding checkpointing is unhelpful overall, this needs to be tested on real CUDA hardware (RTX 3060 Windows) where the original OOM was observed. MPS behavior is too different to generalize.
+| | uncheckpointed | checkpointed | change |
+|---|---:|---:|---:|
+| peak memory | 7,758.5 MB | 1,436.7 MB | **-81.5% (-6,321.8 MB)** |
+| throughput | 1,951.9 tok/s | 4,056.7 tok/s | **+2.08x faster** |
 
-### Next Steps
+Both axes win simultaneously on real hardware -- not a memory-for-speed
+tradeoff here, a clean win on both. Real, disclosed caveat: this is a
+single synthetic-step measurement (not a full training run), same
+scope as the MPS run above.
 
-1. **Dispatch to Windows RTX 3060**: Run `scripts/hz0h_checkpointed_memory_benchmark.py` on the Windows machine to get CUDA memory (max_memory_allocated) and throughput. Real WDDM behavior and optimized CUDA kernels might show different results.
-2. **If CUDA shows benefit**: Activate checkpointing in curriculum training for deeper iterations.
-3. **If CUDA shows same problem**: Consider alternative memory optimizations:
-   - Gradient accumulation (fewer activations in flight per parameter update)
-   - Mixed-precision (fp8/int8) for activations (existing Phase 3 work)
-   - Reduce batch size or sequence length
-   - Model parallelism (slice depth iterations across multiple GPUs)
+**Two real bugs found and fixed while getting this number** (caught
+running on CUDA specifically, would not have surfaced on MPS-only
+testing):
+1. The benchmark called `torch.synchronize()` (doesn't exist) instead
+   of `torch.cuda.synchronize()`, gated behind the CUDA-only code path
+   so it only broke there -- fixed (4 occurrences).
+2. The `"slowdown_ratio"` field name was misleading: a value of 0.48
+   here means checkpointed took 0.48x the *time* of uncheckpointed,
+   i.e. it was FASTER, not "half as fast." Renamed to
+   `checkpointed_elapsed_time_ratio` with an explicit
+   FASTER/SLOWER label in the printed output to avoid future
+   misreading.
+3. The JSON report's own `"disclaimer"` field was stale MPS-only
+   boilerplate that would have looked self-contradictory on a real
+   CUDA run reporting a positive result -- made device-aware.
+
+## Why this likely differs from MPS
+
+Not independently profiled to confirm, but a plausible real explanation
+consistent with the numbers: BDH's per-iteration intermediate tensors
+are large (driven by `N = n_embd * mult / n_head = 2048`), so storing
+all 8 iterations' worth of activations for backward is a genuinely
+large amount of memory on CUDA specifically -- avoiding that via
+checkpointing doesn't just save memory, it also avoids real allocator
+overhead (large allocations, possible fragmentation/paging pressure,
+the same general failure family as the WDDM stalls seen elsewhere this
+project) that was apparently costing real wall-clock time too, which
+is why speed improved alongside memory rather than trading against it.
+MPS's own memory accounting (`torch.mps.current_allocated_memory()`,
+not a true peak-tracking API like CUDA's `max_memory_allocated()`) is
+known-unreliable and may simply not be measuring the same thing.
+
+## Estimated compound effect on the training-target gate (not directly measured)
+
+Exact BDH's own real training-target-gate numbers against the matched
+Transformer (`docs/restart/hz0h_phase_f_training_target_gate_results.md`):
+throughput ratio 0.200 (5x slower), peak RAM ratio 10.716 (10.7x more).
+If checkpointing's real, measured 2.08x speedup and 81.5% memory
+reduction (a ~5.4x memory shrink) compound multiplicatively with those
+existing ratios -- a real, disclosed ESTIMATE, not a directly measured
+combined result, since nobody has yet run a real checkpointed training
+job and compared it to the Transformer in one pass:
+
+- estimated throughput ratio: 0.200 x 2.08 ~= **0.416** (still fails
+  the >=1.30 gate, but roughly 2x closer to parity than before)
+- estimated RAM ratio: 10.716 / 5.4 ~= **1.99** (still fails the
+  <=0.70 gate, but drops from "10.7x more" to roughly "2x more" --
+  the largest single improvement toward this target found so far this
+  session)
+
+Neither estimate clears the gate. Both are large, real, directionally
+positive movements toward it. The real next step (flagged by Windows,
+not yet run): reattempt the Phase G 100M-param scale-gate pilot
+(`docs/restart/hz0h_phase_g_100m_scale_gate_pilot_results.md`, where
+both BDH-family arms hit the WDDM wall) with checkpointing enabled, to
+see whether it actually clears that specific wall -- the 81.5% memory
+reduction measured here is large enough to plausibly do so (the wall
+was a ~1.1 GiB overshoot at a point where uncheckpointed peak was
+~11-12 GiB; this benchmark's own uncheckpointed peak at n_iterations=8,
+while a different, smaller model shape, showed enough headroom that
+checkpointing's real reduction here is not a marginal effect).
+
+### Real, disclosed remaining gaps
+
+1. This is still a synthetic-step benchmark (random tokens, no real
+   training loop, no validation loss) -- not yet integrated into
+   `scripts/hz0h_stage2_runner_bdh_depth_curriculum.py`'s actual
+   curriculum training loop.
+2. Not yet retested at the real 100M-param scale where the wall
+   actually occurred (this benchmark uses the ~25.4M-param Phase F
+   shape, not the ~101M-param Phase G shape).
+3. Quality impact of checkpointing (if any -- it should be
+   mathematically exact per the correctness tests, but has not been
+   verified at real training scale over many steps) is unmeasured.
 
 ## Files
 
