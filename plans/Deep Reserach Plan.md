@@ -29,7 +29,10 @@ cross-entropy alone.
 versus approximately 0.69 GiB for the Transformer (about 10.6x more), and
 BDH-family training throughput around 0.20x the Transformer (about 5x slower).
 Those numbers are disclosed blockers, not evidence of superiority. Phase F inference measurements must report the same fair control
-with a real RoPE and KV cache before any RAM/speed claim is eligible.
+with a real RoPE and KV cache before any RAM/speed claim is eligible. The
+inference target gate additionally requires `all_models_trained: true` from
+explicit checkpoint provenance: a raw/untrained systems threshold pass is
+recorded diagnostically but cannot be a target-evidence pass.
 
 A new MPS systems probe provides one concrete optimization lead: at the
 25.4M-parameter shape (D=512, 8 recurrent levels, BF16, batch 1, sequence 128),

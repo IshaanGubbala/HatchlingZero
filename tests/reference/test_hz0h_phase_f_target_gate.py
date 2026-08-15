@@ -8,6 +8,7 @@ def _report(candidate_ram: int, candidate_speed: float) -> dict:
         "bdh_parameter_count": 100,
         "vb_parameter_count": 100,
         "transformer_parameter_count": 100,
+        "all_models_trained": True,
         "by_context_length": {"1024": {
             "vb_decode_streaming_state_speed_mode": {"peak_memory_bytes": candidate_ram, "tokens_per_second": candidate_speed},
             "transformer_decode_kv_cache": {"peak_memory_bytes": 1000, "tokens_per_second": 100.0},
@@ -17,7 +18,7 @@ def _report(candidate_ram: int, candidate_speed: float) -> dict:
 
 def test_target_gate_passes_only_both_execution_thresholds():
     result = evaluate(_report(600, 130.0), "1024", "vb_decode_streaming_state_speed_mode")
-    assert result["ram_gate"] and result["speed_gate"]
+    assert result["ram_gate"] and result["speed_gate"] and result["target_evidence_gate"]
     assert not result["claim_eligible"]
 
 
@@ -62,3 +63,12 @@ def test_target_gate_rejects_underparameterized_candidate():
     result = evaluate(report, "1024", "vb_decode_streaming_state_speed_mode")
     assert not result["parameter_match"]
     assert not result["ram_gate"] and not result["speed_gate"]
+
+
+def test_target_evidence_requires_explicit_trained_checkpoint_provenance():
+    report = _report(600, 130.0)
+    del report["all_models_trained"]
+    result = evaluate(report, "1024", "vb_decode_streaming_state_speed_mode")
+    assert result["ram_gate"] and result["speed_gate"]
+    assert result["trained_checkpoint_gate"] is False
+    assert result["target_evidence_gate"] is False

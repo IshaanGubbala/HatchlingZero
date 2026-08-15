@@ -37,10 +37,13 @@ def evaluate(report: dict, context: str, arm: str, *, ram_limit: float = 0.70, s
         "decode_throughput_ratio": speed_ratio,
         "ram_gate": parameter_match and ram_ratio <= ram_limit,
         "speed_gate": parameter_match and speed_ratio >= speed_floor,
-        "quality_gate": "not evaluated by this execution-only report",
+        "trained_checkpoint_gate": report.get("all_models_trained") is True,
+        "quality_gate": "not evaluated by this systems report",
         "claim_eligible": False,
         "reason": "quality, seeds, and frozen evaluation are separate required gates",
     }
+    result["target_evidence_gate"] = result["ram_gate"] and result["speed_gate"] and result["trained_checkpoint_gate"]
+    result["reason"] = "trained checkpoint provenance, quality, seeds, and frozen evaluation are separate required gates"
     return result
 
 
@@ -58,7 +61,7 @@ def main() -> None:
     args = parser.parse_args()
     result = evaluate(json.loads(args.report.read_text()), str(args.context), args.arm, ram_limit=args.ram_limit, speed_floor=args.speed_floor)
     print(json.dumps(result, indent=2, sort_keys=True))
-    raise SystemExit(0 if result["ram_gate"] and result["speed_gate"] else 2)
+    raise SystemExit(0 if result["target_evidence_gate"] else 2)
 
 
 if __name__ == "__main__":
