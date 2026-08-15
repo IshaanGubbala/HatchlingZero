@@ -810,6 +810,10 @@ not another cherry-picked context sweep; it is a trained, quality-matched
 replication on the same GPU with at least three seeds and explicit end-to-end
 latency/RAM accounting.
 
+The frozen training-gate result is documented in
+`docs/restart/hz0h_phase_f_training_target_gate_results.md`: exact BDH and VB
+both fail decisively at the current 25M scale.
+
 The training gate is equally blocking. Do **not** advance to HZ-CQ or present
 long-context decode as the project-wide efficiency result until a trained BDH
 or derivative has either met the 1.30x/0.70 training thresholds or produced a
