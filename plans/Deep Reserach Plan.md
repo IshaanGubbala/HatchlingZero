@@ -1317,7 +1317,43 @@ of the existing `n_head` hyperparameter, so an `n_head` sweep
 (8/16/32/64, `n_embd`/multiplier held fixed so parameter count stays
 ~invariant) tests the same hypothesis with zero new code. Dispatched
 locally on Mac/MPS the same session this was proposed; result pending
-as of this writing.
+Result (Mac/MPS, real numbers, same session): the naive test was
+**flawed and the raw result is negative**, but for an important, correctly
+diagnosable reason, not a dead end. Measured raw-matmul throughput at
+`n_embd=512`, `mlp_internal_dim_multiplier=32` (param count invariant
+across the sweep, ~25.4M throughout):
+
+| `n_head` | \(N\)/head | fp32 tok/s | bf16 tok/s |
+|---|---:|---:|---:|
+| 8 | 2048 | 3974.0 | 6397.4 |
+| 16 | 1024 | 3556.7 | 5650.4 |
+| 32 | 512 | 3169.8 | 2180.8 |
+| 64 | 256 | 623.6 | 67.0 |
+
+Shrinking \(N\) via `n_head` made raw matmul dramatically *slower*, not
+faster (bf16: ~95x slower from `n_head=8` to `n_head=64`) -- the opposite
+of the naive hypothesis. Real reason, checked against
+`Attention.forward` (`reference/hz0h_bdh_torch.py`): `scores@V` costs
+\(O(B\cdot nh\cdot T^2\cdot D)\) where \(D=n_{\text{embd}}\) (vanilla
+BDH broadcasts one **full-width** \(V\) across every head -- it never
+splits \(V\)'s width by `n_head`, only \(Q\)/\(K\)'s). So more heads
+doesn't shrink this term at all, it multiplies the same full-\(D\)
+matmul by `nh` directly -- a genuine \(\sim8\times\) compute increase
+from `n_head=8` to `64`, not free, and not overhead either.
+
+This means `n_head` was never a faithful proxy for FoldBDH's own
+hypothesis: FoldBDH explicitly shrinks \(V\)'s width per block too
+(\(S_g\in\mathbb R^{(N/G)\times(D/G)}\), both dims shrink together),
+while vanilla BDH's `n_head` only shrinks \(Q\)/\(K\)'s \(N\), leaving
+\(V\) at full width and making the `scores@V` term worse as `n_head`
+grows. The real, useful takeaway from this result: "more heads helps"
+is now a confirmed-false shortcut, not worth trying again as a free
+lunch -- but it says nothing valid about whether FoldBDH's actual
+block-diagonal factorization (which shrinks \(V\) too) would help.
+That still needs FoldBDH built for real, not a proxy via an existing
+hyperparameter. Also MPS-only so far -- worth confirming the same
+qualitative pattern holds on the RTX3060/CUDA target hardware before
+treating even this negative result as final.
 
 Proposed execution order once the diagnostics above are in: exact
 Fold-0 chunked kernel (done, negative, see above) -> FoldBDH \(G=2\) ->
