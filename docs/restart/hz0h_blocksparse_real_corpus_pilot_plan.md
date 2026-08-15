@@ -100,9 +100,10 @@ python scripts/hz0h_blocksparse_cuda_chunk_gla_preflight.py \
   --active-fraction 0.03125 --warmup 5 --steps 20
 ```
 
-It writes raw/fused numerical differences, finite-gradient results, native
-CUDA peak allocation, throughput, device identity, selected route, and an
-explicit `claim_eligible: false`. It also runs the parameter-matched RoPE
+It writes raw/fused logits/loss differences **and encoder-gradient drift**,
+finite-gradient results, native CUDA peak allocation, throughput, device
+identity, selected route, and an explicit `claim_eligible: false`. It also runs
+the parameter-matched RoPE
 Transformer under the same BF16/fused-AdamW/no-compile step policy and emits
 fused/Transformer speed and peak-memory ratios. Retain that JSON outside git
 alongside the host's CUDA/PyTorch versions. This remains only an untrained,

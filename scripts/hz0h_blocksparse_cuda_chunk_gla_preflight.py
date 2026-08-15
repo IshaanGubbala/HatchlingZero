@@ -143,7 +143,18 @@ def main() -> None:
         fused_logits, fused_loss = bdh_blocksparse_direct_split_v_chunk_gla_forward(fused_model, tokens, active, args.block_size, targets=targets)
     max_logit_difference = float((raw_logits - fused_logits).abs().max())
     loss_difference = float((raw_loss - fused_loss).abs())
-    del raw_model, fused_model, raw_logits, fused_logits, raw_loss, fused_loss
+    # Forward parity is insufficient for a training kernel. Compare a selected
+    # large parameter's gradient from identical unupdated weights; report
+    # numerical drift rather than pretending different CUDA reductions bit-match.
+    raw_model.train(); fused_model.train()
+    _, raw_train_loss = bdh_blocksparse_direct_split_v_forward(raw_model, tokens, active, args.block_size, targets=targets)
+    _, fused_train_loss = bdh_blocksparse_direct_split_v_chunk_gla_forward(fused_model, tokens, active, args.block_size, targets=targets)
+    raw_train_loss.backward(); fused_train_loss.backward()
+    raw_grad, fused_grad = raw_model.encoder.grad, fused_model.encoder.grad
+    gradient_max_difference = float((raw_grad - fused_grad).abs().max())
+    gradient_relative_l2_difference = float((raw_grad - fused_grad).norm() / raw_grad.norm().clamp_min(1e-12))
+    gradients_finite = bool(torch.isfinite(raw_grad).all() and torch.isfinite(fused_grad).all())
+    del raw_model, fused_model, raw_logits, fused_logits, raw_loss, fused_loss, raw_train_loss, fused_train_loss
     torch.cuda.empty_cache()
     raw = measure(config, state, tokens, targets, active, dtype, False, args.warmup, args.steps)
     fused = measure(config, state, tokens, targets, active, dtype, True, args.warmup, args.steps)
@@ -162,7 +173,10 @@ def main() -> None:
         "block_size": args.block_size, "active_fraction": args.active_fraction,
         "router_method": "cheap_proxy", "route_indices": [int(v) for v in active.cpu().tolist()],
         "optimizer": "AdamW fused", "compile_step": False,
-        "numerical_preflight": {"max_logit_difference": max_logit_difference, "loss_difference": loss_difference},
+        "numerical_preflight": {"max_logit_difference": max_logit_difference, "loss_difference": loss_difference,
+            "encoder_gradient_max_difference": gradient_max_difference,
+            "encoder_gradient_relative_l2_difference": gradient_relative_l2_difference,
+            "encoder_gradients_finite": gradients_finite},
         "raw": raw, "chunk_gla": fused, "matched_rope_transformer": transformer,
         "chunk_gla_over_raw_speed_ratio": fused["tokens_per_second"] / raw["tokens_per_second"],
         "chunk_gla_over_raw_peak_memory_ratio": fused["peak_memory_bytes"] / raw["peak_memory_bytes"],
