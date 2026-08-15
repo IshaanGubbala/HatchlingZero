@@ -171,27 +171,31 @@ job and compared it to the Transformer in one pass:
   the largest single improvement toward this target found so far this
   session)
 
-Neither estimate clears the gate. Both are large, real, directionally
-positive movements toward it. The real next step (flagged by Windows,
-not yet run): reattempt the Phase G 100M-param scale-gate pilot
-(`docs/restart/hz0h_phase_g_100m_scale_gate_pilot_results.md`, where
-both BDH-family arms hit the WDDM wall) with checkpointing enabled, to
-see whether it actually clears that specific wall -- the 81.5% memory
-reduction measured here is large enough to plausibly do so (the wall
-was a ~1.1 GiB overshoot at a point where uncheckpointed peak was
-~11-12 GiB; this benchmark's own uncheckpointed peak at n_iterations=8,
-while a different, smaller model shape, showed enough headroom that
-checkpointing's real reduction here is not a marginal effect).
+Neither estimate clears the gate on its own. **Update, 2026-08-15: the
+real wall-clearing effect (not the training-target gate itself, a
+separate, narrower question) is now directly confirmed, not just
+estimated.** `--activation-checkpointing` was wired into the real
+`scripts/hz0h_stage2_runner_bdh_depth_curriculum.py` curriculum runner
+and retried at the real 100M-param Phase G config that originally hit
+the wall: completed the full 25M-token budget, peak memory pinned flat
+at 11.05 GiB through every transition (vs the original 12.14 GiB
+breach), real `best_validation_loss=1.59375`, beating this same
+pilot's matched Transformer arm by 21.6%. Full numbers:
+`docs/restart/hz0h_phase_g_checkpointed_retry_results.md`. The
+estimates above were directionally correct; the real run's throughput
+came in lower than the synthetic 2.08x prediction (real training loop
+has optimizer/validation/scheduler overhead the synthetic benchmark
+didn't model), but the wall-clearing itself -- the actual blocker this
+whole investigation was chasing -- is real and confirmed, not
+estimated.
 
 ### Real, disclosed remaining gaps
 
-1. This is still a synthetic-step benchmark (random tokens, no real
-   training loop, no validation loss) -- not yet integrated into
-   `scripts/hz0h_stage2_runner_bdh_depth_curriculum.py`'s actual
-   curriculum training loop.
-2. Not yet retested at the real 100M-param scale where the wall
-   actually occurred (this benchmark uses the ~25.4M-param Phase F
-   shape, not the ~101M-param Phase G shape).
+1. ~~This is still a synthetic-step benchmark... not yet integrated
+   into the actual curriculum training loop~~ -- **resolved 2026-08-15**,
+   see the real trained-in-path confirmation above.
+2. ~~Not yet retested at the real 100M-param scale...~~ -- **resolved**,
+   same update.
 3. Quality impact of checkpointing (if any -- it should be
    mathematically exact per the correctness tests, but has not been
    verified at real training scale over many steps) is unmeasured.

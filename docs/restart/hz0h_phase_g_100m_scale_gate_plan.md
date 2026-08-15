@@ -118,7 +118,12 @@ full here, see `plans/HatchlingZero_Next_Phase_Plan.md` section 11.
 
 **Stage G-pilot: closed, real result** — see
 `docs/restart/hz0h_phase_g_100m_scale_gate_pilot_results.md`.
-**Stage G-full: blocked**, not dispatched — both BDH-family arms need a
-smaller-batch recipe (untested how small) before a full run at this
-param count is viable on this hardware; the corpus repack and G-full
-token-budget sign-off noted above still apply once that's resolved.
+**Stage G-full: partially unblocked (2026-08-15)** — exact BDH's own
+wall is cleared with `--activation-checkpointing` (real, trained,
+full-budget confirmation:
+`docs/restart/hz0h_phase_g_checkpointed_retry_results.md`), no
+smaller-batch recipe needed for that arm. VB D/4 remains untested with
+checkpointing and should not be assumed fixed by the same flag without
+its own real run. The corpus repack and G-full token-budget sign-off
+noted above still apply before a full multi-seed G-full run is
+dispatched.

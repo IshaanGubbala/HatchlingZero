@@ -78,10 +78,20 @@ outside this pilot's own declared scope (confirm stability at
 
 ## Status
 
-Pilot closed. `plans/HatchlingZero_Next_Phase_Plan.md` section 11's
-Phase G ("100M Scale Gate") is **not** cleared for a full run at the
-originally planned `batch=12`/100M-token G-full stage -- that stage
-needs either a smaller-batch BDH-family recipe (untested) or more VRAM
-than the current RTX3060 has, before it can proceed for the BDH-family
-arms. The Transformer arm alone is ready to scale further at this
-batch size; the BDH-family arms are not, as currently configured.
+Pilot closed as originally scoped. **Update, 2026-08-15: the exact-BDH
+wall is now cleared.** Activation checkpointing (`--activation-checkpointing`,
+`reference/hz0h_bdh_checkpointed_torch.py`), retried at this exact
+config, completed the full 25M-token budget with peak memory pinned
+flat at 11.05 GiB through every transition (vs the original 11.05 ->
+12.14 GiB breach) and obtained a real 100M-param quality number
+(`best_validation_loss=1.59375`, beating this pilot's own 100M-param
+Transformer arm by 21.6%). See
+`docs/restart/hz0h_phase_g_checkpointed_retry_results.md` for full
+numbers. VB D/4's own version of this wall remains untested with
+checkpointing -- the original "needs a smaller-batch recipe or more
+VRAM" framing below no longer applies to exact BDH specifically, but is
+not yet disproven for VB.
+
+The Transformer arm was already ready to scale further at this batch
+size; exact BDH now is too, with checkpointing enabled. VB D/4's status
+is unchanged from the original pilot until retested the same way.
