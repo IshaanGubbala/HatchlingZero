@@ -90,7 +90,11 @@ the systems failure or serve as a broad capability suite. See
 `docs/restart/hz0h_blocksparse_100k_packed_data_pilot_results.md`.
 A different
 CUDA result alone is not a rationale to claim success: it needs raw reports
-and the full matched quality gate.
+and the full matched quality gate. The next non-closed near-term systems
+hypothesis is a parameter-matched GDN-2 Fix derivative, but it requires an
+exact delta-rule CUDA kernel first: existing FLA is mathematically valid only
+for the old affine GDN-2 recurrence. See
+`docs/restart/hz0h_gdn2_fix_efficiency_kernel_prerequisite.md`.
 
 The latest genuine-BF16 long-context inference measurements are also below the
 full target: at 8,192 tokens, exact BDH streaming reached about 188.7 tok/s
