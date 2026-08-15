@@ -2,6 +2,38 @@
 
 ## Executive summary
 
+## Non-negotiable user objective and current status
+
+The primary systems objective is explicit:
+
+- **RAM:** BDH/HZ must use at most **70% of a fair Transformer’s peak
+  inference RAM** (30% less RAM) at the same total parameter count, quality
+  target, context, dtype, batch size, and hardware.
+- **Speed:** BDH/HZ must achieve at least **1.30x end-to-end inference
+  throughput** (or at most 70% of the Transformer’s latency) under those same
+  conditions. Training throughput is a separate reported axis and may not be
+  substituted for inference speed.
+
+The “300% more intelligent” objective remains a separate frozen capability
+hypothesis: at least 3.0x the pre-registered composite code/math/reasoning score
+at matched size and training budget. It is not established by language-model
+cross-entropy alone.
+
+**Current measured status: targets are not met.** The latest matched 25M-scale
+comparison reports BDH-family peak training VRAM around 7.3–7.9 GiB versus
+approximately 0.69 GiB for the Transformer, and Transformer training throughput
+around 5.3x higher. Those numbers are disclosed blockers, not evidence of
+superiority. Phase F inference measurements must report the same fair control
+with a real RoPE and KV cache before any RAM/speed claim is eligible.
+
+No derivative (HZ-Core-2, Value Bottleneck, BlockBDH, or HZ-CQ) may be called
+“exact BDH” or promoted as superior unless it passes the pinned oracle integrity
+contract in `specs/hz_bdh_integrity_contract.md`, labels its architectural
+deltas, and beats the explicit RAM/speed/capability gates on pre-registered
+seeds. A compile-only speedup, FLOP estimate, state-byte calculation, or
+Transformer without KV cache is insufficient.
+
+
 The most important conclusion from the research is that **you are substantially closer to a credible BDH-CQ reconstruction than a fresh project would be**, because HatchlingZero has already solved several pieces that Pathway's public BDH-CQ interface appears to need: a byte-faithful BDH oracle, exact streaming synaptic state, a compressed state implementation, a successful recurrent-depth training curriculum, instrumentation, and now a viable trained-in-path block-sparsity recipe. fileciteturn9file0 fileciteturn10file0 fileciteturn13file0
 
 Pathway's public information is **not sufficient to reproduce BDH-CQ exactly**. The paper deliberately publishes the system-level interface
@@ -721,6 +753,24 @@ matched Transformer
 ```
 
 Phase F already has the validated state/KV crossover calculation and the training-side comparison; the missing real GPU inference/energy axes are explicitly documented. fileciteturn14file0
+
+### Phase F acceptance gate
+
+For each model, report peak inference memory sampled during the timed region,
+state/KV bytes, prefill throughput, decode throughput, latency/token, and
+quality on the same frozen evaluation. The comparison is eligible only if the
+Transformer uses RoPE and a real KV cache and both models have matched total
+parameters (within 1%). The target is:
+
+```text
+BDH/HZ peak inference RAM <= 0.70 * Transformer peak RAM
+BDH/HZ decode throughput >= 1.30 * Transformer decode throughput
+(or latency <= 0.70 * Transformer latency)
+```
+
+If either inequality fails, record the miss and continue research; do not
+replace it with training compile speed, a no-cache Transformer, or a
+state-only estimate.
 
 Then freeze:
 

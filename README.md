@@ -231,6 +231,8 @@ Transformer wins decisively at this scale, with no confound left in the comparis
 
 [`plans/HZ Benchmark Plan.md`](plans/HZ%20Benchmark%20Plan.md) is the detailed benchmark methodology backing every scale-comparison claim in that plan: iso-parameter, iso-compute, and iso-quality comparisons at 125M/350M/1B against a Qwen2.5-style modern Transformer baseline, once hardware beyond a single Mac + RTX 3060 is available. It records the historical Transformer-control gap: the first pilot used no positional encoding. The working-tree control now has opt-in RoPE and the inference benchmark enables it; the old no-RoPE result is not superiority evidence.
 
+[`plans/Deep Reserach Plan.md`](plans/Deep%20Reserach%20Plan.md) is the current detailed execution plan for the 30%-RAM/30%-speed objective. It records the latest negative training-side comparison (BDH still uses substantially more VRAM and trains slower) and makes the missing real inference measurements a hard gate; no compile-only, no-cache, or state-only result qualifies.
+
 Every prior stage's own plan and tracker (`HZ-0A` through `HZ-0H`) is preserved, not deleted, under [`plans/archived plans/`](plans/archived%20plans/).
 
 ---
