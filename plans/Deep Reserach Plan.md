@@ -26,6 +26,16 @@ around 5.3x higher. Those numbers are disclosed blockers, not evidence of
 superiority. Phase F inference measurements must report the same fair control
 with a real RoPE and KV cache before any RAM/speed claim is eligible.
 
+The latest genuine-BF16 long-context inference measurements are also below the
+full target: at 8,192 tokens, exact BDH streaming reached about 188.7 tok/s
+versus 157.1 tok/s for the Transformer KV-cache, approximately 1.20x (20%)
+throughput improvement rather than the required 1.30x. HZ-Core-2 VB speed mode
+reached about 174.3 tok/s, approximately 1.11x. At 32,768 tokens, VB's measured
+persistent state was about 33.6 MB versus 100.7 MB for the Transformer KV cache
+(about 66.7% lower), but state bytes are not total peak process RAM and cannot
+be reported as the RAM target. The missing total-RAM measurement and the speed
+gap remain open blockers.
+
 No derivative (HZ-Core-2, Value Bottleneck, BlockBDH, or HZ-CQ) may be called
 “exact BDH” or promoted as superior unless it passes the pinned oracle integrity
 contract in `specs/hz_bdh_integrity_contract.md`, labels its architectural
