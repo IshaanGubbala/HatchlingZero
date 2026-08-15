@@ -4,7 +4,7 @@
 
 HatchlingZero (`HZ`) starts from two trusted, byte-faithful foundations — the official `bdh.py` and `train.py` from [`pathwaycom/bdh`](https://github.com/pathwaycom/bdh), verified line-by-line against fresh, complete, verbatim fetches of the upstream source — and builds every extension on top of that oracle, not from a summary or a hand-transcription. The central question: **can dynamic state, reused weights, and sparse computation replace a large fraction of the static parameters and repeated dense computation a Transformer uses, while matching its quality per parameter, RAM, energy, and inference speed?**
 
-We do not assume the answer is yes. The first real, matched, same-hardware test in this repo (below) says no at small scale, for reasons that are understood and disclosed, not hidden. That is the standard every claim here is held to: a same-shape control, a real run, and the result reported as measured — including when it doesn't favor BDH.
+We do not assume the answer is yes. The most complete real, matched, same-hardware test in this repo so far (Phase F, ~25.4M params — see "Where the project stands" below) says **it's split, not yes or no**: BDH wins on quality decisively, the Transformer wins on training cost decisively (~5.3× faster, ~10-11× less RAM, ~6.2× more energy-efficient per token), and a real attempt to close that cost gap with a fused GPU kernel made it worse, not better, for a real, understood reason. That is the standard every claim here is held to: a same-shape control, a real run, and the result reported as measured — including the parts that don't favor BDH.
 
 ---
 
@@ -41,7 +41,15 @@ This shows up directly in the evidence trail: `docs/restart/` holds dozens of re
 
 HatchlingZero's direction changed on 2026-08-11. The project's first ~7 stages (`HZ-0A` through `HZ-0H`, summarized below) explored a hand-built hybrid backbone accumulating recurrence, memory, triggered attention, fast weights, and MoE — real, evidence-based, individually-tested work, preserved in full — but not the current direction. The active work started with `plans/HatchlingZero_Reality_Plan.md` and now follows its successor `plans/HatchlingZero_Next_Phase_Plan.md`, both bound to the same verbatim upstream BDH oracle and claim contract. The research asks a narrower, sharper question: does BDH's own structural difference from a Transformer — shared iterative weights, persistent synaptic state instead of a growing KV-cache, sparse positive activations — translate into a *measurable* advantage, at matched parameters/tokens/compute, or not?
 
-**Real status right now**: one small (~4.8M-param), same-hardware, same-dtype, RoPE-matched pilot has been run end to end (see below). At that scale, on that corpus, a modern Transformer beat BDH decisively on both throughput and validation loss. That is a real, disclosed, single-data-point result at the smallest end of the planned scaling ladder (`plans/HZ Benchmark Plan.md`) — not a verdict on BDH at the 100M–1B+ scale where its O(1) streaming state and shared-weight parameter efficiency are structurally more likely to matter. The plan's own claim discipline: no scale-independent conclusion until the ladder (25M → 100M → 300M → 800M) has real data at more than one point.
+**Real status right now** (updated 2026-08-14, superseding the single 4.8M pilot below): the small-scale pilot was the *first* data point, not the last. Phase F — a full same-GPU, same-dtype, RoPE-matched, curriculum-trained comparison at ~25.4M parameters — is now closed, and the picture is decisive but split, not a clean win either way:
+
+- **Quality**: BDH wins clearly. `1.58203125` best validation loss vs. the matched Transformer's `1.73766989` (real held-out text), and BDH-family wins on code/math-reasoning CE too. See [`docs/restart/hz0h_phase_f_same_gpu_comparison_results.md`](docs/restart/hz0h_phase_f_same_gpu_comparison_results.md).
+- **Training cost**: the Transformer wins clearly. ~5.3× faster wall-clock, ~10-11× less peak VRAM, ~6.2× more energy-efficient per token — real, measured, not estimated.
+- **A real attempt to close that gap failed instructively, not just failed**: giving BDH's own attention a fused, chunked kernel (`chunk_gla`, the same family RetNet/GLA/Mamba use) made training **~2.6-49× slower**, not faster — profiler-confirmed root cause: BDH's own shape (large per-head state, short sequences) is the *opposite* of the regime those kernels are built to win in. See [`docs/restart/hz0h_bdh_fused_attention_results.md`](docs/restart/hz0h_bdh_fused_attention_results.md).
+- **At 100M params, the training-cost gap widens into a hard wall**: both exact BDH and the Value-Bottleneck variant hit a real GPU memory-ceiling stall exactly at a curriculum depth transition; the matched Transformer trained through cleanly with ~5.7× less peak memory. See [`docs/restart/hz0h_phase_g_100m_scale_gate_pilot_results.md`](docs/restart/hz0h_phase_g_100m_scale_gate_pilot_results.md).
+- **The explicit training-efficiency target (≥1.30× throughput, ≤0.70× RAM vs. the matched Transformer) is currently, decisively unmet** for exact BDH and VB (throughput ratio 0.200, ~10.7× *more* RAM, not less) — see [`docs/restart/hz0h_phase_f_training_target_gate_results.md`](docs/restart/hz0h_phase_f_training_target_gate_results.md). The most promising open lead: an untrained BlockBDH systems preflight *does* clear both thresholds on real CUDA hardware (1.944× speed, 0.579× RAM, **vs. dense BDH** — not yet a pass of the full Transformer-matched gate, since that needs a real trained-in-path run) — see [`docs/restart/hz0h_blocksparse_cuda_training_preflight_results.md`](docs/restart/hz0h_blocksparse_cuda_training_preflight_results.md).
+
+This is real, disclosed, split evidence at 25.4M–101M params — not a verdict either direction, and explicitly not yet tested at the 100M–1B+ scale where BDH's O(1) streaming state and shared-weight parameter efficiency are structurally more likely to pay off in full. Current active work: clearing the training-efficiency gate for real (trained-in-path BlockBDH), and a separate architectural direction (`HZ-CQ`, latent test-time reasoning modeled on Pathway's disclosed BDH-CQ interface) tracked in [`plans/Deep Reserach Plan.md`](plans/Deep%20Reserach%20Plan.md).
 
 ---
 
@@ -66,10 +74,12 @@ inference. The project's systems targets are **≥30% lower peak inference RAM,
 throughput** under matched conditions; the capability target is **≥3.0×** a
 frozen composite code/math/reasoning score at matched size and budget. These
 are unproven targets, never assumed results.
-The current evidence does **not** yet prove either target. The small pilot
-favored the Transformer on training throughput and validation loss; BDH's
-streaming decoder showed a separate long-context serving advantage. Only the
-pre-registered, integrity-gated multi-seed comparison can settle the thesis.
+The current evidence does **not** yet prove either target. Phase F (the
+current, most complete real comparison — see "Where the project stands"
+above) favors the Transformer on training throughput and RAM, and favors
+BDH on validation loss; BDH's streaming decoder showed a separate
+long-context serving advantage. Only the pre-registered, integrity-gated
+multi-seed comparison can settle the thesis.
 The latest BF16 long-context measurement is still below the speed gate:
 exact BDH streaming was about 1.20× the Transformer KV-cache at 8K context,
 not the required 1.30×; at 16K/32K decode, however, the stored RTX3060
@@ -104,35 +114,23 @@ Both sides below are grounded directly in code — Transformer from
 [`reference/hz0h_bdh_torch.py`](reference/hz0h_bdh_torch.py)'s `BDH.forward`
 (diagrammed in full below this one):
 
-```mermaid
-flowchart LR
-    subgraph TF["Transformer block — fresh weights every layer"]
-        direction TB
-        TX["x"] --> TLN1["RMSNorm"]
-        TLN1 --> TQKV["q,k,v = x · W_qkv  (layer-owned weights)"]
-        TQKV --> TATT["scaled_dot_product_attention(q,k,v)\nsoftmax, reads GROWING KV-cache"]
-        TATT --> TWO["· W_attn_out"]
-        TWO --> TADD1["x = x + attn_out"]
-        TADD1 --> TLN2["RMSNorm"]
-        TLN2 --> TFFN["SwiGLU FFN: down(silu(gate(y)) ⊙ up(y))\n(layer-owned weights)"]
-        TFFN --> TADD2["x_next = x + ffn_out"]
-        TADD2 -.->|"layer i+1: NEW W_qkv/W_attn_out/gate/up/down"| TX2(["..."])
-    end
-    subgraph BDH["BDH iteration — SAME weights every time"]
-        direction TB
-        BX["x"] --> BENC["x_latent = x · encoder"]
-        BENC --> BSP1["x_sparse = ReLU(x_latent)  — sparse, positive"]
-        BSP1 --> BATT["yKV = tril(Q·Kᵀ) · V\nNO softmax, reads fixed-size state S"]
-        BATT --> BLN1["LayerNorm"]
-        BLN1 --> BENCV["y_latent = yKV · encoder_v"]
-        BENCV --> BSP2["y_sparse = ReLU(y_latent)"]
-        BSP1 -.gate.-> BGATE["xy_sparse = x_sparse ⊙ y_sparse"]
-        BSP2 -.gate.-> BGATE
-        BGATE --> BDEC["y = LayerNorm(xy_sparse · decoder)"]
-        BDEC --> BADD["x_next = LayerNorm(x + y)"]
-        BADD -.->|"iteration i+1: SAME encoder/encoder_v/decoder"| BX2(["..."])
-    end
-```
+A single combined diagram doesn't reliably lay its two halves out side
+by side across renderers — a plain table does, guaranteed, so that's
+what's here instead of a wide flowchart:
+
+| step | Transformer block (fresh weights *every layer*) | BDH iteration (**same** weights *every time*) |
+| --- | --- | --- |
+| normalize | `RMSNorm` | *(normalization happens at the end — see last row)* |
+| project | `q,k,v = x · W_qkv` — layer-owned weights | `x_latent = x · encoder` — the *same* tensor every iteration |
+| nonlinearity | *(none until the FFN, below)* | `x_sparse = ReLU(x_latent)` — sparse, positive |
+| mix | `scaled_dot_product_attention(q,k,v)` — real softmax, reads a **growing** KV-cache | `yKV = tril(Q·Kᵀ) · V` — **no softmax**, reads a fixed-size synaptic state `S` |
+| project out | `· W_attn_out` | `LayerNorm(yKV)` → `· encoder_v` → `ReLU` |
+| gate | *(none)* | `xy_sparse = x_sparse ⊙ y_sparse` — real elementwise gate, only neurons that fired *both* times survive |
+| residual | `x = x + attn_out` | `y = LayerNorm(xy_sparse · decoder)` |
+| normalize | `RMSNorm` | *(folded into the residual add, next row)* |
+| feed-forward | `SwiGLU: down(silu(gate(y)) ⊙ up(y))` — layer-owned weights | *(no separate FFN block — the gated `decoder` step above already plays this role)* |
+| residual | `x_next = x + ffn_out` | `x_next = LayerNorm(x + y)` |
+| **next iteration** | **NEW** `W_qkv` / `W_attn_out` / `gate` / `up` / `down` | **SAME** `encoder` / `encoder_v` / `decoder` |
 
 The two structural differences that matter most in practice, both
 measured (not assumed) elsewhere in this README: BDH's attention has
@@ -345,6 +343,25 @@ None of these were caught by ~70 internal self-consistency tests (streaming agre
 
 Transformer wins decisively at this scale, with no confound left in the comparison. Reported as-is — this is what a clean, controlled, small-scale test actually showed, not what the project's thesis would prefer it showed. Whether this holds, narrows, or reverses at 100M–1B+ params (where BDH's shared-weight depth and O(1) streaming state are structurally more relevant) is real, open, undone work.
 
+**Phase F — the full follow-up comparison** (2026-08-14, closed, [`docs/restart/hz0h_phase_f_same_gpu_comparison_results.md`](docs/restart/hz0h_phase_f_same_gpu_comparison_results.md)): same RTX 3060, same bfloat16, same 25M real-text tokens, RoPE-matched, curriculum-trained BDH-family, at ~25.4M params (0.85% max spread across arms). Quality and cost point in *opposite* directions — reported that way, not averaged into a single "winner":
+
+| | exact BDH + curriculum | HZ-Core-2 (VB D/4 + curriculum) | matched Transformer (+RoPE) |
+| --- | --- | --- | --- |
+| best validation loss | **1.58203125** | 1.62890625 | 1.73766989 |
+| training wall-clock | 2,559.5s | 2,535.5s | **478.85s** (~5.3× faster) |
+| peak training VRAM | ~7.92 GiB | ~7.31 GiB | **~0.69 GiB** (~10-11× less) |
+| training energy | 0.015868 J/token | 0.015798 J/token | **0.002551 J/token** (~6.2× more efficient) |
+
+BDH wins quality clearly (real margin, code/math-reasoning CE too); the Transformer wins every training-cost axis clearly. Both real, both measured, neither hidden to favor the other. Long-context inference (streaming decode through 32,768 tokens) and memory/retrieval tasks (passkey, reassignment) are also covered in the same results doc.
+
+**Closing the cost gap — what was tried, what worked, what didn't:**
+
+- *Fused attention kernel* ([`docs/restart/hz0h_bdh_fused_attention_results.md`](docs/restart/hz0h_bdh_fused_attention_results.md)): giving BDH's own attention a `chunk_gla`-based fused/chunked kernel (the same family RetNet/GLA/Mamba use to get GPU-efficient) — correctness-verified exact, but training got **2.6× to 49× slower**, not faster. Real, profiler-confirmed root cause: `chunk_gla` wins when sequence length `T` ≫ per-head state size `N`; BDH's own shape at this config is the reverse (`N=2048` ≫ `T=256`). A real, useful negative result with a mechanism, not just a number.
+- *100M-parameter scale-gate pilot* ([`docs/restart/hz0h_phase_g_100m_scale_gate_pilot_results.md`](docs/restart/hz0h_phase_g_100m_scale_gate_pilot_results.md)): scaling the same three arms to ~101M params, the cost gap doesn't narrow — it hits a wall. Both exact BDH and VB D/4 hit a real GPU memory-ceiling stall exactly at the training curriculum's depth-2→4 transition (a ~6-50× slowdown depending on arm); the matched Transformer trained through cleanly with **~5.7× less peak memory** at its own worst point.
+- *The explicit training-efficiency target* — ≥1.30× throughput, ≤0.70× peak RAM vs. the matched Transformer — is **decisively unmet** for exact BDH and VB D/4 at this scale (measured throughput ratio 0.200, ~10.7× *more* RAM, not less; see [`docs/restart/hz0h_phase_f_training_target_gate_results.md`](docs/restart/hz0h_phase_f_training_target_gate_results.md)).
+- *BlockBDH — the current most promising open lead* ([`docs/restart/hz0h_blocksparse_cuda_training_preflight_results.md`](docs/restart/hz0h_blocksparse_cuda_training_preflight_results.md)): a real, untrained systems preflight on the actual RTX3060, at Phase F's own production scale, measured **1.944× training-step speedup and 0.579× peak RAM against dense BDH** — clearing both numeric thresholds above. Not yet a pass of the full gate (that specifically requires a matched Transformer report with equal hardware/token-budget/optimizer metadata, which this preflight doesn't provide) and the weights are untrained (no quality claim yet) — but the first candidate to clear the thresholds at all, where exact BDH and VB both failed by an order of magnitude.
+- *Split-V — a negative result, disclosed as one* (see "Real extensions built and measured this session" above): giving BDH's attention genuine per-head value subspaces, motivated by a real finding that naively adding more heads made attention ~95× slower (not faster), itself measured **~18% slower** than exact BDH in a local smoke test — correctness holds, no speed or quality win yet.
+
 ---
 
 ## The research plan
@@ -353,7 +370,7 @@ Transformer wins decisively at this scale, with no confound left in the comparis
 
 [`plans/HZ Benchmark Plan.md`](plans/HZ%20Benchmark%20Plan.md) is the detailed benchmark methodology backing every scale-comparison claim in that plan: iso-parameter, iso-compute, and iso-quality comparisons at 125M/350M/1B against a Qwen2.5-style modern Transformer baseline, once hardware beyond a single Mac + RTX 3060 is available. It records the historical Transformer-control gap: the first pilot used no positional encoding. The working-tree control now has opt-in RoPE and the inference benchmark enables it; the old no-RoPE result is not superiority evidence.
 
-[`plans/Deep Reserach Plan.md`](plans/Deep%20Reserach%20Plan.md) is the current detailed execution plan for the 30%-RAM/30%-speed objective. It records the latest negative training-side comparison (BDH still uses substantially more VRAM and trains slower) and makes the missing real inference measurements a hard gate; no compile-only, no-cache, or state-only result qualifies.
+[`plans/Deep Reserach Plan.md`](plans/Deep%20Reserach%20Plan.md) is the current detailed execution plan, covering two things: (1) the 30%-RAM/30%-speed training-efficiency objective — currently decisively unmet for exact BDH/VB, with a real, promising-but-unproven BlockBDH lead (see "Real evidence so far" above); and (2) `HZ-CQ`, a latent test-time-reasoning architecture modeled on Pathway's own disclosed BDH-CQ interface (a persistent contextual state `S` separate from an ephemeral, repeatedly-transformed reasoning workspace `H`), including a concrete "CQ-0" first-build recipe and its own decisive gate (does accuracy actually scale with more reasoning iterations, especially on tasks with real dependency depth — not just "does the loss go down"). No compile-only, no-cache, or state-only result qualifies as a training-efficiency win; no efficiency variant (FoldBDH, Split-V, BlockBDH, VB, INT8) is treated as CQ progress until CQ-0's own gate passes.
 
 Every prior stage's own plan and tracker (`HZ-0A` through `HZ-0H`) is preserved, not deleted, under [`plans/archived plans/`](plans/archived%20plans/).
 

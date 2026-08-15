@@ -42,13 +42,21 @@ artificially identical one where a technique doesn't transfer.
 
 | arm | best validation loss | final validation loss |
 |---|---|---|
-| **exact BDH + curriculum** | **1.5820** | -- |
-| HZ-Core-2 (VB D/4 + curriculum) | 1.6309 | -- |
-| matched Transformer (+RoPE) | 1.739472 | 1.741998 |
+| **exact BDH + curriculum** | **1.58203125** | -- |
+| HZ-Core-2 (VB D/4 + curriculum) | 1.62890625 | -- |
+| matched Transformer (+RoPE) | 1.73766989 | 1.741998 |
+
+(Corrected 2026-08-14: this table previously read 1.6309/1.739472 for
+HZ-Core-2/Transformer -- small transcription drift from these arms' own
+source JSON reports, `outputs/hz0h_phase_f_energy/hz0h_phase_f_energy_{vb,transformer}.json`'s
+`best_validation_loss` fields, caught while sourcing README numbers.
+Real values above pulled directly from those JSON files, not
+retyped -- the margin/verdict below is unaffected, changes are
+<0.002 in both cases.)
 
 Decisive at this exact recipe: exact BDH wins clearly, HZ-Core-2
-second, Transformer worst by a real margin (+0.1575 vs exact BDH,
-+0.1086 vs HZ-Core-2, best-to-best). Windows confirmed the Transformer
+second, Transformer worst by a real margin (+0.1556 vs exact BDH,
++0.1088 vs HZ-Core-2, best-to-best). Windows confirmed the Transformer
 run is clean and trustworthy (41 validation checkpoints, smooth
 monotonic improvement, standard small end-of-run wobble matching every
 other run's pattern this session, no NaN/Inf, all 5 milestones,
@@ -78,7 +86,7 @@ better BDH-family arm on code, +0.16-0.18 on math/reasoning). **Real,
 small, honestly-flagged reversal on code specifically**: VB edges out
 exact BDH here (1.9298 vs 1.9340, VB better by 0.0042) -- the opposite
 order from the general real-text result (exact BDH 1.5820 clearly beats
-VB 1.6309 there) and from math/reasoning (exact BDH 2.6617 beats VB
+VB 1.6289 there) and from math/reasoning (exact BDH 2.6617 beats VB
 2.6828 here). The code-domain gap is small enough (~0.2% relative) that
 it's plausible this is domain-specific noise rather than a genuine
 "VB actually generalizes better to code" effect -- one seed, one
@@ -116,15 +124,19 @@ rough guess).
 Real blocker caught and fixed before this could run cleanly: the two
 curriculum runners (`scripts/hz0h_stage2_runner_bdh_depth_curriculum.py`,
 `scripts/hz0h_stage2_runner_bdh_vb_depth_curriculum.py` -- the LOCKED
-recipe that actually produced the 1.5820/1.6309 numbers this whole
-comparison is measured against) had no energy instrumentation at all,
-unlike the Transformer's own runner. Using a substitute runner would
-have silently measured a different (fixed-depth-from-step-0) recipe's
-energy cost. Fixed by wiring the same `TrainingEnergySampler` pattern
-into both curriculum runners, then re-ran all three arms with the
-exact locked recipe -- confirmed genuine reruns, not new experiments,
-by each arm reproducing its own already-established validation loss
-exactly (BDH 1.58203125, VB 1.630859375, Transformer ~1.7377).
+recipe that actually produced the 1.58203125/1.62890625 numbers this
+whole comparison is measured against) had no energy instrumentation at
+all, unlike the Transformer's own runner. Using a substitute runner
+would have silently measured a different (fixed-depth-from-step-0)
+recipe's energy cost. Fixed by wiring the same `TrainingEnergySampler`
+pattern into both curriculum runners, then re-ran all three arms with
+the exact locked recipe -- confirmed genuine reruns, not new
+experiments, by each arm reproducing its own already-established
+`best_validation_loss` exactly (BDH 1.58203125, VB 1.62890625,
+Transformer 1.73766989; VB's own `final_full_depth_validation_loss`,
+a different field, is 1.630859375 -- noted here since an earlier
+version of this sentence conflated the two without saying which metric
+it meant).
 
 | arm | training_s | tok/s | energy (J) | J/token | mean watts | power samples |
 |---|---|---|---|---|---|---|
@@ -470,7 +482,7 @@ cost relative to exact BDH, not just a final-loss gap.
 Real trained matched-Transformer checkpoint pulled from Windows (the
 true-final state, step 8139, independently verified by Windows against
 both candidates on disk before sending -- exact match to 1.741998, the
-best-checkpoint snapshot at 1.739472 was correctly NOT sent since the
+best-checkpoint snapshot at 1.73766989 was correctly NOT sent since the
 request asked for true-final specifically). Evaluated with the newly-built
 `--architecture transformer` support, 200 examples, same real-text
 methodology as the existing BDH/VB numbers
