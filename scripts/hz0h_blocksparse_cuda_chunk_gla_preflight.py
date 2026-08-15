@@ -9,10 +9,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 import time
 from pathlib import Path
 
 import torch
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from reference.hz0h_bdh_blocksparse_torch import (
     bdh_blocksparse_direct_split_v_chunk_gla_forward,
