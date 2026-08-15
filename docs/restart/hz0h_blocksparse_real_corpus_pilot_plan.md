@@ -90,9 +90,21 @@ N_active=64 and per-head value width 64, a materially different T>>N regime.
 It uses the existing CUDA-verified strict-causal shift adapter, but its sparse
 composition and performance remain unmeasured.
 
-Before any long run, execute a CUDA forward/backward parity/finite probe and
-compare it to `--attention-kernel raw` at exactly the same config. Then run the
-same Transformer control under the identical compile/optimizer policy. A fused
+Before any long run, execute the provenance-producing CUDA preflight:
+
+```bash
+python scripts/hz0h_blocksparse_cuda_chunk_gla_preflight.py \
+  --output outputs/hz0h_blocksparse_pilot/chunk_gla_preflight.json \
+  --batch-size 12 --sequence-length 256 --n-embd 512 --n-layer 1 \
+  --n-head 8 --mlp-internal-dim-multiplier 32 --block-size 16 \
+  --active-fraction 0.03125 --warmup 5 --steps 20
+```
+
+It writes raw/fused numerical differences, finite-gradient results, native
+CUDA peak allocation, throughput, device identity, selected route, and an
+explicit `claim_eligible: false`. Retain that JSON outside git alongside the
+host's CUDA/PyTorch versions. Then compare to the raw kernel and run the same
+Transformer control under the identical compile/optimizer policy. A fused
 result cannot be called a win from FLOPs, CUDA availability, or a dense-kernel
 result; it needs measured end-to-end RAM/speed and trained quality.
 
