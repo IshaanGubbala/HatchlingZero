@@ -146,6 +146,50 @@ with more VRAM, or a smaller `mlp_internal_dim_multiplier`, might change
 the picture — untested, no longer just a guess about which factor
 matters most.
 
+## Root cause of the remaining ~2.6x (torch.profiler, real, not guessed)
+
+With the VRAM-ceiling factor controlled for (batch=4), a real
+`torch.profiler` run (CPU+CUDA activities, 10 forward+backward steps
+each path, same config) pins down where the remaining slowdown actually
+goes. Self CUDA time totals: raw_matmul 1.614s, fused_chunk_gla 4.209s
+— 2.61x, matching the benchmark's measured 0.382 speedup ratio almost
+exactly (profiler run is representative).
+
+Breakdown of fused's CUDA time: `ChunkGLAFunctionBackward` 1.864s
+(44.3%), `fused_chunk_gla_forward` 1.291s (30.7%, of which
+`chunk_fwd_kernel_h` alone is 974.8ms/23.2%), plus four backward Triton
+kernels (`chunk_bwd_kernel_dh` 512.9ms, `chunk_gla_bwd_kernel_inter`
+368.4ms, `chunk_gla_bwd_kernel_dv` 238.4ms,
+`chunk_gla_bwd_kernel_intra` 198.2ms). Summed, `chunk_gla`'s own Triton
+kernels account for ~2.29s of the 4.21s total (~54.5%) — the slowdown is
+the kernel itself computing, not shift-trick padding/copy overhead
+(`aten::copy_`/`aten::empty` are a comparable fraction in both paths,
+not the differentiator).
+
+**Real structural explanation**: `chunk_gla`'s cost scales with the size
+of the recurrent state it maintains per chunk, driven by BDH's own
+`N = n_embd * mlp_internal_dim_multiplier / n_head = 512*32/8 = 2048` —
+an unusually large per-head dimension (most GLA/linear-attention models
+this kernel targets use head dims in the 64-256 range). Raw attention's
+cost instead scales with `T^2` (sequence length squared), and BDH's
+actual training sequences here are short (`T=256`). Since
+`N (2048) >> T (256)` in this regime, the raw `O(T^2)` matmul
+(`T^2=65,536`, cheap at this scale) is genuinely less work than
+`chunk_gla`'s `O(T*N)`-ish chunked-state bookkeeping — the *reverse* of
+the long-context regime (`T >> N`) `chunk_gla`/GLA-style kernels are
+built to win in by avoiding `O(T^2)` blowup. The original hypothesis
+(reasoning from `transformer_prefill`'s fused SDPA not OOM'ing where
+`bdh_prefill` did, i.e. a context-length argument) pointed at the wrong
+axis: BDH's real bottleneck dimension in this architecture is `N`
+(driven by `mlp_internal_dim_multiplier`), not `T`.
+
+**Real, testable, not-yet-run prediction**: `chunk_gla` should look more
+competitive (possibly win) at a larger `T`/smaller `N` ratio than Phase
+F's config — either much longer sequences (where raw's `T^2` cost
+finally outgrows `chunk_gla`'s), or a smaller `mlp_internal_dim_multiplier`
+(shrinking `N` directly). Flagged as a concrete follow-up, not assumed
+true.
+
 ## Status
 
 Closed as tested. `reference/hz0h_bdh_fused_attention_torch.py` stays in
