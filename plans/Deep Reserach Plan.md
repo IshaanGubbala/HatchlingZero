@@ -69,8 +69,12 @@ its correctness wiring and JSON gate cannot rehabilitate this quality-failed
 architecture without a new routing/quality intervention. A first real-corpus
 learned-gate + Direct-Split-V 100K annealing smoke was itself unstable at the
 hard 3.125% transition; see
-`docs/restart/hz0h_block_gated_direct_split_v_anneal_smoke.md`. See
-`docs/restart/hz0h_blocksparse_100k_packed_data_pilot_results.md`. A different
+`docs/restart/hz0h_block_gated_direct_split_v_anneal_smoke.md`. A corrected
+100K frozen-Transformer logits-distillation smoke also failed (student CE
+3.094 vs teacher 1.742); see
+`docs/restart/hz0h_sparse_direct_split_v_distillation_smoke.md`. See
+`docs/restart/hz0h_blocksparse_100k_packed_data_pilot_results.md`.
+A different
 CUDA result alone is not a rationale to claim success: it needs raw reports
 and the full matched quality gate.
 
