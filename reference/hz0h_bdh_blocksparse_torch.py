@@ -249,3 +249,47 @@ def bdh_blocksparse_split_v_forward(model, idx: torch.Tensor, active_blocks: tor
     logits = x.view(B, T, D) @ model.lm_head
     loss = None if targets is None else F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1))
     return logits, loss
+
+
+def bdh_blocksparse_direct_split_v_forward(model: BDH, idx: torch.Tensor, active_blocks: torch.Tensor, block_size: int, targets: torch.Tensor | None = None):
+    """Experimental BlockBDH derivative with direct disjoint value slices.
+
+    Vanilla BDH broadcasts one full-D `x` value tensor to all heads in
+    `scores @ x`. Here each head reads its own contiguous D/head slice of x,
+    then the head outputs are concatenated. Unlike ``BDHSplitV`` this adds no
+    D×D value/output projections, so parameter count is unchanged. It is still
+    an architectural delta (not exact BDH) and requires trained quality tests.
+    """
+    if block_size % 2:
+        raise ValueError(f"block_size must be even (RoPE pairs adjacent indices) -- got {block_size}")
+    C = model.config
+    B, T = idx.size()
+    D, nh = C.n_embd, C.n_head
+    if D % nh:
+        raise ValueError(f"direct Split-V requires n_embd ({D}) divisible by n_head ({nh})")
+    N, Dh = D * C.mlp_internal_dim_multiplier // nh, D // nh
+    column_indices = (active_blocks.view(-1, 1) * block_size + torch.arange(block_size, device=idx.device)).reshape(-1)
+    if column_indices.numel() == 0 or int(column_indices.max()) >= N:
+        raise ValueError("active block index is outside the latent width")
+    n_active = column_indices.numel()
+    encoder = model.encoder.index_select(2, column_indices)
+    encoder_v = model.encoder_v.index_select(2, column_indices)
+    decoder = model.decoder.reshape(nh, N, D).index_select(1, column_indices).reshape(nh * n_active, D)
+    freqs = model.attn.freqs.index_select(-1, column_indices)
+    x = model.ln(model.embed(idx).unsqueeze(1))
+    for _ in range(C.n_layer):
+        x_sparse = F.relu(x @ encoder)
+        phases = torch.arange(0, T, device=idx.device, dtype=freqs.dtype).view(1, 1, -1, 1) * freqs
+        q = model.attn.rope(phases, x_sparse)
+        scores = (q @ q.mT).tril(diagonal=-1)
+        # This is the critical delta: H independent D/H values rather than
+        # H broadcasts of D values. Concatenation restores D for later BDH math.
+        values = x.squeeze(1).view(B, T, nh, Dh).transpose(1, 2)
+        ykv = (scores @ values).transpose(1, 2).reshape(B, 1, T, D)
+        ykv = model.ln(ykv)
+        y_sparse = F.relu(ykv @ encoder_v)
+        y = model.ln((model.drop(x_sparse * y_sparse)).transpose(1, 2).reshape(B, 1, T, n_active * nh) @ decoder)
+        x = model.ln(x + y)
+    logits = x.view(B, T, D) @ model.lm_head
+    loss = None if targets is None else F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1))
+    return logits, loss

@@ -46,7 +46,8 @@ from reference.hz0h_bdh_torch import BDH, BDHConfig, compute_activation_and_stat
 from reference.hz0h_bdh_train_torch import shifted_target_batch, build_optimizer
 from reference.hz0h_energy import TrainingEnergySampler
 from reference.hz0h_bdh_blocksparse_torch import (
-    bdh_blocksparse_forward, block_balance_loss, compute_active_blocks,
+    bdh_blocksparse_direct_split_v_forward, bdh_blocksparse_forward,
+    block_balance_loss, compute_active_blocks,
 )
 
 
@@ -188,6 +189,7 @@ def main() -> None:
     parser.add_argument("--balance-loss-weight", type=float, default=0.0, help="Optional encoder block-load balance auxiliary-loss weight.")
     parser.add_argument("--router-exploration-noise", type=float, default=0.0, help="Gumbel score noise used only while training.")
     parser.add_argument("--router-method", choices=("activation", "cheap_proxy"), default="activation", help="activation materializes the original dense routing latent; cheap_proxy is an experimental pooled-input encoder-prototype route.")
+    parser.add_argument("--value-path", choices=("vanilla", "direct_split_v"), default="vanilla", help="vanilla broadcasts full-D values to heads; direct_split_v is an equal-parameter experimental per-head value-slice derivative.")
     args = parser.parse_args()
 
     if args.warmup_steps < 0:
@@ -249,8 +251,10 @@ def main() -> None:
     config_snapshot.update(sequence_length_resolved=sequence_length, effective_batch_tokens=effective_batch_tokens, total_optimizer_steps_estimate=total_optimizer_steps, resolved_device=str(device), backend="torch", architecture="bdh", parameter_count=sum(p.numel() for p in model.parameters()))
     (args.run_dir / "config_snapshot.json").write_text(json.dumps(config_snapshot, indent=2, sort_keys=True), encoding="utf-8")
 
+    sparse_forward_impl = bdh_blocksparse_direct_split_v_forward if args.value_path == "direct_split_v" else bdh_blocksparse_forward
+
     def sparse_forward(inputs: torch.Tensor, targets: torch.Tensor, active: torch.Tensor):
-        return bdh_blocksparse_forward(model, inputs, active, args.block_size, targets=targets)
+        return sparse_forward_impl(model, inputs, active, args.block_size, targets=targets)
 
     compiled_sparse_forward = torch.compile(sparse_forward, mode=args.compile_mode) if args.compile_step else sparse_forward
 
@@ -259,7 +263,7 @@ def main() -> None:
             exploration_noise=args.router_exploration_noise if training else 0.0,
             method=args.router_method)
         if targets is None:
-            logits, loss = bdh_blocksparse_forward(model, inputs, active, args.block_size, targets=None)
+            logits, loss = sparse_forward_impl(model, inputs, active, args.block_size, targets=None)
         else:
             logits, loss = compiled_sparse_forward(inputs, targets, active)
         return logits, loss, active
@@ -377,8 +381,9 @@ def main() -> None:
     report = {
         "backend": "torch", "device": str(device), "hardware_id": hardware_id, "effective_batch_tokens": effective_batch_tokens,
         "compile_step": args.compile_step, "compile_mode": args.compile_mode if args.compile_step else None, "fused_optimizer": args.fused_optimizer,
-        "architecture": "block_bdh_derivative", "exact_bdh": False, "claim_eligible": False, "dtype": args.dtype,
-        "block_size": args.block_size, "active_fraction": args.active_fraction, "router_method": args.router_method,
+        "architecture": "block_bdh_direct_split_v_derivative" if args.value_path == "direct_split_v" else "block_bdh_derivative",
+        "exact_bdh": False, "claim_eligible": False, "dtype": args.dtype,
+        "block_size": args.block_size, "active_fraction": args.active_fraction, "router_method": args.router_method, "value_path": args.value_path,
         "balance_loss_weight": args.balance_loss_weight, "router_exploration_noise": args.router_exploration_noise,
         "route_summary": route_summary,
         "lr_schedule": args.lr_schedule, "max_lr": args.max_lr, "warmup_steps": args.warmup_steps, "lr_min_ratio": args.lr_min_ratio,

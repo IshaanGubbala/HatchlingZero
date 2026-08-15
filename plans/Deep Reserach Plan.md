@@ -59,7 +59,8 @@ still fails the target. A 100K MPS sweep down to depth 1 and 6.25% active
 saturated at 1.216x Transformer throughput with no sampled-memory win; fair
 `torch.compile` default/reduce-overhead sweeps also remained about 1.21x. An
 experimental cheap-proxy router reached 1.25x but plateaued below target and
-was highly route-sticky. See
+was highly route-sticky. Direct Split-V value slices also reached only 1.255x
+at the same point. See
 `docs/restart/hz0h_blocksparse_100k_packed_data_pilot_results.md`. A different
 CUDA result alone is not a rationale to claim success: it needs raw reports
 and the full matched quality gate.

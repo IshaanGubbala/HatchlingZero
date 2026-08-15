@@ -87,6 +87,24 @@ credible extrapolation to the 1.30x target. It also became highly sticky:
 not quality evidence. Do not use it for a full run absent a mechanism that
 trains/regularizes the router and a pre-registered quality test.
 
+## Direct Split-V value-path preflight
+
+`value_path=direct_split_v` assigns each head a contiguous D/head slice of the
+existing value vector and concatenates the results. It removes vanilla BDH's
+head-broadcast `scores @ full-D-value` term without adding Split-V's learned
+D×D projections, and retains exactly the same parameter count. It is still an
+architecture derivative, not exact BDH.
+
+At depth 1, 3.125% active blocks, cheap-proxy routing, 100K tokens, it reached
+5,789.57 tok/s (1.255x Transformer), sampled 205,660,672 B (1.028x
+Transformer), and best fixed-batch CE 2.546875. That is only a 0.4% speed gain
+over vanilla BlockBDH at the same point (5,768.39 tok/s), far below 1.30x and
+without a memory win. Its finite short-run loss is not quality compatibility.
+
+Do not launch a long Direct Split-V run at this shape. A future retry needs a
+backend-specific explanation (for example, a fused attention/value kernel),
+not just a FLOP argument.
+
 ## Fair compiler-policy sweep
 
 Both the depth-1/6.25%-active BlockBDH arm and the matched Transformer arm were
