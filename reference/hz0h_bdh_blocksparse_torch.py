@@ -293,3 +293,47 @@ def bdh_blocksparse_direct_split_v_forward(model: BDH, idx: torch.Tensor, active
     logits = x.view(B, T, D) @ model.lm_head
     loss = None if targets is None else F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1))
     return logits, loss
+
+
+def bdh_blocksparse_direct_split_v_chunk_gla_forward(model: BDH, idx: torch.Tensor, active_blocks: torch.Tensor, block_size: int, targets: torch.Tensor | None = None):
+    """CUDA fused-kernel version of direct Split-V BlockBDH.
+
+    ``chunk_gla`` computes the exact unnormalised strictly-causal BDH attention
+    after the existing adapter's K/V shift. It is only valid with direct
+    per-head values: unlike vanilla BDH's broadcast full-D V, it does not
+    materialize an H-fold expanded value tensor. CUDA-only by design; callers
+    must never silently substitute a different kernel on another backend.
+    """
+    if idx.device.type != "cuda":
+        raise RuntimeError("chunk_gla BlockBDH path requires CUDA/Triton")
+    if block_size % 2:
+        raise ValueError(f"block_size must be even (RoPE pairs adjacent indices) -- got {block_size}")
+    C = model.config
+    B, T = idx.size()
+    D, nh = C.n_embd, C.n_head
+    if D % nh:
+        raise ValueError(f"direct Split-V requires n_embd ({D}) divisible by n_head ({nh})")
+    N, Dh = D * C.mlp_internal_dim_multiplier // nh, D // nh
+    columns = (active_blocks.view(-1, 1) * block_size + torch.arange(block_size, device=idx.device)).reshape(-1)
+    if columns.numel() == 0 or int(columns.max()) >= N:
+        raise ValueError("active block index is outside the latent width")
+    n_active = columns.numel()
+    encoder = model.encoder.index_select(2, columns)
+    encoder_v = model.encoder_v.index_select(2, columns)
+    decoder = model.decoder.reshape(nh, N, D).index_select(1, columns).reshape(nh * n_active, D)
+    freqs = model.attn.freqs.index_select(-1, columns)
+    # Keep the exact shift/RoPE convention centralized in the previously
+    # CUDA-verified adapter instead of duplicating another causal convention.
+    from reference.hz0h_bdh_fused_attention_torch import bdh_fused_attention
+    x = model.ln(model.embed(idx).unsqueeze(1))
+    for _ in range(C.n_layer):
+        x_sparse = F.relu(x @ encoder)
+        values = x.squeeze(1).view(B, T, nh, Dh).transpose(1, 2)
+        ykv = bdh_fused_attention(x_sparse, values, freqs).transpose(1, 2).reshape(B, 1, T, D)
+        ykv = model.ln(ykv)
+        y_sparse = F.relu(ykv @ encoder_v)
+        y = model.ln((model.drop(x_sparse * y_sparse)).transpose(1, 2).reshape(B, 1, T, n_active * nh) @ decoder)
+        x = model.ln(x + y)
+    logits = x.view(B, T, D) @ model.lm_head
+    loss = None if targets is None else F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1))
+    return logits, loss

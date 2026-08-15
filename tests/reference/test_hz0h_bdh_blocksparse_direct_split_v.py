@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import torch
 
-from reference.hz0h_bdh_blocksparse_torch import bdh_blocksparse_direct_split_v_forward, compute_active_blocks
+from reference.hz0h_bdh_blocksparse_torch import bdh_blocksparse_direct_split_v_chunk_gla_forward, bdh_blocksparse_direct_split_v_forward, compute_active_blocks
 from reference.hz0h_bdh_torch import BDH, BDHConfig
 
 
@@ -33,3 +33,13 @@ def test_direct_split_v_requires_equal_head_value_slices():
         assert False, "expected divisibility error"
     except ValueError as exc:
         assert "divisible" in str(exc)
+
+
+def test_chunk_gla_path_refuses_non_cuda_instead_of_falling_back():
+    model = _model()
+    idx = torch.randint(0, 32, (1, 8))
+    try:
+        bdh_blocksparse_direct_split_v_chunk_gla_forward(model, idx, torch.tensor([0]), 4)
+        assert False, "expected explicit CUDA requirement"
+    except RuntimeError as exc:
+        assert "CUDA/Triton" in str(exc)

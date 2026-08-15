@@ -81,6 +81,31 @@ python scripts/hz0h_training_target_gate.py \
 The last command is only a systems gate. It must be accompanied by matched
 checkpoint/validation and multi-seed quality evidence before a claim.
 
+### CUDA-only sparse `chunk_gla` preflight
+
+The previous dense `chunk_gla` trial was negative because its latent width was
+N=2048 while T=256. `--attention-kernel chunk_gla` is now permitted **only**
+with `--value-path direct_split_v`: at 3.125% active blocks, the kernel sees
+N_active=64 and per-head value width 64, a materially different T>>N regime.
+It uses the existing CUDA-verified strict-causal shift adapter, but its sparse
+composition and performance remain unmeasured.
+
+Before any long run, execute a CUDA forward/backward parity/finite probe and
+compare it to `--attention-kernel raw` at exactly the same config. Then run the
+same Transformer control under the identical compile/optimizer policy. A fused
+result cannot be called a win from FLOPs, CUDA availability, or a dense-kernel
+result; it needs measured end-to-end RAM/speed and trained quality.
+
+Example candidate invocation (not yet an approved target claim):
+
+```bash
+python scripts/hz0h_blocksparse_train.py $COMMON \
+  --run-dir outputs/hz0h_blocksparse_pilot/direct_split_v_chunk_gla \
+  --n-embd 512 --n-layer 1 --n-head 8 --mlp-internal-dim-multiplier 32 \
+  --block-size 16 --active-fraction 0.03125 --router-method cheap_proxy \
+  --value-path direct_split_v --attention-kernel chunk_gla
+```
+
 ## Required report fields and decision
 
 For dense BDH, BlockBDH, and the matched RoPE/KV-cache Transformer, retain:

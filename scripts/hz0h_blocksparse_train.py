@@ -46,6 +46,7 @@ from reference.hz0h_bdh_torch import BDH, BDHConfig, compute_activation_and_stat
 from reference.hz0h_bdh_train_torch import shifted_target_batch, build_optimizer
 from reference.hz0h_energy import TrainingEnergySampler
 from reference.hz0h_bdh_blocksparse_torch import (
+    bdh_blocksparse_direct_split_v_chunk_gla_forward,
     bdh_blocksparse_direct_split_v_forward, bdh_blocksparse_forward,
     block_balance_loss, compute_active_blocks,
 )
@@ -190,6 +191,7 @@ def main() -> None:
     parser.add_argument("--router-exploration-noise", type=float, default=0.0, help="Gumbel score noise used only while training.")
     parser.add_argument("--router-method", choices=("activation", "cheap_proxy"), default="activation", help="activation materializes the original dense routing latent; cheap_proxy is an experimental pooled-input encoder-prototype route.")
     parser.add_argument("--value-path", choices=("vanilla", "direct_split_v"), default="vanilla", help="vanilla broadcasts full-D values to heads; direct_split_v is an equal-parameter experimental per-head value-slice derivative.")
+    parser.add_argument("--attention-kernel", choices=("raw", "chunk_gla"), default="raw", help="raw is portable eager matmul; chunk_gla is CUDA/Triton-only and only legal with direct_split_v.")
     args = parser.parse_args()
 
     if args.warmup_steps < 0:
@@ -209,6 +211,10 @@ def main() -> None:
         raise RuntimeError("--device cuda requested but CUDA is unavailable")
     if device.type == "mps" and not torch.backends.mps.is_available():
         raise RuntimeError("--device mps requested but MPS is unavailable")
+    if args.attention_kernel == "chunk_gla" and args.value_path != "direct_split_v":
+        raise ValueError("--attention-kernel chunk_gla requires --value-path direct_split_v")
+    if args.attention_kernel == "chunk_gla" and device.type != "cuda":
+        raise ValueError("--attention-kernel chunk_gla requires --device cuda")
     hardware_id = torch.cuda.get_device_name(device) if device.type == "cuda" else ("Apple MPS" if device.type == "mps" else "CPU")
 
     args.run_dir.mkdir(parents=True, exist_ok=True)
@@ -251,7 +257,12 @@ def main() -> None:
     config_snapshot.update(sequence_length_resolved=sequence_length, effective_batch_tokens=effective_batch_tokens, total_optimizer_steps_estimate=total_optimizer_steps, resolved_device=str(device), backend="torch", architecture="bdh", parameter_count=sum(p.numel() for p in model.parameters()))
     (args.run_dir / "config_snapshot.json").write_text(json.dumps(config_snapshot, indent=2, sort_keys=True), encoding="utf-8")
 
-    sparse_forward_impl = bdh_blocksparse_direct_split_v_forward if args.value_path == "direct_split_v" else bdh_blocksparse_forward
+    if args.attention_kernel == "chunk_gla":
+        sparse_forward_impl = bdh_blocksparse_direct_split_v_chunk_gla_forward
+    elif args.value_path == "direct_split_v":
+        sparse_forward_impl = bdh_blocksparse_direct_split_v_forward
+    else:
+        sparse_forward_impl = bdh_blocksparse_forward
 
     def sparse_forward(inputs: torch.Tensor, targets: torch.Tensor, active: torch.Tensor):
         return sparse_forward_impl(model, inputs, active, args.block_size, targets=targets)
@@ -383,7 +394,7 @@ def main() -> None:
         "compile_step": args.compile_step, "compile_mode": args.compile_mode if args.compile_step else None, "fused_optimizer": args.fused_optimizer,
         "architecture": "block_bdh_direct_split_v_derivative" if args.value_path == "direct_split_v" else "block_bdh_derivative",
         "exact_bdh": False, "claim_eligible": False, "dtype": args.dtype,
-        "block_size": args.block_size, "active_fraction": args.active_fraction, "router_method": args.router_method, "value_path": args.value_path,
+        "block_size": args.block_size, "active_fraction": args.active_fraction, "router_method": args.router_method, "value_path": args.value_path, "attention_kernel": args.attention_kernel,
         "balance_loss_weight": args.balance_loss_weight, "router_exploration_noise": args.router_exploration_noise,
         "route_summary": route_summary,
         "lr_schedule": args.lr_schedule, "max_lr": args.max_lr, "warmup_steps": args.warmup_steps, "lr_min_ratio": args.lr_min_ratio,

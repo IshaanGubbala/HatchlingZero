@@ -49,6 +49,13 @@ def test_blocksparse_runner_compiles_selected_column_forward(tmp_path: Path):
     assert report["compile_mode"] == "default"
 
 
+def test_blocksparse_runner_rejects_chunk_gla_without_legal_backend():
+    command = [sys.executable, "scripts/hz0h_blocksparse_train.py", "--data", "x", "--validation-data", "y", "--run-dir", "/tmp/nope", "--attention-kernel", "chunk_gla", "--value-path", "direct_split_v", "--device", "cpu"]
+    outcome = subprocess.run(command, capture_output=True, text=True)
+    assert outcome.returncode != 0
+    assert "requires --device cuda" in outcome.stderr
+
+
 def test_blocksparse_runner_rejects_nondividing_block_size():
     command = [sys.executable, "scripts/hz0h_blocksparse_train.py", "--data", "x", "--validation-data", "y", "--run-dir", "/tmp/nope", "--n-embd", "16", "--n-head", "2", "--mlp-internal-dim-multiplier", "4", "--block-size", "6"]
     outcome = subprocess.run(command, capture_output=True, text=True)
