@@ -208,6 +208,68 @@ Pathway further says the workspace is **structured and continuous**, not a seque
 
 That last point is important. A faithful reconstruction should **not** evaluate only a raw neural decoder and compare it directly to Pathway's full pass@2 system.
 
+### A concrete BDH instantiation of \(U_\theta\)/\(F_\theta\), and a real depth-memory-scaling risk it exposes
+
+One concrete way to instantiate the abstract \(U_\theta\), \(E_\theta\), \(F_\theta\) above using BDH's own read/write mechanics (not yet built, added 2026-08-14 as a design proposal, not a result):
+
+Read context: \(c_t=q(x_t)S_{t-1}\). Initialize the workspace:
+\(h_0=\operatorname{LN}(W_xx_t+W_cc_t)\). Reason for \(r=0,\dots,R-1\) with
+\(S_{t-1}\) held fixed during the loop (this is \(F_\theta\) above, made
+concrete): \(q_r=f_q(h_r)\), \(m_r=q_rS_{t-1}\),
+\(h_{r+1}=h_r+F_\theta(h_r,m_r,e_r)\) (\(e_r\) an optional tiny
+per-reasoning-step embedding, see "Tiny per-reasoning-step adapters"
+below). Consolidate once after reasoning (this is \(U_\theta\)):
+\(k_t=f_k(x_t,h_R)\), \(v_t=f_v(x_t,h_R)\),
+\(S_t=\lambda S_{t-1}+k_t^\top v_t\) — a single state write per token,
+not one per reasoning step.
+
+This exposes a real risk in the plain public-BDH substrate that the
+abstract \(S\)/\(H\) framing above doesn't make obvious by itself: vanilla
+BDH shares learned *weights* across its `n_layer` recurrent levels, but
+in streaming/decode mode each level still maintains its **own**
+persistent \(N\times D\) state across tokens (H2's own real streaming
+equivalence, `bdh_stream_chunk`'s \(S_t=S_{t-1}+K_t^\top V_t\) per level).
+So a naive per-level implementation of \(S\) would make persistent-state
+memory scale as \(O(L\cdot N\cdot D)\) in the number of recurrent levels
+\(L\), not \(O(N\cdot D)\) — Value Bottleneck and INT8 reduce the constant
+factor per level but do not remove the \(O(L)\) term. The \(S\)/\(H\) split
+above sidesteps this directly: only one (or a small fixed \(K\), see the
+fast/slow variant under "Value Bottleneck for S, not H") context state
+persists token-to-token regardless of how many reasoning iterations
+\(R\) run, so persistent memory becomes \(O(N\cdot D)\) (or \(O(K\cdot N\cdot
+D)\)) rather than \(O(L\cdot N\cdot D)\) — reasoning depth becomes a pure
+compute cost, not a memory cost.
+
+This is not a purely theoretical concern for HatchlingZero: the Phase G
+100M-parameter scale-gate pilot (`docs/restart/hz0h_phase_g_100m_scale_gate_plan.md`,
+run 2026-08-14) hit a real GPU memory-ceiling wall for both exact BDH
+and HZ-Core-2 (VB D/4) *exactly* at the training curriculum's
+depth-2-to-4 transition, and VB's per-level state-width compression only
+reduced the low-depth steady-state footprint (6.81 vs exact BDH's 11.05
+GiB) — the depth=4 transition-time memory *peak* landed almost identical
+either way (12.07 vs 12.14 GiB). Compressing state width alone did not
+fix the scaling-with-depth problem; both arms hit the same WDDM paging
+failure mode at the same curriculum boundary, differing only in how
+severe the resulting slowdown was (~6-15x for VB, ~50x for exact BDH).
+That is a real, measured instance of the general \(O(L)\)-scaling risk
+this section describes, though with one mechanism caveat: that
+particular pilot ran BDH's *training*-mode parallel/curriculum forward,
+not decode-mode streaming, so the measured memory spike there is
+backward-pass activation retention across more loop iterations, not
+literally \(L\) copies of a persistent \(N\times D\) state held
+simultaneously — a related but mechanistically distinct cost from the
+decode-time \(O(L\cdot N\cdot D)\) this section's math targets. Worth
+being precise about which cost (training activation memory vs. decode
+persistent-state memory) any given \(S\)/\(H\) design actually fixes
+before building it, rather than assuming one result validates both.
+
+Before committing to any \(S\)/\(H\) rebuild, run a diagnostic (see "Pre-CQ
+diagnostic: cross-depth state redundancy" below) to check how much
+these per-level states actually differ from each other on a trained
+exact-BDH checkpoint — that decides whether a single shared \(S\), or the
+shared-plus-private-residual fallback in "Value Bottleneck for S, not
+H", is the better starting point.
+
 ### Training and data
 
 The disclosed training objective is episodic: the model predicts target outputs **after preceding examples have already been incorporated into its recurrent context**. The complete training recipe is proprietary. citeturn16view1
@@ -670,6 +732,50 @@ and update `docs/STATUS.md`.
 
 That gives CQ development a clean ancestor.
 
+**Also now closed, same session (2026-08-14)**: whether a fused/chunked
+GPU kernel closes BDH's training speed/energy gap to the matched
+Transformer. Real, decisive negative result (correctness verified
+exactly, performance decisively worse -- see
+`docs/restart/hz0h_bdh_fused_attention_results.md`), with a real
+profiler-confirmed structural cause: BDH's per-head state size
+\(N=2048\) vastly exceeds its sequence length \(T=256\) at Phase F's
+config, the opposite of the \(T\gg N\) regime chunked/hardware-aware
+linear-attention kernels (RetNet/GLA/FLA/Mamba-style, and this
+project's own `chunk_gla` attempt) are built to win in. Practical
+consequence for CQ's \(H\) reasoning loop: whatever implements
+\(F_\theta\) inside the \(R\)-step loop should use plain matmul
+attention, not a fused chunked kernel, unless/until \(N\) is
+independently shrunk (see FoldBDH under "Block-diagonal (folded)
+synaptic state..." below) -- re-test chunking only after that.
+
+### Pre-CQ diagnostic: cross-depth state redundancy
+
+Before building any \(S\)/\(H\) rebuild (single shared \(S\), or the
+shared-plus-private-residual fallback below), run one cheap diagnostic
+first, since it decides which of those is the right starting point
+(added 2026-08-14, not yet run):
+
+Take a trained exact-BDH checkpoint. Collect the per-level states
+\(S_1,\dots,S_L\) (H2's own `bdh_stream_chunk` running-sum states,
+one per recurrent level) across thousands of real tokens/sequences.
+Measure pairwise cosine similarity \(\cos(S_i,S_j)\), relative
+difference \(\|S_i-S_j\|_F/\|S_i\|_F\), and PCA/SVD across the
+flattened depth-state stack (\(S_l\to\mathbb R^{ND}\),
+\(X=[\operatorname{vec}(S_1);\dots;\operatorname{vec}(S_L)]\), then
+check how much variance rank-1/rank-2/rank-4 explain).
+
+If a small number of components explain most of the cross-depth
+variance (e.g. 2 components explain 95%+), that directly justifies a
+shared-base-plus-small-private-residual design (see "Value Bottleneck
+for S, not H" below). If the depth states are genuinely different from
+each other, don't try to compress them together — redesign persistence
+entirely with the single-\(S\)/ephemeral-\(H\) split instead, since
+forcing dissimilar histories to share storage is exactly the failure
+mode the CLOSED grouped-recurrent-state experiment already hit (see
+above). This diagnostic requires no new training run, only a forward
+pass over an existing checkpoint, so it should run before, not instead
+of, the CQ plumbing stage below.
+
 ### Experiment program
 
 | Stage | Model / experiment | Data | Seeds | Metrics | Required artifacts | Promotion gate |
@@ -1083,6 +1189,39 @@ wide + BF16
 
 That is a much more biologically and computationally sensible allocation than compressing every state equally.
 
+### Shared-context-plus-private-residual and fast/slow \(S\) (added 2026-08-14)
+
+Two further variants for \(S\) specifically, motivated by the same
+\(O(L\cdot N\cdot D)\) depth-scaling risk described earlier
+("A concrete BDH instantiation..."), for use depending on what the
+pre-CQ redundancy diagnostic finds:
+
+**If per-level states turn out to be genuinely different** (diagnostic
+does not show strong redundancy), a middle ground between "\(L\)
+independent full states" and "one shared \(S\)" is a shared base plus a
+small private residual per level: \(S_l=S_{\text{shared}}+\Delta_l\)
+with \(\Delta_l\in\mathbb R^{N\times d_r}\), \(d_r\ll D\) (e.g.
+\(d_r=D/16\)). Total memory becomes roughly
+\(N\cdot D+L\cdot N\cdot(D/16)\) — at \(L=8\) that is
+\(\approx1.5\cdot N\cdot D\), a real \(\sim5.3\times\) reduction versus
+vanilla's \(8\cdot N\cdot D\), before VB/INT8 stack on top, while still
+giving each level its own private memory (the important difference from
+the CLOSED grouped-state experiment, which forced multiple *existing*
+persistent histories to share storage rather than keeping a small private
+correction per level).
+
+**Separately**, \(S\) itself need not be a single homogeneous object: a
+fast state \(S_{\text{fast}}\) updated every token (recent
+bindings/local context) plus a slow state \(S_{\text{slow}}\) consolidated
+only every 16-64 tokens (stable task structure/long-term context), both
+read by the \(H\) reasoning loop:
+\(h_{r+1}=F(h_r,\operatorname{read}(S_{\text{fast}}),\operatorname{read}(S_{\text{slow}}))\).
+Persistent memory is then \(O(2\cdot N\cdot D)\) regardless of reasoning
+depth \(R\), and the slow state's sparse update cadence also reduces
+state-write bandwidth cost, not just storage — a plausible eventual
+target rather than a near-term build, tried only after the simpler
+single-\(S\) and shared-base variants are validated.
+
 ### Block-sparse reasoning workspace
 
 Your new BlockBDH result is almost tailor-made for the repeated \(H\) loop.
@@ -1116,6 +1255,78 @@ then the savings compound with the very mechanism that gives CQ more intelligenc
 If a 50%-active reasoner preserves the effort curve and recovers your earlier approximately 2× block-compute speed regime, then HIGH effort might approach MEDIUM's dense cost.
 
 That is precisely how you move the Pareto frontier rather than merely reproduce it.
+
+### Block-diagonal (folded) synaptic state for the repeated \(H\) loop -- "FoldBDH" (added 2026-08-14)
+
+A sibling lever to block-sparse gating and the per-step adapters below,
+attacking the same cost (F_theta run \(R\) times per query) from a
+different angle: instead of skipping neurons (block-sparsity) or adding
+small per-step parameters (adapters), factorize BDH's own \(N\times D\)
+synaptic state into \(G\) independent smaller blocks. Split
+\(q=[q_1,\dots,q_G]\), \(k=[k_1,\dots,k_G]\), \(v=[v_1,\dots,v_G]\), maintain
+\(S_g\in\mathbb R^{(N/G)\times(D/G)}\), update \(S_g\leftarrow
+S_g+k_g^\top v_g\), read \(y_g=q_gS_g\), concatenate. Total state and
+recurrent read/write compute becomes \(N\cdot D/G\) instead of
+\(N\cdot D\) — a theoretical \(4\times\) reduction at \(G=4\).
+
+This is genuinely distinct from the CLOSED grouped-recurrent-state
+experiment (see "Grouped recurrent state" in
+`plans/HatchlingZero_Next_Phase_Plan.md`): that experiment merged
+*existing, already-different* per-depth persistent histories into fewer
+shared banks (both a direct-merge and a learned-routing formulation
+failed). FoldBDH instead factorizes *within* one state at one point in
+time into feature-space blocks — no merging across depths, no routing.
+The real open risk, same as the CLOSED experiment's failure mode in
+spirit: naive blocking discards cross-block \(k_iv_j\) interactions for
+\(i,j\) in different blocks, so information can't mix across blocks
+without an explicit mechanism for it. Proposed fix: shuffle/permutation
+stages between recurrent levels (Monarch-matrix/butterfly-network
+style), alternating which features group together level-to-level, so
+information eventually propagates globally despite each individual
+level only mixing within its own blocks.
+
+Directly motivated by, and correcting a gap in, a related but different
+proposal ("Fold-0", chunked/tiled exact kernels): that approach
+(reformulating BDH's causal sum as
+\(Y_B=Q_BS_{\text{in}}+\operatorname{tril}(Q_BK_B^\top,-1)V_B\),
+\(S_{\text{out}}=S_{\text{in}}+K_B^\top V_B\) over sequence chunks, the
+same family as RetNet/GLA/FLA/Mamba's hardware-aware chunkwise
+recurrence) is not a new idea to try here -- it is exactly what
+`reference/hz0h_bdh_fused_attention_torch.py`'s `chunk_gla`-backed path
+already is, built and benchmarked earlier this session
+(`docs/restart/hz0h_bdh_fused_attention_results.md`). The real,
+profiler-confirmed result was decisively negative for BDH's current
+shape regime: the fused kernel was ~2.6x slower than raw matmul even
+with VRAM headroom (~49x slower without it, a separate WDDM paging
+failure), because BDH's per-head state size \(N=2048\)
+(`mlp_internal_dim_multiplier`-driven) is far larger than the sequence
+length \(T=256\) here -- the reverse of the \(T\gg N\) long-context
+regime these chunked kernels are built to win in. That result carries a
+real, falsifiable, untested prediction directly relevant to FoldBDH:
+chunking should look more competitive at a larger \(T\)/smaller \(N\)
+ratio, and FoldBDH's own block factorization is one concrete way to
+shrink \(N\) (to \(N/G\) per block) that could move BDH into that more
+favorable regime -- worth re-testing `chunk_gla` against a folded state
+once FoldBDH exists, not just against the original unfolded one.
+
+Cheapest possible test of the underlying "does shrinking \(N\) help"
+hypothesis, before building FoldBDH's block-diagonal machinery for
+real: BDH already exposes \(N=n_{\text{embd}}\cdot
+\text{mlp\_internal\_dim\_multiplier}/n_{\text{head}}\) as a function
+of the existing `n_head` hyperparameter, so an `n_head` sweep
+(8/16/32/64, `n_embd`/multiplier held fixed so parameter count stays
+~invariant) tests the same hypothesis with zero new code. Dispatched
+locally on Mac/MPS the same session this was proposed; result pending
+as of this writing.
+
+Proposed execution order once the diagnostics above are in: exact
+Fold-0 chunked kernel (done, negative, see above) -> FoldBDH \(G=2\) ->
+\(G=4\), trained from scratch (not zero-shot converted from an existing
+checkpoint) at 25M params or smaller, measured on language CE,
+passkey, reassignment, state bytes, and training/decode tok/s ->
+alternating block permutations if \(G=4\) loses quality -> combine with
+Value Bottleneck only after FoldBDH alone survives on its own -> then
+INT8.
 
 ### Tiny per-reasoning-step adapters
 
