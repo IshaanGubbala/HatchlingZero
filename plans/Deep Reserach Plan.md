@@ -788,6 +788,10 @@ thresholds and the parameter-count gate pass, and it always reports
 `claim_eligible: false` because quality/seeds/frozen-evaluation gates are
 separate. Its regression tests are in
 `tests/reference/test_hz0h_phase_f_target_gate.py`.
+The first recorded gate output is frozen in
+`docs/restart/hz0h_phase_f_target_gate_results.md`: both thresholds pass at
+16K/32K decode and both fail at 8K. This context dependence is part of the
+result, not an averaging opportunity.
 
 Then freeze:
 

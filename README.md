@@ -70,9 +70,10 @@ streaming decoder showed a separate long-context serving advantage. Only the
 pre-registered, integrity-gated multi-seed comparison can settle the thesis.
 The latest BF16 long-context measurement is still below the speed gate:
 exact BDH streaming was about 1.20× the Transformer KV-cache at 8K context,
-not the required 1.30×; VB state bytes were lower, but total peak inference RAM
-has not yet been measured at the same condition. These are open engineering
-and measurement gaps, not silently converted into a win.
+not the required 1.30×; at 16K/32K decode, however, the stored RTX3060
+run passes both raw execution thresholds. The full context-qualified table is
+in `docs/restart/hz0h_phase_f_target_gate_results.md`; quality and multi-seed
+gates remain open. These are not silently converted into a universal win.
 
 ---
 
