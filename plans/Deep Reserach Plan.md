@@ -801,6 +801,11 @@ thresholds and the parameter-count gate pass, and it always reports
 `claim_eligible: false` because quality/seeds/frozen-evaluation gates are
 separate. Its regression tests are in
 `tests/reference/test_hz0h_phase_f_target_gate.py`.
+The inference benchmark now accepts explicit `--bdh-checkpoint`,
+`--vb-checkpoint`, and `--transformer-checkpoint` arguments, records checkpoint
+provenance, and strictly rejects incompatible payloads. A future quality
+comparison must set `all_models_trained: true`; omitting checkpoints remains an
+explicit untrained execution diagnostic, never trained-model evidence.
 The first recorded gate output is frozen in
 `docs/restart/hz0h_phase_f_target_gate_results.md`: both thresholds pass at
 16K/32K decode and both fail at 8K. This context dependence is part of the

@@ -31,3 +31,26 @@ def test_target_gate_rejects_parameter_mismatch():
     report["vb_parameter_count"] = 102
     result = evaluate(report, "1024", "vb_decode_streaming_state_speed_mode")
     assert not result["ram_gate"] and not result["speed_gate"]
+
+
+def test_checkpoint_loader_requires_compatible_payload(tmp_path):
+    import torch
+    from scripts.hz0h_inference_benchmark import load_model_checkpoint
+
+    source = torch.nn.Linear(3, 2)
+    path = tmp_path / "wrapped.pt"
+    torch.save({"model": source.state_dict()}, path)
+    target = torch.nn.Linear(3, 2)
+    meta = load_model_checkpoint(target, path)
+    assert meta["trained_weights"] is True
+    for a, b in zip(source.parameters(), target.parameters()):
+        assert torch.equal(a, b)
+
+    bad = tmp_path / "bad.pt"
+    torch.save({"model": torch.nn.Linear(4, 2).state_dict()}, bad)
+    try:
+        load_model_checkpoint(torch.nn.Linear(3, 2), bad)
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("incompatible checkpoint was silently accepted")

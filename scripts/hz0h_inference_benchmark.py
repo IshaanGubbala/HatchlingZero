@@ -58,6 +58,30 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from reference.hz0a_matched_transformer import MatchedTransformerConfig, MatchedTransformerLM
 from reference.hz0h_bdh_torch import BDH, BDHConfig, bdh_kv_cache_step, bdh_stream_chunk, bdh_stream_prefill_chunked, init_bdh_states, new_bdh_kv_cache
+
+
+def load_model_checkpoint(model: torch.nn.Module, checkpoint: Path) -> dict:
+    """Load a training checkpoint and return provenance metadata.
+
+    Accept raw state dicts and common ``model``/``model_state_dict`` wrappers,
+    but never silently continue after a missing or incompatible checkpoint.
+    """
+    if not checkpoint.exists():
+        raise FileNotFoundError(f"checkpoint does not exist: {checkpoint}")
+    blob = torch.load(checkpoint, map_location="cpu", weights_only=False)
+    state = blob
+    if isinstance(blob, dict):
+        for key in ("model", "model_state_dict", "state_dict"):
+            if isinstance(blob.get(key), dict):
+                state = blob[key]
+                break
+    if not isinstance(state, dict):
+        raise ValueError(f"unsupported checkpoint payload in {checkpoint}")
+    if state and all(str(k).startswith("module.") for k in state):
+        state = {str(k)[len("module."):]: v for k, v in state.items()}
+    incompatible = model.load_state_dict(state, strict=True)
+    assert not incompatible.missing_keys and not incompatible.unexpected_keys
+    return {"path": str(checkpoint), "trained_weights": True, "format": "state_dict"}
 from reference.hz0h_bdh_vb_torch import (
     BDHVB,
     BDHVBConfig,
@@ -528,6 +552,9 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--dtype", choices=("float32", "float16", "bfloat16"), default="bfloat16", help="Real, previously-missing gap: every prior version of this script defaulted to float32 (PyTorch's own default), unlike every training runner in this project which uses bfloat16 on CUDA -- meaning every inference number measured before this flag existed was FP32, not representative of real deployment precision, and used roughly 2x the memory bf16 would (a real, disclosed factor in the WDDM long-context stall investigation, docs/restart/hz0h_phase_f_same_gpu_comparison_results.md). Defaults to bfloat16 now to match the rest of the project; pass --dtype float32 to reproduce the old (undocumented-as-such) behavior.")
     parser.add_argument("--device", choices=("auto", "cpu", "cuda", "mps"), default="auto")
+    parser.add_argument("--bdh-checkpoint", type=Path, default=None, help="Trained exact-BDH checkpoint. Without this, BDH measurements are explicitly untrained execution diagnostics.")
+    parser.add_argument("--vb-checkpoint", type=Path, default=None, help="Trained Value-Bottleneck checkpoint. Without this, VB measurements are explicitly untrained execution diagnostics.")
+    parser.add_argument("--transformer-checkpoint", type=Path, default=None, help="Trained matched-Transformer checkpoint. Without this, Transformer measurements are explicitly untrained execution diagnostics.")
     parser.add_argument("--output", type=Path, default=None)
     args = parser.parse_args()
 
@@ -553,6 +580,20 @@ def main() -> None:
     transformer_model = MatchedTransformerLM(transformer_config).to(device=device, dtype=torch_dtype)
     transformer_model.eval()
 
+    checkpoint_meta = {}
+    if args.bdh_checkpoint is not None:
+        checkpoint_meta["bdh"] = load_model_checkpoint(bdh_model, args.bdh_checkpoint)
+    else:
+        checkpoint_meta["bdh"] = {"trained_weights": False}
+    if args.vb_checkpoint is not None:
+        checkpoint_meta["vb"] = load_model_checkpoint(vb_model, args.vb_checkpoint)
+    else:
+        checkpoint_meta["vb"] = {"trained_weights": False}
+    if args.transformer_checkpoint is not None:
+        checkpoint_meta["transformer"] = load_model_checkpoint(transformer_model, args.transformer_checkpoint)
+    else:
+        checkpoint_meta["transformer"] = {"trained_weights": False}
+
     bdh_params = sum(p.numel() for p in bdh_model.parameters())
     vb_params = sum(p.numel() for p in vb_model.parameters())
     transformer_params = sum(p.numel() for p in transformer_model.parameters())
@@ -562,6 +603,8 @@ def main() -> None:
     results: dict = {
         "device": str(device), "bdh_parameter_count": bdh_params, "vb_parameter_count": vb_params, "transformer_parameter_count": transformer_params,
         "vb_d_state": d_state, "vb_merge_every_k": args.merge_every_k,
+        "checkpoint_provenance": checkpoint_meta,
+        "all_models_trained": all(item.get("trained_weights", False) for item in checkpoint_meta.values()),
         "decode_tokens": args.decode_tokens, "prefill_repeats": args.prefill_repeats, "seed": args.seed,
         "by_context_length": {},
     }
