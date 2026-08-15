@@ -10,6 +10,7 @@ def test_block_gated_real_corpus_runner_smoke(tmp_path: Path):
     report=json.loads((run_dir/'block_gated_training.json').read_text())
     assert report['architecture']=='block_gated_bdh_derivative'
     assert report['value_path']=='vanilla'
+    assert report['gate_layout']=='legacy'
     assert report['exact_bdh'] is False and report['claim_eligible'] is False
     assert report['effective_batch_tokens']==8 and report['budget_complete'] is True
     assert [m['active_fraction'] for m in report['metrics']]==[1.0,.5]
@@ -19,11 +20,12 @@ def test_block_gated_real_corpus_runner_smoke(tmp_path: Path):
 
 def test_block_gated_runner_labels_direct_value_path(tmp_path: Path):
     run_dir=tmp_path/'direct'
-    command=[sys.executable,'scripts/hz0h_block_gated_train.py','--data','data/packed/hz0h_bytes_25m_train.jsonl','--validation-data','data/packed/hz0h_bytes_25m_val.jsonl','--run-dir',str(run_dir),'--target-tokens','8','--batch-size','1','--validation-batch-size','1','--sequence-length','8','--n-embd','16','--n-layer','1','--n-head','2','--mlp-internal-dim-multiplier','4','--block-size','4','--curriculum-stages','0:0.5','--value-path','direct_split_v','--checkpoint-interval','1','--validation-interval','1','--device','cpu','--dtype','float32','--warmup-steps','0']
+    command=[sys.executable,'scripts/hz0h_block_gated_train.py','--data','data/packed/hz0h_bytes_25m_train.jsonl','--validation-data','data/packed/hz0h_bytes_25m_val.jsonl','--run-dir',str(run_dir),'--target-tokens','8','--batch-size','1','--validation-batch-size','1','--sequence-length','8','--n-embd','16','--n-layer','1','--n-head','2','--mlp-internal-dim-multiplier','4','--block-size','4','--curriculum-stages','0:0.5','--value-path','direct_split_v','--gate-layout','compact','--checkpoint-interval','1','--validation-interval','1','--device','cpu','--dtype','float32','--warmup-steps','0']
     subprocess.run(command,check=True,capture_output=True,text=True)
     report=json.loads((run_dir/'block_gated_training.json').read_text())
     assert report['architecture']=='block_gated_bdh_direct_split_v_derivative'
     assert report['value_path']=='direct_split_v'
+    assert report['gate_layout']=='compact'
 
 
 def test_block_gated_runner_rejects_chunk_gla_off_cuda(tmp_path: Path):

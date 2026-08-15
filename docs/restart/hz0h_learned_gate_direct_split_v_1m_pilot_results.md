@@ -90,6 +90,22 @@ apparent high sparsity speed configurations are invalid zero-shot quality
 candidates. The MPS raw training speed is only 0.370x Transformer and its
 sampled allocator is 1.065x, so this does not meet either systems target.
 
+## Compact head-shared gate preflight
+
+The original hard Direct-Split-V path expanded a shared per-block gate from
+`(B,1,T,N)` to `(B,H,T,N)` before Q/score formation. A parity-tested compact
+layout keeps the singleton head dimension and relies on value/product
+broadcasting; it is algebraically matched to the legacy forward/loss/parameter
+gradients in float32 unit tests. The CUDA `chunk_gla` preflight now compares
+this compact raw layout against the compact fused layout.
+
+A deliberately untrained MPS hard-50% diagnostic (100K tokens, seed 7,
+identical model/data) found legacy 3,592.02 tok/s and 213,402,368 sampled B
+versus compact 3,510.57 tok/s and 211,324,928 sampled B: **0.977× speed** and
+**0.990× sampled allocation**. This does not establish CUDA behavior or a RAM
+win; it rejects any claim that this layout alone is sufficient. The dispatched
+RTX preflight is the deciding raw/fused CUDA screen.
+
 ## Decision
 
 The paired result is reproducible across the preregistered three MPS seeds:
