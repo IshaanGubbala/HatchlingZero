@@ -38,3 +38,10 @@ def test_blocksparse_runner_rejects_unfair_compile():
     outcome = subprocess.run(command, capture_output=True, text=True)
     assert outcome.returncode != 0
     assert "dynamic BlockBDH routing" in outcome.stderr
+
+
+def test_blocksparse_runner_rejects_nondividing_block_size():
+    command = [sys.executable, "scripts/hz0h_blocksparse_train.py", "--data", "x", "--validation-data", "y", "--run-dir", "/tmp/nope", "--n-embd", "16", "--n-head", "2", "--mlp-internal-dim-multiplier", "4", "--block-size", "6"]
+    outcome = subprocess.run(command, capture_output=True, text=True)
+    assert outcome.returncode != 0
+    assert "must divide latent width" in outcome.stderr

@@ -197,6 +197,9 @@ def main() -> None:
         raise ValueError("--active-fraction must be in (0, 1]")
     if args.balance_loss_weight < 0:
         raise ValueError("--balance-loss-weight must be non-negative")
+    latent_width = args.n_embd * args.mlp_internal_dim_multiplier // args.n_head
+    if latent_width % args.block_size:
+        raise ValueError(f"--block-size ({args.block_size}) must divide latent width N={latent_width}")
     if args.compile_step:
         raise ValueError("--compile-step is not supported for dynamic BlockBDH routing; do not compare a compiled dense arm against this eager derivative")
 
