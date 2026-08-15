@@ -47,6 +47,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from reference.hz0h_bdh_torch import BDH, BDHConfig, compute_activation_and_state_diagnostics
 from reference.hz0h_bdh_train_torch import build_optimizer, shifted_target_batch
 from reference.hz0h_bdh_variable_depth_torch import bdh_variable_depth_forward
+from reference.hz0h_bdh_checkpointed_torch import bdh_variable_depth_forward_checkpointed
 from reference.hz0h_energy import TrainingEnergySampler
 
 
@@ -197,6 +198,7 @@ def main() -> None:
     parser.add_argument("--compile-step", action="store_true", help="torch.compile bdh_variable_depth_forward. dynamo specializes/recompiles per distinct n_iterations value (a plain Python int, not a tensor) -- so this curriculum's 4 stages produce up to 4 compiled variants total, each cached and reused for the rest of that stage's steps, not recompiled every step. Same checkpoint-portability guarantee as the fixed-depth runner's own --compile-step (compilation wraps the callable, not the model's parameters).")
     parser.add_argument("--compile-mode", choices=("default", "reduce-overhead", "max-autotune"), default="default", help="see scripts/hz0h_stage2_runner_bdh.py's own --compile-mode docstring for the real motivation (CUDA graphs / launch-overhead reduction for BDH's many-small-sequential-ops forward pass). Only used if --compile-step is set.")
     parser.add_argument("--fused-optimizer", action="store_true", help="AdamW(..., fused=True), CUDA-only, mathematically identical update rule -- see scripts/hz0h_stage2_runner_bdh.py's own flag docstring.")
+    parser.add_argument("--activation-checkpointing", action="store_true", help="Use reference/hz0h_bdh_checkpointed_torch.py's bdh_variable_depth_forward_checkpointed instead of the plain bdh_variable_depth_forward -- wraps each depth iteration in torch.utils.checkpoint.checkpoint(use_reentrant=False), trading recompute for peak activation memory. Same math, correctness-tested exactly (see tests/reference/test_hz0h_bdh_checkpointed_torch.py). Real motivation: docs/restart/hz0h_phase_g_100m_scale_gate_pilot_results.md documented a hard WDDM memory wall exactly at this curriculum's depth 2->4 transition at 100M params; a real CUDA benchmark (docs/restart/hz0h_activation_checkpointing_results.md) measured this reducing peak memory 81.5% and increasing throughput 2.08x at a comparable synthetic-step config on the RTX3060 -- this flag is the real trained-in-path test of whether that result clears the actual wall. Off by default.")
     args = parser.parse_args()
 
     if args.warmup_steps < 0:
@@ -233,8 +235,11 @@ def main() -> None:
     # torch.compile wraps the FUNCTION, not the model -- model's parameters
     # are untouched either way, so checkpoints stay a plain, portable BDH
     # state_dict. dynamo specializes per distinct n_iterations value (see
-    # --compile-step's own help text).
-    forward_fn = torch.compile(bdh_variable_depth_forward, mode=args.compile_mode) if args.compile_step else bdh_variable_depth_forward
+    # --compile-step's own help text). --activation-checkpointing swaps in
+    # the memory-efficient forward (same math, see its own docstring) before
+    # --compile-step optionally wraps whichever one was selected.
+    base_forward_fn = bdh_variable_depth_forward_checkpointed if args.activation_checkpointing else bdh_variable_depth_forward
+    forward_fn = torch.compile(base_forward_fn, mode=args.compile_mode) if args.compile_step else base_forward_fn
 
     config_snapshot = {key: (str(value) if isinstance(value, Path) else value) for key, value in vars(args).items()}
     config_snapshot.update(sequence_length_resolved=sequence_length, effective_batch_tokens=effective_batch_tokens, total_optimizer_steps_estimate=total_optimizer_steps, resolved_device=str(device), backend="torch", architecture="bdh_depth_curriculum", curriculum_stages_parsed=curriculum_stages, parameter_count=sum(p.numel() for p in model.parameters()))
