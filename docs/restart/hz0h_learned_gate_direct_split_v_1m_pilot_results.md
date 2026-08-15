@@ -58,8 +58,20 @@ python scripts/hz0h_block_gated_train.py ... \
 
 Its dense warmup remains the regular differentiable learned-gate forward; only
 hard sparse stages dispatch CUDA `chunk_gla`. Before a long run, save the raw
-50%-trained checkpoint and compare raw/fused logits and gradients at the same
-active blocks on CUDA, then measure native peak allocation and the matched
-Transformer under the same optimizer/compile policy. Passing an untrained
+50%-trained checkpoint and produce a provenance-bearing CUDA artifact:
+
+```bash
+python scripts/hz0h_block_gated_cuda_chunk_gla_preflight.py \
+  --checkpoint outputs/.../block_gated_checkpoint.pt \
+  --output outputs/.../block_gated_chunk_gla_preflight.json \
+  --active-fraction 0.5 --batch-size 12 --sequence-length 256
+python scripts/hz0h_blocksparse_kernel_preflight_gate.py \
+  outputs/.../block_gated_chunk_gla_preflight.json
+```
+
+The preflight clones rather than mutates the checkpoint, records its SHA256,
+checks raw/fused logits and encoder gradients at selected learned-gate blocks,
+and measures native CUDA peak allocation plus the matched Transformer under
+identical BF16/fused-AdamW/no-compile synthetic-step policy. Passing the
 kernel screen still does not establish trained quality, three-seed stability,
 or the requested target.
