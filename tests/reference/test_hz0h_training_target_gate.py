@@ -34,3 +34,8 @@ def test_training_gate_rejects_different_execution_conditions():
         result = evaluate(_report(**{field: value}), transformer)
         assert not result["speed_gate"] and not result["ram_gate"]
         assert result["execution_conditions"][f"{field}_equal"] is False
+
+
+def test_training_gate_rejects_underparameterized_candidate():
+    result = evaluate(_report(params=98), _report(params=100, throughput=100.0, seconds=10.0, ram=1000))
+    assert not result["speed_gate"] and not result["ram_gate"]

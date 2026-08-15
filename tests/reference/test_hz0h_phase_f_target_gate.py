@@ -54,3 +54,11 @@ def test_checkpoint_loader_requires_compatible_payload(tmp_path):
         pass
     else:
         raise AssertionError("incompatible checkpoint was silently accepted")
+
+
+def test_target_gate_rejects_underparameterized_candidate():
+    report = _report(600, 130.0)
+    report["vb_parameter_count"] = 98
+    result = evaluate(report, "1024", "vb_decode_streaming_state_speed_mode")
+    assert not result["parameter_match"]
+    assert not result["ram_gate"] and not result["speed_gate"]

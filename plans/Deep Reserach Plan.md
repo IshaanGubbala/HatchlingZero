@@ -92,8 +92,8 @@ gap remain open blockers.
 
 Use `scripts/hz0h_training_target_gate.py` on the exact-BDH/HZ and Transformer
 training JSON reports. It requires equal token budgets and dtype, parameter
-ratio ≤1.01, the same device/hardware identity, effective batch tokens, and
-compile/optimizer policy, peak-training-RAM ratio ≤0.70, and candidate
+ratio within 1% in either direction (0.9901–1.01), the same device/hardware
+identity, effective batch tokens, and compile/optimizer policy, peak-training-RAM ratio ≤0.70, and candidate
 throughput ratio ≥1.30 with wall-clock ratio ≤0.70. Missing execution metadata
 fails the automated gate rather than being silently assumed equal. A compile
 speedup measured only for BDH is not eligible; if compilation is used, it must

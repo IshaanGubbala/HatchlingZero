@@ -26,15 +26,17 @@ def evaluate(report: dict, context: str, arm: str, *, ram_limit: float = 0.70, s
     parameter_ratio = candidate_params / transformer_params
     ram_ratio = candidate["peak_memory_bytes"] / transformer["peak_memory_bytes"]
     speed_ratio = candidate["tokens_per_second"] / transformer["tokens_per_second"]
+    parameter_match = (1.0 / 1.01) <= parameter_ratio <= 1.01
     result = {
         "context": int(context), "arm": arm,
         "candidate_parameters": candidate_params,
         "transformer_parameters": transformer_params,
         "parameter_ratio": parameter_ratio,
+        "parameter_match": parameter_match,
         "peak_ram_ratio": ram_ratio,
         "decode_throughput_ratio": speed_ratio,
-        "ram_gate": parameter_ratio <= 1.01 and ram_ratio <= ram_limit,
-        "speed_gate": parameter_ratio <= 1.01 and speed_ratio >= speed_floor,
+        "ram_gate": parameter_match and ram_ratio <= ram_limit,
+        "speed_gate": parameter_match and speed_ratio >= speed_floor,
         "quality_gate": "not evaluated by this execution-only report",
         "claim_eligible": False,
         "reason": "quality, seeds, and frozen evaluation are separate required gates",

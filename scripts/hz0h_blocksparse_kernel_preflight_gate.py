@@ -18,7 +18,7 @@ def evaluate(report: dict, *, speed_floor: float = 1.30, ram_limit: float = 0.70
     fused, transformer = report.get("chunk_gla", {}), report.get("matched_rope_transformer", {})
     checks = {
         "cuda_report": report.get("device") == "cuda",
-        "parameter_match": report.get("parameter_ratio_to_transformer", float("inf")) <= 1.01,
+        "parameter_match": (1.0 / 1.01) <= report.get("parameter_ratio_to_transformer", float("inf")) <= 1.01,
         "raw_fused_logits": numerical.get("max_logit_difference", float("inf")) <= max_logit_difference,
         "raw_fused_loss": numerical.get("loss_difference", float("inf")) <= max_loss_difference,
         "raw_fused_encoder_gradient": numerical.get("encoder_gradient_relative_l2_difference", float("inf")) <= max_gradient_relative_l2_difference,

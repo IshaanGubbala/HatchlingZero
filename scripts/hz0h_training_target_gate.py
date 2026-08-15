@@ -26,7 +26,7 @@ def evaluate(candidate: dict, transformer: dict, *, ram_limit: float = 0.70, spe
     }
     for field in required_execution_fields:
         checks[f"{field}_equal"] = field in candidate and field in transformer and candidate[field] == transformer[field]
-    checks["parameter_match"] = checks["parameter_ratio"] <= 1.01
+    checks["parameter_match"] = (1.0 / 1.01) <= checks["parameter_ratio"] <= 1.01
     throughput_ratio = candidate["tokens_per_second"] / transformer["tokens_per_second"]
     time_ratio = candidate["training_seconds"] / transformer["training_seconds"]
     ram_ratio = candidate["peak_memory_bytes"] / transformer["peak_memory_bytes"]

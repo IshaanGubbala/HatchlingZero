@@ -28,3 +28,9 @@ def test_kernel_preflight_rejects_speed_ram_and_gradient_misses():
         result = evaluate(_report(**update))
         assert not result["kernel_preflight_pass"]
         assert result["claim_eligible"] is False
+
+
+def test_kernel_preflight_rejects_underparameterized_candidate():
+    result = evaluate(_report(parameter_ratio_to_transformer=0.98))
+    assert not result["kernel_preflight_pass"]
+    assert result["checks"]["parameter_match"] is False
