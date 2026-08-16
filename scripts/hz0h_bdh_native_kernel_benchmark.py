@@ -37,6 +37,7 @@ import torch
 
 from reference.hz0a_matched_transformer import MatchedTransformerConfig, MatchedTransformerLM
 from reference.hz0h_bdh_native_kernel_attention_torch import bdh_native_forward
+from reference.hz0h_bdh_triton_attention_torch import bdh_triton_forward
 from reference.hz0h_bdh_torch import BDH, BDHConfig
 
 
@@ -44,10 +45,12 @@ def _sync() -> None:
     torch.cuda.synchronize()
 
 
-def _step(model, idx, targets, *, native: bool, transformer: bool, optimizer) -> torch.Tensor:
+def _step(model, idx, targets, *, backend: str, transformer: bool, optimizer) -> torch.Tensor:
     optimizer.zero_grad(set_to_none=True)
-    if native:
+    if backend == "tiled":
         _, loss = bdh_native_forward(model, idx, targets)
+    elif backend == "triton":
+        _, loss = bdh_triton_forward(model, idx, targets)
     elif transformer:
         logits = model(idx)
         loss = torch.nn.functional.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1))
@@ -58,16 +61,16 @@ def _step(model, idx, targets, *, native: bool, transformer: bool, optimizer) ->
     return loss.detach()
 
 
-def _benchmark(model, idx, targets, *, native: bool, transformer: bool, warmup: int, steps: int, lr: float) -> dict:
+def _benchmark(model, idx, targets, *, backend: str, transformer: bool, warmup: int, steps: int, lr: float) -> dict:
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=0.1, fused=True)
     for _ in range(warmup):
-        _step(model, idx, targets, native=native, transformer=transformer, optimizer=optimizer)
+        _step(model, idx, targets, backend=backend, transformer=transformer, optimizer=optimizer)
     _sync()
     torch.cuda.reset_peak_memory_stats()
     started = time.perf_counter()
     losses = []
     for _ in range(steps):
-        losses.append(float(_step(model, idx, targets, native=native, transformer=transformer, optimizer=optimizer)))
+        losses.append(float(_step(model, idx, targets, backend=backend, transformer=transformer, optimizer=optimizer)))
     _sync()
     elapsed = time.perf_counter() - started
     tokens = idx.numel() * steps
@@ -86,11 +89,14 @@ def _benchmark(model, idx, targets, *, native: bool, transformer: bool, warmup: 
     }
 
 
-def _parity(raw: BDH, native: BDH, idx: torch.Tensor, targets: torch.Tensor) -> dict:
+def _parity(raw: BDH, native: BDH, idx: torch.Tensor, targets: torch.Tensor, *, backend: str) -> dict:
     raw.zero_grad(set_to_none=True)
     native.zero_grad(set_to_none=True)
     raw_logits, raw_loss = raw(idx, targets)
-    native_logits, native_loss = bdh_native_forward(native, idx, targets)
+    if backend == "triton":
+        native_logits, native_loss = bdh_triton_forward(native, idx, targets)
+    else:
+        native_logits, native_loss = bdh_native_forward(native, idx, targets)
     raw_loss.backward()
     native_loss.backward()
     grad_errors = {}
@@ -124,12 +130,17 @@ def main() -> None:
     parser.add_argument("--steps", type=int, default=20)
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--learning-rate", type=float, default=1e-3)
+    parser.add_argument("--attention-backend", choices=("tiled", "triton"), default="tiled")
     parser.add_argument("--parity-logit-atol", type=float, default=1e-3, help="Absolute tolerance for the raw-vs-native logit parity gate. Default (1e-3) matches the tiny-scale fp32 correctness tests and is intentionally strict. Real bf16-at-production-scale runs accumulate real rounding error with depth (see module docstring for measured numbers) -- pass a looser value explicitly for those runs rather than assuming the strict default always applies.")
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
 
     if not torch.cuda.is_available():
         raise RuntimeError("this benchmark requires real CUDA hardware")
+    if args.attention_backend == "triton":
+        from reference.hz0h_bdh_triton_attention_torch import triton_available
+        if not triton_available():
+            raise RuntimeError("--attention-backend triton requires CUDA and Triton")
     device = torch.device("cuda")
     dtype = torch.bfloat16
     torch.manual_seed(args.seed)
@@ -146,7 +157,7 @@ def main() -> None:
     native.load_state_dict(raw.state_dict())
     raw.attn.freqs = raw.attn.freqs.to(torch.float32)
     native.attn.freqs = native.attn.freqs.to(torch.float32)
-    parity = _parity(raw, native, idx, targets)
+    parity = _parity(raw, native, idx, targets, backend=args.attention_backend)
     parity_pass = (
         parity["max_logit_absolute_error"] <= args.parity_logit_atol
         and parity["loss_absolute_error"] <= args.parity_logit_atol
@@ -177,11 +188,12 @@ def main() -> None:
         "timed_steps": args.steps,
         "bdh_parameter_count": sum(p.numel() for p in raw.parameters()),
         "transformer_parameter_count": sum(p.numel() for p in transformer.parameters()),
+        "attention_backend": args.attention_backend,
         "parity_logit_atol_used": args.parity_logit_atol,
         "parity": parity,
-        "raw_bdh": _benchmark(raw, idx, targets, native=False, transformer=False, warmup=args.warmup, steps=args.steps, lr=args.learning_rate),
-        "native_bdh": _benchmark(native, idx, targets, native=True, transformer=False, warmup=args.warmup, steps=args.steps, lr=args.learning_rate),
-        "matched_transformer": _benchmark(transformer, idx, targets, native=False, transformer=True, warmup=args.warmup, steps=args.steps, lr=args.learning_rate),
+        "raw_bdh": _benchmark(raw, idx, targets, backend="raw", transformer=False, warmup=args.warmup, steps=args.steps, lr=args.learning_rate),
+        "native_bdh": _benchmark(native, idx, targets, backend=args.attention_backend, transformer=False, warmup=args.warmup, steps=args.steps, lr=args.learning_rate),
+        "matched_transformer": _benchmark(transformer, idx, targets, backend="raw", transformer=True, warmup=args.warmup, steps=args.steps, lr=args.learning_rate),
     }
     results["native_over_raw_speed_ratio"] = results["native_bdh"]["tokens_per_second"] / results["raw_bdh"]["tokens_per_second"]
     results["native_over_raw_peak_memory_ratio"] = results["native_bdh"]["peak_memory_bytes"] / results["raw_bdh"]["peak_memory_bytes"]
