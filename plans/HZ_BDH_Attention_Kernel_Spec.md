@@ -227,7 +227,48 @@ Once correctness passes:
    valid, useful, reportable outcome, same as every other result this
    project has produced).
 
-## 7. Explicitly out of scope for this kernel
+## 7. How to get real CUDA hardware for this (the dispatch relay)
+
+This repo is worked on from a Mac (no CUDA) that dispatches real GPU
+work to a separate Windows machine with an RTX 3060, through a
+Raspberry Pi acting as a relay hub. **Full protocol reference:
+`CLAUDE.md` at the repo root — read that file directly, it is the
+canonical, currently-accurate source, not this summary.** Key points:
+
+- All three machines share a Tailscale tailnet already — the Pi's
+  Tailscale IP is `100.87.180.87`, port `8899`, HTTPS (self-signed
+  cert, use `curl -sk`).
+- Auth is an `X-Auth: <token>` header. **The real token is deliberately
+  NOT in this file or anywhere in git** (this repo is public) — read it
+  directly from `~/hz0a_transfer/serve.py` on whichever machine you're
+  targeting (see `CLAUDE.md`'s own "Finding the real credentials"
+  section). If you don't have access to that file, ask the user for it
+  rather than guessing.
+- Real HTTP surface once you have the token: `GET /` (list the Pi's
+  outbox), `GET /outbox/<name>` / `GET /inbox/<name>` (download),
+  `PUT /inbox/<name>` (upload, body = raw bytes), `POST /chat/<name>`
+  (plain-text status ping, body = raw UTF-8), `GET /chat?since=N`
+  (read the chat log incrementally). There is no `PUT /outbox/<name>`
+  — writing INTO the Pi's outbox (the channel Windows polls for new
+  work) goes via SSH/scp to `gubbi@100.87.180.87:~/hz0a_transfer/outbox/`
+  instead (or the dashboard's upload form, see `CLAUDE.md`).
+- **Real dispatch pattern**: write a plain-text request file describing
+  the exact command(s) to run and what to report back (see any existing
+  file in the Pi's outbox for the real style — list them with
+  `GET /`), drop it in the outbox, then poll `GET /inbox/<expected-result-filename>`
+  (404 until it lands) or watch `/chat` for a status ping. This is
+  real, human-readable async coordination with whoever/whatever is
+  running on the Windows side — not a job-queue API — so write the
+  request like a message to a colleague: exact commands, exact config,
+  exact filenames to report back, and what question the result should
+  answer.
+- For this kernel spec specifically: dispatch the correctness tests
+  first (cheap, fast, must pass before anything else matters), then the
+  benchmark runs from section 6 above, at both real configs, requesting
+  the exact JSON/text output files be uploaded back so the real numbers
+  can be pulled and written up honestly.
+
+## 8. Explicitly out of scope for this kernel
 
 - Do not change BDH's math (no softmax added, no `V` splitting per
   head, no normalization) — those are different, separate, already-
