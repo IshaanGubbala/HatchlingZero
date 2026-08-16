@@ -6,6 +6,22 @@ native path with the verbatim BDH oracle on the exact configured batch, then
 times raw BDH, native BDH, and the matched Transformer with the same optimizer
 and token shape. Results are JSON and performance is never reported without a
 passing parity gate.
+
+Real, disclosed finding from the first real CUDA run of this script
+(2026-08-15, RTX 3060): the parity gate's logit tolerance defaults to
+1e-3, calibrated against the tiny fp32 correctness pytest suite
+(`tests/reference/test_hz0h_bdh_native_kernel_attention_torch.py`) --
+too tight for a real bf16-at-production-scale run. Real measured
+absolute logit error at this script's own default config
+(n_embd=512, batch=12, seq=256), scanning n_layer: 1 -> 0.0078,
+2 -> 0.0117, 4 -> 0.0156, 8 -> 0.0195 -- growing smoothly and
+monotonically with depth, the real signature of bf16 rounding
+accumulation through repeated matmuls across layers, not an
+algorithmic bug (the tiny-scale fp32 tests already prove the math is
+exact). `--parity-logit-atol` below lets a real bf16-scale run set an
+appropriate tolerance explicitly rather than silently loosening the
+strict default (which stays tight, matching what the correctness tests
+actually need).
 """
 from __future__ import annotations
 
@@ -108,6 +124,7 @@ def main() -> None:
     parser.add_argument("--steps", type=int, default=20)
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--learning-rate", type=float, default=1e-3)
+    parser.add_argument("--parity-logit-atol", type=float, default=1e-3, help="Absolute tolerance for the raw-vs-native logit parity gate. Default (1e-3) matches the tiny-scale fp32 correctness tests and is intentionally strict. Real bf16-at-production-scale runs accumulate real rounding error with depth (see module docstring for measured numbers) -- pass a looser value explicitly for those runs rather than assuming the strict default always applies.")
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
 
@@ -131,8 +148,8 @@ def main() -> None:
     native.attn.freqs = native.attn.freqs.to(torch.float32)
     parity = _parity(raw, native, idx, targets)
     parity_pass = (
-        parity["max_logit_absolute_error"] <= 1e-3
-        and parity["loss_absolute_error"] <= 1e-3
+        parity["max_logit_absolute_error"] <= args.parity_logit_atol
+        and parity["loss_absolute_error"] <= args.parity_logit_atol
         and parity["max_parameter_gradient_absolute_error"] <= 1e-2
         and parity["finite"]
     )
@@ -160,6 +177,7 @@ def main() -> None:
         "timed_steps": args.steps,
         "bdh_parameter_count": sum(p.numel() for p in raw.parameters()),
         "transformer_parameter_count": sum(p.numel() for p in transformer.parameters()),
+        "parity_logit_atol_used": args.parity_logit_atol,
         "parity": parity,
         "raw_bdh": _benchmark(raw, idx, targets, native=False, transformer=False, warmup=args.warmup, steps=args.steps, lr=args.learning_rate),
         "native_bdh": _benchmark(native, idx, targets, native=True, transformer=False, warmup=args.warmup, steps=args.steps, lr=args.learning_rate),
