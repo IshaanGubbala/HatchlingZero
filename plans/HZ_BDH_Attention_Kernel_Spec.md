@@ -1,9 +1,10 @@
 # HZ BDH attention kernel: build spec
 
-**Status**: not started. This is a spec for a new deliverable, handed to
-an external engineering agent (Codex) with no assumed context from this
-repo's own conversation history — everything needed should be here or
-in the cited files.
+**Status**: implementation complete locally; real-CUDA correctness and
+benchmark verification pending. The exact-math bounded reference path and
+the optional compiled Triton path are implemented in separate files, with
+local parity coverage and a full-suite pass. This plan remains open until
+the RTX 3060 artifacts required below are downloaded and audited.
 
 ## 1. Why this exists (context, briefly)
 
