@@ -121,11 +121,16 @@ def main() -> None:
         model.attn.freqs = model.attn.freqs.to(torch.float32)
         return model
 
+    # Real, disclosed methodology fix (2026-08-16): the first version of
+    # this script kept every prior stage's model+optimizer alive in scope
+    # for the whole run (4 full BDH models + AdamW states simultaneously
+    # resident), unlike the dedicated 2-model script that measured Triton
+    # alone at 1.551x faster. Explicitly freeing each stage's GPU memory
+    # before the next stage starts, so every stage gets a clean-slate
+    # memory profile matching that original measurement's conditions --
+    # isolates whether cross-stage memory pressure/fragmentation, not the
+    # Triton kernel itself, explains stage 2's anomalous slowdown.
     raw_model = fresh_model()
-
-    def raw_step_fn():
-        return raw_model(idx, targets)
-
     raw_optimizer = torch.optim.AdamW(raw_model.parameters(), lr=args.learning_rate, weight_decay=0.1, fused=True)
     for _ in range(args.warmup):
         raw_optimizer.zero_grad(set_to_none=True)
@@ -152,23 +157,34 @@ def main() -> None:
         "last_loss": raw_losses[-1],
         "finite_loss": all(torch.isfinite(torch.tensor(loss)) for loss in raw_losses),
     }
+    raw_state_dict = {k: v.detach().clone().cpu() for k, v in raw_model.state_dict().items()}
+    bdh_parameter_count = sum(v.numel() for v in raw_state_dict.values())
+    del raw_model, raw_optimizer
+    torch.cuda.empty_cache()
+    torch.cuda.synchronize()
 
     triton_model = fresh_model()
-    triton_model.load_state_dict(raw_model.state_dict())
+    triton_model.load_state_dict(raw_state_dict)
     triton_result = _benchmark(
         triton_model, idx, targets, use_wide_encoder=False, use_bmm_encoder_v=False, use_triton_attention=True,
         warmup=args.warmup, steps=args.steps, lr=args.learning_rate,
     )
+    del triton_model
+    torch.cuda.empty_cache()
+    torch.cuda.synchronize()
 
     bmm_model = fresh_model()
-    bmm_model.load_state_dict(raw_model.state_dict())
+    bmm_model.load_state_dict(raw_state_dict)
     bmm_result = _benchmark(
         bmm_model, idx, targets, use_wide_encoder=False, use_bmm_encoder_v=True, use_triton_attention=True,
         warmup=args.warmup, steps=args.steps, lr=args.learning_rate,
     )
+    del bmm_model
+    torch.cuda.empty_cache()
+    torch.cuda.synchronize()
 
     wide_model = fresh_model()
-    wide_model.load_state_dict(raw_model.state_dict())
+    wide_model.load_state_dict(raw_state_dict)
     wide_result = _benchmark(
         wide_model, idx, targets, use_wide_encoder=True, use_bmm_encoder_v=True, use_triton_attention=True,
         warmup=args.warmup, steps=args.steps, lr=args.learning_rate,
@@ -180,7 +196,7 @@ def main() -> None:
         "dtype": "bfloat16",
         "batch_size": args.batch_size,
         "sequence_length": args.sequence_length,
-        "bdh_parameter_count": sum(p.numel() for p in raw_model.parameters()),
+        "bdh_parameter_count": bdh_parameter_count,
         "warmup_steps": args.warmup,
         "timed_steps": args.steps,
         "1_raw_oracle": raw_result,
