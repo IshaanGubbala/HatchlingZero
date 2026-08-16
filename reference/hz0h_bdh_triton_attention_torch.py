@@ -440,10 +440,16 @@ def _triton_backward(QR: torch.Tensor, V: torch.Tensor, grad_output: torch.Tenso
     # loop (0.61x) it was meant to fix. Widening the OUTPUT tiles (kept
     # separate from the REDUCTION tiles, which stay small) cuts that
     # redundant recomputation proportionally.
+    # Real follow-up (still 2026-08-16): block_n_out=256/block_d_out=128
+    # gave a real but partial improvement (0.46x -> 0.594x) -- still short
+    # of both raw BDH and the original Python loop's own ~0.61-0.64x, and
+    # still leaves real redundancy (8x at N=2048/256, 4x at D=512/128).
+    # Widening further to cut that down to 4x/2x before treating this as
+    # a real ceiling for the output-tile-width lever specifically.
     block_d_reduce = 64   # D-reduction tile inside the dQ kernels
     block_n_reduce = 64   # N-reduction tile inside the dV kernel
-    block_n_out = 256     # dQ kernels' output N-tile (was 64 -- 4x fewer redundant dscore recomputes at N=2048)
-    block_d_out = 128     # dV kernel's output D-tile (was 64 -- 2x fewer redundant score recomputes at D=512)
+    block_n_out = 512     # dQ kernels' output N-tile (was 256 -- now 4x redundant dscore recomputes at N=2048, was 8x)
+    block_d_out = 256     # dV kernel's output D-tile (was 128 -- now 2x redundant score recomputes at D=512, was 4x)
 
     grid_n = (B * nh, triton.cdiv(T, block_m), triton.cdiv(N, block_n_out))
     _bdh_dq_query_role_kernel[grid_n](
