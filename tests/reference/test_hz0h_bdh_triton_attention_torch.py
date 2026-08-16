@@ -17,7 +17,7 @@ pytestmark = pytest.mark.skipif(
 
 
 def test_triton_forward_and_gradients_match_oracle():
-    config = BDHConfig(n_embd=32, n_head=4, mlp_internal_dim_multiplier=8)
+    config = BDHConfig(n_embd=32, n_head=4, mlp_internal_dim_multiplier=32)
     attention = Attention(config).to(device="cuda", dtype=torch.bfloat16)
     attention.freqs = attention.freqs.to(torch.float32)
     torch.manual_seed(19)
