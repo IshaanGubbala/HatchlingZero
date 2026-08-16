@@ -3,6 +3,17 @@ from reference.hz0i_factorized_bdh import FactorizedBDH
 from reference.hz0i_bdh_model import HZ0IBDH,HZ0IBDHConfig
 def test_factorized_bdh_is_finite_and_smaller():
  c=HZ0IBDHConfig(n_layer=2,n_embd=32,n_head=4,mlp_internal_dim_multiplier=8,vocab_size=64,dropout=0.);a=HZ0IBDH(c);b=FactorizedBDH(c,rank=4);assert sum(p.numel() for p in b.parameters())<sum(p.numel() for p in a.parameters());x=torch.randint(0,64,(2,9));_,l=b(x[:,:-1],targets=x[:,1:].contiguous());l.backward();assert torch.isfinite(l)
+
+def test_factorized_projection_matmuls_match_einsum_reference():
+ c=HZ0IBDHConfig(n_layer=1,n_embd=24,n_head=4,mlp_internal_dim_multiplier=8,vocab_size=32,dropout=0.);m=FactorizedBDH(c,rank=3)
+ x=torch.randn(2,1,7,24);x_heads=x.expand(-1,c.n_head,-1,-1)
+ z=m._enc(x,m.enc_l,m.enc_r)
+ expected=torch.einsum('bhtr,hrn->bhtn',torch.einsum('bhtd,hdr->bhtr',x_heads,m.enc_l),m.enc_r)
+ assert torch.allclose(z,expected,atol=1e-6,rtol=1e-6)
+ decoded=m._dec(z)
+ expected_dec=torch.einsum('bhtn,hnr->bhtr',z,m.dec_l)
+ expected_dec=torch.einsum('bhtr,hrd->bhtd',expected_dec,m.dec_r).sum(dim=1,keepdim=True)
+ assert torch.allclose(decoded,expected_dec,atol=1e-6,rtol=1e-6)
 def test_factorized_logits_shape():
  c=HZ0IBDHConfig(n_layer=1,n_embd=24,n_head=4,mlp_internal_dim_multiplier=8,vocab_size=32,dropout=0.);m=FactorizedBDH(c,rank=3);y,_=m(torch.randint(0,32,(1,7)));assert y.shape==(1,7,32)
 

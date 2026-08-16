@@ -15,9 +15,11 @@ class FactorizedBDH(HZ0IBDH):
  def _enc(self,x,left,right):
   H=self.config.n_head
   if x.shape[1]==1:x=x.expand(-1,H,-1,-1)
-  z=torch.einsum('bhtd,hdr->bhtr',x,left);return torch.einsum('bhtr,hrn->bhtn',z,right)
+  # Broadcasted matmul keeps both factor stages on regular batched-GEMM
+  # paths instead of relying on einsum's backend-specific contraction choice.
+  z=torch.matmul(x,left.unsqueeze(0));return torch.matmul(z,right.unsqueeze(0))
  def _dec(self,x):
-  z=torch.einsum('bhtn,hnr->bhtr',x,self.dec_l);z=torch.einsum('bhtr,hrd->bhtd',z,self.dec_r);return z.sum(dim=1,keepdim=True)
+  z=torch.matmul(x,self.dec_l.unsqueeze(0));z=torch.matmul(z,self.dec_r.unsqueeze(0));return z.sum(dim=1,keepdim=True)
  @classmethod
  def from_dense(cls,config,rank,source=None):
   dense=source if source is not None else HZ0IBDH(config);m=cls(config,rank)
