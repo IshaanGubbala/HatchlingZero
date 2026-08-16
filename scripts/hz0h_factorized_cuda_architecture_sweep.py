@@ -28,24 +28,28 @@ def _sync() -> None:
     torch.cuda.synchronize()
 
 
-def _step(model, idx, targets, optimizer) -> torch.Tensor:
+def _step(model, idx, targets, optimizer, *, transformer: bool = False) -> torch.Tensor:
     optimizer.zero_grad(set_to_none=True)
-    _, loss = model(idx, targets)
+    if transformer:
+        logits = model(idx)
+        loss = torch.nn.functional.cross_entropy(logits.reshape(-1, logits.size(-1)), targets.reshape(-1))
+    else:
+        _, loss = model(idx, targets)
     loss.backward()
     optimizer.step()
     return loss.detach()
 
 
-def _benchmark(model, idx, targets, *, warmup: int, steps: int, lr: float) -> dict:
+def _benchmark(model, idx, targets, *, warmup: int, steps: int, lr: float, transformer: bool = False) -> dict:
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=0.1, fused=True)
     for _ in range(warmup):
-        _step(model, idx, targets, optimizer)
+        _step(model, idx, targets, optimizer, transformer=transformer)
     _sync()
     torch.cuda.reset_peak_memory_stats()
     started = time.perf_counter()
     losses = []
     for _ in range(steps):
-        losses.append(float(_step(model, idx, targets, optimizer)))
+        losses.append(float(_step(model, idx, targets, optimizer, transformer=transformer)))
     _sync()
     elapsed = time.perf_counter() - started
     finite = all(torch.isfinite(torch.tensor(loss)) for loss in losses)
@@ -117,10 +121,13 @@ def main() -> None:
             model.attn.freqs = model.attn.freqs.to(torch.float32)
         return model
 
-    def run(factory) -> dict:
+    def run(factory, *, transformer: bool = False) -> dict:
         model = fresh(factory)
         try:
-            return _benchmark(model, idx, targets, warmup=args.warmup, steps=args.steps, lr=args.learning_rate)
+            return _benchmark(
+                model, idx, targets, warmup=args.warmup, steps=args.steps,
+                lr=args.learning_rate, transformer=transformer,
+            )
         finally:
             del model
             torch.cuda.empty_cache()
@@ -140,7 +147,7 @@ def main() -> None:
         "d_ff": args.transformer_d_ff,
         "use_rope": True,
     })
-    transformer = run(lambda: MatchedTransformerLM(transformer_config))
+    transformer = run(lambda: MatchedTransformerLM(transformer_config), transformer=True)
     results = {
         "device": "cuda",
         "hardware_id": torch.cuda.get_device_name(device),
