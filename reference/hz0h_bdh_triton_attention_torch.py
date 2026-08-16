@@ -10,6 +10,19 @@ directly with the verbatim BDH oracle.
 Triton is optional on the Mac development machine.  The public function falls
 back to the exact bounded PyTorch implementation when CUDA/Triton is absent;
 callers must inspect ``triton_available()`` before making a GPU-kernel claim.
+
+Real, diagnosed bug fixed 2026-08-16: the first real CUDA correctness run
+(5 parametrized shapes) failed all 5 cases, with error scaling by ~0.1-0.2%
+of the output's own magnitude regardless of shape -- including the T=17
+case, which fits in a single query/key tile with no multi-tile boundary
+logic at all. A follow-up fp32-vs-bf16 diagnostic
+(scripts/hz0h_triton_kernel_precision_diagnostic.py) showed the SAME
+~0.1-0.2% relative error even with both sides running fully in fp32, which
+rules out bf16 rounding-order as the cause. That magnitude is the known
+signature of Ampere's TF32 tensor-core path: Triton's ``tl.dot`` silently
+downcasts fp32 inputs through TF32 (~10-bit mantissa, ~2**-10 ~= 0.098%
+relative precision) unless told otherwise. The one ``tl.dot`` call below now
+passes ``input_precision="ieee"`` to force full IEEE fp32 accumulation.
 """
 from __future__ import annotations
 
@@ -78,7 +91,7 @@ if _HAS_TRITON:
                     mask=key_mask[:, None] & (n_cols[None, :] < N),
                     other=0.0,
                 )
-                scores += tl.dot(q, tl.trans(k))
+                scores += tl.dot(q, tl.trans(k), input_precision="ieee")
 
             scores = tl.where(causal & key_mask[None, :], scores, 0.0)
             v = tl.load(
