@@ -186,6 +186,7 @@ def main() -> None:
 
     torch.manual_seed(args.seed)
     raw_model = BDH(bdh_config).to(device=device, dtype=dtype)
+    raw_model.attn.freqs = raw_model.attn.freqs.to(torch.float32)
     raw_result = train_one("raw_bdh", raw_model, **common, transformer=False)
     raw_params = raw_result["parameter_count"]
     del raw_model
@@ -193,6 +194,7 @@ def main() -> None:
 
     torch.manual_seed(args.seed)
     factorized_model = FactorizedBDH(factor_config, rank=args.rank).to(device=device, dtype=dtype)
+    factorized_model.attn.freqs = factorized_model.attn.freqs.to(torch.float32)
     factorized_result = train_one(f"factorized_rank_{args.rank}", factorized_model, **common, transformer=False)
     del factorized_model
     torch.cuda.empty_cache()
