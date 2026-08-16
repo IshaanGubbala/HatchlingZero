@@ -23,6 +23,33 @@ signature of Ampere's TF32 tensor-core path: Triton's ``tl.dot`` silently
 downcasts fp32 inputs through TF32 (~10-bit mantissa, ~2**-10 ~= 0.098%
 relative precision) unless told otherwise. The one ``tl.dot`` call below now
 passes ``input_precision="ieee"`` to force full IEEE fp32 accumulation.
+
+That fix did not touch the real bf16 correctness test (bf16 inputs never
+take the TF32 path). A follow-up error-localization diagnostic
+(scripts/hz0h_triton_kernel_error_localization_diagnostic.py) on the still-
+failing bf16 test showed zero spurious mass at any position the oracle
+causal-masks to exactly zero (rules out a masking bug), and a per-row error
+that stays a roughly uniform ~0.3-0.7% of that ROW's own overall magnitude
+regardless of query position, depth, or tile boundary -- the signature of a
+real but expected bf16-rounding-chain divergence (the oracle rounds to bf16
+twice, once after ``QR @ KR.mT`` and again after ``scores @ V``; this kernel
+accumulates the whole reduction in fp32 and rounds once at the final store).
+The test's tolerance was miscalibrated for this: BDH's output has near-zero
+individual feature dimensions sitting next to large ones within the same
+row, so a naive per-element ``rtol`` breaks down exactly like it did for the
+native tiled kernel's own documented calibration bug (see
+docs/restart/hz0h_bdh_native_kernel_results.md). The test now scales
+tolerance by each row's own magnitude instead of each individual element's.
+
+Real algorithmic changes applied here (2026-08-16, per plan feedback): the
+key-tile loop now stops at ``(pid_m + 1) * BLOCK_M`` instead of ``T`` --
+since Q=K and the mask is strictly causal, any key tile starting at or past
+the query tile's own start is either the diagonal tile (still masked
+elementwise) or entirely future (would be masked to all-zero anyway), so
+those tiles are skipped rather than computed and discarded. ``scores @ V``
+now runs as ``tl.dot(scores, v, input_precision="ieee")``, a real tensor-
+core GEMM, instead of a manual ``tl.sum(scores[:,:,None]*v[None,:,:],axis=1)``
+broadcast-reduce.
 """
 from __future__ import annotations
 
@@ -73,7 +100,14 @@ if _HAS_TRITON:
         v_ptr += (pid_bh // NH) * v_stride_b
 
         acc = tl.zeros((BLOCK_M, BLOCK_D), dtype=tl.float32)
-        for key_start in tl.range(0, T, BLOCK_K):
+        # Q=K and the mask is strictly-causal (tril(diagonal=-1)): any key
+        # tile that starts at or after this query tile's own start row is
+        # either the diagonal tile (needs the elementwise mask below) or
+        # entirely in the future (would be masked to all-zero anyway) --
+        # skip iterating past it instead of computing then discarding it.
+        # Assumes BLOCK_K == BLOCK_M so tile boundaries line up exactly.
+        key_end = (pid_m + 1) * BLOCK_M
+        for key_start in tl.range(0, key_end, BLOCK_K):
             key_rows = key_start + tl.arange(0, BLOCK_K)
             key_mask = key_rows < T
             causal = key_rows[None, :] < q_rows[:, None]
@@ -99,7 +133,9 @@ if _HAS_TRITON:
                 mask=key_mask[:, None] & d_mask[None, :],
                 other=0.0,
             ).to(tl.float32)
-            acc += tl.sum(scores[:, :, None] * v[None, :, :], axis=1)
+            # scores @ v as an actual tensor-core GEMM instead of a manual
+            # broadcast-multiply-then-reduce.
+            acc += tl.dot(scores, v, input_precision="ieee")
 
         tl.store(
             out_ptr + q_rows[:, None] * o_stride_t + d_cols[None, :] * o_stride_d,
@@ -124,6 +160,10 @@ def _triton_forward(QR: torch.Tensor, V: torch.Tensor) -> torch.Tensor:
     block_k = 32
     block_n = 64
     block_d = 64
+    assert block_m == block_k, (
+        "the kernel's future-tile-skip bound ((pid_m+1)*BLOCK_M) assumes query "
+        "and key tiles line up exactly"
+    )
     grid = (B * nh, triton.cdiv(T, block_m), triton.cdiv(D, block_d))
     _bdh_forward_kernel[grid](
         q, v, out, T, N, D, nh,
