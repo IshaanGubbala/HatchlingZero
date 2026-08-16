@@ -215,7 +215,12 @@ def bdh_triton_attention(Q: torch.Tensor, V: torch.Tensor, freqs: torch.Tensor) 
     B, _, T, _ = Q.shape
     r_phases = torch.arange(0, T, device=freqs.device, dtype=freqs.dtype).view(1, 1, T, 1) * freqs
     QR = Attention.rope(r_phases, Q)
-    if not triton_available():
+    # triton_available() only checks that CUDA+Triton exist on this
+    # machine, not that THESE tensors are actually on a CUDA device --
+    # a real dispatch bug this exact check caught (2026-08-16): a CPU
+    # model run on a CUDA-capable machine hit the Triton kernel with CPU
+    # pointers and crashed instead of falling back.
+    if not triton_available() or not Q.is_cuda:
         return bdh_native_attention(Q, V, freqs)
     return _BDHTritonAttention.apply(QR, V)
 
