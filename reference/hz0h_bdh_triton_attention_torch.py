@@ -50,6 +50,34 @@ those tiles are skipped rather than computed and discarded. ``scores @ V``
 now runs as ``tl.dot(scores, v, input_precision="ieee")``, a real tensor-
 core GEMM, instead of a manual ``tl.sum(scores[:,:,None]*v[None,:,:],axis=1)``
 broadcast-reduce.
+
+Real, diagnosed regression found 2026-08-16 after the change above: a
+clean, isolated end-to-end benchmark (one model resident on the GPU at a
+time, confirmed via direct nvidia-smi clock polling to rule out
+throttling) showed this kernel running ~1.6x SLOWER than raw BDH
+attention, despite the real forward-pass win above. Root cause: the
+backward pass was still an explicit Python loop (chunk_size=32, ~8
+chunks at this project's T=256, several torch.matmul calls per chunk,
+times n_layer recurrent levels) -- on the order of 40 separate kernel
+launches per attention call, whose fixed per-launch CPU/driver dispatch
+overhead outweighed the forward kernel's real algorithmic savings. See
+docs/restart/hz0h_triton_regime_dependence_results.md for the full
+diagnostic chain (which also had to first rule out measurement noise,
+cross-stage GPU memory pressure, and a wrongly-suspected thermal/power
+"regime" before finding the real cause: two full models being kept
+simultaneously resident during an earlier benchmark's own A/B
+comparison, which is a separate, already-corrected issue from this
+backward-pass fix).
+
+Fixed here by replacing that Python loop with three compiled Triton
+kernels (``_bdh_dq_query_role_kernel``, ``_bdh_dq_key_role_kernel``,
+``_bdh_dv_kernel``) -- see ``_triton_backward``'s own docstring for why
+three kernels are needed (Q plays two distinct roles, query and key,
+since K=Q) and the exact math each computes. This cuts backward from
+~40 PyTorch-level kernel launches to 3 Triton launches, regardless of T.
+Not yet verified on real CUDA hardware as of this commit -- correctness
+and the real speedup claim both need a real dispatch before either can
+be trusted.
 """
 from __future__ import annotations
 
@@ -143,6 +171,176 @@ if _HAS_TRITON:
             mask=q_mask[:, None] & d_mask[None, :],
         )
 
+    @triton.jit
+    def _bdh_dq_query_role_kernel(
+        q_ptr, v_ptr, dout_ptr, dq_ptr,
+        T, N, D, NH,
+        q_stride_bh, q_stride_t, q_stride_n,
+        v_stride_b, v_stride_t, v_stride_d,
+        dout_stride_bh, dout_stride_t, dout_stride_d,
+        dq_stride_bh, dq_stride_t, dq_stride_n,
+        BLOCK_M: tl.constexpr, BLOCK_K: tl.constexpr,
+        BLOCK_N: tl.constexpr, BLOCK_D: tl.constexpr,
+    ):
+        """dQ contribution from Q's QUERY role: for output row a,
+        dQ_query[a,n] = sum_{b<a} dscore[a,b] * Q[b,n], where
+        dscore[a,b] = dOut[a,:].V[b,:]. Same causal-tile-skip bound as the
+        forward kernel (b ranges only up to a's own tile)."""
+        pid_bh = tl.program_id(0)
+        pid_m = tl.program_id(1)  # a-tile (output query row tile)
+        pid_n = tl.program_id(2)  # output N-column tile
+        a_rows = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
+        n_out_cols = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
+        a_mask = a_rows < T
+        n_out_mask = n_out_cols < N
+        q_ptr += pid_bh * q_stride_bh
+        dout_ptr += pid_bh * dout_stride_bh
+        dq_ptr += pid_bh * dq_stride_bh
+        v_ptr += (pid_bh // NH) * v_stride_b
+
+        acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.float32)
+        b_end = (pid_m + 1) * BLOCK_M
+        for b_start in tl.range(0, b_end, BLOCK_K):
+            b_rows = b_start + tl.arange(0, BLOCK_K)
+            b_mask = b_rows < T
+            causal = b_rows[None, :] < a_rows[:, None]
+            dscore = tl.zeros((BLOCK_M, BLOCK_K), dtype=tl.float32)
+            for d_start in tl.range(0, D, BLOCK_D):
+                d_cols = d_start + tl.arange(0, BLOCK_D)
+                dout = tl.load(
+                    dout_ptr + a_rows[:, None] * dout_stride_t + d_cols[None, :] * dout_stride_d,
+                    mask=a_mask[:, None] & (d_cols[None, :] < D), other=0.0,
+                )
+                v = tl.load(
+                    v_ptr + b_rows[:, None] * v_stride_t + d_cols[None, :] * v_stride_d,
+                    mask=b_mask[:, None] & (d_cols[None, :] < D), other=0.0,
+                )
+                dscore += tl.dot(dout, tl.trans(v), input_precision="ieee")
+            dscore = tl.where(causal & b_mask[None, :], dscore, 0.0)
+            q_b = tl.load(
+                q_ptr + b_rows[:, None] * q_stride_t + n_out_cols[None, :] * q_stride_n,
+                mask=b_mask[:, None] & n_out_mask[None, :], other=0.0,
+            )
+            acc += tl.dot(dscore, q_b, input_precision="ieee")
+
+        tl.store(
+            dq_ptr + a_rows[:, None] * dq_stride_t + n_out_cols[None, :] * dq_stride_n,
+            acc, mask=a_mask[:, None] & n_out_mask[None, :],
+        )
+
+    @triton.jit
+    def _bdh_dq_key_role_kernel(
+        q_ptr, v_ptr, dout_ptr, dq_ptr,
+        T, N, D, NH,
+        q_stride_bh, q_stride_t, q_stride_n,
+        v_stride_b, v_stride_t, v_stride_d,
+        dout_stride_bh, dout_stride_t, dout_stride_d,
+        dq_stride_bh, dq_stride_t, dq_stride_n,
+        BLOCK_M: tl.constexpr, BLOCK_K: tl.constexpr,
+        BLOCK_N: tl.constexpr, BLOCK_D: tl.constexpr,
+    ):
+        """dQ contribution from Q's KEY role: for output row b,
+        dQ_key[b,n] = sum_{a>b} dscore[a,b] * Q[a,n]. Mirror of the
+        query-role kernel's bound: a sweeps from b's own tile start
+        (inclusive, for the diagonal tile's mask) forward to T, instead of
+        from 0 up to b's tile -- the future-inclusive complement."""
+        pid_bh = tl.program_id(0)
+        pid_m = tl.program_id(1)  # b-tile (output key row tile)
+        pid_n = tl.program_id(2)
+        b_rows = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
+        n_out_cols = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
+        b_mask = b_rows < T
+        n_out_mask = n_out_cols < N
+        q_ptr += pid_bh * q_stride_bh
+        dout_ptr += pid_bh * dout_stride_bh
+        dq_ptr += pid_bh * dq_stride_bh
+        v_ptr += (pid_bh // NH) * v_stride_b
+
+        acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.float32)
+        a_start_bound = pid_m * BLOCK_M
+        for a_start in tl.range(a_start_bound, T, BLOCK_K):
+            a_rows = a_start + tl.arange(0, BLOCK_K)
+            a_mask = a_rows < T
+            causal = b_rows[:, None] < a_rows[None, :]
+            dscore = tl.zeros((BLOCK_M, BLOCK_K), dtype=tl.float32)
+            for d_start in tl.range(0, D, BLOCK_D):
+                d_cols = d_start + tl.arange(0, BLOCK_D)
+                v = tl.load(
+                    v_ptr + b_rows[:, None] * v_stride_t + d_cols[None, :] * v_stride_d,
+                    mask=b_mask[:, None] & (d_cols[None, :] < D), other=0.0,
+                )
+                dout = tl.load(
+                    dout_ptr + a_rows[:, None] * dout_stride_t + d_cols[None, :] * dout_stride_d,
+                    mask=a_mask[:, None] & (d_cols[None, :] < D), other=0.0,
+                )
+                dscore += tl.dot(v, tl.trans(dout), input_precision="ieee")
+            dscore = tl.where(causal & a_mask[None, :], dscore, 0.0)
+            q_a = tl.load(
+                q_ptr + a_rows[:, None] * q_stride_t + n_out_cols[None, :] * q_stride_n,
+                mask=a_mask[:, None] & n_out_mask[None, :], other=0.0,
+            )
+            acc += tl.dot(dscore, q_a, input_precision="ieee")
+
+        tl.store(
+            dq_ptr + b_rows[:, None] * dq_stride_t + n_out_cols[None, :] * dq_stride_n,
+            acc, mask=b_mask[:, None] & n_out_mask[None, :],
+        )
+
+    @triton.jit
+    def _bdh_dv_kernel(
+        q_ptr, dout_ptr, dv_ptr,
+        T, N, D, NH,
+        q_stride_bh, q_stride_t, q_stride_n,
+        dout_stride_bh, dout_stride_t, dout_stride_d,
+        dv_stride_bh, dv_stride_t, dv_stride_d,
+        BLOCK_M: tl.constexpr, BLOCK_K: tl.constexpr,
+        BLOCK_N: tl.constexpr, BLOCK_D: tl.constexpr,
+    ):
+        """dV_heads[b,d] = sum_{a>b} score[a,b] * dOut[a,d], where
+        score[a,b] = Q[a,:].Q[b,:]. Same future-inclusive sweep as the
+        dQ key-role kernel (V's gradient only gets contributions from
+        query positions strictly after it)."""
+        pid_bh = tl.program_id(0)
+        pid_m = tl.program_id(1)  # b-tile
+        pid_d = tl.program_id(2)
+        b_rows = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
+        d_cols = pid_d * BLOCK_D + tl.arange(0, BLOCK_D)
+        b_mask = b_rows < T
+        d_mask = d_cols < D
+        q_ptr += pid_bh * q_stride_bh
+        dout_ptr += pid_bh * dout_stride_bh
+        dv_ptr += pid_bh * dv_stride_bh
+
+        acc = tl.zeros((BLOCK_M, BLOCK_D), dtype=tl.float32)
+        a_start_bound = pid_m * BLOCK_M
+        for a_start in tl.range(a_start_bound, T, BLOCK_K):
+            a_rows = a_start + tl.arange(0, BLOCK_K)
+            a_mask = a_rows < T
+            causal = b_rows[:, None] < a_rows[None, :]
+            score = tl.zeros((BLOCK_M, BLOCK_K), dtype=tl.float32)
+            for n_start in tl.range(0, N, BLOCK_N):
+                n_cols = n_start + tl.arange(0, BLOCK_N)
+                q_b = tl.load(
+                    q_ptr + b_rows[:, None] * q_stride_t + n_cols[None, :] * q_stride_n,
+                    mask=b_mask[:, None] & (n_cols[None, :] < N), other=0.0,
+                )
+                q_a = tl.load(
+                    q_ptr + a_rows[:, None] * q_stride_t + n_cols[None, :] * q_stride_n,
+                    mask=a_mask[:, None] & (n_cols[None, :] < N), other=0.0,
+                )
+                score += tl.dot(q_b, tl.trans(q_a), input_precision="ieee")
+            score = tl.where(causal & a_mask[None, :], score, 0.0)
+            dout_a = tl.load(
+                dout_ptr + a_rows[:, None] * dout_stride_t + d_cols[None, :] * dout_stride_d,
+                mask=a_mask[:, None] & d_mask[None, :], other=0.0,
+            )
+            acc += tl.dot(score, dout_a, input_precision="ieee")
+
+        tl.store(
+            dv_ptr + b_rows[:, None] * dv_stride_t + d_cols[None, :] * dv_stride_d,
+            acc, mask=b_mask[:, None] & d_mask[None, :],
+        )
+
 
 def _triton_forward(QR: torch.Tensor, V: torch.Tensor) -> torch.Tensor:
     if not triton_available():
@@ -175,6 +373,82 @@ def _triton_forward(QR: torch.Tensor, V: torch.Tensor) -> torch.Tensor:
     return out
 
 
+def _triton_backward(QR: torch.Tensor, V: torch.Tensor, grad_output: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    """Compiled-Triton backward: the same analytic derivative the prior
+    explicit Python/torch loop computed, split into three kernels because
+    Q plays two distinct roles (query AND key, since K=Q) with opposite
+    causal-tile-skip bounds:
+
+    - ``_bdh_dq_query_role_kernel``: dQ's contribution from Q's query
+      role, same past-inclusive bound as the forward kernel.
+    - ``_bdh_dq_key_role_kernel``: dQ's contribution from Q's key role,
+      the future-inclusive complement.
+    - ``_bdh_dv_kernel``: dV, also future-inclusive (V only receives
+      gradient from query positions strictly after it).
+
+    Real, disclosed reason this replaced the Python loop: that loop issued
+    on the order of 40 separate PyTorch kernel launches per attention call
+    (8 chunks at this project's T=256, several torch.matmul calls each),
+    whose fixed per-launch dispatch overhead was found to dominate and
+    reverse the forward kernel's real speedup once measured under clean,
+    isolated conditions (see docs/restart/hz0h_triton_regime_dependence_results.md).
+    This reduces that to 3 kernel launches total, regardless of T.
+    """
+    if not triton_available():
+        raise RuntimeError("Triton CUDA backend is unavailable")
+    B, nh, T, N = QR.shape
+    D = V.shape[-1]
+    q = QR.contiguous()
+    v = V[:, 0].contiguous()
+    dout = grad_output.contiguous()
+
+    dq_query = torch.empty((B, nh, T, N), device=QR.device, dtype=QR.dtype)
+    dq_key = torch.empty((B, nh, T, N), device=QR.device, dtype=QR.dtype)
+    dv_heads = torch.empty((B, nh, T, D), device=QR.device, dtype=V.dtype)
+
+    block_m = 32
+    block_k = 32
+    block_n = 64
+    block_d = 64
+    assert block_m == block_k, (
+        "the backward kernels' future-inclusive/past-inclusive bounds assume "
+        "query and key tiles line up exactly, same as the forward kernel"
+    )
+
+    grid_n = (B * nh, triton.cdiv(T, block_m), triton.cdiv(N, block_n))
+    _bdh_dq_query_role_kernel[grid_n](
+        q, v, dout, dq_query,
+        T, N, D, nh,
+        q.stride(1), q.stride(2), q.stride(3),
+        v.stride(0), v.stride(1), v.stride(2),
+        dout.stride(1), dout.stride(2), dout.stride(3),
+        dq_query.stride(1), dq_query.stride(2), dq_query.stride(3),
+        BLOCK_M=block_m, BLOCK_K=block_k, BLOCK_N=block_n, BLOCK_D=block_d,
+    )
+    _bdh_dq_key_role_kernel[grid_n](
+        q, v, dout, dq_key,
+        T, N, D, nh,
+        q.stride(1), q.stride(2), q.stride(3),
+        v.stride(0), v.stride(1), v.stride(2),
+        dout.stride(1), dout.stride(2), dout.stride(3),
+        dq_key.stride(1), dq_key.stride(2), dq_key.stride(3),
+        BLOCK_M=block_m, BLOCK_K=block_k, BLOCK_N=block_n, BLOCK_D=block_d,
+    )
+    grid_d = (B * nh, triton.cdiv(T, block_m), triton.cdiv(D, block_d))
+    _bdh_dv_kernel[grid_d](
+        q, dout, dv_heads,
+        T, N, D, nh,
+        q.stride(1), q.stride(2), q.stride(3),
+        dout.stride(1), dout.stride(2), dout.stride(3),
+        dv_heads.stride(1), dv_heads.stride(2), dv_heads.stride(3),
+        BLOCK_M=block_m, BLOCK_K=block_k, BLOCK_N=block_n, BLOCK_D=block_d,
+    )
+
+    dQ = (dq_query.float() + dq_key.float()).to(QR.dtype)
+    dV = dv_heads if V.shape[1] == nh else dv_heads.sum(dim=1, keepdim=True)
+    return dQ, dV
+
+
 class _BDHTritonAttention(torch.autograd.Function):
     @staticmethod
     def forward(ctx, QR: torch.Tensor, V: torch.Tensor) -> torch.Tensor:
@@ -184,30 +458,8 @@ class _BDHTritonAttention(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_output: torch.Tensor):
-        # Keep the exact analytic derivative shared with the reference path.
-        # This is intentionally explicit until a second Triton backward kernel
-        # is parity-tested; it never delegates gradient computation to the
-        # oracle's autograd graph.
         QR, V = ctx.saved_tensors
-        B, nh, T, N = QR.shape
-        D = V.shape[-1]
-        q = QR.reshape(B * nh, T, N)
-        v = V.expand(B, nh, T, D).reshape(B * nh, T, D)
-        dy = grad_output.reshape(B * nh, T, D)
-        dQ = torch.zeros_like(q)
-        dV_heads = torch.zeros_like(v)
-        chunk_size = 32
-        for start in range(0, T, chunk_size):
-            stop = min(T, start + chunk_size)
-            q_chunk = q[:, start:stop, :]
-            score = torch.matmul(q_chunk, q.transpose(1, 2)).tril(diagonal=start - 1)
-            dscore = torch.matmul(dy[:, start:stop, :], v.transpose(1, 2)).tril(diagonal=start - 1)
-            dQ[:, start:stop, :] += torch.matmul(dscore, q)
-            dQ += torch.matmul(dscore.transpose(1, 2), q_chunk)
-            dV_heads += torch.matmul(score.transpose(1, 2), dy[:, start:stop, :])
-        dV = dV_heads.reshape(B, nh, T, D)
-        dV = dV if V.shape[1] == nh else dV.sum(dim=1, keepdim=True)
-        return dQ.reshape(B, nh, T, N), dV
+        return _triton_backward(QR, V, grad_output)
 
 
 def bdh_triton_attention(Q: torch.Tensor, V: torch.Tensor, freqs: torch.Tensor) -> torch.Tensor:
