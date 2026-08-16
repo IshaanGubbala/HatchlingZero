@@ -220,7 +220,7 @@ if _HAS_TRITON:
             q_b = tl.load(
                 q_ptr + b_rows[:, None] * q_stride_t + n_out_cols[None, :] * q_stride_n,
                 mask=b_mask[:, None] & n_out_mask[None, :], other=0.0,
-            )
+            ).to(tl.float32)
             acc += tl.dot(dscore, q_b, input_precision="ieee")
 
         tl.store(
@@ -278,7 +278,7 @@ if _HAS_TRITON:
             q_a = tl.load(
                 q_ptr + a_rows[:, None] * q_stride_t + n_out_cols[None, :] * q_stride_n,
                 mask=a_mask[:, None] & n_out_mask[None, :], other=0.0,
-            )
+            ).to(tl.float32)
             acc += tl.dot(dscore, q_a, input_precision="ieee")
 
         tl.store(
@@ -333,7 +333,7 @@ if _HAS_TRITON:
             dout_a = tl.load(
                 dout_ptr + a_rows[:, None] * dout_stride_t + d_cols[None, :] * dout_stride_d,
                 mask=a_mask[:, None] & d_mask[None, :], other=0.0,
-            )
+            ).to(tl.float32)
             acc += tl.dot(score, dout_a, input_precision="ieee")
 
         tl.store(
