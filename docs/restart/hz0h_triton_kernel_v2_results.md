@@ -59,19 +59,25 @@ project's real Phase F sequence length).
 
 ## Benchmark
 
-**Update, 2026-08-16:** this `1.551x faster` result is real and
-independently reproduced twice, but it is NOT a fixed property of the
-kernel -- it turns out to be specific to a low-throughput regime this
-machine was in when measured (`raw_bdh ~400 tok/s`). In a later
-higher-throughput regime (`raw_bdh ~6,900 tok/s`), the same kernel
-measured `~0.61-0.64x`, i.e. ~1.6x SLOWER, reproduced across 4 independent
-runs. See `docs/restart/hz0h_triton_regime_dependence_results.md` for the
-full decomposition and the real, disclosed explanation (the kernel's
+**Update, 2026-08-16 (corrected):** this `1.551x faster` result is real
+and independently reproduced twice, but it is an ARTIFACT of this
+benchmark's own structure, not a real property of the kernel. The
+benchmark builds a second full model (`native`) alongside `raw` and keeps
+both simultaneously resident for a pre-timing parity check -- confirmed
+via direct `nvidia-smi` clock/utilization polling (not assumption) that
+this co-residency slows `raw`'s own plain-matmul attention by ~7x at
+IDENTICAL, pegged-max GPU clock (thermal/power throttling directly ruled
+out), most likely via cuBLAS algorithm selection being sensitive to
+available GPU workspace even far from memory capacity. A Triton kernel's
+fixed compile-time tiling isn't subject to that same heuristic, so it
+isn't handicapped the same way -- inflating the apparent win here. A
+clean, isolated measurement (one model resident at a time) shows the
+kernel is genuinely `~0.61-0.64x`, i.e. ~1.6x SLOWER than raw BDH. See
+`docs/restart/hz0h_triton_regime_dependence_results.md` for the full
+diagnostic chain and the real, standing explanation (the kernel's
 backward pass is still an uncompiled Python loop, not a second Triton
-kernel -- its fixed per-launch overhead is the leading suspect for why
-the net result flips sign depending on how compute-bound vs. launch-
-overhead-bound the GPU currently is). Do not treat the number below as
-a universal speedup without that context.
+kernel -- real per-launch overhead the forward kernel's savings don't
+cover). Do not treat the number below as a universal speedup.
 
 Same production config as the earlier native-tiled-kernel benchmark
 (`scripts/hz0h_bdh_native_kernel_benchmark.py`): batch 12, sequence length

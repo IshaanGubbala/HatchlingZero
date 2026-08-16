@@ -11,9 +11,11 @@ run -- see `docs/restart/hz0h_triton_regime_dependence_results.md`. The
 wide-GEMM encoder's live reshape, named below as the "leading suspect,"
 is **cleared** -- it and the bmm encoder_v remap each measured small, real,
 *positive* contributions in every ablation run. The entire regression
-traces to the Triton attention kernel alone, and even that isn't a fixed
-regression -- it depends on which GPU throughput regime the machine is in
-when measured (real, reproduced finding, not noise). Read the update note
+traces to the Triton attention kernel alone, confirmed via direct GPU
+clock/utilization polling to be a real, isolated-measurement regression
+(~1.6x slower), not GPU throttling and not a "regime" that varies over
+time (an earlier version of that finding wrongly concluded the latter --
+corrected in the doc itself). Read the update note
 in `docs/restart/hz0h_triton_kernel_v2_results.md` alongside this doc.
 
 ## What this is

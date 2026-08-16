@@ -1,8 +1,9 @@
-# Triton Attention Kernel: Regime-Dependent Speedup, Not a Fixed Property
+# Triton Attention Kernel: The 1.551x Result Was a Co-Residency Artifact
 
-Status: real, independently-confirmed finding, resolves the task #42
-decomposition -- and overturns the leading hypothesis (the wide-GEMM
-encoder was NOT the cause of the gpu_native end-to-end slowdown).
+Status: real, resolved finding, closes out task #42. **Supersedes an
+earlier version of this doc that concluded the effect was a
+machine-wide thermal/power "regime" varying over time -- that
+conclusion was wrong and is corrected here with direct evidence.**
 
 ## The chase, in order
 
@@ -15,84 +16,111 @@ encoder was NOT the cause of the gpu_native end-to-end slowdown).
    <1% spread): the ENTIRE regression was concentrated at step 1->2
    (raw -> +Triton attention alone): `0.61-0.62x`. Adding bmm encoder_v
    and the wide-GEMM encoder on top each measured small, consistent
-   *improvements* (`~1.017-1.018x` each) -- the opposite of what was
-   expected of them.
-3. Suspected cross-stage GPU memory pressure (4 models simultaneously
-   resident in the ablation script, unlike the original 2-model
-   dedicated script). Fixed with explicit `del` + `empty_cache()` +
-   `synchronize()` between stages (commit `607b442`). Re-ran: **zero
-   change** (`0.613x`, same as before). Ruled out.
-4. Stepped back to the rawest signal: `raw_bdh` itself (no Triton
-   involved at all) measured `~400 tok/s` in the original dedicated
-   Triton-only benchmark but `~6,900-6,990 tok/s` in every ablation-family
-   run, same config. Re-ran the *original, unmodified* dedicated script
-   fresh, right now: it reproduced its own old numbers almost exactly --
-   `raw_bdh=397.6 tok/s` (old: `397.67`), `native_over_raw_speed_ratio=1.5495`
-   (old: `1.551`). And critically, `matched_transformer` -- a model with
-   no BDH or Triton code in its path at all -- swung from the newer
-   runs' `73,314 tok/s` down to `3,558 tok/s` in this same-script,
-   same-flag re-run.
+   *improvements* (`~1.017-1.018x` each) -- cleared, never the problem.
+3. Suspected cross-stage GPU memory pressure in the ablation script's
+   sequential model construction. Fixed with explicit `del` +
+   `empty_cache()` + `synchronize()` between stages. Re-ran: zero change.
+   Ruled out.
+4. Suspected a machine-wide throughput "regime" varying over time,
+   since `raw_bdh` measured `~400 tok/s` via the original dedicated
+   Triton-only script but `~6,900-6,990 tok/s` via the newer ablation-
+   family scripts. Re-ran the *unmodified* original script fresh: it
+   reproduced its own old numbers almost exactly (`raw_bdh=397.6 tok/s`,
+   `ratio=1.5495`), and `matched_transformer` -- code with zero BDH/
+   Triton involvement -- also swung >20x between dispatches. This was
+   wrongly read as evidence of a real thermal/power regime shifting over
+   time.
+5. **That reading was directly contradicted by data already in hand**:
+   the "slow" re-run's own GPU-state check showed the GPU idle and
+   unthrottled (`P8, 35C, no slowdown flags, 170W limit not hit`)
+   immediately beforehand, and it ran *minutes* after an ablation run on
+   the same GPU that measured `raw_bdh` at ~17x higher throughput -- not
+   enough time or cause for thermal drift between two back-to-back
+   clean-GPU-state runs. A real red flag was also sitting in the data
+   unexamined: `397.6 tok/s` at this config is **7.7 seconds per
+   training step** for a 25M-parameter model on an RTX3060 --
+   pathologically slow, not just "a slower clock."
+6. Built `scripts/hz0h_raw_bdh_pathology_diagnostic.py`: reproduces both
+   script families' raw-BDH construction pattern side by side in ONE
+   process, polling `nvidia-smi` for real SM clock speed and GPU
+   utilization *during* each timed loop, not just before. Result,
+   definitive:
+
+```text
+native_script_style (raw + native BOTH built upfront, one parity
+forward+backward on both BEFORE raw's own timed loop -- exactly the
+original dedicated script's structure):
+  3.084 seconds/step, 996 tok/s
+  SM clock: 2107 MHz constant, GPU util 97-100% (mean 99.9%)
+
+ablation_script_style (single model, no pre-timing parity call):
+  0.439 seconds/step, 6,995 tok/s
+  SM clock: 2092-2115 MHz, GPU util 100% constant
+```
+
+Clock speed and utilization are **identical, pegged at max, in both
+cases** -- this rules out thermal/power throttling completely and
+directly. The ~7x slowdown reproduces purely from the difference in
+model-construction pattern, in the same process, at the same clock
+speed.
 
 ## The real conclusion
 
-Since `matched_transformer`'s throughput swings by >20x across dispatches
-using *identical, unconditional code*, this is a genuine, large,
-real machine-throughput-regime difference over time (thermal state,
-background load, power plan -- exact cause not diagnosed, out of scope),
-not anything about which script or code path is used. It affects every
-model's absolute throughput roughly uniformly.
+Building a second full model (`native`, used once for a pre-timing
+parity check) alongside `raw`, and keeping both simultaneously resident
+on the GPU for the whole benchmark -- exactly what the original dedicated
+Triton-kernel benchmark does -- makes `raw`'s *own* plain matmul-based
+attention run genuinely slower, even at pegged max GPU clock and ~100%
+utilization. The coherent mechanism: `raw`'s attention goes through
+cuBLAS/cuBLASLt, whose algorithm selection is sensitive to available
+contiguous GPU memory/workspace at dispatch time -- with a second full
+model's parameters, gradients, and optimizer state also resident,
+cuBLASLt plausibly falls back to a slower, lower-workspace algorithm for
+the same operation shape, even though the GPU is nowhere near its
+12 GiB capacity. A Triton kernel's tiling is fixed at compile time, not
+subject to that runtime heuristic, so it is largely immune to this
+effect.
 
-But the RATIO between raw BDH and Triton-attention BDH is *not* regime-
-invariant, and that's the real finding: it flips sign between regimes.
+That means the original `1.551x faster` measurement compared a
+co-residency-*handicapped* `raw_bdh` against a Triton kernel that wasn't
+handicapped the same way -- inflating the apparent win. The clean,
+isolated ablation measurement (one model resident at a time, verified via
+this same diagnostic technique to be running at full, unthrottled clock)
+is the trustworthy one:
 
-- **Low-throughput regime** (`raw_bdh ~400 tok/s`): Triton attention
-  measures **1.55x faster**, reproduced twice, stable.
-- **High-throughput regime** (`raw_bdh ~6,900-6,990 tok/s`): Triton
-  attention measures **~0.61-0.64x, i.e. ~1.6x slower**, reproduced
-  across 4 independent runs (1 ablation + 2 repeats + 1 memory-fixed
-  re-run), stable to <1% every time.
+**Triton attention is genuinely, real-world ~1.6x SLOWER than raw BDH's
+plain matmul-based attention at this project's shape (`N=2048 >> T=256`),
+under clean, non-handicapped measurement conditions.**
 
-## Why this makes real sense, not just noise with a story attached
+The standing explanation for *why* still holds and is now the leading,
+uncontested explanation: `_BDHTritonAttention.backward` in
+`reference/hz0h_bdh_triton_attention_torch.py` is an explicit Python loop
+(`chunk_size=32`, 8 chunks at `T=256`, several `torch.matmul` calls per
+chunk, times `n_layer=8` recurrent levels -- disclosed as "not yet a
+second Triton kernel" since the file was first built). That real
+per-launch dispatch overhead is what the forward kernel's genuine
+algorithmic win (causal-tile-skip, tensor-core `scores@V`) isn't enough
+to cover, once measured cleanly.
 
-`reference/hz0h_bdh_triton_attention_torch.py`'s own module docstring
-disclosed this limitation from the start: the forward pass is a real
-compiled Triton kernel, but the **backward pass is still explicit
-Python/PyTorch code** -- a chunked loop (`chunk_size=32`, so `T/32=8`
-iterations at this project's real `T=256`) doing several `torch.matmul`
-calls per chunk, per recurrent level (`n_layer=8` -> up to ~40 kernel
-launches x 8 layers for backward alone). That's real, non-trivial
-per-launch CPU/driver dispatch overhead that is roughly *constant* in
-wall-clock terms, while the GPU's actual compute throughput scales with
-its current clock/thermal state. When the GPU is running in a
-compute-throughput-limited regime, the forward pass's real algorithmic
-win (causal-tile-skip roughly halving QK^T work, tensor-core `scores@V`)
-dominates and the kernel wins decisively. When the GPU is running fast/
-unrestricted, compute time shrinks but the backward loop's *fixed*
-launch overhead does not, and it becomes the dominant cost -- flipping
-the net result to a loss. This is a real, physically coherent
-explanation, not asserted without the supporting reproducibility data
-above.
-
-**This also means the wide-GEMM encoder and bmm encoder_v remaps are
-cleared** -- their real, small, positive contributions (`~1.017-1.018x`
-each) were consistent and stable across every ablation run regardless of
-which regime the machine was in. They were never the problem.
+**The wide-GEMM encoder and bmm encoder_v remaps remain cleared** -- both
+showed small, consistent, real positive contributions in every ablation
+run, and nothing in this investigation implicates them.
 
 ## Real next step, not yet built
 
-The disclosed gap in the Triton kernel file is exactly what needs
-fixing: a second, compiled Triton kernel for the backward pass, to
-replace the explicit Python-loop chunked analytic derivative. That
-removes the per-launch overhead that's the leading suspect for the
-regime-dependent regression, without touching the forward kernel's
-already-confirmed algorithmic win. Not yet started.
+Compile the backward pass into a second Triton kernel, removing the
+uncompiled Python loop's per-launch overhead -- task #43. This is now a
+confirmed, real regression to fix, not a regime-dependent tradeoff to
+route around.
 
-## Real, disclosed limitation of this finding
+## Real methodological lesson for future benchmarks on this machine
 
-The exact cause of the machine's throughput-regime swings (thermal
-throttling vs. background load vs. power plan vs. something else) was
-not diagnosed -- out of scope for this decomposition, which was about
-BDH's own code, not the host machine's power management. Future
-benchmark dispatches to this machine should report the regime they
-landed in (roughly, `raw_bdh`'s own tok/s) alongside any ratio claim, per
-the updated `windows-transfer-relay` project memory.
+Never build two full models simultaneously resident on the GPU (e.g. for
+a "compare A vs B" pattern) when the number being reported is a
+*speed* claim about one of them in isolation -- co-residency measurably
+changes cuBLAS algorithm selection even at full clock and far from
+memory capacity. Isolate: build, warm up, time, and free one model
+completely before building the next. The `windows-transfer-relay`
+project memory has been updated to reflect that the earlier "machine-wide
+variance" framing was wrong and this co-residency effect is the real,
+diagnosed cause.
