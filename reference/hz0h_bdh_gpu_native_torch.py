@@ -51,12 +51,29 @@ def wide_encoder_step_live(x: torch.Tensor, encoder: torch.Tensor, nh: int, N: i
     return bdh_wide_gemm_encoder_step(x, encoder_wide, nh, N)
 
 
-def bdh_gpu_native_forward(model: BDH, idx: torch.Tensor, targets: torch.Tensor | None = None):
+def bdh_gpu_native_forward(
+    model: BDH,
+    idx: torch.Tensor,
+    targets: torch.Tensor | None = None,
+    *,
+    use_wide_encoder: bool = True,
+    use_bmm_encoder_v: bool = True,
+    use_triton_attention: bool = True,
+):
     """Drop-in replacement for ``BDH.forward`` using the three validated
     Stage 1 GPU-native remaps. Same math as the oracle at every step --
     only execution layout differs. ``bdh_triton_attention`` already
-    handles the CUDA/Triton-vs-fallback dispatch internally, so it's
-    called unconditionally here."""
+    handles the CUDA/Triton-vs-fallback dispatch internally.
+
+    The three ``use_*`` flags default to the full integration (matching
+    every call site and test written before they existed) but let a
+    real decomposition experiment isolate each remap's marginal
+    end-to-end cost -- see
+    docs/restart/hz0h_gpu_native_integration_results.md for why that
+    isolation is needed: the full combination measured a real,
+    unexpected end-to-end SLOWDOWN despite each remap winning in
+    isolation, and it is not yet known which component is responsible.
+    """
     C = model.config
     B, T = idx.size()
     D = C.n_embd
@@ -67,13 +84,22 @@ def bdh_gpu_native_forward(model: BDH, idx: torch.Tensor, targets: torch.Tensor 
     x = model.ln(x)
 
     for _level in range(C.n_layer):
-        x_latent = wide_encoder_step_live(x, model._w(model.encoder), nh, N)
+        if use_wide_encoder:
+            x_latent = wide_encoder_step_live(x, model._w(model.encoder), nh, N)
+        else:
+            x_latent = x @ model._w(model.encoder)
         x_sparse = F.relu(x_latent)
 
-        yKV = bdh_triton_attention(x_sparse, x, model.attn.freqs)
+        if use_triton_attention:
+            yKV = bdh_triton_attention(x_sparse, x, model.attn.freqs)
+        else:
+            yKV = model.attn(Q=x_sparse, K=x_sparse, V=x)
         yKV = model.ln(yKV)
 
-        y_latent = bmm_encoder_v_step(yKV, model._w(model.encoder_v))
+        if use_bmm_encoder_v:
+            y_latent = bmm_encoder_v_step(yKV, model._w(model.encoder_v))
+        else:
+            y_latent = yKV @ model._w(model.encoder_v)
         y_sparse = F.relu(y_latent)
         xy_sparse = x_sparse * y_sparse
         xy_sparse = model.drop(xy_sparse)
