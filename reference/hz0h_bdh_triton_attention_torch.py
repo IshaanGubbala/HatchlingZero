@@ -75,9 +75,23 @@ kernels (``_bdh_dq_query_role_kernel``, ``_bdh_dq_key_role_kernel``,
 three kernels are needed (Q plays two distinct roles, query and key,
 since K=Q) and the exact math each computes. This cuts backward from
 ~40 PyTorch-level kernel launches to 3 Triton launches, regardless of T.
-Not yet verified on real CUDA hardware as of this commit -- correctness
-and the real speedup claim both need a real dispatch before either can
-be trusted.
+
+First real CUDA run of these three kernels found a real dtype bug (fixed:
+a freshly bf16-loaded tensor was dotted against an fp32 accumulator
+without casting, same pattern the forward kernel already handled
+correctly). After that fix, correctness passed 5/5 -- but the real clean
+speed measurement came back WORSE than the uncompiled Python loop it was
+meant to replace (0.46x vs. the loop's own 0.61x). Root cause: the first
+version reused the forward kernel's small output-tile size (64) for the
+backward kernels' OUTPUT tiling too, but the expensive dscore/score
+reduction those kernels compute does not depend on the output tile at
+all -- so at N=2048 with a 64-wide output tile, the grid launched 32
+separate program instances per (batch, head, row-tile), each
+redundantly recomputing the identical dscore matrix from scratch. Fixed
+by widening the output tiles (block_n_out=256, block_d_out=128) while
+keeping the reduction tiles small (block_d_reduce=block_n_reduce=64),
+cutting that redundant recomputation 4x/2x respectively. See
+``_triton_backward``'s own inline comment for the exact reasoning.
 """
 from __future__ import annotations
 
@@ -408,14 +422,30 @@ def _triton_backward(QR: torch.Tensor, V: torch.Tensor, grad_output: torch.Tenso
 
     block_m = 32
     block_k = 32
-    block_n = 64
-    block_d = 64
     assert block_m == block_k, (
         "the backward kernels' future-inclusive/past-inclusive bounds assume "
         "query and key tiles line up exactly, same as the forward kernel"
     )
+    # Real, disclosed fix (2026-08-16): the first version of these kernels
+    # reused the forward kernel's BLOCK_N=64/BLOCK_D=64 constants for BOTH
+    # reduction tiling AND output tiling. In these backward kernels, the
+    # expensive dscore/score computation (a real reduction over D or N)
+    # does NOT depend on the output-tile index at all, but a naive small
+    # output tile means the grid launches one program instance PER output
+    # tile, and each one independently RECOMPUTES that same dscore/score
+    # from scratch -- at N=2048 with a 64-wide output tile, that's the
+    # SAME dscore matrix recomputed 32 times per (batch,head,a-tile). A
+    # first real CUDA run confirmed this: the compiled-kernel backward
+    # measured SLOWER (0.46x) than even the original uncompiled Python
+    # loop (0.61x) it was meant to fix. Widening the OUTPUT tiles (kept
+    # separate from the REDUCTION tiles, which stay small) cuts that
+    # redundant recomputation proportionally.
+    block_d_reduce = 64   # D-reduction tile inside the dQ kernels
+    block_n_reduce = 64   # N-reduction tile inside the dV kernel
+    block_n_out = 256     # dQ kernels' output N-tile (was 64 -- 4x fewer redundant dscore recomputes at N=2048)
+    block_d_out = 128     # dV kernel's output D-tile (was 64 -- 2x fewer redundant score recomputes at D=512)
 
-    grid_n = (B * nh, triton.cdiv(T, block_m), triton.cdiv(N, block_n))
+    grid_n = (B * nh, triton.cdiv(T, block_m), triton.cdiv(N, block_n_out))
     _bdh_dq_query_role_kernel[grid_n](
         q, v, dout, dq_query,
         T, N, D, nh,
@@ -423,7 +453,7 @@ def _triton_backward(QR: torch.Tensor, V: torch.Tensor, grad_output: torch.Tenso
         v.stride(0), v.stride(1), v.stride(2),
         dout.stride(1), dout.stride(2), dout.stride(3),
         dq_query.stride(1), dq_query.stride(2), dq_query.stride(3),
-        BLOCK_M=block_m, BLOCK_K=block_k, BLOCK_N=block_n, BLOCK_D=block_d,
+        BLOCK_M=block_m, BLOCK_K=block_k, BLOCK_N=block_n_out, BLOCK_D=block_d_reduce,
     )
     _bdh_dq_key_role_kernel[grid_n](
         q, v, dout, dq_key,
@@ -432,16 +462,16 @@ def _triton_backward(QR: torch.Tensor, V: torch.Tensor, grad_output: torch.Tenso
         v.stride(0), v.stride(1), v.stride(2),
         dout.stride(1), dout.stride(2), dout.stride(3),
         dq_key.stride(1), dq_key.stride(2), dq_key.stride(3),
-        BLOCK_M=block_m, BLOCK_K=block_k, BLOCK_N=block_n, BLOCK_D=block_d,
+        BLOCK_M=block_m, BLOCK_K=block_k, BLOCK_N=block_n_out, BLOCK_D=block_d_reduce,
     )
-    grid_d = (B * nh, triton.cdiv(T, block_m), triton.cdiv(D, block_d))
+    grid_d = (B * nh, triton.cdiv(T, block_m), triton.cdiv(D, block_d_out))
     _bdh_dv_kernel[grid_d](
         q, dout, dv_heads,
         T, N, D, nh,
         q.stride(1), q.stride(2), q.stride(3),
         dout.stride(1), dout.stride(2), dout.stride(3),
         dv_heads.stride(1), dv_heads.stride(2), dv_heads.stride(3),
-        BLOCK_M=block_m, BLOCK_K=block_k, BLOCK_N=block_n, BLOCK_D=block_d,
+        BLOCK_M=block_m, BLOCK_K=block_k, BLOCK_N=block_n_reduce, BLOCK_D=block_d_out,
     )
 
     dQ = (dq_query.float() + dq_key.float()).to(QR.dtype)
