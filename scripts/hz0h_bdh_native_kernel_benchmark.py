@@ -36,6 +36,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import torch
 
 from reference.hz0a_matched_transformer import MatchedTransformerConfig, MatchedTransformerLM
+from reference.hz0h_bdh_gpu_native_torch import bdh_gpu_native_forward
 from reference.hz0h_bdh_native_kernel_attention_torch import bdh_native_forward
 from reference.hz0h_bdh_triton_attention_torch import bdh_triton_forward
 from reference.hz0h_bdh_torch import BDH, BDHConfig
@@ -51,6 +52,8 @@ def _step(model, idx, targets, *, backend: str, transformer: bool, optimizer) ->
         _, loss = bdh_native_forward(model, idx, targets)
     elif backend == "triton":
         _, loss = bdh_triton_forward(model, idx, targets)
+    elif backend == "gpu_native":
+        _, loss = bdh_gpu_native_forward(model, idx, targets)
     elif transformer:
         logits = model(idx)
         loss = torch.nn.functional.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1))
@@ -95,6 +98,8 @@ def _parity(raw: BDH, native: BDH, idx: torch.Tensor, targets: torch.Tensor, *, 
     raw_logits, raw_loss = raw(idx, targets)
     if backend == "triton":
         native_logits, native_loss = bdh_triton_forward(native, idx, targets)
+    elif backend == "gpu_native":
+        native_logits, native_loss = bdh_gpu_native_forward(native, idx, targets)
     else:
         native_logits, native_loss = bdh_native_forward(native, idx, targets)
     raw_loss.backward()
@@ -130,7 +135,7 @@ def main() -> None:
     parser.add_argument("--steps", type=int, default=20)
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--learning-rate", type=float, default=1e-3)
-    parser.add_argument("--attention-backend", choices=("tiled", "triton"), default="tiled")
+    parser.add_argument("--attention-backend", choices=("tiled", "triton", "gpu_native"), default="tiled", help="'gpu_native' is the full Stage 1 integration (reference/hz0h_bdh_gpu_native_torch.py): wide-GEMM encoder + bmm encoder_v + Triton attention combined, real end-to-end training-step number, not just isolated forward-only op timings.")
     parser.add_argument("--parity-logit-atol", type=float, default=1e-3, help="Absolute tolerance for the raw-vs-native logit parity gate. Default (1e-3) matches the tiny-scale fp32 correctness tests and is intentionally strict. Real bf16-at-production-scale runs accumulate real rounding error with depth (see module docstring for measured numbers) -- pass a looser value explicitly for those runs rather than assuming the strict default always applies.")
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
