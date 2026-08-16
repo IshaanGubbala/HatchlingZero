@@ -2,7 +2,10 @@
 
 Status: real CUDA correctness pass + real CUDA benchmark, both independently
 run on Windows/RTX3060 and downloaded through the Pi relay's `/inbox`
-endpoint (not relayed through chat alone).
+endpoint (not relayed through chat alone). The original v2 speedup is now
+superseded by clean single-model measurements and by the compiled-backward
+follow-up; retain the numbers below as an auditable historical result, not as
+the final net-speed claim.
 
 ## What changed from v1
 
@@ -74,10 +77,10 @@ isn't handicapped the same way -- inflating the apparent win here. A
 clean, isolated measurement (one model resident at a time) shows the
 kernel is genuinely `~0.61-0.64x`, i.e. ~1.6x SLOWER than raw BDH. See
 `docs/restart/hz0h_triton_regime_dependence_results.md` for the full
-diagnostic chain and the real, standing explanation (the kernel's
-backward pass is still an uncompiled Python loop, not a second Triton
-kernel -- real per-launch overhead the forward kernel's savings don't
-cover). Do not treat the number below as a universal speedup.
+diagnostic chain. The follow-up compiled the backward path and still
+measured `0.594x` at its best tile configuration, so the remaining
+bottleneck is the dscore/score reduction itself, not merely Python launch
+overhead. Do not treat the number below as the final net-speed claim.
 
 Same production config as the earlier native-tiled-kernel benchmark
 (`scripts/hz0h_bdh_native_kernel_benchmark.py`): batch 12, sequence length

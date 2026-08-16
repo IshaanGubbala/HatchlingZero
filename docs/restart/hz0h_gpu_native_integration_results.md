@@ -6,6 +6,16 @@ endpoint. **This is a real, honest negative result on the speed axis,
 reported plainly rather than rounded toward what the isolated benchmarks
 predicted.**
 
+**Final Stage 1 correction, 2026-08-16:** the earlier co-residency
+diagnosis and isolated Triton `1.551x` result are historical artifacts of
+the original comparison setup. Clean single-model ablations put the Triton
+attention path at roughly `0.61-0.64x` versus raw BDH. The compiled backward
+follow-up (task #43) fixed two real implementation bugs and reached a best
+`0.594x`, so the remaining attention bottleneck is the dscore/score reduction
+at the project's `N >> T` shape. The forward-only wide-GEMM and `encoder_v`
+remaps remain independently verified wins; they do not compose into a net
+training-speed win in the current integration.
+
 **Update, 2026-08-16:** the decomposition this doc called for has been
 run -- see `docs/restart/hz0h_triton_regime_dependence_results.md`. The
 wide-GEMM encoder's live reshape, named below as the "leading suspect,"

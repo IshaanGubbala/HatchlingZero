@@ -106,12 +106,21 @@ to cover, once measured cleanly.
 showed small, consistent, real positive contributions in every ablation
 run, and nothing in this investigation implicates them.
 
-## Real next step, not yet built
+## Follow-up result: task #43 is now complete
 
-Compile the backward pass into a second Triton kernel, removing the
-uncompiled Python loop's per-launch overhead -- task #43. This is now a
-confirmed, real regression to fix, not a regime-dependent tradeoff to
-route around.
+The proposed second Triton backward path was implemented and tested. It uses
+three compiled kernels for the query-role dQ, key-role dQ, and dV terms. The
+first real CUDA run found a dtype mismatch; the next implementation found a
+32x redundant-recomputation bug in its output tiling. Both were fixed and
+correctness was restored across all five CUDA cases. The measured local
+optimum was still `0.594x` versus raw BDH, roughly `1.68x` slower. See
+`docs/restart/hz0h_triton_backward_kernel_results.md` for the full audit.
+
+This closes the launch-overhead hypothesis as a sufficient fix. The remaining
+cost is the dscore/score reduction itself at `N=2048 >> T=256`; further tile
+width tuning on this design is not the next recommended lever. A materially
+different fused formulation or a restructuring that avoids the two full Q
+role passes would be required for another speed attempt.
 
 ## Real methodological lesson for future benchmarks on this machine
 
