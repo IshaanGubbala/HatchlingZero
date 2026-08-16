@@ -86,6 +86,8 @@ def main() -> None:
     parser.add_argument("--steps", type=int, default=20)
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--learning-rate", type=float, default=1e-3)
+    parser.add_argument("--compile-step", action="store_true")
+    parser.add_argument("--compile-mode", choices=("default", "reduce-overhead", "max-autotune"), default="default")
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
 
@@ -124,6 +126,8 @@ def main() -> None:
     def run(factory, *, transformer: bool = False) -> dict:
         model = fresh(factory)
         try:
+            if args.compile_step:
+                model = torch.compile(model, mode=args.compile_mode)
             return _benchmark(
                 model, idx, targets, warmup=args.warmup, steps=args.steps,
                 lr=args.learning_rate, transformer=transformer,
@@ -160,6 +164,8 @@ def main() -> None:
         "latent_width": args.n_embd * args.mlp_internal_dim_multiplier // args.n_head,
         "warmup_steps": args.warmup,
         "timed_steps": args.steps,
+        "compile_step": args.compile_step,
+        "compile_mode": args.compile_mode if args.compile_step else None,
         "raw_bdh": raw,
         "factorized": candidates,
         "matched_transformer": transformer,
