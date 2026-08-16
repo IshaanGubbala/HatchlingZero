@@ -1,6 +1,6 @@
 # BDH Native Attention Kernel Results
 
-Status: preliminary CUDA result; final artifact audit pending.
+Status: preliminary CUDA result; final compiled-kernel artifact audit pending.
 
 ## Implementation
 
@@ -16,11 +16,13 @@ direct Q/V gradients, and every named full-model parameter gradient. The full
 local suite passes:
 
 ```text
-763 passed, 103 skipped
+763 passed, 104 skipped
 ```
 
-Windows/RTX3060 independently reported the CUDA correctness test as `5/5
-passed` before starting the benchmark.
+Windows/RTX3060 independently reported the earlier CUDA correctness test as
+`5/5 passed` before starting the benchmark. The compiled Triton path is a
+separate implementation and is not considered verified until its focused
+CUDA artifact is downloaded and inspected.
 
 ## Preliminary CUDA Finding
 
@@ -50,7 +52,8 @@ remains held to the stricter output and gradient tolerances in the tests.
 
 The Windows summary is currently available through the relay chat, but the
 uploaded JSON/note filenames have not yet been confirmed through the Pi
-`/inbox/<name>` download endpoint. A tracked rerun at commit `edfd08b`, using
-`--parity-logit-atol 0.02`, has been requested so the final report can be
-audited from machine-readable output. Until that artifact is downloaded, this
-document remains preliminary and the kernel specification is not complete.
+`/inbox/<name>` download endpoint. The compiled Triton request was corrected
+to commit `9394a41` after fixing its CUDA fixture width, and the focused test
+was re-dispatched without starting another job. Until that correctness
+artifact and the subsequent benchmark artifact are downloaded, this document
+remains preliminary and the kernel specification is not complete.
