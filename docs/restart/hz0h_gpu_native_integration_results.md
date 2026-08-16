@@ -6,6 +6,16 @@ endpoint. **This is a real, honest negative result on the speed axis,
 reported plainly rather than rounded toward what the isolated benchmarks
 predicted.**
 
+**Update, 2026-08-16:** the decomposition this doc called for has been
+run -- see `docs/restart/hz0h_triton_regime_dependence_results.md`. The
+wide-GEMM encoder's live reshape, named below as the "leading suspect,"
+is **cleared** -- it and the bmm encoder_v remap each measured small, real,
+*positive* contributions in every ablation run. The entire regression
+traces to the Triton attention kernel alone, and even that isn't a fixed
+regression -- it depends on which GPU throughput regime the machine is in
+when measured (real, reproduced finding, not noise). Read the update note
+in `docs/restart/hz0h_triton_kernel_v2_results.md` alongside this doc.
+
 ## What this is
 
 `reference/hz0h_bdh_gpu_native_torch.py`'s `bdh_gpu_native_forward`

@@ -59,6 +59,20 @@ project's real Phase F sequence length).
 
 ## Benchmark
 
+**Update, 2026-08-16:** this `1.551x faster` result is real and
+independently reproduced twice, but it is NOT a fixed property of the
+kernel -- it turns out to be specific to a low-throughput regime this
+machine was in when measured (`raw_bdh ~400 tok/s`). In a later
+higher-throughput regime (`raw_bdh ~6,900 tok/s`), the same kernel
+measured `~0.61-0.64x`, i.e. ~1.6x SLOWER, reproduced across 4 independent
+runs. See `docs/restart/hz0h_triton_regime_dependence_results.md` for the
+full decomposition and the real, disclosed explanation (the kernel's
+backward pass is still an uncompiled Python loop, not a second Triton
+kernel -- its fixed per-launch overhead is the leading suspect for why
+the net result flips sign depending on how compute-bound vs. launch-
+overhead-bound the GPU currently is). Do not treat the number below as
+a universal speedup without that context.
+
 Same production config as the earlier native-tiled-kernel benchmark
 (`scripts/hz0h_bdh_native_kernel_benchmark.py`): batch 12, sequence length
 256, `n_embd=512`, `n_layer=8`, `n_head=8`, `mlp_internal_dim_multiplier=32`,
