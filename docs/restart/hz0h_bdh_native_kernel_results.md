@@ -57,3 +57,11 @@ to commit `9394a41` after fixing its CUDA fixture width, and the focused test
 was re-dispatched without starting another job. Until that correctness
 artifact and the subsequent benchmark artifact are downloaded, this document
 remains preliminary and the kernel specification is not complete.
+
+**Update, 2026-08-16:** the compiled Triton path referenced above now has
+its own independently-verified correctness and benchmark result -- see
+`docs/restart/hz0h_triton_kernel_v2_results.md`. That path went through
+real, disclosed correctness failures (all 5 CUDA test cases failed on the
+first real run) and two rounds of root-causing before reaching a real 5/5
+pass; it is a separate implementation from the tiled kernel documented
+above and reached a different (positive, on the speed axis) result.
