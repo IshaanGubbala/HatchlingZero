@@ -53,7 +53,11 @@ def main():
         m=WideParameterBDH(c); m.load_oracle_state_dict(initial); m=m.to(device=device,dtype=dtype); m.attn.freqs=m.attn.freqs.to(torch.float32); return m
     # CUDA/BF16 correctness gate before timing.  A small batch keeps both
     # models resident safely while exercising the actual Tensor-Core dtype.
-    parity_idx = idx[:2, :32]; parity_targets = targets[:2, :32]
+    # Slicing a wider CUDA batch leaves a non-contiguous row stride.  The
+    # canonical oracle intentionally uses ``view`` for its CE flattening, so
+    # make this benchmark-only narrow parity input contiguous before invoking
+    # either arm; production inputs are contiguous already.
+    parity_idx = idx[:2, :32].contiguous(); parity_targets = targets[:2, :32].contiguous()
     parity_oracle, parity_native = oracle(), wide()
     oracle_logits, oracle_loss = parity_oracle(parity_idx, parity_targets)
     native_logits, native_loss = parity_native(parity_idx, parity_targets)
