@@ -559,9 +559,14 @@ If no:
 - `[Verified locally]` Exact logits and every named parameter gradient match
   across checkpoint segment sizes `1`, `2`, and `4`; integrated store and
   recompute runner smokes pass.
-- `[Previously measured on RTX 3060]` Per-round recomputation reduced the
-  comparable synthetic-step peak by 81.5% and improved throughput 2.08x; it
-  also cleared the real depth-transition memory wall in the 25M-token pilot.
+- `[Corrected RTX 3060 measurement]` Per-round recomputation reduces eager
+  peak memory by 81.2% but costs 27.1% throughput. Under `torch.compile`, it
+  reduces peak memory by only another 20.0% and costs 26.7% throughput because
+  compile already reduces the stored-activation graph to 4.98 GB. The earlier
+  single-step 2.08x speed claim did not survive the isolated multi-step test.
+- `[Production choice]` Compiled + stored activations is the fastest measured
+  path (`10,741 tok/s`, `4.98 GB`). Compiled recompute is the constrained-VRAM
+  fallback (`7,872 tok/s`, `3.98 GB`).
 - `[Still open]` This is recomputation, not physical sparse execution. Dense
   `[B,H,T,N]` tensors are regenerated during backward and inactive ReLU lanes
   do not yet skip GEMM work. CUDA remeasurement of the new default dispatch is

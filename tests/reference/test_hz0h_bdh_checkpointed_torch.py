@@ -118,6 +118,7 @@ def test_segmented_checkpoint_gradients_match_per_round_checkpointing():
 
 def test_training_dispatch_policy_and_validation_bypass():
     assert resolve_bdh_activation_policy("auto", "cuda") == "recompute"
+    assert resolve_bdh_activation_policy("auto", "cuda", compiled=True) == "store"
     assert resolve_bdh_activation_policy("auto", "mps") == "store"
     assert resolve_bdh_activation_policy("recompute", "cpu") == "recompute"
 

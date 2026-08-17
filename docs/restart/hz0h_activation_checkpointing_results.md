@@ -225,8 +225,8 @@ training runners. `scripts/hz0h_stage2_runner_bdh.py` and
 `scripts/hz0h_stage2_runner_bdh_depth_curriculum.py` use an explicit
 `--activation-policy`:
 
-- `auto` (default): recompute shared dynamical rounds on CUDA; retain the
-  original dense autograd graph on MPS/CPU.
+- `auto` (default): recompute shared dynamical rounds on eager CUDA, use stored
+  activations under `torch.compile`, and use stored activations on MPS/CPU.
 - `recompute`: force activation recomputation on any backend.
 - `store`: force the upstream-style retained graph for oracle/debug runs.
 
@@ -241,3 +241,25 @@ BDH's shared iterative dynamics and addresses depth-wise activation retention;
 it does not yet make the dense `[B,H,T,N]` ReLU outputs use sparse storage or
 skip inactive-neuron GEMM work. The dense upstream forward remains unchanged
 as the independent correctness oracle.
+
+### Isolated production-shape correction (2026-08-16)
+
+The earlier single-step CUDA result claiming recomputation improved throughput
+did not survive a clean multi-step, fresh-process benchmark. The corrected
+measurement is in `docs/restart/hz0h_bdh_activation_policy_cuda_benchmark.json`:
+
+| Execution | Policy | Tokens/s | ms/step | Peak bytes |
+|---|---:|---:|---:|---:|
+| eager | store | 5,802 | 529.4 | 7,931,383,296 |
+| eager | recompute | 4,227 | 726.7 | 1,489,702,400 |
+| compiled | store | 10,741 | 286.0 | 4,980,444,672 |
+| compiled | recompute | 7,872 | 390.3 | 3,983,757,312 |
+
+Every arm ran in a fresh subprocess after five warmup steps; twenty complete
+forward/backward/fused-AdamW steps were measured. All arms were finite and had
+the same final loss. Recompute therefore costs about 27% throughput. It cuts
+eager peak memory by 81.2%, but under compilation it cuts only another 20.0%
+because compilation already lowers the stored-graph peak substantially.
+
+Production recommendation: use compiled + stored activations for maximum
+throughput; force recompute only when the extra memory headroom is necessary.

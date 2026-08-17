@@ -174,14 +174,21 @@ def bdh_variable_depth_forward_checkpointed(
     return logits, loss
 
 
-def resolve_bdh_activation_policy(policy: str, device_type: str) -> str:
+def resolve_bdh_activation_policy(
+    policy: str,
+    device_type: str,
+    *,
+    compiled: bool = False,
+) -> str:
     """Resolve the portable policy into the concrete training behavior."""
     if policy not in {"auto", "recompute", "store"}:
         raise ValueError(f"unknown BDH activation policy: {policy}")
     if policy == "auto":
-        # Real RTX 3060 measurements show a large memory and throughput win;
-        # the existing MPS measurement regressed, so do not generalize it.
-        return "recompute" if device_type == "cuda" else "store"
+        # Isolated RTX 3060 measurements show compile already removes most of
+        # the retained-graph memory cost. Recompute remains the safe eager-CUDA
+        # default, but under compile it costs ~27% throughput for only ~20%
+        # additional peak-memory reduction.
+        return "recompute" if device_type == "cuda" and not compiled else "store"
     return policy
 
 

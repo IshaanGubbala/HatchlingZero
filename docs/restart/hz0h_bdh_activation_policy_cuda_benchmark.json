@@ -1,0 +1,92 @@
+{
+  "device": "cuda",
+  "hardware_id": "NVIDIA GeForce RTX 3060",
+  "dtype": "bfloat16",
+  "shape": {
+    "batch_size": 12,
+    "sequence_length": 256,
+    "n_embd": 512,
+    "n_layer": 8,
+    "n_head": 8,
+    "mlp_internal_dim_multiplier": 32
+  },
+  "warmup_steps": 5,
+  "measured_steps": 20,
+  "fresh_subprocess_per_arm": true,
+  "arms": {
+    "eager_store": {
+      "policy": "store",
+      "compiled": false,
+      "compile_mode": null,
+      "checkpoint_segment_size": 1,
+      "steps": 20,
+      "tokens": 61440,
+      "seconds": 10.588986999937333,
+      "milliseconds_per_step": 529.4493499968667,
+      "tokens_per_second": 5802.254738849298,
+      "peak_memory_bytes": 7931383296,
+      "last_loss": 5.4375,
+      "finite": true
+    },
+    "eager_recompute": {
+      "policy": "recompute",
+      "compiled": false,
+      "compile_mode": null,
+      "checkpoint_segment_size": 1,
+      "steps": 20,
+      "tokens": 61440,
+      "seconds": 14.5347004000796,
+      "milliseconds_per_step": 726.73502000398,
+      "tokens_per_second": 4227.1253145103365,
+      "peak_memory_bytes": 1489702400,
+      "last_loss": 5.4375,
+      "finite": true
+    },
+    "compiled_store": {
+      "policy": "store",
+      "compiled": true,
+      "compile_mode": "default",
+      "checkpoint_segment_size": 1,
+      "steps": 20,
+      "tokens": 61440,
+      "seconds": 5.720209600054659,
+      "milliseconds_per_step": 286.01048000273295,
+      "tokens_per_second": 10740.865159803396,
+      "peak_memory_bytes": 4980444672,
+      "last_loss": 5.4375,
+      "finite": true
+    },
+    "compiled_recompute": {
+      "policy": "recompute",
+      "compiled": true,
+      "compile_mode": "default",
+      "checkpoint_segment_size": 1,
+      "steps": 20,
+      "tokens": 61440,
+      "seconds": 7.805153299937956,
+      "milliseconds_per_step": 390.2576649968978,
+      "tokens_per_second": 7871.722391472874,
+      "peak_memory_bytes": 3983757312,
+      "last_loss": 5.4375,
+      "finite": true
+    }
+  },
+  "comparisons": {
+    "eager": {
+      "recompute_over_store_throughput_ratio": 0.7285314941805984,
+      "recompute_over_store_peak_memory_ratio": 0.18782378109897868,
+      "recompute_minus_store_milliseconds_per_step": 197.28567000711337
+    },
+    "compiled": {
+      "recompute_over_store_throughput_ratio": 0.7328760089952531,
+      "recompute_over_store_peak_memory_ratio": 0.7998798449457004,
+      "recompute_minus_store_milliseconds_per_step": 104.24718499416485
+    }
+  },
+  "child_stderr": {
+    "eager_store": "C:\\Users\\rajee\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\torch\\cuda\\__init__.py:61: FutureWarning: The pynvml package is deprecated. Please install nvidia-ml-py instead. If you did not install pynvml directly, please report this to the maintainers of the package that installed pynvml for you.\n  import pynvml  # type: ignore[import]",
+    "eager_recompute": "C:\\Users\\rajee\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\torch\\cuda\\__init__.py:61: FutureWarning: The pynvml package is deprecated. Please install nvidia-ml-py instead. If you did not install pynvml directly, please report this to the maintainers of the package that installed pynvml for you.\n  import pynvml  # type: ignore[import]",
+    "compiled_store": "C:\\Users\\rajee\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\torch\\cuda\\__init__.py:61: FutureWarning: The pynvml package is deprecated. Please install nvidia-ml-py instead. If you did not install pynvml directly, please report this to the maintainers of the package that installed pynvml for you.\n  import pynvml  # type: ignore[import]",
+    "compiled_recompute": "C:\\Users\\rajee\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\torch\\cuda\\__init__.py:61: FutureWarning: The pynvml package is deprecated. Please install nvidia-ml-py instead. If you did not install pynvml directly, please report this to the maintainers of the package that installed pynvml for you.\n  import pynvml  # type: ignore[import]\nW0816 19:45:14.606000 30064 site-packages\\torch\\_inductor\\utils.py:1250] [0/0] Not enough SMs to use max_autotune_gemm mode"
+  }
+}

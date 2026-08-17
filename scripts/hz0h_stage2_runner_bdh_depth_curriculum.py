@@ -237,7 +237,11 @@ def main() -> None:
     )
     model = BDH(bdh_config).to(device=device, dtype=torch_dtype)
     model.attn.freqs = model.attn.freqs.to(torch.float32)
-    resolved_activation_policy = resolve_bdh_activation_policy(args.activation_policy, device.type)
+    resolved_activation_policy = resolve_bdh_activation_policy(
+        args.activation_policy,
+        device.type,
+        compiled=args.compile_step,
+    )
 
     def base_forward_fn(model_arg, idx, n_iterations, targets=None):
         return bdh_training_forward(

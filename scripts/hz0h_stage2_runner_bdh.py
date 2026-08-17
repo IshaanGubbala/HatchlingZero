@@ -223,7 +223,11 @@ def main() -> None:
     # call. Restore it after the cast rather than skip the cast for the
     # rest of the model.
     model.attn.freqs = model.attn.freqs.to(torch.float32)
-    resolved_activation_policy = resolve_bdh_activation_policy(args.activation_policy, device.type)
+    resolved_activation_policy = resolve_bdh_activation_policy(
+        args.activation_policy,
+        device.type,
+        compiled=args.compile_step,
+    )
 
     def configured_forward(model_arg, idx, targets=None):
         return bdh_training_forward(
