@@ -19,6 +19,17 @@ def test_dense_bdh_runner_reports_fair_execution_metadata(tmp_path: Path):
     run_dir = tmp_path / "bdh"
     report = _run([sys.executable, "scripts/hz0h_stage2_runner_bdh.py", "--data", "data/packed/hz0h_bytes_25m_train.jsonl", "--validation-data", "data/packed/hz0h_bytes_25m_val.jsonl", "--run-dir", str(run_dir), "--target-tokens", "16", "--batch-size", "1", "--validation-batch-size", "1", "--sequence-length", "8", "--n-embd", "16", "--n-layer", "2", "--n-head", "2", "--mlp-internal-dim-multiplier", "4", "--checkpoint-interval", "2", "--validation-interval", "2", "--device", "cpu", "--dtype", "float32", "--warmup-steps", "0"], run_dir / "bdh_stage2.json")
     assert {key: report[key] for key in COMMON} == COMMON
+    assert report["activation_policy"] == "auto"
+    assert report["resolved_activation_policy"] == "store"
+    assert report["checkpoint_segment_size"] == 1
+
+
+def test_dense_bdh_runner_can_force_shared_round_recomputation(tmp_path: Path):
+    run_dir = tmp_path / "bdh_recompute"
+    report = _run([sys.executable, "scripts/hz0h_stage2_runner_bdh.py", "--data", "data/packed/hz0h_bytes_25m_train.jsonl", "--validation-data", "data/packed/hz0h_bytes_25m_val.jsonl", "--run-dir", str(run_dir), "--target-tokens", "8", "--batch-size", "1", "--validation-batch-size", "1", "--sequence-length", "8", "--n-embd", "16", "--n-layer", "2", "--n-head", "2", "--mlp-internal-dim-multiplier", "4", "--checkpoint-interval", "1", "--validation-interval", "1", "--device", "cpu", "--dtype", "float32", "--warmup-steps", "0", "--activation-policy", "recompute", "--checkpoint-segment-size", "2"], run_dir / "bdh_stage2.json")
+    assert report["resolved_activation_policy"] == "recompute"
+    assert report["checkpoint_segment_size"] == 2
+    assert report["budget_complete"] is True
 
 
 def test_transformer_runner_reports_fair_execution_metadata(tmp_path: Path):

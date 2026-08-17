@@ -34,6 +34,7 @@ import torch
 import torch.nn.functional as F
 
 from reference.hz0h_bdh_torch import BDH
+from reference.hz0h_bdh_variable_depth_torch import bdh_variable_depth_forward
 
 
 def _bdh_checkpoint_iteration(
@@ -77,16 +78,34 @@ def _bdh_checkpoint_iteration(
     return x
 
 
+def _bdh_checkpoint_segment(
+    x: torch.Tensor,
+    model: BDH,
+    C: object,
+    B: int,
+    T: int,
+    D: int,
+    nh: int,
+    N: int,
+    segment_iterations: int,
+) -> torch.Tensor:
+    """Recompute a contiguous group of shared-weight dynamical rounds."""
+    for _ in range(segment_iterations):
+        x = _bdh_checkpoint_iteration(x, model, C, B, T, D, nh, N)
+    return x
+
+
 def bdh_variable_depth_forward_checkpointed(
     model: BDH,
     idx: torch.Tensor,
     n_iterations: int,
     targets: torch.Tensor | None = None,
+    checkpoint_segment_size: int = 1,
 ):
     """Same real per-layer computation as `bdh_variable_depth_forward`,
-    but each iteration wraps its block computation in
-    torch.utils.checkpoint.checkpoint (with use_reentrant=False) to
-    avoid storing intermediate activations across the depth loop.
+    but groups of iterations are wrapped in
+    torch.utils.checkpoint.checkpoint (with use_reentrant=False) to avoid
+    storing neuron-space activations across the full depth loop.
 
     Memory impact: Reduces peak activation memory (scales linearly with
     n_iterations without checkpointing; nearly constant with it). Exact
@@ -103,10 +122,23 @@ def bdh_variable_depth_forward_checkpointed(
         n_iterations: number of layer-loop iterations (independent of
                       model.config.n_layer)
         targets: optional target tokens for loss computation, shape (B, T)
+        checkpoint_segment_size: rounds recomputed as one segment. One gives
+                                 minimum memory; larger values reduce boundary
+                                 overhead while retaining more activations.
 
     Returns:
         (logits, loss): logits shape (B, T, vocab_size), loss scalar or None
     """
+    if checkpoint_segment_size < 1:
+        raise ValueError("checkpoint_segment_size must be at least 1")
+    if n_iterations < 0:
+        raise ValueError("n_iterations must be non-negative")
+
+    # Checkpointing has no benefit when autograd is disabled. Taking the plain
+    # path keeps validation and inference free of checkpoint bookkeeping.
+    if not torch.is_grad_enabled():
+        return bdh_variable_depth_forward(model, idx, n_iterations, targets)
+
     C = model.config
     B, T = idx.size()
     D = C.n_embd
@@ -116,9 +148,11 @@ def bdh_variable_depth_forward_checkpointed(
     x = model.embed(idx).unsqueeze(1)
     x = model.ln(x)
 
-    for _iteration in range(n_iterations):
+    iterations_remaining = n_iterations
+    while iterations_remaining:
+        segment_iterations = min(checkpoint_segment_size, iterations_remaining)
         x = torch.utils.checkpoint.checkpoint(
-            _bdh_checkpoint_iteration,
+            _bdh_checkpoint_segment,
             x,
             model,
             C,
@@ -127,8 +161,10 @@ def bdh_variable_depth_forward_checkpointed(
             D,
             nh,
             N,
+            segment_iterations,
             use_reentrant=False,
         )
+        iterations_remaining -= segment_iterations
 
     logits = x.view(B, T, D) @ model.lm_head
     loss = None
@@ -136,3 +172,41 @@ def bdh_variable_depth_forward_checkpointed(
         loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1))
 
     return logits, loss
+
+
+def resolve_bdh_activation_policy(policy: str, device_type: str) -> str:
+    """Resolve the portable policy into the concrete training behavior."""
+    if policy not in {"auto", "recompute", "store"}:
+        raise ValueError(f"unknown BDH activation policy: {policy}")
+    if policy == "auto":
+        # Real RTX 3060 measurements show a large memory and throughput win;
+        # the existing MPS measurement regressed, so do not generalize it.
+        return "recompute" if device_type == "cuda" else "store"
+    return policy
+
+
+def bdh_training_forward(
+    model: BDH,
+    idx: torch.Tensor,
+    n_iterations: int,
+    targets: torch.Tensor | None = None,
+    *,
+    activation_policy: str = "auto",
+    checkpoint_segment_size: int = 1,
+):
+    """Production dispatch that exploits BDH's shared iterative dynamics.
+
+    CUDA training defaults to retaining only segment boundaries and
+    recomputing neuron-space activations in backward. Evaluation/inference
+    always takes the plain path because there is no backward graph to save.
+    """
+    resolved = resolve_bdh_activation_policy(activation_policy, idx.device.type)
+    if resolved == "store" or not torch.is_grad_enabled():
+        return bdh_variable_depth_forward(model, idx, n_iterations, targets)
+    return bdh_variable_depth_forward_checkpointed(
+        model,
+        idx,
+        n_iterations,
+        targets,
+        checkpoint_segment_size=checkpoint_segment_size,
+    )

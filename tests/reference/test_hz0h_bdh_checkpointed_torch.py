@@ -12,7 +12,11 @@ import torch
 
 from reference.hz0h_bdh_torch import BDH, BDHConfig
 from reference.hz0h_bdh_variable_depth_torch import bdh_variable_depth_forward
-from reference.hz0h_bdh_checkpointed_torch import bdh_variable_depth_forward_checkpointed
+from reference.hz0h_bdh_checkpointed_torch import (
+    bdh_training_forward,
+    bdh_variable_depth_forward_checkpointed,
+    resolve_bdh_activation_policy,
+)
 
 
 def _tiny_config() -> BDHConfig:
@@ -83,6 +87,62 @@ def test_gradients_match_uncheckpointed_forward():
     assert torch.allclose(grad_encoder_ref, grad_encoder_ckpt, atol=1e-5), (
         f"Gradient mismatch: max diff = {(grad_encoder_ref - grad_encoder_ckpt).abs().max()}"
     )
+
+
+def test_segmented_checkpoint_gradients_match_per_round_checkpointing():
+    config = _tiny_config()
+    idx = torch.randint(0, config.vocab_size, (2, 8))
+    targets = torch.randint(0, config.vocab_size, (2, 8))
+    gradients = []
+    logits = []
+    for segment_size in (1, 2, 4):
+        torch.manual_seed(11)
+        model = BDH(config)
+        output, loss = bdh_variable_depth_forward_checkpointed(
+            model,
+            idx,
+            n_iterations=4,
+            targets=targets,
+            checkpoint_segment_size=segment_size,
+        )
+        loss.backward()
+        logits.append(output.detach())
+        gradients.append({name: parameter.grad.detach().clone() for name, parameter in model.named_parameters()})
+
+    for output in logits[1:]:
+        assert torch.equal(logits[0], output)
+    for candidate in gradients[1:]:
+        for name, expected in gradients[0].items():
+            assert torch.allclose(expected, candidate[name], atol=1e-5), name
+
+
+def test_training_dispatch_policy_and_validation_bypass():
+    assert resolve_bdh_activation_policy("auto", "cuda") == "recompute"
+    assert resolve_bdh_activation_policy("auto", "mps") == "store"
+    assert resolve_bdh_activation_policy("recompute", "cpu") == "recompute"
+
+    config = _tiny_config()
+    model = BDH(config)
+    idx = torch.randint(0, config.vocab_size, (2, 8))
+    with torch.no_grad():
+        dispatched, _ = bdh_training_forward(
+            model, idx, 2, activation_policy="recompute"
+        )
+        plain, _ = bdh_variable_depth_forward(model, idx, 2)
+    assert torch.equal(dispatched, plain)
+
+
+def test_invalid_checkpoint_segment_size_is_rejected():
+    model = BDH(_tiny_config())
+    idx = torch.randint(0, model.config.vocab_size, (1, 4))
+    try:
+        bdh_variable_depth_forward_checkpointed(
+            model, idx, 2, checkpoint_segment_size=0
+        )
+    except ValueError as error:
+        assert "at least 1" in str(error)
+    else:
+        raise AssertionError("invalid checkpoint segment size was accepted")
 
 
 def test_loss_matches_uncheckpointed():

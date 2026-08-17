@@ -551,6 +551,22 @@ If no:
 5. Re-benchmark speed, VRAM, energy/token, and loss.
 6. Only then decide whether to push exact BDH further or branch to BlockBDH/HZ-CQ.
 
+### Training-memory execution update (2026-08-16)
+
+- `[Implemented]` Canonical fixed-depth and depth-curriculum BDH runners now
+  default to shared-round activation recomputation on CUDA instead of retaining
+  every dense neuron-space activation across all recurrent rounds.
+- `[Verified locally]` Exact logits and every named parameter gradient match
+  across checkpoint segment sizes `1`, `2`, and `4`; integrated store and
+  recompute runner smokes pass.
+- `[Previously measured on RTX 3060]` Per-round recomputation reduced the
+  comparable synthetic-step peak by 81.5% and improved throughput 2.08x; it
+  also cleared the real depth-transition memory wall in the 25M-token pilot.
+- `[Still open]` This is recomputation, not physical sparse execution. Dense
+  `[B,H,T,N]` tensors are regenerated during backward and inactive ReLU lanes
+  do not yet skip GEMM work. CUDA remeasurement of the new default dispatch is
+  required before revising the current BDH-versus-Transformer headline ratios.
+
 ---
 
 ## 9. Final Position

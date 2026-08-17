@@ -43,6 +43,7 @@ import torch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from reference.hz0h_bdh_torch import BDH, BDHConfig, compute_activation_and_state_diagnostics
+from reference.hz0h_bdh_checkpointed_torch import bdh_training_forward, resolve_bdh_activation_policy
 from reference.hz0h_bdh_train_torch import shifted_target_batch, build_optimizer
 from reference.hz0h_energy import TrainingEnergySampler
 
@@ -180,10 +181,14 @@ def main() -> None:
     parser.add_argument("--compile-step", action="store_true", help="torch.compile the model's forward call. Checkpoints are still saved from the ORIGINAL (uncompiled) model object -- torch.compile wraps but does not copy parameters, so this stays a plain, portable BDH state_dict, loadable by every existing eval script unchanged. Off by default; see docs/restart/hz0h_phase6_depth_curriculum_results.md for the real speed/correctness measurement this flag was validated against on CUDA before being recommended.")
     parser.add_argument("--compile-mode", choices=("default", "reduce-overhead", "max-autotune"), default="default", help="torch.compile's `mode` argument, only used if --compile-step is set. `reduce-overhead` uses CUDA graphs to eliminate per-kernel Python/driver launch overhead -- real candidate for BDH specifically, since its forward pass is many small sequential matmuls in a Python for-loop over n_layer (likely launch-overhead-bound at small batch sizes on consumer GPUs), unlike `default` mode which mainly fuses operators but still issues per-op CUDA calls normally. CUDA graphs require STATIC input shapes across calls (true here: batch/sequence-length are fixed for the whole run) and static memory addresses for the graphed tensors -- a real, disclosed constraint of this mode, not a free upgrade in general, but a good fit for this runner's own fixed-shape training loop specifically.")
     parser.add_argument("--fused-optimizer", action="store_true", help="AdamW(..., fused=True) -- CUDA-only kernel fusion for the optimizer step, mathematically IDENTICAL update rule to the unfused path (not an approximation), just fewer kernel launches. Off by default to keep build_optimizer's own 'real upstream recipe' semantics untouched for every other caller; this flag overrides the optimizer construction locally in this runner only.")
+    parser.add_argument("--activation-policy", choices=("auto", "recompute", "store"), default="auto", help="BDH activation retention policy. auto uses shared-round recomputation on CUDA and stored activations elsewhere; recompute forces checkpointing; store preserves the dense oracle behavior.")
+    parser.add_argument("--checkpoint-segment-size", type=int, default=1, help="Shared BDH rounds per recomputed segment. 1 minimizes peak memory; larger values trade memory for fewer checkpoint boundaries.")
     args = parser.parse_args()
 
     if args.warmup_steps < 0:
         raise ValueError("--warmup-steps must be non-negative")
+    if args.checkpoint_segment_size < 1:
+        raise ValueError("--checkpoint-segment-size must be at least 1")
 
     device = resolve_device(args.device)
     if device.type == "cuda" and not torch.cuda.is_available():
@@ -218,14 +223,24 @@ def main() -> None:
     # call. Restore it after the cast rather than skip the cast for the
     # rest of the model.
     model.attn.freqs = model.attn.freqs.to(torch.float32)
-    # torch.compile wraps model's __call__ but shares the SAME parameter
-    # tensors -- forward_model is used for every training/eval step below,
-    # while `model` itself (uncompiled) is what gets checkpointed, so saved
-    # weights stay a plain, portable BDH state_dict either way.
-    forward_model = torch.compile(model, mode=args.compile_mode) if args.compile_step else model
+    resolved_activation_policy = resolve_bdh_activation_policy(args.activation_policy, device.type)
+
+    def configured_forward(model_arg, idx, targets=None):
+        return bdh_training_forward(
+            model_arg,
+            idx,
+            n_iterations=model_arg.config.n_layer,
+            targets=targets,
+            activation_policy=resolved_activation_policy,
+            checkpoint_segment_size=args.checkpoint_segment_size,
+        )
+
+    # Compile the selected execution function while checkpointing the original
+    # model object, keeping state_dicts portable.
+    forward_model = torch.compile(configured_forward, mode=args.compile_mode) if args.compile_step else configured_forward
 
     config_snapshot = {key: (str(value) if isinstance(value, Path) else value) for key, value in vars(args).items()}
-    config_snapshot.update(sequence_length_resolved=sequence_length, effective_batch_tokens=effective_batch_tokens, total_optimizer_steps_estimate=total_optimizer_steps, resolved_device=str(device), backend="torch", architecture="bdh", parameter_count=sum(p.numel() for p in model.parameters()))
+    config_snapshot.update(sequence_length_resolved=sequence_length, effective_batch_tokens=effective_batch_tokens, total_optimizer_steps_estimate=total_optimizer_steps, resolved_device=str(device), resolved_activation_policy=resolved_activation_policy, backend="torch", architecture="bdh", parameter_count=sum(p.numel() for p in model.parameters()))
     (args.run_dir / "config_snapshot.json").write_text(json.dumps(config_snapshot, indent=2, sort_keys=True), encoding="utf-8")
 
     def current_lr(at_step: int) -> float:
@@ -269,7 +284,7 @@ def main() -> None:
             for start in range(0, fixed_validation_tokens.shape[0], sub_batch):
                 chunk = fixed_validation_tokens[start:start + sub_batch]
                 x, y = shifted_target_batch(chunk)
-                _logits, loss = forward_model(x, targets=y)
+                _logits, loss = forward_model(model, x, targets=y)
                 total += float(loss)
                 count += 1
             model.train()
@@ -281,7 +296,7 @@ def main() -> None:
             tokens = read_batch(train, args.batch_size, sequence_length, device, epoch_counter)
             x, y = shifted_target_batch(tokens)
             optimizer.zero_grad(set_to_none=True)
-            _logits, loss = forward_model(x, targets=y)
+            _logits, loss = forward_model(model, x, targets=y)
             loss.backward()
             grad_norm = float(torch.linalg.vector_norm(torch.stack(torch._foreach_norm([p.grad for p in model.parameters() if p.grad is not None], 2.0))))
             last_lr = current_lr(step)
@@ -291,7 +306,7 @@ def main() -> None:
             step += 1
             batch_index += 1
             tokens_seen += args.batch_size * sequence_length
-            item = {"step": step, "tokens_seen": tokens_seen, "loss": float(loss), "gradient_norm": grad_norm, "lr": last_lr, "wall_time": time.perf_counter() - started, "epoch_or_data_pass": epoch_counter[0], "peak_memory_bytes": peak_memory_bytes(device)}
+            item = {"step": step, "tokens_seen": tokens_seen, "loss": float(loss.detach()), "gradient_norm": grad_norm, "lr": last_lr, "wall_time": time.perf_counter() - started, "epoch_or_data_pass": epoch_counter[0], "peak_memory_bytes": peak_memory_bytes(device)}
 
             is_new_best = False
             if step % args.validation_interval == 0 or tokens_seen >= args.target_tokens:
@@ -323,6 +338,8 @@ def main() -> None:
         "backend": "torch", "device": str(device), "hardware_id": hardware_id,
         "effective_batch_tokens": effective_batch_tokens, "compile_step": args.compile_step,
         "compile_mode": args.compile_mode if args.compile_step else None, "fused_optimizer": args.fused_optimizer,
+        "activation_policy": args.activation_policy, "resolved_activation_policy": resolved_activation_policy,
+        "checkpoint_segment_size": args.checkpoint_segment_size,
         "architecture": "bdh", "dtype": args.dtype,
         "lr_schedule": args.lr_schedule, "max_lr": args.max_lr, "warmup_steps": args.warmup_steps, "lr_min_ratio": args.lr_min_ratio,
         "total_optimizer_steps_estimate": total_optimizer_steps, "final_lr": last_lr, "validation_batch_size": args.validation_batch_size,

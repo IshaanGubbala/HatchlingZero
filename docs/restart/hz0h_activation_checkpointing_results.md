@@ -217,3 +217,27 @@ Checkpointing trades memory for compute. On this MPS config, the trade is unfavo
 - Measurement on MPS is inherently less reliable than CUDA
 
 Do not assume checkpointing always helps. Profile on your target hardware and config before enabling it in production.
+
+## Production policy update (2026-08-16)
+
+The prior opt-in deployment gap is now closed for the canonical exact-BDH
+training runners. `scripts/hz0h_stage2_runner_bdh.py` and
+`scripts/hz0h_stage2_runner_bdh_depth_curriculum.py` use an explicit
+`--activation-policy`:
+
+- `auto` (default): recompute shared dynamical rounds on CUDA; retain the
+  original dense autograd graph on MPS/CPU.
+- `recompute`: force activation recomputation on any backend.
+- `store`: force the upstream-style retained graph for oracle/debug runs.
+
+Checkpoint segments are configurable with `--checkpoint-segment-size`.
+Size `1` retains only the narrow residual-stream boundary between rounds and
+minimizes peak memory; larger segments retain more neuron-space activations
+in exchange for fewer checkpoint boundaries. Validation and inference bypass
+checkpointing automatically because they do not construct a backward graph.
+
+This is exact recomputation, not physical sparse-tensor execution. It exploits
+BDH's shared iterative dynamics and addresses depth-wise activation retention;
+it does not yet make the dense `[B,H,T,N]` ReLU outputs use sparse storage or
+skip inactive-neuron GEMM work. The dense upstream forward remains unchanged
+as the independent correctness oracle.
