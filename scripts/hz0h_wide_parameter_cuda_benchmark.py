@@ -51,8 +51,23 @@ def main():
         m=BDH(c); m.load_state_dict(initial); m=m.to(device=device,dtype=dtype); m.attn.freqs=m.attn.freqs.to(torch.float32); return m
     def wide():
         m=WideParameterBDH(c); m.load_oracle_state_dict(initial); m=m.to(device=device,dtype=dtype); m.attn.freqs=m.attn.freqs.to(torch.float32); return m
+    # CUDA/BF16 correctness gate before timing.  A small batch keeps both
+    # models resident safely while exercising the actual Tensor-Core dtype.
+    parity_idx = idx[:2, :32]; parity_targets = targets[:2, :32]
+    parity_oracle, parity_native = oracle(), wide()
+    oracle_logits, oracle_loss = parity_oracle(parity_idx, parity_targets)
+    native_logits, native_loss = parity_native(parity_idx, parity_targets)
+    oracle_loss.backward(); native_loss.backward(); sync()
+    grad_diffs = []
+    native_params = dict(parity_native.named_parameters())
+    for name, parameter in parity_oracle.named_parameters():
+        native_grad = native_params["encoder_wide"].grad.reshape(a.n_embd, a.n_head, -1).permute(1, 0, 2) if name == "encoder" else native_params[name].grad
+        grad_diffs.append(float((parameter.grad - native_grad).abs().max()))
+    parity = {"batch": 2, "sequence": 32, "max_logit_abs_diff": float((oracle_logits-native_logits).abs().max()), "loss_abs_diff": float((oracle_loss-native_loss).abs()), "max_parameter_grad_abs_diff": max(grad_diffs)}
+    del parity_oracle, parity_native; torch.cuda.empty_cache(); sync()
+
     raw=oracle(); raw_result=run(raw,idx,targets,a.warmup,a.steps,a.learning_rate); del raw; torch.cuda.empty_cache(); sync()
     native=wide(); wide_result=run(native,idx,targets,a.warmup,a.steps,a.learning_rate); del native; torch.cuda.empty_cache(); sync()
-    out={"device":"cuda","hardware":torch.cuda.get_device_name(device),"dtype":"bfloat16","shape":{"batch":a.batch_size,"sequence":a.sequence_length,"D":a.n_embd,"layers":a.n_layer,"heads":a.n_head,"mult":a.mlp_internal_dim_multiplier},"warmup":a.warmup,"steps":a.steps,"raw_oracle":raw_result,"persistent_wide_encoder_plus_bmm_encoder_v":wide_result,"speed_ratio":wide_result["tokens_per_second"]/raw_result["tokens_per_second"],"memory_ratio":wide_result["peak_memory_bytes"]/raw_result["peak_memory_bytes"]}
+    out={"device":"cuda","hardware":torch.cuda.get_device_name(device),"dtype":"bfloat16","shape":{"batch":a.batch_size,"sequence":a.sequence_length,"D":a.n_embd,"layers":a.n_layer,"heads":a.n_head,"mult":a.mlp_internal_dim_multiplier},"warmup":a.warmup,"steps":a.steps,"initial_bf16_parity":parity,"raw_oracle":raw_result,"persistent_wide_encoder_plus_bmm_encoder_v":wide_result,"speed_ratio":wide_result["tokens_per_second"]/raw_result["tokens_per_second"],"memory_ratio":wide_result["peak_memory_bytes"]/raw_result["peak_memory_bytes"]}
     a.out.parent.mkdir(parents=True,exist_ok=True); a.out.write_text(json.dumps(out,indent=2,sort_keys=True)); print(json.dumps(out,indent=2,sort_keys=True))
 if __name__=='__main__': main()
