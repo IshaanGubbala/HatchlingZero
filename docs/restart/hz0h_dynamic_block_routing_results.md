@@ -1,17 +1,25 @@
 # Real Per-Token Dynamic Block Routing: Built and Correctness-Verified
 
-Status: real, CPU-verified forward AND backward correctness, wired into
-a full recurrent BDH layer with a real, trainable router. **Two real
+Status: **closed out, real negative result overall.** Real,
+CPU-verified forward AND backward correctness, wired into a full
+recurrent BDH layer with a real, trainable router. Two real
 Python-loop-based bottlenecks (routing assignment, then routing
 execution) caused an OOM and then a ~14x speed regression on first real
-CUDA runs; both are now fixed via full vectorization and confirmed on
-real hardware** -- see
-`docs/restart/hz0h_dynamic_block_routing_cuda_oom_results.md` for the
-full chase. Final, real, honest state: runs cleanly at production shape
-at every capacity factor, but is still 1.37x-2.7x SLOWER than raw dense
-BDH throughput-wise -- a real negative result on speed, not yet offset
-by any measured quality advantage (not yet tested). The correctness/
-gradient work below remains real and valid. Real, honest scope disclosed
+CUDA runs; both were found and fixed via full vectorization, confirmed
+on real hardware -- see
+`docs/restart/hz0h_dynamic_block_routing_cuda_oom_results.md` for that
+chase. Final speed: 1.37x-2.7x SLOWER than raw dense BDH at every
+capacity factor tested. A real quality probe on real text
+(`docs/restart/hz0h_dynamic_block_routing_quality_probe_results.md`)
+then found the speed cost is NOT offset by a quality gain -- dynamic
+routing was both slower (2.03x training time) and worse (+0.1125
+validation loss) than raw BDH at this budget, plausibly compounded by
+real router load imbalance (drop rate rose from 58% to 65% over
+training) that this implementation has no balancing loss to correct.
+**Net verdict: not a lever worth pursuing further for this project as
+currently built.** The correctness/gradient work below remains real and
+valid -- the mechanism works exactly as designed, it simply doesn't pay
+off at this shape and budget. Real, honest scope disclosed
 below.
 
 ## Update: wired into a real layer, found and fixed a real router.grad=None bug
