@@ -1,9 +1,15 @@
 # Real Per-Token Dynamic Block Routing: Built and Correctness-Verified
 
-Status: real, CPU-verified forward AND backward correctness, now wired
-into a full recurrent BDH layer with a real, trainable router. **No
-speed or quality measurement yet** -- this is a correctness-verified
-mechanism, not a benchmarked BDH variant. Real, honest scope disclosed
+Status: real, CPU-verified forward AND backward correctness, wired into
+a full recurrent BDH layer with a real, trainable router. **The first
+real CUDA run failed with out-of-memory at every capacity factor
+tested, at production shape** -- see
+`docs/restart/hz0h_dynamic_block_routing_cuda_oom_results.md` for the
+full real result and root-cause diagnosis (a Python-loop-based routing-
+assignment implementation that doesn't scale, not a flaw in the
+underlying math). The correctness/gradient work below remains real and
+valid; treat any "ready to benchmark" framing in this doc as superseded
+until that implementation is rewritten. Real, honest scope disclosed
 below.
 
 ## Update: wired into a real layer, found and fixed a real router.grad=None bug
