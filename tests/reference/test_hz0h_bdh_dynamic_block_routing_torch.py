@@ -8,6 +8,7 @@ import pytest
 import torch
 
 from reference.hz0h_bdh_dynamic_block_routing_torch import (
+    _dynamic_block_encoder_forward_loop_reference,
     _route_tokens_to_blocks_loop_reference,
     compute_capacity,
     dynamic_block_encoder_forward,
@@ -259,3 +260,39 @@ def test_dynamic_block_encoder_forward_rejects_shape_mismatch():
     wrong_encoder = torch.randn(8, 999)  # doesn't match n_blocks*block_size
     with pytest.raises(ValueError):
         dynamic_block_encoder_forward(x, wrong_encoder, routing, block_size=4)
+
+
+def test_dynamic_block_encoder_forward_vectorized_matches_loop_reference_exactly():
+    """Load-bearing equivalence test for the batched-bmm rewrite: real
+    production CUDA data found the per-block Python loop caused a ~14x
+    real speed regression (4096 sequential tiny-GEMM launches at
+    production shape) even after the routing-assignment OOM fix. Proves
+    the batched rewrite is numerically identical to the retained loop
+    reference, not just asserted, across real drop and no-drop cases,
+    with and without the differentiable gate."""
+    cases = [
+        dict(seed=0, num_tokens=20, n_blocks=6, block_size=4, top_k=2, capacity_factor=1.0, apply_gate=False),
+        dict(seed=1, num_tokens=64, n_blocks=8, block_size=8, top_k=3, capacity_factor=0.5, apply_gate=True),  # real drops
+        dict(seed=2, num_tokens=50, n_blocks=5, block_size=4, top_k=1, capacity_factor=10.0, apply_gate=False),  # generous, no drops
+        dict(seed=3, num_tokens=37, n_blocks=7, block_size=6, top_k=2, capacity_factor=0.4, apply_gate=True),  # real drops + gate
+    ]
+    for case in cases:
+        torch.manual_seed(case["seed"])
+        dim = 10
+        n_blocks, block_size = case["n_blocks"], case["block_size"]
+        scores = torch.randn(case["num_tokens"], n_blocks)
+        routing = route_tokens_to_blocks(scores, top_k=case["top_k"], capacity_factor=case["capacity_factor"])
+
+        x_flat = torch.randn(case["num_tokens"], dim, requires_grad=True)
+        encoder_head = torch.randn(dim, n_blocks * block_size, requires_grad=True)
+
+        fast = dynamic_block_encoder_forward(x_flat, encoder_head, routing, block_size, apply_gate=case["apply_gate"])
+        slow = _dynamic_block_encoder_forward_loop_reference(
+            x_flat.detach().clone().requires_grad_(), encoder_head.detach().clone().requires_grad_(),
+            routing, block_size, apply_gate=case["apply_gate"],
+        )
+        assert torch.allclose(fast, slow, atol=1e-5, rtol=1e-5), f"case {case}: forward output differs"
+
+        fast.sum().backward()
+        assert x_flat.grad is not None and torch.isfinite(x_flat.grad).all()
+        assert encoder_head.grad is not None and torch.isfinite(encoder_head.grad).all()

@@ -330,6 +330,67 @@ def dynamic_block_encoder_forward(
             f"(D={dim}, n_blocks*block_size={n_blocks * block_size})"
         )
 
+    device = x_flat.device
+    valid_mask = routing.block_token_indices >= 0  # (n_blocks, capacity)
+    safe_token_ids = routing.block_token_indices.clamp(min=0)  # (n_blocks, capacity), 0 for padding
+
+    gathered = x_flat[safe_token_ids]  # (n_blocks, capacity, D) -- ONE real vectorized gather
+
+    # encoder_head: (D, n_blocks*block_size) -> (n_blocks, D, block_size), a
+    # real, cheap reshape/permute done once (not per-block).
+    encoder_per_block = encoder_head.reshape(dim, n_blocks, block_size).permute(1, 0, 2)
+
+    block_output = torch.bmm(gathered, encoder_per_block)  # (n_blocks, capacity, block_size), ONE real batched GEMM
+    if apply_gate:
+        block_output = block_output * routing.block_gate_weights.unsqueeze(-1)
+    # Real, exact zero-out of padding slots' contribution -- whatever
+    # garbage x_flat[0]'s activations produced through the batched GEMM for
+    # an unfilled slot is multiplied away here before it ever reaches the
+    # output, so it cannot pollute a real token's value or gradient.
+    block_output = block_output * valid_mask.unsqueeze(-1).to(block_output.dtype)
+
+    # Real, SINGLE vectorized scatter-add for the writeback (not a loop):
+    # safe as accumulation because (a) masked-out padding slots contribute
+    # exact zero regardless of which row their clamped index lands on, and
+    # (b) no two REAL (valid) entries ever target the same (token, column)
+    # pair -- a token's top_k picks are k DISTINCT blocks (from the
+    # router's own torch.topk), and different blocks always write disjoint
+    # column ranges -- so accumulate is exactly equivalent to assignment
+    # for every genuine contribution.
+    block_ids = torch.arange(n_blocks, device=device).unsqueeze(1).expand(-1, capacity)
+    column_offsets = torch.arange(block_size, device=device)
+    dest_rows = safe_token_ids.reshape(-1, 1).expand(-1, block_size)
+    dest_cols = (block_ids.reshape(-1) * block_size).unsqueeze(1) + column_offsets.unsqueeze(0)
+
+    output = torch.zeros((num_tokens, n_blocks * block_size), dtype=x_flat.dtype, device=device)
+    output.index_put_((dest_rows, dest_cols), block_output.reshape(-1, block_size), accumulate=True)
+    return output
+
+
+def _dynamic_block_encoder_forward_loop_reference(
+    x_flat: torch.Tensor,
+    encoder_head: torch.Tensor,
+    routing: RoutingResult,
+    block_size: int,
+    *,
+    apply_gate: bool = False,
+) -> torch.Tensor:
+    """Retained ONLY as a real, independent ground-truth reference for
+    testing the vectorized `dynamic_block_encoder_forward` against -- the
+    original per-block Python-loop implementation, real but proven to
+    cause a ~14x real speed regression at production shape (64 blocks x 8
+    heads x 8 layers = 4096 sequential tiny-GEMM kernel launches per
+    forward pass) even after the routing-assignment OOM fix. See
+    `docs/restart/hz0h_dynamic_block_routing_cuda_oom_results.md`'s
+    update section. Do not use this for real training."""
+    num_tokens, dim = x_flat.shape
+    n_blocks, capacity = routing.block_token_indices.shape
+    if encoder_head.shape != (dim, n_blocks * block_size):
+        raise ValueError(
+            f"encoder_head shape {tuple(encoder_head.shape)} does not match "
+            f"(D={dim}, n_blocks*block_size={n_blocks * block_size})"
+        )
+
     output = torch.zeros((num_tokens, n_blocks * block_size), dtype=x_flat.dtype, device=x_flat.device)
     for block in range(n_blocks):
         token_ids = routing.block_token_indices[block]
@@ -338,11 +399,11 @@ def dynamic_block_encoder_forward(
             continue
         valid_token_ids = token_ids[valid]
         block_columns = slice(block * block_size, (block + 1) * block_size)
-        gathered = x_flat.index_select(0, valid_token_ids)  # (n_valid, D), real fixed-ish shape (<=capacity)
-        block_weight = encoder_head[:, block_columns]  # (D, block_size)
-        block_output = gathered @ block_weight  # (n_valid, block_size), real dense GEMM
+        gathered = x_flat.index_select(0, valid_token_ids)
+        block_weight = encoder_head[:, block_columns]
+        block_output = gathered @ block_weight
         if apply_gate:
-            gate = routing.block_gate_weights[block][valid]  # (n_valid,), real, differentiable
+            gate = routing.block_gate_weights[block][valid]
             block_output = block_output * gate.unsqueeze(-1)
         output[valid_token_ids.unsqueeze(1).expand(-1, block_size),
                torch.arange(block * block_size, (block + 1) * block_size, device=x_flat.device).unsqueeze(0).expand(valid_token_ids.numel(), -1)] = block_output
