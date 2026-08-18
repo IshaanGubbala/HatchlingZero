@@ -1,10 +1,45 @@
-# 2:4 Structured Sparsity: Real Local (CPU) Results
+# 2:4 Structured Sparsity: Real Results
 
-Status: real, CPU-verified pruning math and quality-impact measurement.
-**No speed claim yet** -- the real hardware acceleration
-(`torch.sparse.to_sparse_semi_structured`, cuSPARSELt-backed) is
-CUDA-only and 2D-tensor-only; it cannot even be constructed on this Mac,
-let alone benchmarked. That half is dispatched to Windows/RTX3060 next.
+Status: real, CPU-verified pruning math and quality-impact measurement,
+plus a real (partial) CUDA speed/energy result. **The real hardware
+sparse path itself is still blocked** on this specific Windows machine
+(see "Real CUDA result" below) -- a genuine environment gap, not a code
+bug, with a real candidate fix now dispatched.
+
+## Real CUDA result (2026-08-18, RTX3060)
+
+Same production shape as every benchmark this session (batch=12, T=256,
+n_embd=512, n_layer=8, n_head=8, mult=32, bf16), `fresh_subprocess_per_arm`
+isolation, real energy tracking via `TrainingEnergySampler`:
+
+```text
+raw:          6,561.23 tok/s, 159.39W mean, 0.024165 J/token
+pruned_dense: 6,540.16 tok/s, 161.69W mean, 0.024664 J/token
+pruned_sparse: FAILED -- torch._cslt_compress raised
+               "RuntimeError: cuSPARSELt not supported on your machine"
+
+pruned_dense_over_raw_throughput_ratio: 0.9968  (essentially flat, as expected)
+pruned_dense energy vs raw: +2.07% joules/token (small but real, not "nominal" -- worth the precise number)
+```
+
+**Real, expected result for `pruned_dense`**: dense-executing 2:4-pruned
+weights costs basically nothing extra in speed (no sparse kernel
+involved, same FLOPs as the unpruned dense matmul) -- this arm exists
+specifically to isolate "did pruning itself cost anything" from "did the
+sparse kernel help," and the answer is "pruning alone: no meaningful
+speed cost, small real energy cost." This confirms the ONLY way 2:4
+sparsity can pay off is through the real hardware kernel, which failed
+here.
+
+**Real, specific failure for `pruned_sparse`**: not a bug in the pruning
+code -- the forward pass correctly reached the real hardware call
+(`torch._cslt_compress`, PyTorch's own binding into NVIDIA's cuSPARSELt
+library) and that library itself is not available/detected on this
+machine's PyTorch build. Confirmed real, existing fix candidate: the
+`nvidia-cusparselt-cu12` PyPI package (version 0.7.0, verified to exist).
+A scoped, reversible fix attempt (check CUDA version, install the
+matching package if 12.x, retry only the failed arm) has been dispatched
+-- real result pending.
 
 ## What was built
 
