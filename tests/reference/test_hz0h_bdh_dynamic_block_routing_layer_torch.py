@@ -9,6 +9,7 @@ import torch
 import torch.nn.functional as F
 
 from reference.hz0h_bdh_dynamic_block_routing_layer_torch import (
+    dynamic_block_routing_forward,
     dynamic_block_routing_layer_forward,
     init_dynamic_block_router,
 )
@@ -155,3 +156,64 @@ def test_dynamic_routing_layer_gradients_are_finite_and_reach_every_real_paramet
     assert model.encoder.grad is not None and torch.isfinite(model.encoder.grad).all()
     assert model.encoder_v.grad is not None and torch.isfinite(model.encoder_v.grad).all()
     assert model.decoder.grad is not None and torch.isfinite(model.decoder.grad).all()
+
+
+def test_dynamic_routing_forward_matches_oracle_exactly_across_multiple_layers():
+    """Real, multi-layer exactness check -- the single-layer test above
+    only proves ONE iteration is correct; tied weights being reapplied
+    correctly across several REAL recurrent rounds (n_layer=3, not 1) is
+    a genuinely different, additional thing to verify (a bug in how
+    `x` is threaded between iterations wouldn't show up in a 1-layer
+    test)."""
+    torch.manual_seed(7)
+    config = BDHConfig(n_embd=24, n_head=3, mlp_internal_dim_multiplier=8, n_layer=3, vocab_size=64, dropout=0.0)
+    model = BDH(config).eval()
+    block_size = 4
+    n_blocks = (config.n_embd * config.mlp_internal_dim_multiplier // config.n_head) // block_size
+
+    idx = torch.randint(0, 64, (2, 9))
+    targets = torch.randint(0, 64, (2, 9))
+    router = init_dynamic_block_router(config.n_head, config.n_embd, n_blocks, generator=torch.Generator().manual_seed(8))
+
+    with torch.no_grad():
+        oracle_logits, oracle_loss = model(idx, targets)
+        routed_logits, routed_loss, routing_per_layer = dynamic_block_routing_forward(
+            model, idx, router, targets, block_size=block_size, top_k=n_blocks, capacity_factor=100.0, apply_gate=False,
+        )
+
+    assert len(routing_per_layer) == config.n_layer
+    for layer_routing in routing_per_layer:
+        for routing in layer_routing:
+            assert routing.tokens_dropped == 0, "test setup must guarantee zero drops at every layer for this exactness check"
+
+    max_diff = (oracle_logits - routed_logits).abs().max().item()
+    assert torch.allclose(oracle_logits, routed_logits, atol=1e-3, rtol=1e-3), f"max diff {max_diff}"
+    assert abs(oracle_loss.item() - routed_loss.item()) < 1e-3
+
+
+def test_dynamic_routing_forward_gradients_finite_across_multiple_layers_with_real_drops():
+    torch.manual_seed(9)
+    config = BDHConfig(n_embd=20, n_head=2, mlp_internal_dim_multiplier=8, n_layer=3, vocab_size=64, dropout=0.0)
+    model = BDH(config)
+    block_size = 4
+    n_blocks = (config.n_embd * config.mlp_internal_dim_multiplier // config.n_head) // block_size
+
+    idx = torch.randint(0, 64, (2, 7))
+    targets = torch.randint(0, 64, (2, 7))
+    router = init_dynamic_block_router(config.n_head, config.n_embd, n_blocks, generator=torch.Generator().manual_seed(10))
+    router.requires_grad_(True)
+
+    logits, loss, routing_per_layer = dynamic_block_routing_forward(
+        model, idx, router, targets, block_size=block_size, top_k=2, capacity_factor=0.6,
+    )
+    total_dropped = sum(r.tokens_dropped for layer in routing_per_layer for r in layer)
+    assert total_dropped > 0, "test setup must exercise real drops across the multi-layer forward"
+    assert torch.isfinite(loss)
+
+    loss.backward()
+    assert router.grad is not None and torch.isfinite(router.grad).all()
+    assert model.encoder.grad is not None and torch.isfinite(model.encoder.grad).all()
+    assert model.encoder_v.grad is not None and torch.isfinite(model.encoder_v.grad).all()
+    assert model.decoder.grad is not None and torch.isfinite(model.decoder.grad).all()
+    assert model.embed.weight.grad is not None and torch.isfinite(model.embed.weight.grad).all()
+    assert model.lm_head.grad is not None and torch.isfinite(model.lm_head.grad).all()

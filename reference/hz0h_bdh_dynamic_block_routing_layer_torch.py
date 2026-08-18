@@ -34,8 +34,14 @@ Real, disclosed scope limit: `encoder_v` and `decoder` stay DENSE in
 this first version (matching `PackedBlockBDH`'s own incremental
 precedent of building one real, tested piece at a time) -- extending
 dynamic routing to those steps is a real, separate follow-up, not done
-here. This is one recurrent LAYER, not wired into the full `n_layer`
-loop or a trainable end-to-end model yet.
+here. `dynamic_block_routing_forward` wires the single-layer function
+through the full `model.config.n_layer` recurrent loop with the SAME
+tied router and weights every iteration (matching the oracle's own
+real shared-weight convention), producing real logits/loss -- a
+complete, trainable-shaped forward for the encoder-routed, dense-
+encoder_v/decoder BDH variant. No CUDA execution, no real speed/quality
+training run, and no end-to-end optimizer-step test exist yet -- those
+remain real, disclosed, not-yet-done follow-ups.
 """
 from __future__ import annotations
 
@@ -137,3 +143,49 @@ def dynamic_block_routing_layer_forward(
     y = model.ln(projected)
     x_next = model.ln(x + y)
     return x_next, routing_results
+
+
+def dynamic_block_routing_forward(
+    model: BDH,
+    idx: torch.Tensor,
+    router: torch.Tensor,
+    targets: torch.Tensor | None = None,
+    *,
+    block_size: int,
+    top_k: int,
+    capacity_factor: float,
+    apply_gate: bool = True,
+) -> tuple[torch.Tensor, torch.Tensor | None, list[list[RoutingResult]]]:
+    """Real, full BDH forward using dynamic block routing at every one of
+    `model.config.n_layer` recurrent iterations -- the SAME `router` and
+    SAME model weights are reused every iteration, matching the oracle's
+    own real tied-weight convention (`encoder`/`encoder_v`/`decoder` are
+    literally one set of parameters reused every recurrent round, not
+    per-layer instances -- see `reference/hz0h_bdh_torch.py`'s own module
+    docstring). Routing is re-decided fresh each iteration from that
+    iteration's own current `x`, not fixed once at the start.
+
+    Returns `(logits, loss, routing_results_per_layer)` --
+    `routing_results_per_layer[level]` is that layer iteration's own
+    list of per-head `RoutingResult`s (from
+    `dynamic_block_routing_layer_forward`), for real per-layer diagnostics
+    (e.g. does the real drop rate change with depth).
+    """
+    C = model.config
+    B, T = idx.size()
+    D = C.n_embd
+    x = model.ln(model.embed(idx).unsqueeze(1))
+
+    routing_results_per_layer: list[list[RoutingResult]] = []
+    for _level in range(C.n_layer):
+        x, routing_results = dynamic_block_routing_layer_forward(
+            model, x, router, block_size=block_size, top_k=top_k,
+            capacity_factor=capacity_factor, apply_gate=apply_gate,
+        )
+        routing_results_per_layer.append(routing_results)
+
+    logits = x.view(B, T, D) @ model.lm_head
+    loss = None
+    if targets is not None:
+        loss = F.cross_entropy(logits.reshape(-1, logits.size(-1)), targets.reshape(-1))
+    return logits, loss, routing_results_per_layer
