@@ -59,6 +59,16 @@ class RoutingResult:
     token_selected_blocks: torch.Tensor
     # (num_tokens, top_k) -- whether that pick was actually served (not dropped).
     token_pick_served: torch.Tensor
+    # (n_blocks, capacity) -- REAL, DIFFERENTIABLE softmax-normalized gate
+    # weight for each served slot (stays connected to the router's own
+    # score tensor's autograd graph; zero at unfilled slots, which never
+    # get gathered anyway). This is the ONLY reason gradient reaches the
+    # router at all: the discrete top-k SELECTION itself is inherently
+    # non-differentiable (same fundamental limitation every real MoE
+    # router has), so the router can only learn via this multiplicative
+    # gate on its own selected experts' output -- the standard, real MoE
+    # fix, not invented here.
+    block_gate_weights: torch.Tensor
     tokens_dropped: int
     tokens_routed: int
 
@@ -106,10 +116,18 @@ def route_tokens_to_blocks(
     capacity = compute_capacity(num_tokens, n_blocks, top_k, capacity_factor)
 
     top_scores, top_blocks = torch.topk(token_block_scores, k=top_k, dim=1)  # (num_tokens, top_k)
+    # Real, differentiable per-token gate: softmax over just the top_k
+    # selected scores (standard MoE gating normalization) -- computed
+    # here, BEFORE the discrete .item()-based assignment loop below, so
+    # it stays connected to token_block_scores's autograd graph. This is
+    # the only real pathway gradient has back into the router; the
+    # discrete block SELECTION itself is not differentiable.
+    token_pick_gate = torch.softmax(top_scores, dim=1)  # (num_tokens, top_k)
 
     block_token_indices = torch.full((n_blocks, capacity), -1, dtype=torch.long, device=token_block_scores.device)
     block_fill = torch.zeros(n_blocks, dtype=torch.long, device=token_block_scores.device)
     token_pick_served = torch.zeros((num_tokens, top_k), dtype=torch.bool, device=token_block_scores.device)
+    block_gate_weights = torch.zeros((n_blocks, capacity), dtype=token_pick_gate.dtype, device=token_block_scores.device)
 
     # Real, deterministic global processing order: by score descending,
     # so higher-scoring (token, pick) pairs claim capacity first,
@@ -121,6 +139,7 @@ def route_tokens_to_blocks(
     flat_pick_slot = torch.arange(top_k, device=token_block_scores.device).repeat(num_tokens)
 
     order = torch.argsort(flat_scores, descending=True, stable=True)
+    flat_gate = token_pick_gate.reshape(-1)  # differentiable, parallel to flat_scores
 
     for position in order.tolist():
         block = int(flat_blocks[position])
@@ -132,6 +151,7 @@ def route_tokens_to_blocks(
         block_token_indices[block, fill] = token_id
         block_fill[block] = fill + 1
         token_pick_served[token_id, pick_slot] = True
+        block_gate_weights[block, fill] = flat_gate[position]  # real, differentiable write
 
     tokens_routed = int(token_pick_served.sum().item())
     tokens_dropped = int(num_tokens * top_k - tokens_routed)
@@ -143,6 +163,7 @@ def route_tokens_to_blocks(
         block_token_indices=block_token_indices,
         token_selected_blocks=top_blocks,
         token_pick_served=token_pick_served,
+        block_gate_weights=block_gate_weights,
         tokens_dropped=tokens_dropped,
         tokens_routed=tokens_routed,
     )
@@ -153,6 +174,8 @@ def dynamic_block_encoder_forward(
     encoder_head: torch.Tensor,
     routing: RoutingResult,
     block_size: int,
+    *,
+    apply_gate: bool = False,
 ) -> torch.Tensor:
     """Real, fixed-shape-GEMM execution of BDH's encoder projection under
     per-token dynamic block routing, for ONE head.
@@ -167,6 +190,21 @@ def dynamic_block_encoder_forward(
     unselected blocks AND dropped-for-capacity picks both read as zero,
     matching real BDH activation sparsity semantics (a column a token
     never "sees" contributes nothing, same as a ReLU'd-to-zero neuron).
+
+    `apply_gate`: if True, multiplies each served block's output by its
+    real, differentiable `routing.block_gate_weights` entry -- the ONLY
+    way gradient reaches the router that produced `routing`'s scores
+    (see `route_tokens_to_blocks`'s own docstring: the discrete block
+    SELECTION is not differentiable, only this multiplicative gate is).
+    Real, disclosed tradeoff: this is what makes the router trainable,
+    but it means the result does NOT reduce exactly to the oracle's own
+    unmasked `x @ encoder` even when every block is selected and nothing
+    is dropped (softmax-normalized gate weights across `top_k` picks
+    generally sum to less than 1 per pick when `top_k > 1`) -- a real,
+    expected property of gated MoE-style routing, not a bug. Default
+    False preserves the exact-in-the-limiting-case behavior for callers
+    using precomputed/static routing scores that don't need the gate to
+    be trainable.
     """
     num_tokens, dim = x_flat.shape
     n_blocks, capacity = routing.block_token_indices.shape
@@ -187,6 +225,9 @@ def dynamic_block_encoder_forward(
         gathered = x_flat.index_select(0, valid_token_ids)  # (n_valid, D), real fixed-ish shape (<=capacity)
         block_weight = encoder_head[:, block_columns]  # (D, block_size)
         block_output = gathered @ block_weight  # (n_valid, block_size), real dense GEMM
+        if apply_gate:
+            gate = routing.block_gate_weights[block][valid]  # (n_valid,), real, differentiable
+            block_output = block_output * gate.unsqueeze(-1)
         output[valid_token_ids.unsqueeze(1).expand(-1, block_size),
                torch.arange(block * block_size, (block + 1) * block_size, device=x_flat.device).unsqueeze(0).expand(valid_token_ids.numel(), -1)] = block_output
     return output

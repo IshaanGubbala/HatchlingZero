@@ -171,6 +171,42 @@ def test_dynamic_block_encoder_forward_gradients_flow_and_fully_dropped_tokens_g
         )
 
 
+def test_gate_weights_are_softmax_normalized_and_differentiable_back_to_router_scores():
+    """Real, direct verification of the gate mechanism itself (the fix
+    for the real router.grad=None bug found while wiring this into a
+    full layer): served gate weights for a token's top_k picks must sum
+    to the real softmax total (1.0 when none of that token's picks were
+    dropped), and gradient must reach the raw router scores through the
+    gate -- the discrete SELECTION is not differentiable, only this
+    multiplicative gate is."""
+    torch.manual_seed(9)
+    scores = torch.randn(6, 5, requires_grad=True)
+    routing = route_tokens_to_blocks(scores, top_k=3, capacity_factor=10.0)  # generous -> no drops
+    assert routing.tokens_dropped == 0, "test setup must guarantee no drops to check the clean softmax-sums-to-1 case"
+
+    for token in range(6):
+        total_gate = 0.0
+        for pick_slot in range(3):
+            block = int(routing.token_selected_blocks[token, pick_slot])
+            row = routing.block_token_indices[block]
+            position = (row == token).nonzero()
+            assert position.numel() == 1
+            total_gate += routing.block_gate_weights[block, int(position)].item()
+        assert abs(total_gate - 1.0) < 1e-5, f"token {token}: served gate weights must sum to 1.0 (no drops), got {total_gate}"
+
+    # Real, non-trivial gradient probe: a token's SERVED gate weights
+    # sum to exactly 1.0 regardless of the raw scores (softmax's own
+    # defining property), so summing them uniformly gives an identically
+    # zero gradient by construction -- not a bug, just an uninformative
+    # loss. Weight positions differently so the loss is sensitive to
+    # WHICH mass goes where, a real probe of gradient flow.
+    position_weights = torch.arange(routing.block_gate_weights.numel(), dtype=torch.float32).reshape(routing.block_gate_weights.shape)
+    (routing.block_gate_weights * position_weights).sum().backward()
+    assert scores.grad is not None
+    assert torch.isfinite(scores.grad).all()
+    assert bool((scores.grad != 0).any()), "gradient must actually reach the router's raw scores, not just exist as all-zero"
+
+
 def test_dynamic_block_encoder_forward_rejects_shape_mismatch():
     routing = route_tokens_to_blocks(torch.randn(4, 2), top_k=1, capacity_factor=1.0)
     x = torch.randn(4, 8)
