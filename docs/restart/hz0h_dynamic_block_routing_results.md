@@ -1,8 +1,41 @@
 # Real Per-Token Dynamic Block Routing: Built and Correctness-Verified
 
-Status: real, CPU-verified forward AND backward correctness. **No speed
-or quality measurement yet** -- this is a building block, not a
-complete, trainable BDH variant. Real, honest scope disclosed below.
+Status: real, CPU-verified forward AND backward correctness, now wired
+into a full recurrent BDH layer with a real, trainable router. **No
+speed or quality measurement yet** -- this is a correctness-verified
+mechanism, not a benchmarked BDH variant. Real, honest scope disclosed
+below.
+
+## Update: wired into a real layer, found and fixed a real router.grad=None bug
+
+`reference/hz0h_bdh_dynamic_block_routing_layer_torch.py` now provides a
+complete, real one-recurrent-layer forward: a cheap per-head router
+(`D x n_blocks`, computed BEFORE the expensive full projection, so
+something is genuinely saved) picks blocks per token -> real dynamic
+routing -> gathered/scattered encoder projection -> the oracle's own
+**unmodified** `Attention` module (encoder_v/decoder still dense, scope
+limit below).
+
+Correcting an earlier overstatement in this same doc's first version:
+attention is NOT a hard, unsolved blocker for this mechanism. It was
+wrong to frame it that way -- `Attention.forward` only computes dot
+products/matmuls on whatever tensor it receives, and the routed
+tensor's real, exact zeros in unrouted positions are mathematically
+correct inputs to it with zero attention-specific code needed.
+
+**Real bug found while doing this wiring, not before**: the router
+received exactly zero gradient. The discrete top-k SELECTION is
+inherently non-differentiable (every real MoE router has this same
+limitation), and the routing scores were only ever used for sorting/
+indexing, never multiplied into the output -- so there was no real
+mathematical pathway for gradient to reach the router. Fixed with the
+standard MoE fix (not invented here): a real, differentiable softmax
+gate over each token's top-k picks, multiplied into the served output.
+This is now a genuinely trainable router, verified directly (gate sums
+to 1 when nothing drops, gradient reaches the raw scores) and at the
+full-layer level (gradient reaches the router, encoder, encoder_v, and
+decoder, all finite, under a real forced-drop scenario). 4 new tests, 14
+total across both files, all pass.
 
 ## What this is, and why it's different from what already exists
 
@@ -69,18 +102,15 @@ this session.
 
 ## Real, disclosed scope limit -- what this is NOT yet
 
-This is a real, tested building block for ONE step (the encoder
-projection) of BDH's recurrent body. It is **not**:
+This is now a real, tested ONE-LAYER building block (encoder projection
++ real attention interaction), not yet a full model. It is **not**:
 
-- Wired into a full, trainable, end-to-end BDH forward pass. The
-  natural next steps (`attention`, `encoder_v`, `decoder`) are real,
-  separate, harder problems -- attention in particular is genuinely
-  more complex than the encoder step, since it mixes information
-  *across* tokens, and different tokens under this routing scheme have
-  *different* active column sets. Whether/how a causal `QK^T`
-  interaction between two tokens with incompatible sparsity patterns
-  should be handled is a real, open design question this file does not
-  attempt to answer -- not glossed over, genuinely unsolved here.
+- Wired through `encoder_v`/`decoder` (still dense in this layer, real
+  disclosed choice) or through the full `n_layer` recurrent loop / a
+  trainable end-to-end model. Extending dynamic routing to those two
+  remaining projections is real, separate, still-open work -- unlike
+  attention (resolved, see the update above), there's no known hard
+  blocker for `encoder_v`/`decoder` either, just not yet built.
 - Measured for real speed or quality on any hardware. The gather/
   scatter pattern built here is real and correctness-verified, but
   whether it's actually faster than PackedBlockBDH's simpler static
