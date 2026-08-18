@@ -188,7 +188,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--run-arm", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--arm", choices=ARMS, default="raw")
     parser.add_argument("--active-fraction", type=float, default=1.0)
-    parser.add_argument("--fractions", type=float, nargs="+", default=(0.75, 0.5, 0.25))
+    parser.add_argument("--fractions", type=float, nargs="+", default=(1.0, 0.75, 0.5, 0.25))
     parser.add_argument("--block-size", type=int, default=64)
     parser.add_argument("--batch-size", type=int, default=12)
     parser.add_argument("--sequence-length", type=int, default=256)
@@ -220,8 +220,8 @@ def main() -> None:
         return
     if args.out is None:
         raise ValueError("--out is required for the aggregate benchmark")
-    if any(not 0 < fraction < 1 for fraction in args.fractions):
-        raise ValueError("aggregate --fractions must all be in (0, 1)")
+    if any(not 0 < fraction <= 1 for fraction in args.fractions):
+        raise ValueError("aggregate --fractions must all be in (0, 1]")
 
     arms = {}
     child_stderr = {}
