@@ -65,7 +65,8 @@ def weighted_reverse_cuthill_mckee(coactivation: torch.Tensor) -> torch.Tensor:
     size = coactivation.shape[0]
     if size == 0:
         return torch.empty(0, dtype=torch.long)
-    weights = coactivation.detach().to(device="cpu", dtype=torch.float64).clone()
+    # Move off MPS before fp64 conversion: MPS cannot materialize float64.
+    weights = coactivation.detach().to(device="cpu").to(dtype=torch.float64).clone()
     weights.fill_diagonal_(0.0)
     off_diagonal = weights[~torch.eye(size, dtype=torch.bool)]
     positive = off_diagonal[off_diagonal > 0]
@@ -116,9 +117,13 @@ def calibrate_compiled_block_layout(
     probe = torch.arange(width // block_size, device=model.encoder.device)
     _validate_layout(model, probe, block_size)
     n_blocks = width // block_size
-    importance = torch.zeros(n_blocks, device=model.encoder.device, dtype=torch.float64)
+    # MPS does not implement float64 tensors.  Calibration is a ranking/
+    # ordering statistic rather than model math, so fp32 accumulation is the
+    # portable fallback; CUDA/CPU retain fp64 accumulation.
+    accumulation_dtype = torch.float32 if model.encoder.device.type == "mps" else torch.float64
+    importance = torch.zeros(n_blocks, device=model.encoder.device, dtype=accumulation_dtype)
     coactivation = torch.zeros(
-        n_blocks, n_blocks, device=model.encoder.device, dtype=torch.float64
+        n_blocks, n_blocks, device=model.encoder.device, dtype=accumulation_dtype
     )
     sample_count = 0
     batch_count = 0
@@ -138,7 +143,7 @@ def calibrate_compiled_block_layout(
                     n_blocks,
                     block_size,
                 ).abs().mean(dim=(1, 4))
-                flat = activity.reshape(-1, n_blocks).to(torch.float64)
+                flat = activity.reshape(-1, n_blocks).to(accumulation_dtype)
                 importance += flat.sum(dim=0)
                 coactivation += flat.mT @ flat
                 sample_count += flat.shape[0]
