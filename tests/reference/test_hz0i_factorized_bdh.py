@@ -60,3 +60,17 @@ def test_variable_depth_matches_factorized_full_forward_and_gradients():
   torch.testing.assert_close(parameter.grad, dict(twin.named_parameters())[name].grad, rtol=2e-5, atol=2e-6)
  shorter_logits, shorter_loss = factorized_variable_depth_forward(twin, idx, 2, targets)
  assert shorter_logits.shape == expected_logits.shape and torch.isfinite(shorter_loss)
+
+
+def test_full_rank_factorized_matches_dense_at_each_curriculum_depth():
+ from reference.hz0h_bdh_variable_depth_torch import bdh_variable_depth_forward
+ from reference.hz0i_factorized_bdh import factorized_variable_depth_forward
+ torch.manual_seed(41)
+ config=HZ0IBDHConfig(n_layer=3,n_embd=24,n_head=4,mlp_internal_dim_multiplier=8,vocab_size=37,dropout=0.0)
+ dense=HZ0IBDH(config).eval(); factor=FactorizedBDH.from_dense(config,rank=config.n_embd,source=dense).eval()
+ idx=torch.randint(0,config.vocab_size,(2,7));targets=torch.randint(0,config.vocab_size,idx.shape)
+ for depth in (1,2,3):
+  dense_logits,dense_loss=bdh_variable_depth_forward(dense,idx,depth,targets)
+  factor_logits,factor_loss=factorized_variable_depth_forward(factor,idx,depth,targets)
+  torch.testing.assert_close(factor_logits,dense_logits,rtol=3e-5,atol=3e-6)
+  torch.testing.assert_close(factor_loss,dense_loss,rtol=3e-5,atol=3e-6)
