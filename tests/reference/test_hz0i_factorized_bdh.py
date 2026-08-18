@@ -42,3 +42,21 @@ def test_factorized_int8_state_stream_is_finite():
 def test_factorized_per_head_int8_stream_is_finite():
  from reference.hz0i_factorized_bdh import factorized_stream_sequence
  c=HZ0IBDHConfig(n_layer=1,n_embd=24,n_head=4,mlp_internal_dim_multiplier=8,vocab_size=32,dropout=0.);m=FactorizedBDH(c,3).eval();_,y=factorized_stream_sequence(m,torch.randint(0,32,(1,16)),[4]*4,state_storage='int8_head');assert torch.isfinite(y).all()
+
+
+def test_variable_depth_matches_factorized_full_forward_and_gradients():
+ from reference.hz0i_factorized_bdh import factorized_variable_depth_forward
+ torch.manual_seed(37)
+ config = HZ0IBDHConfig(n_layer=3, n_embd=32, n_head=4, mlp_internal_dim_multiplier=8, vocab_size=41, dropout=0.0)
+ model = FactorizedBDH(config, rank=8).eval()
+ twin = FactorizedBDH(config, rank=8).eval(); twin.load_state_dict(model.state_dict())
+ idx = torch.randint(0, config.vocab_size, (2, 7)); targets = torch.randint(0, config.vocab_size, idx.shape)
+ expected_logits, expected_loss = model(idx, targets)
+ actual_logits, actual_loss = factorized_variable_depth_forward(twin, idx, config.n_layer, targets)
+ torch.testing.assert_close(actual_logits, expected_logits, rtol=2e-5, atol=2e-6)
+ torch.testing.assert_close(actual_loss, expected_loss, rtol=2e-5, atol=2e-6)
+ expected_loss.backward(); actual_loss.backward()
+ for name, parameter in model.named_parameters():
+  torch.testing.assert_close(parameter.grad, dict(twin.named_parameters())[name].grad, rtol=2e-5, atol=2e-6)
+ shorter_logits, shorter_loss = factorized_variable_depth_forward(twin, idx, 2, targets)
+ assert shorter_logits.shape == expected_logits.shape and torch.isfinite(shorter_loss)

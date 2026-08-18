@@ -40,6 +40,24 @@ class FactorizedBDH(HZ0IBDH):
   h=self.forward_hidden(idx);logits=h@self.lm_head;loss=None
   if targets is not None:loss=F.cross_entropy(logits.reshape(-1,logits.size(-1)),targets.reshape(-1))
   return logits,loss
+
+
+def factorized_variable_depth_forward(model, idx, n_iterations: int, targets=None):
+ """Exact FactorizedBDH forward with a training-controlled recurrent depth.
+
+ ``n_iterations == model.config.n_layer`` follows ``FactorizedBDH.forward``
+ exactly; smaller positive values only shorten the shared recurrent loop, the
+ same training-only mechanism used by canonical dense BDH curriculum runs.
+ """
+ if n_iterations < 1:
+  raise ValueError("n_iterations must be positive")
+ C=model.config;B,T=idx.shape;x=model.ln(model.embed(idx).unsqueeze(1))
+ for _ in range(n_iterations):
+  xs=model._sparse(model._enc(x,model.enc_l,model.enc_r));ykv=model.ln(model.attn(Q=xs,K=xs,V=x));ys=model._sparse(model._enc(ykv,model.val_l,model.val_r));x=model.ln(x+model.ln(model._dec(model.drop(xs*ys))))
+ h=x.view(B,T,C.n_embd);logits=h@model.lm_head;loss=None
+ if targets is not None:loss=F.cross_entropy(logits.reshape(-1,logits.size(-1)),targets.reshape(-1))
+ return logits,loss
+
 def init_factorized_states(model,batch_size,device=None,dtype=None):
  H=model.config.n_head;D=model.config.n_embd;N=D*model.config.mlp_internal_dim_multiplier//H;device=device or model.embed.weight.device;dtype=dtype or model.embed.weight.dtype
  return [torch.zeros(batch_size,H,N,D,device=device,dtype=dtype) for _ in range(model.config.n_layer)]
