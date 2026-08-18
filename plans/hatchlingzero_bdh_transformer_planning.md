@@ -572,6 +572,32 @@ If no:
   do not yet skip GEMM work. CUDA remeasurement of the new default dispatch is
   required before revising the current BDH-versus-Transformer headline ratios.
 
+### Compiled BlockBDH update (2026-08-17)
+
+- `[Measured negative]` Reordering a fully dense exact-BDH parameter layout
+  does not remove any GEMMs. The earlier persistent-wide remap is a small eager
+  win but is neutral/slower under compile (`0.993x` raw throughput), so layout
+  reordering alone is not promoted as an optimization.
+- `[Implemented locally]` `PackedBlockBDH` calibrates block importance and
+  coactivation outside the hot loop, selects and orders whole even-width RoPE
+  blocks deterministically, and constructs a smaller trainable model whose
+  parameters are physically contiguous. Its forward contains no router,
+  `index_select`, weight packing, or dynamic topology work.
+- `[Verified locally]` The packed model matches the existing fixed-mask dense
+  oracle on logits, loss, embedding/head gradients, and every selected slice
+  of encoder, value-encoder, and decoder gradients. Layout serialization,
+  deterministic calibration, pair safety, and the no-runtime-gather contract
+  are regression-tested (`18 passed` with the existing BlockBDH suite).
+- `[Pending CUDA gate]` Run isolated BF16 `max-autotune` training comparisons
+  at the production `B=12, T=256, D=512, R=8, H=8, multiplier=32` shape for
+  raw exact BDH, fixed-mask runtime gather, and physically packed 75%, 50%,
+  and 25% widths. Each arm must run in a fresh process to avoid the previously
+  diagnosed co-residency/cuBLAS-selection benchmark bug.
+- `[Not yet promoted]` Periodic prune/sprout, dependency reachability, a
+  block-banded recurrent state, and the coupled `R(t) * f(t)` curriculum remain
+  hypotheses. They proceed only if physical packing first shows a real
+  end-to-end speed/memory advantage and then retains quality across seeds.
+
 ---
 
 ## 9. Final Position
