@@ -142,6 +142,35 @@ def test_dynamic_block_encoder_forward_zeros_unselected_and_dropped_blocks():
             )
 
 
+def test_dynamic_block_encoder_forward_gradients_flow_and_fully_dropped_tokens_get_zero_gradient():
+    """Real autograd check -- the forward's in-place indexed writes are a
+    real, common footgun for silently breaking gradient flow. Verifies
+    (a) gradients reach both x and encoder at all, and (b) a token
+    dropped on EVERY one of its top_k picks (contributes to nothing in
+    the real output) gets EXACTLY zero gradient, not an approximation."""
+    torch.manual_seed(6)
+    num_tokens, dim, n_blocks, block_size = 20, 8, 3, 4
+    x = torch.randn(num_tokens, dim, requires_grad=True)
+    encoder = torch.randn(dim, n_blocks * block_size, requires_grad=True)
+    scores = torch.randn(num_tokens, n_blocks)
+
+    # top_k = n_blocks so every block is "selected" by every token (no
+    # unselected-block zero to confuse with dropped-for-capacity zero),
+    # tiny capacity_factor forces real, isolatable drops.
+    routing = route_tokens_to_blocks(scores, top_k=n_blocks, capacity_factor=0.3)
+    fully_dropped = (~routing.token_pick_served).all(dim=1).nonzero().flatten()
+    assert fully_dropped.numel() > 0, "test setup must produce at least one fully-dropped token"
+
+    output = dynamic_block_encoder_forward(x, encoder, routing, block_size)
+    output.sum().backward()
+
+    assert x.grad is not None and encoder.grad is not None
+    for token in fully_dropped.tolist():
+        assert x.grad[token].abs().sum().item() == 0.0, (
+            f"token {token} was dropped on every pick and must get exactly zero gradient"
+        )
+
+
 def test_dynamic_block_encoder_forward_rejects_shape_mismatch():
     routing = route_tokens_to_blocks(torch.randn(4, 2), top_k=1, capacity_factor=1.0)
     x = torch.randn(4, 8)
