@@ -141,13 +141,51 @@ Real CUDA re-verification of this second fix is the next, not-yet-done
 step -- not claiming the ~14x regression is resolved until that's
 actually measured on hardware.
 
+## Update: real CUDA re-verification of the bmm fix -- gap narrowed dramatically, still not a net win
+
+Re-ran on real hardware, clean GPU baseline (558 MiB idle, no stale
+processes this time), 19/19 tests pass. Real production-shape numbers
+(`batch=12, seq=256`, RTX3060, bf16), verified directly against the raw
+JSON, not just the chat summary:
+
+```text
+raw:            6,543.9 tok/s, 7.39 GiB peak, finite=true
+cf=2.0:         2,425.1 tok/s (0.371x raw), 7.85 GiB (1.062x raw), drops 5.8%
+cf=1.0:         3,747.7 tok/s (0.573x raw), 6.84 GiB (0.926x raw), drops 23.5%
+cf=0.5:         4,573.0 tok/s (0.699x raw), 6.34 GiB (0.859x raw), drops 51.4%
+cf=0.25:        4,762.0 tok/s (0.728x raw), 6.08 GiB (0.823x raw), drops 75.0%
+```
+
+The bmm-batching fix is a real, substantial, confirmed win over the
+per-block loop: the gap narrowed from ~14x slower (466-471 tok/s) to
+**1.37x-2.7x slower** (2,425-4,762 tok/s), with the routing-execution
+overhead no longer the dominant cost. A clear, sensible tradeoff
+emerged: lower `capacity_factor` gets closer to raw's speed (less real
+work, since fewer tokens get routed through at all) but at a
+correspondingly higher, real drop rate -- not a free lunch. Memory also
+flipped sign at `cf=2.0`: now slightly *above* raw (1.062x) rather than
+below, since processing more tokens through more active blocks at low
+drop rates costs more than dense BDH's single path in this accounting
+-- a real, disclosed detail, not assumed to always favor sparsity.
+
 ## Honest bottom line
 
-The routing-ASSIGNMENT OOM is real, fixed, and confirmed on hardware.
-A second, real, substantial speed regression was found in the
-EXECUTION step (`dynamic_block_encoder_forward`'s own per-block loop)
-and fixed the same way (batched, vectorized, no Python loop), with
-strong correctness evidence and a real but likely-conservative CPU
-speed signal. Whether this second fix actually closes (or narrows) the
-~14x gap on real GPU hardware is not yet known -- that measurement is
-the next real step, not assumed here.
+Both real bugs found in this thread (the routing-assignment OOM, and
+the routing-execution ~14x regression) are fixed and confirmed on real
+CUDA hardware, with strong correctness evidence (33 tests across the
+routing files, all passing) backing each fix. The mechanism now runs a
+complete, real, dynamically-routed training step at production shape
+without crashing or exploding memory, at every capacity factor tested.
+
+**It is still not a speed win over raw dense BDH at any capacity factor
+tested** -- the best case (`cf=0.25`) is 1.37x slower, at the cost of
+dropping 75% of routing picks. This is a real, honest negative result
+on throughput, not a bug to chase further right now: the routing
+overhead itself is fixed, and the remaining gap is real per-token
+routed-attention compute cost at this shape, not an implementation
+artifact. Real, disclosed, still-open: whether this trade is ever
+justified depends entirely on whether the resulting sparsity buys a
+real quality or capacity advantage large enough to offset the speed
+cost -- that quality question has not been measured at all yet, and is
+the only lever left that could make this mechanism worth using despite
+the real throughput cost documented here.
