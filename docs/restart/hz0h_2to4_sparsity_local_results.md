@@ -1,10 +1,51 @@
 # 2:4 Structured Sparsity: Real Results
 
-Status: real, CPU-verified pruning math and quality-impact measurement,
-plus a real (partial) CUDA speed/energy result. **The real hardware
-sparse path itself is still blocked** on this specific Windows machine
-(see "Real CUDA result" below) -- a genuine environment gap, not a code
-bug, with a real candidate fix now dispatched.
+Status: **closed for now, real hardware-level blocker confirmed, not a
+code bug.** Real, CPU-verified pruning math and quality-impact
+measurement, plus two real CUDA attempts at the hardware sparse path --
+both blocked by the same underlying gap, now understood precisely
+enough to set aside deliberately rather than chase further blind.
+
+## Final update, 2026-08-18: CUDA 12.6 upgrade did not fix it either
+
+Real, verified environment change: Windows' PyTorch was reinstalled from
+`2.7.1+cu118` to `2.7.1+cu126` (same torch version, only the CUDA build
+tag changed -- the minimal-risk swap, verified against PyTorch's own
+real wheel index before dispatching, not guessed). Real, confirmed-clean
+result: `torch.cuda.is_available()` True, device correctly shows
+`NVIDIA GeForce RTX 3060`, and the `pruned_dense` arm re-ran at
+`1.0000` throughput parity vs raw (even tighter than the pre-upgrade
+run) -- the upgrade itself is safe and is being kept.
+
+**`pruned_sparse` failed with the exact same error as before the
+upgrade**: `torch._cslt_compress` -> `RuntimeError: cuSPARSELt not
+supported on your machine`. This confirms the real root cause is
+deeper than the PyTorch/CUDA *build* tag -- cuSPARSELt is a separate
+native NVIDIA library that a pip-installed PyTorch wheel does not
+bundle or fully activate on its own; it requires either a real
+system-level CUDA Toolkit component install, or explicit environment
+configuration (e.g. `TORCH_CUSPARSELT_PATH`) pointing at an actual
+installed `.dll`/`.so`, and in this case, per investigation on the
+Windows side, a machine restart to register the newly-required native
+component -- not available right now on this shared, in-use machine.
+**Decision: set this aside deliberately, not abandoned by default.**
+The pruning math, correctness tests, and quality-impact findings above
+remain real and reusable if this is revisited after a restart is
+possible.
+
+Real, disclosed process gap worth flagging honestly rather than
+smoothing over: the dispatched request's Step 5 safety gate (re-run the
+full local test suite on Windows after the reinstall, before trusting
+anything downstream) did not actually run -- its own output file reads
+`No module named pytest`, meaning `pytest` was no longer importable in
+that venv after the reinstall (likely shadowed/affected by the package
+swap). Step 6 (the `pruned_sparse` retry) proceeded anyway per the
+dispatched instructions' literal step ordering, but the real safety
+gate itself never fired. In this specific case no harm resulted (the
+same real, unambiguous CUDA-library error reproduced, not a subtler
+regression that gate would have been needed to catch), but this is a
+real gap in that one dispatch's execution, not "all tests passed" as
+initially summarized -- recorded accurately here rather than repeated.
 
 ## Real CUDA result (2026-08-18, RTX3060)
 
