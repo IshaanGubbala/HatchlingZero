@@ -8,10 +8,56 @@ import pytest
 import torch
 
 from reference.hz0h_bdh_dynamic_block_routing_torch import (
+    _route_tokens_to_blocks_loop_reference,
     compute_capacity,
     dynamic_block_encoder_forward,
     route_tokens_to_blocks,
 )
+
+
+def test_route_tokens_to_blocks_vectorized_matches_loop_reference_exactly():
+    """Load-bearing equivalence test: the real, fully vectorized
+    route_tokens_to_blocks must produce IDENTICAL routing decisions to
+    the retained loop-based reference across several real random and
+    adversarial cases -- proves the OOM fix is a pure implementation
+    change, not a silent semantics change."""
+    cases = [
+        dict(seed=0, num_tokens=17, n_blocks=6, top_k=2, capacity_factor=1.0),
+        dict(seed=1, num_tokens=64, n_blocks=8, top_k=3, capacity_factor=0.5),   # real, guaranteed drops
+        dict(seed=2, num_tokens=200, n_blocks=16, top_k=4, capacity_factor=0.25),  # more drops
+        dict(seed=3, num_tokens=50, n_blocks=5, top_k=1, capacity_factor=10.0),  # generous, no drops
+    ]
+    for case in cases:
+        torch.manual_seed(case["seed"])
+        scores = torch.randn(case["num_tokens"], case["n_blocks"])
+        fast = route_tokens_to_blocks(scores, top_k=case["top_k"], capacity_factor=case["capacity_factor"])
+        slow = _route_tokens_to_blocks_loop_reference(scores, top_k=case["top_k"], capacity_factor=case["capacity_factor"])
+
+        assert fast.capacity == slow.capacity
+        assert torch.equal(fast.block_token_indices, slow.block_token_indices), f"case {case}: block assignments differ"
+        assert torch.equal(fast.token_pick_served, slow.token_pick_served), f"case {case}: served mask differs"
+        assert torch.allclose(fast.block_gate_weights, slow.block_gate_weights, atol=1e-6), f"case {case}: gate weights differ"
+        assert fast.tokens_dropped == slow.tokens_dropped
+        assert fast.tokens_routed == slow.tokens_routed
+
+
+def test_route_tokens_to_blocks_vectorized_matches_loop_reference_under_adversarial_skew():
+    """Same adversarial all-tokens-want-one-block scenario already used
+    to prove the loop reference's own capacity enforcement -- re-run
+    through both implementations to confirm the vectorized rewrite
+    handles the real, extreme-skew case identically, not just typical
+    random cases."""
+    num_tokens, n_blocks = 50, 5
+    scores = torch.zeros(num_tokens, n_blocks)
+    scores[:, 0] = 100.0
+    scores[:, 1:] = torch.arange(num_tokens * (n_blocks - 1), dtype=torch.float32).reshape(num_tokens, n_blocks - 1) * 0.001
+
+    fast = route_tokens_to_blocks(scores, top_k=1, capacity_factor=1.0)
+    slow = _route_tokens_to_blocks_loop_reference(scores, top_k=1, capacity_factor=1.0)
+
+    assert torch.equal(fast.block_token_indices, slow.block_token_indices)
+    assert torch.equal(fast.token_pick_served, slow.token_pick_served)
+    assert fast.tokens_dropped == slow.tokens_dropped > 0
 
 
 def test_compute_capacity_matches_the_real_formula():

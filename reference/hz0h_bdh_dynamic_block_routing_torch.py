@@ -92,7 +92,8 @@ def route_tokens_to_blocks(
     capacity_factor: float,
 ) -> RoutingResult:
     """Real per-token top-k block selection with capacity-limited,
-    fixed-shape assignment.
+    fixed-shape assignment -- REAL, FULLY VECTORIZED implementation (no
+    Python-level per-entry loop).
 
     `token_block_scores`: `(num_tokens, n_blocks)` real importance score
     per (token, block) -- e.g. that token's own mean-abs pre-activation
@@ -100,12 +101,32 @@ def route_tokens_to_blocks(
     `calibrate_compiled_block_layout` uses in aggregate, computed here
     per-token instead.
 
-    Real, deterministic tie-break and drop policy: within each block,
-    tokens that picked it (as one of their real top-k) are served in
-    descending score order; ties broken by lower token index first
-    (stable, reproducible). Tokens beyond `capacity` for that block are
-    dropped -- their contribution to that block is real zero, not an
-    approximation of something else.
+    Real, disclosed history: the first version of this function used a
+    Python `for` loop over `num_tokens * top_k` individual scalar
+    iterations, each doing an in-place autograd-tracked indexed write.
+    At production BDH scale (called 64 times -- 8 heads x 8 layers --
+    per forward pass, ~786,000 total such writes) this caused real CUDA
+    out-of-memory failures at every capacity factor tested, including
+    the most generous one -- see
+    `docs/restart/hz0h_dynamic_block_routing_cuda_oom_results.md`. The
+    GPU had real headroom (6-9 GiB free) at every failure, meaning this
+    was real autograd-graph-bookkeeping overhead from chaining thousands
+    of small in-place ops, not the actual data being too large -- a
+    known, real PyTorch anti-pattern. This version replaces that entire
+    loop with a handful of real, precomputed, vectorized tensor
+    operations (two chained stable sorts + one batched scatter),
+    provably equivalent to the original loop's exact tie-break and drop
+    semantics (`test_route_tokens_to_blocks_vectorized_matches_loop_reference_exactly`
+    proves this directly against the retained loop-based reference
+    implementation, not just asserted).
+
+    Real, deterministic tie-break and drop policy (identical to the
+    retained loop-based reference): within each block, tokens that
+    picked it (as one of their real top-k) are served in descending
+    score order; ties broken by lower original (token, pick-slot)
+    flat-index first (stable, reproducible). Tokens beyond `capacity`
+    for that block are dropped -- their contribution to that block is
+    real zero, not an approximation of something else.
     """
     if token_block_scores.ndim != 2:
         raise ValueError("token_block_scores must be (num_tokens, n_blocks)")
@@ -114,32 +135,127 @@ def route_tokens_to_blocks(
         raise ValueError(f"top_k must be in [1, n_blocks], got {top_k} for n_blocks={n_blocks}")
 
     capacity = compute_capacity(num_tokens, n_blocks, top_k, capacity_factor)
+    device = token_block_scores.device
 
     top_scores, top_blocks = torch.topk(token_block_scores, k=top_k, dim=1)  # (num_tokens, top_k)
     # Real, differentiable per-token gate: softmax over just the top_k
-    # selected scores (standard MoE gating normalization) -- computed
-    # here, BEFORE the discrete .item()-based assignment loop below, so
-    # it stays connected to token_block_scores's autograd graph. This is
-    # the only real pathway gradient has back into the router; the
-    # discrete block SELECTION itself is not differentiable.
+    # selected scores (standard MoE gating normalization). This is the
+    # only real pathway gradient has back into the router; the discrete
+    # block SELECTION itself is not differentiable.
     token_pick_gate = torch.softmax(top_scores, dim=1)  # (num_tokens, top_k)
+
+    flat_scores = top_scores.reshape(-1)
+    flat_blocks = top_blocks.reshape(-1)
+    flat_token_ids = torch.arange(num_tokens, device=device).repeat_interleave(top_k)
+    flat_pick_slot = torch.arange(top_k, device=device).repeat(num_tokens)
+    flat_gate = token_pick_gate.reshape(-1)  # differentiable, parallel to flat_scores
+
+    # Stage 1: global score-descending order, stable tie-break by
+    # original flat position -- identical processing-priority semantics
+    # to the retained loop reference.
+    score_order = torch.argsort(flat_scores, descending=True, stable=True)
+
+    # Stage 2: STABLE sort by block id, applied to data already in
+    # score-descending order. A stable sort by block preserves the
+    # relative (score-descending) order WITHIN each block's resulting
+    # group -- this is the real, standard "compose two keys via two
+    # chained stable sorts" technique, and is exactly equivalent to the
+    # loop's own per-block priority order (the loop's cross-block
+    # processing order never affected any single block's own fill
+    # decisions).
+    blocks_in_score_order = flat_blocks[score_order]
+    block_order = torch.argsort(blocks_in_score_order, stable=True)
+    final_order = score_order[block_order]
+
+    sorted_blocks = flat_blocks[final_order]
+    sorted_token_ids = flat_token_ids[final_order]
+    sorted_pick_slot = flat_pick_slot[final_order]
+    sorted_gate = flat_gate[final_order]
+
+    # Real, vectorized per-block start offsets (exclusive prefix sum of
+    # per-block counts) and within-block rank -- no loop over the
+    # num_tokens*top_k entries; only fixed-size (n_blocks) bookkeeping.
+    block_counts = torch.zeros(n_blocks, dtype=torch.long, device=device)
+    block_counts.scatter_add_(0, sorted_blocks, torch.ones_like(sorted_blocks))
+    block_start_offsets = torch.cumsum(block_counts, dim=0) - block_counts
+    entry_index = torch.arange(sorted_blocks.numel(), device=device)
+    within_block_rank = entry_index - block_start_offsets[sorted_blocks]
+
+    served_mask = within_block_rank < capacity
+
+    served_blocks = sorted_blocks[served_mask]
+    served_ranks = within_block_rank[served_mask]
+    served_token_ids = sorted_token_ids[served_mask]
+    served_pick_slots = sorted_pick_slot[served_mask]
+    served_gate = sorted_gate[served_mask]  # still differentiable -- pure indexing, no in-place op
+
+    # Real, SINGLE batched scatter for each output (not a loop): every
+    # (served_blocks[i], served_ranks[i]) pair is unique by construction
+    # (within_block_rank is a real, unique 0..count-1 rank per block
+    # group), so this is a genuine one-shot assignment, not thousands of
+    # sequential in-place writes into the same tensor.
+    block_token_indices = torch.full((n_blocks, capacity), -1, dtype=torch.long, device=device)
+    block_gate_weights = torch.zeros((n_blocks, capacity), dtype=token_pick_gate.dtype, device=device)
+    token_pick_served = torch.zeros((num_tokens, top_k), dtype=torch.bool, device=device)
+
+    block_token_indices[served_blocks, served_ranks] = served_token_ids
+    block_gate_weights[served_blocks, served_ranks] = served_gate
+    token_pick_served[served_token_ids, served_pick_slots] = True
+
+    tokens_routed = int(token_pick_served.sum().item())
+    tokens_dropped = int(num_tokens * top_k - tokens_routed)
+
+    return RoutingResult(
+        block_size=-1,  # filled in by the caller that knows the real block_size
+        capacity=capacity,
+        top_k=top_k,
+        block_token_indices=block_token_indices,
+        token_selected_blocks=top_blocks,
+        token_pick_served=token_pick_served,
+        block_gate_weights=block_gate_weights,
+        tokens_dropped=tokens_dropped,
+        tokens_routed=tokens_routed,
+    )
+
+
+def _route_tokens_to_blocks_loop_reference(
+    token_block_scores: torch.Tensor,
+    *,
+    top_k: int,
+    capacity_factor: float,
+) -> RoutingResult:
+    """Retained ONLY as a real, independent ground-truth reference for
+    testing `route_tokens_to_blocks`'s vectorized implementation against
+    -- this is the original Python-loop-based implementation, real, but
+    the one proven to cause CUDA out-of-memory at production scale (see
+    `route_tokens_to_blocks`'s own docstring). Do not use this for real
+    training; it exists only so
+    `test_route_tokens_to_blocks_vectorized_matches_loop_reference_exactly`
+    can prove the fast path is exactly equivalent, not just asserted to
+    be."""
+    if token_block_scores.ndim != 2:
+        raise ValueError("token_block_scores must be (num_tokens, n_blocks)")
+    num_tokens, n_blocks = token_block_scores.shape
+    if top_k <= 0 or top_k > n_blocks:
+        raise ValueError(f"top_k must be in [1, n_blocks], got {top_k} for n_blocks={n_blocks}")
+
+    capacity = compute_capacity(num_tokens, n_blocks, top_k, capacity_factor)
+
+    top_scores, top_blocks = torch.topk(token_block_scores, k=top_k, dim=1)
+    token_pick_gate = torch.softmax(top_scores, dim=1)
 
     block_token_indices = torch.full((n_blocks, capacity), -1, dtype=torch.long, device=token_block_scores.device)
     block_fill = torch.zeros(n_blocks, dtype=torch.long, device=token_block_scores.device)
     token_pick_served = torch.zeros((num_tokens, top_k), dtype=torch.bool, device=token_block_scores.device)
     block_gate_weights = torch.zeros((n_blocks, capacity), dtype=token_pick_gate.dtype, device=token_block_scores.device)
 
-    # Real, deterministic global processing order: by score descending,
-    # so higher-scoring (token, pick) pairs claim capacity first,
-    # regardless of which block they target -- matches the literature's
-    # own "highest-priority tokens served first" capacity semantics.
     flat_scores = top_scores.reshape(-1)
     flat_blocks = top_blocks.reshape(-1)
     flat_token_ids = torch.arange(num_tokens, device=token_block_scores.device).repeat_interleave(top_k)
     flat_pick_slot = torch.arange(top_k, device=token_block_scores.device).repeat(num_tokens)
 
     order = torch.argsort(flat_scores, descending=True, stable=True)
-    flat_gate = token_pick_gate.reshape(-1)  # differentiable, parallel to flat_scores
+    flat_gate = token_pick_gate.reshape(-1)
 
     for position in order.tolist():
         block = int(flat_blocks[position])
@@ -151,13 +267,13 @@ def route_tokens_to_blocks(
         block_token_indices[block, fill] = token_id
         block_fill[block] = fill + 1
         token_pick_served[token_id, pick_slot] = True
-        block_gate_weights[block, fill] = flat_gate[position]  # real, differentiable write
+        block_gate_weights[block, fill] = flat_gate[position]
 
     tokens_routed = int(token_pick_served.sum().item())
     tokens_dropped = int(num_tokens * top_k - tokens_routed)
 
     return RoutingResult(
-        block_size=-1,  # filled in by the caller that knows the real block_size
+        block_size=-1,
         capacity=capacity,
         top_k=top_k,
         block_token_indices=block_token_indices,
