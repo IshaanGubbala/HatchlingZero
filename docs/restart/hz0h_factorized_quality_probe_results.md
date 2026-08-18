@@ -5,6 +5,15 @@ through the Pi relay's `/inbox` endpoint. This answers the question the
 CUDA architecture sweep's speed/memory numbers left open: does
 factorization's speed win cost BDH's quality?
 
+**Superseded, 2026-08-18:** this probe's own "no quality cost" finding
+did NOT survive being retested under BDH's real, full curriculum
+training recipe -- see `docs/restart/hz0h_factorized_curriculum_full_comparison_results.md`.
+Under the full 25M-token curriculum run, factorized rank=64 lands
+clearly WORSE than dense BDH (1.8984 vs 1.3848 best validation loss),
+the opposite of this probe's 500-step, no-curriculum result. Read this
+doc as a real, disclosed lesson in why short-budget architecture probes
+can mislead, not as the standing quality verdict on factorization.
+
 ## Real bug on the way there
 
 First dispatch crashed immediately: `AssertionError` on

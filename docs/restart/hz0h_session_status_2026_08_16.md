@@ -143,10 +143,13 @@ architecture change tried so far has closed.
 
 ## 5. Open, real next questions
 
-- Does factorized BDH's quality edge (or at least non-deficit) survive
-  longer training and the depth curriculum, or does dense BDH's extra
-  capacity eventually win out? Needs a curriculum-compatible
-  `FactorizedBDH` forward and a longer, matched run -- not yet built.
+- ~~Does factorized BDH's quality edge survive the depth curriculum?~~
+  **Resolved, 2026-08-18**: no. Real full 25M-token curriculum run
+  (`docs/restart/hz0h_factorized_curriculum_full_comparison_results.md`)
+  shows both factorized variants land worse than dense BDH AND worse
+  than the Transformer once trained properly -- the earlier short-probe
+  "no cost" finding was a real but misleading artifact of an
+  insufficiently long, non-curriculum budget.
 - Why is dense BDH faster than the Transformer specifically at
   `n_layer=1`? Real, reproduced, unexplained.
 - Stage 1's remaining open levers (epilogue fusion, CUDA graphs, backend
