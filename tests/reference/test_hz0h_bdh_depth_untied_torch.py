@@ -74,6 +74,48 @@ def test_untied_gradients_are_independent_per_level():
 
 
 def test_budget_matched_multiplier_divides_and_floors():
-    assert budget_matched_multiplier(16, depth=4) == 4
-    assert budget_matched_multiplier(16, depth=3) == 5
-    assert budget_matched_multiplier(2, depth=8) == 1  # floors at 1, never 0
+    assert budget_matched_multiplier(16, group_count=4) == 4
+    assert budget_matched_multiplier(16, group_count=3) == 5
+    assert budget_matched_multiplier(2, group_count=8) == 1  # floors at 1, never 0
+
+
+def test_groups_one_reproduces_the_real_oracle_exactly():
+    """groups=1 forces every level onto ONE shared parameter set -- the
+    same structure as the tied oracle. Must be bit-exact, same gate as
+    the fully-untied case above, just at the other end of the knob."""
+    config = _config()
+    torch.manual_seed(7)
+    oracle = BDH(config).eval()
+    torch.manual_seed(11)
+    grouped = DepthUntiedBDH(config, depth=config.n_layer, groups=1).eval()
+    grouped.tie_all_levels_to(oracle.encoder, oracle.encoder_v, oracle.decoder)
+    grouped.embed.load_state_dict(oracle.embed.state_dict())
+    grouped.lm_head.data.copy_(oracle.lm_head.data)
+
+    idx = torch.randint(256, (2, 12))
+    targets = torch.randint(256, (2, 12))
+    with torch.no_grad():
+        oracle_logits, oracle_loss = oracle(idx, targets)
+        grouped_logits, grouped_loss = grouped(idx, targets)
+    assert torch.equal(oracle_logits, grouped_logits)
+    assert torch.equal(oracle_loss, grouped_loss)
+
+
+def test_group_of_assigns_adjacent_levels_to_the_same_group():
+    config = _config(n_layer=4)
+    model = DepthUntiedBDH(config, depth=4, groups=2)
+    assert [model.group_of(level) for level in range(4)] == [0, 0, 1, 1]
+
+
+def test_two_groups_use_independent_weights_within_a_level_pair():
+    """Real structural check for the new partial-untying case: levels 0
+    and 1 (same group) must use IDENTICAL weights; levels sharing a
+    group are not accidentally independent, and groups themselves are
+    genuinely independent parameters."""
+    config = _config(n_layer=4)
+    model = DepthUntiedBDH(config, depth=4, groups=2)
+    assert model.level_encoders[0] is model.level_encoders[model.group_of(0)]
+    assert model.group_of(0) == model.group_of(1)
+    assert model.group_of(2) == model.group_of(3)
+    assert model.group_of(0) != model.group_of(2)
+    assert not torch.equal(model.level_encoders[0], model.level_encoders[1])

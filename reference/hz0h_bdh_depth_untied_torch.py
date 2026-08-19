@@ -26,6 +26,14 @@ provided for this reason:
     untied TOTAL param count across all levels approximately equals the
     tied baseline's -- isolates tying itself from the capacity confound.
 
+`groups` generalizes both ends into one continuous knob (`C ~ (depth/groups) x P`
+at fixed total params, per the closed form worked out after the first
+tying result): `groups=1` collapses to the tied oracle, `groups=depth`
+is fully untied (one distinct set per level). `depth // groups` adjacent
+levels share one parameter set -- `W1,W1,W2,W2` for `depth=4,groups=2` --
+so the curve between the two previously-tested endpoints can be swept
+directly instead of only checking the extremes.
+
 Never modifies `reference/hz0h_bdh_torch.py` (read-only upstream oracle).
 `DepthUntiedBDH` with every level's weights forced identical to a shared
 copy must reproduce `BDH.forward` EXACTLY -- proven, not asserted, by
@@ -43,21 +51,32 @@ from reference.hz0h_bdh_torch import Attention, BDH, BDHConfig
 
 class DepthUntiedBDH(nn.Module):
     """Same computation as `BDH.forward`, except `encoder`/`encoder_v`/
-    `decoder` are `depth` independent parameter sets (one per recurrent
-    level) instead of one tied set reused `depth` times. `embed`, `ln`,
-    `attn`, `lm_head` are shared, matching what upstream itself shares.
+    `decoder` are `groups` independent parameter sets instead of one tied
+    set reused `depth` times. `embed`, `ln`, `attn`, `lm_head` are shared,
+    matching what upstream itself shares.
 
-    Each level's three matrices are initialized via a fresh `BDH(config)`
+    `groups` (default `depth`, i.e. fully untied -- one set per level)
+    controls how many levels share each parameter set via
+    `group_of(level) = level * groups // depth`, an even split that
+    assigns adjacent levels to the same group (`W1,W1,W2,W2` for
+    `depth=4, groups=2`). `groups=1` makes every level share ONE set,
+    the same structure as the tied oracle (see
+    `tests/reference/test_hz0h_bdh_depth_untied_torch.py` for the proof
+    that this reproduces `BDH.forward` exactly when weights also match).
+
+    Each group's three matrices are initialized via a fresh `BDH(config)`
     instance (borrowing the oracle's own init, `normal_(std=0.02)`
     followed by `self.apply(self._init_weights)`), so untied initialization
     statistics match the tied baseline's exactly -- only independence
-    across levels differs, not the init distribution.
+    across groups differs, not the init distribution.
     """
 
-    def __init__(self, config: BDHConfig, depth: int):
+    def __init__(self, config: BDHConfig, depth: int, groups: int | None = None):
         super().__init__()
         self.config = config
         self.depth = depth
+        self.groups = depth if groups is None else groups
+        assert 1 <= self.groups <= depth
 
         shared = BDH(config)
         self.embed = shared.embed
@@ -69,21 +88,25 @@ class DepthUntiedBDH(nn.Module):
         self.level_encoders = nn.ParameterList()
         self.level_encoders_v = nn.ParameterList()
         self.level_decoders = nn.ParameterList()
-        for _ in range(depth):
-            level = BDH(config)
-            self.level_encoders.append(level.encoder)
-            self.level_encoders_v.append(level.encoder_v)
-            self.level_decoders.append(level.decoder)
+        for _ in range(self.groups):
+            group = BDH(config)
+            self.level_encoders.append(group.encoder)
+            self.level_encoders_v.append(group.encoder_v)
+            self.level_decoders.append(group.decoder)
+
+    def group_of(self, level: int) -> int:
+        return level * self.groups // self.depth
 
     def tie_all_levels_to(self, encoder: torch.Tensor, encoder_v: torch.Tensor, decoder: torch.Tensor) -> None:
-        """Test-only helper: force every level's weights to the SAME
-        tensor values, collapsing this module back to the tied case, so
-        its forward can be checked bit-for-bit against the real oracle."""
+        """Test-only helper: force every group's weights to the SAME
+        tensor values, collapsing this module back to the fully-tied
+        case, so its forward can be checked bit-for-bit against the real
+        oracle."""
         with torch.no_grad():
-            for level in range(self.depth):
-                self.level_encoders[level].copy_(encoder)
-                self.level_encoders_v[level].copy_(encoder_v)
-                self.level_decoders[level].copy_(decoder)
+            for group in range(self.groups):
+                self.level_encoders[group].copy_(encoder)
+                self.level_encoders_v[group].copy_(encoder_v)
+                self.level_decoders[group].copy_(decoder)
 
     def forward(self, idx: torch.Tensor, targets: torch.Tensor | None = None, depth: int | None = None):
         """`depth` (default `self.depth`, the max number of levels this
@@ -102,9 +125,10 @@ class DepthUntiedBDH(nn.Module):
         x = self.ln(x)
 
         for level in range(depth):
-            encoder = self.level_encoders[level]
-            encoder_v = self.level_encoders_v[level]
-            decoder = self.level_decoders[level]
+            group = self.group_of(level)
+            encoder = self.level_encoders[group]
+            encoder_v = self.level_encoders_v[group]
+            decoder = self.level_decoders[group]
 
             x_latent = x @ encoder
             x_sparse = F.relu(x_latent)
@@ -130,9 +154,11 @@ class DepthUntiedBDH(nn.Module):
         return logits, loss
 
 
-def budget_matched_multiplier(tied_multiplier: int, depth: int) -> int:
+def budget_matched_multiplier(tied_multiplier: int, group_count: int) -> int:
     """Real capacity-matching rule used by the sweep: divide the tied
-    baseline's multiplier by `depth` so untied's TOTAL encoder/encoder_v/
-    decoder param count across all levels is approximately equal to the
-    tied baseline's single set. Floors at 1 (can't go narrower)."""
-    return max(1, tied_multiplier // depth)
+    baseline's multiplier by the number of independent parameter GROUPS
+    (not necessarily `depth` -- pass `groups` for a partial-untying arm)
+    so untied's TOTAL encoder/encoder_v/decoder param count across all
+    groups is approximately equal to the tied baseline's single set.
+    Floors at 1 (can't go narrower)."""
+    return max(1, tied_multiplier // group_count)

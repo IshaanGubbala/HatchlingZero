@@ -133,6 +133,11 @@ def main() -> None:
                         help="Near-optimal width from the width sweep -- used for both the tied "
                              "baseline and the untied full-capacity arm's PER-LEVEL multiplier.")
     parser.add_argument("--curriculum-stages", default=None)
+    parser.add_argument("--extra-groups", default="2",
+                        help="Comma-separated intermediate group counts to test in addition to the "
+                             "existing groups=1 (tied_baseline) and groups=depth (untied_budget_matched/"
+                             "untied_full_capacity) endpoints -- fills in the C~(depth/groups)*P curve "
+                             "at fixed total params. Default '2' tests W1,W1,W2,W2-style pairing.")
     args = parser.parse_args()
 
     device = pick_device(args.device)
@@ -160,23 +165,48 @@ def main() -> None:
           f"params={result['parameter_count']/1e6:.2f}M seconds={result['training_seconds']:.0f}", flush=True)
     del tied_model
 
-    for arm_name, multiplier in (
-        ("untied_budget_matched", matched_multiplier),
-        ("untied_full_capacity", args.tied_multiplier),
+    for arm_name, groups, multiplier in (
+        ("untied_budget_matched", max_depth, matched_multiplier),
+        ("untied_full_capacity", max_depth, args.tied_multiplier),
     ):
         torch.manual_seed(args.seed)
         untied_config = BDHConfig(
             n_layer=args.n_layer, n_embd=args.n_embd, n_head=args.n_head,
             mlp_internal_dim_multiplier=multiplier, vocab_size=256, dropout=0.0,
         )
-        untied_model = DepthUntiedBDH(untied_config, depth=max_depth).to(device=device, dtype=torch.float32)
-        print(f"[{arm_name}] starting on {device} (per-level mult={multiplier}) ...", flush=True)
+        untied_model = DepthUntiedBDH(untied_config, depth=max_depth, groups=groups).to(device=device, dtype=torch.float32)
+        print(f"[{arm_name}] starting on {device} (groups={groups} per-group mult={multiplier}) ...", flush=True)
         result = train_arm(arm_name, untied_model, args, stages, device, tied=False)
-        result["per_level_multiplier"] = multiplier
+        result["groups"] = groups
+        result["per_group_multiplier"] = multiplier
         arms[arm_name] = result
         print(f"[{arm_name}] best_val={result['best_validation_loss']:.4f} "
               f"params={result['parameter_count']/1e6:.2f}M seconds={result['training_seconds']:.0f}", flush=True)
         del untied_model
+
+    extra_groups = sorted({int(g) for g in args.extra_groups.split(",") if g.strip()})
+    for groups in extra_groups:
+        if groups in (1, max_depth):
+            continue  # 1 == tied_baseline, max_depth == the two arms above -- don't duplicate
+        matched = budget_matched_multiplier(args.tied_multiplier, groups)
+        for arm_name, multiplier in (
+            (f"untied_g{groups}_budget_matched", matched),
+            (f"untied_g{groups}_full_capacity", args.tied_multiplier),
+        ):
+            torch.manual_seed(args.seed)
+            untied_config = BDHConfig(
+                n_layer=args.n_layer, n_embd=args.n_embd, n_head=args.n_head,
+                mlp_internal_dim_multiplier=multiplier, vocab_size=256, dropout=0.0,
+            )
+            untied_model = DepthUntiedBDH(untied_config, depth=max_depth, groups=groups).to(device=device, dtype=torch.float32)
+            print(f"[{arm_name}] starting on {device} (groups={groups} per-group mult={multiplier}) ...", flush=True)
+            result = train_arm(arm_name, untied_model, args, stages, device, tied=False)
+            result["groups"] = groups
+            result["per_group_multiplier"] = multiplier
+            arms[arm_name] = result
+            print(f"[{arm_name}] best_val={result['best_validation_loss']:.4f} "
+                  f"params={result['parameter_count']/1e6:.2f}M seconds={result['training_seconds']:.0f}", flush=True)
+            del untied_model
 
     baseline_loss = arms["tied_baseline"]["best_validation_loss"]
     baseline_params = arms["tied_baseline"]["parameter_count"]
