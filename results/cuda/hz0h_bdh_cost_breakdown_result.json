@@ -1,0 +1,121 @@
+{
+  "device": "NVIDIA GeForce RTX 3060",
+  "dtype": "bfloat16",
+  "shape": {
+    "batch_size": 12,
+    "sequence_length": 256,
+    "n_embd": 512,
+    "n_layer": 8,
+    "n_head": 8,
+    "mlp_internal_dim_multiplier": 32,
+    "latent_width_per_head": 2048
+  },
+  "transcription_max_abs_difference_vs_oracle": 0.0,
+  "per_level_stages": {
+    "attention_rope": {
+      "milliseconds": 9.073663711547852,
+      "time_share": 0.36550756352239144,
+      "flops": 0,
+      "flop_share": 0.0,
+      "time_over_flop_share": null
+    },
+    "encoder_v": {
+      "milliseconds": 4.117504119873047,
+      "time_share": 0.1658623182973877,
+      "flops": 51539607552,
+      "flop_share": 0.27586206896551724,
+      "time_over_flop_share": 0.6012509038280305
+    },
+    "encoder": {
+      "milliseconds": 4.05299186706543,
+      "time_share": 0.16326361979029588,
+      "flops": 51539607552,
+      "flop_share": 0.27586206896551724,
+      "time_over_flop_share": 0.5918306217398226
+    },
+    "decoder": {
+      "milliseconds": 3.7150719165802,
+      "time_share": 0.14965144485259435,
+      "flops": 51539607552,
+      "flop_share": 0.27586206896551724,
+      "time_over_flop_share": 0.5424864875906545
+    },
+    "attention_scores": {
+      "milliseconds": 1.0485759973526,
+      "time_share": 0.04223899740439364,
+      "flops": 25769803776,
+      "flop_share": 0.13793103448275862,
+      "time_over_flop_share": 0.30623273118185385
+    },
+    "gate_multiply": {
+      "milliseconds": 0.9031680226325989,
+      "time_share": 0.03638163743975298,
+      "flops": 0,
+      "flop_share": 0.0,
+      "time_over_flop_share": null
+    },
+    "relu_x": {
+      "milliseconds": 0.6082559823989868,
+      "time_share": 0.024501917769073563,
+      "flops": 0,
+      "flop_share": 0.0,
+      "time_over_flop_share": null
+    },
+    "relu_y": {
+      "milliseconds": 0.6082559823989868,
+      "time_share": 0.024501917769073563,
+      "flops": 0,
+      "flop_share": 0.0,
+      "time_over_flop_share": null
+    },
+    "attention_values": {
+      "milliseconds": 0.40959998965263367,
+      "time_share": 0.016499607985933605,
+      "flops": 6442450944,
+      "flop_share": 0.034482758620689655,
+      "time_over_flop_share": 0.47848863159207455
+    },
+    "ln_attention": {
+      "milliseconds": 0.1945600062608719,
+      "time_share": 0.007837314243507655,
+      "flops": 0,
+      "flop_share": 0.0,
+      "time_over_flop_share": null
+    },
+    "ln_residual": {
+      "milliseconds": 0.08908800035715103,
+      "time_share": 0.003588664841984704,
+      "flops": 0,
+      "flop_share": 0.0,
+      "time_over_flop_share": null
+    },
+    "dropout": {
+      "milliseconds": 0.004095999989658594,
+      "time_share": 0.00016499608361091264,
+      "flops": 0,
+      "flop_share": 0.0,
+      "time_over_flop_share": null
+    }
+  },
+  "per_level_total_stage_milliseconds": 24.824831596110016,
+  "per_level_total_flops": 186831077376,
+  "whole_model_flops_all_levels": 1494648619008,
+  "end_to_end_forward_only_milliseconds": 212.95103454589844,
+  "end_to_end_train_step_milliseconds": 568.501220703125,
+  "backward_over_forward_ratio": 2.6696335235722604,
+  "attention_share_of_level_flops": 0.1724137931034483,
+  "wide_projection_share_of_level_flops": 0.8275862068965517,
+  "matched_transformer": {
+    "config": {
+      "n_layer": 6,
+      "n_heads": 4,
+      "head_dim": 128,
+      "d_ff": 2048
+    },
+    "per_layer_flops": 20937965568,
+    "whole_model_flops": 125627793408
+  },
+  "bdh_over_transformer_flop_ratio": 11.897435897435898,
+  "measured_training_slowdown_ratio_phase_f": 5.3,
+  "implied_relative_hardware_efficiency": 2.2447992259313017
+}

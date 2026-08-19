@@ -15,10 +15,13 @@ whole audit (a trained jump operator, "settle 4 real iterations then
 jump the rest," gets 1.9x real wall-clock speedup for +0.029 loss --
 Part 6, single-model prototype, needs firming up before production use
 but doesn't cost parameters or the tying-quality penalty every other
-lever in this doc pays), and one important negative capstone result
+lever in this doc pays), one important negative capstone result
 (stacking every confirmed win into one recipe LOST on quality to both
 raw BDH and the matched Transformer, confounded and not yet isolated --
-Part 7).** Full-scale CUDA
+Part 7), and one real CUDA-confirmed hidden cost (RoPE application is
+36.5% of per-level wall-clock time despite ZERO FLOPs, invisible to
+every FLOP-based argument in this whole audit until now -- Part 8).**
+Full-scale CUDA
 confirmation for Parts 1-3 is dispatched but not yet returned
 (Windows/RTX3060 is offline
 as of this writing -- see Part 4's own next-steps note).
@@ -627,6 +630,80 @@ change, so they cannot explain or worsen Part 7's quality gap, only
 throughput -- but need real training-path integration (not just a
 forward-pass benchmark) before they can be added to a training run like
 this comparison.
+
+## Part 8: real CUDA cost-breakdown profile lands -- confirms Part 1, finds a new hidden cost
+
+`hz0h_cost_breakdown_request.txt` (dispatched 2026-08-18/19, queued
+untouched while Windows/RTX3060 was offline ~24h) finally landed
+2026-08-19 -- real per-stage timing on the actual RTX 3060, production
+shape (`n_embd=512`, `n_layer=8`, `n_head=8`, `mult=32`, bf16).
+`transcription_max_abs_difference_vs_oracle: 0.0` -- the profiling
+harness's load-bearing gate confirms it measured the real oracle, not
+an approximation.
+
+**Confirms Part 1's original analytic claim, now on real hardware, not
+just FLOP arithmetic:** BDH does 11.897x the matched Transformer's
+FLOPs; the REAL measured training slowdown is 5.3x
+(`measured_training_slowdown_ratio_phase_f`); implied hardware
+efficiency **2.24x** -- BDH really does run more efficiently per-FLOP
+than the Transformer on this hardware, exactly as Part 1 argued from
+FLOP counting alone.
+
+**Real, new finding this profile surfaces that FLOP-based reasoning
+never could: `attention_rope` is 36.5% of per-level wall-clock time,
+despite ZERO recorded FLOPs** -- the single largest time-consuming
+stage in the whole recurrent step, bigger than encoder (16.3%),
+encoder_v (16.6%), or decoder (15.0%) individually:
+
+| stage | time share | FLOP share | time/FLOP-share ratio |
+|---|---:|---:|---:|
+| `attention_rope` | 36.55% | 0% | -- (FLOP-invisible) |
+| `encoder_v` | 16.59% | 27.59% | 0.60 (efficient) |
+| `encoder` | 16.33% | 27.59% | 0.59 (efficient) |
+| `decoder` | 14.97% | 27.59% | 0.54 (efficient) |
+| `attention_scores` | 4.22% | 13.79% | 0.31 (very efficient) |
+| `gate_multiply` | 3.64% | 0% | -- |
+| `attention_values` | 1.65% | 3.45% | 0.48 (efficient) |
+
+**Real implication: this whole audit's "three wide projections are
+82.8% of FLOPs, attention is only 17.2%" framing (Part 1) is correct
+about FLOPs but was never separately checked against real wall-clock
+time per stage until now.** The three wide projections (encoder,
+encoder_v, decoder) are all comfortably UNDER their FLOP-share of time
+(ratios 0.54-0.60, i.e. genuinely efficient GEMMs on this hardware) --
+but `attention_rope`'s RoPE application, invisible to FLOP counting
+entirely, is nonetheless the single biggest real time cost. This looks
+like a memory-bandwidth-bound or kernel-launch-overhead-bound
+operation, not a compute-bound one -- a real, previously-hidden
+optimization target this audit never looked at because every prior
+part reasoned from FLOPs, not measured wall-clock per stage.
+
+Also confirmed: `backward_over_forward_ratio: 2.67` (real measured
+backward-pass cost multiplier, not assumed 2x), and
+`end_to_end_forward_only_milliseconds: 213` / `end_to_end_train_step_
+milliseconds: 569` at this shape and batch size (12).
+
+**Real next step:** profile `attention_rope` specifically (is it
+memory-bound? does a fused/precomputed RoPE application reduce its real
+time without changing the math?) before assuming any of the
+architecture-level levers in Parts 2-7 are the highest-leverage next
+target -- a 36% single-stage time cost that's invisible to FLOP
+accounting is a real, concrete, previously-undiscovered lead.
+
+**CRITICAL, UNVERIFIED CAVEAT, flagged before this finding is trusted:**
+this profile ran on a machine that was JUST recovering from ~24h
+offline, and this project has a documented prior incident (during the
+dynamic-block-routing OOM investigation) of stale zombie processes
+silently holding GPU memory on this exact Windows box. Whether the GPU
+was EXCLUSIVELY available during this specific profiling run has not
+been confirmed. If another process was contending for the GPU
+concurrently, `attention_rope`'s anomalous 36.5%-time/0-FLOP result
+could be a contention artifact (kernel launches interleaving badly with
+a concurrent process, or memory-bandwidth contention inflating one
+kernel's measured time disproportionately) rather than a real,
+reproducible architectural cost. **Do not act on this finding (e.g.
+building a fused-RoPE optimization) until a clean-GPU-state rerun
+confirms the same result.** Requested as an immediate follow-up.
 
 ## Concrete next steps
 
