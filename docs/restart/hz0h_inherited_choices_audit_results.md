@@ -239,6 +239,63 @@ only; a real G=8 point needs `n_layer=8`, which needs either a much
 longer local run or the CUDA machine (currently offline, see next
 steps).
 
+### Part 4c: confirmed at real production depth, `n_layer=8` (3 seeds)
+
+Follow-up (2026-08-19), same day: reran the full groups sweep at
+`n_layer=8` -- the actual production depth, not the `n_layer=4` local
+proxy every earlier part of this audit used. This matters because the
+project has a documented case of a small-scale probe reversing at full
+scale (FactorizedBDH); Part 4b's G=2 finding needed this check before
+being treated as more than preliminary.
+
+| G | Δ matched-budget (mean, 3 seeds) | Δ full-capacity (mean, 3 seeds) | params (full-cap) | wall-clock (matched-budget vs tied) |
+|---|---:|---:|---:|---:|
+| 1 (tied) | 0.0000 | -- | 1.00x | 1.0x (~227s) |
+| 2 | +0.0837 | +0.0054 | 1.96x | **1.6x faster** (~134s) |
+| 4 | +0.1520 | -0.0187 | 3.88x | **2.5x faster** (~87s) |
+| 8 | +0.2497 | -0.0296 | 7.72x | **3.4x faster** (~63s) |
+
+Per-seed detail (`results/local/hz0h_depth_untied_n8_seed{7,8,9}.json`):
+
+| seed | tied | g2_matched (Δ) | g2_full (Δ) | g4_matched (Δ) | g4_full (Δ) | g8_matched (Δ) | g8_full (Δ) |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| 7 | 1.9194 | +0.1166 | +0.0221 | +0.1489 | -0.0009 | +0.2750 | -0.0079 |
+| 8 | 1.9493 | +0.0821 | -0.0046 | +0.1570 | -0.0291 | +0.2287 | -0.0201 |
+| 9 | 1.9390 | +0.0525 | -0.0013 | +0.1502 | -0.0261 | +0.2453 | -0.0607 |
+
+**Real conclusion 1: the `n_layer=4` shape holds at real depth.** Matched-
+budget cost is still monotonic in G (0.08 -> 0.15 -> 0.25, all 3 seeds
+consistent in sign and ordering), confirming this is not a shallow-
+recurrence artifact.
+
+**Real conclusion 2, new at this depth: full-capacity untying now
+matches or BEATS tied at every G tested, not just at the high end.**
+G=2 full-capacity is a statistical wash (+0.005, mixed sign across
+seeds); G=4 and G=8 full-capacity are consistently negative (better
+than tied) in all 3 seeds. At `n_layer=4` this pattern only showed up
+noisily; at real depth it is real and consistent.
+
+**Real conclusion 3, the actual production-relevant finding: full-
+capacity arms cost the SAME wall-clock as tied (~227-234s) -- giving
+each group its own full-width weights doesn't save any compute, only
+changes which weights get used per round.** The genuine speed win lives
+ENTIRELY in the budget-matched arms, where narrowing each group's width
+by `groups` produces a real, measured, monotonic wall-clock reduction
+(1.6x / 2.5x / 3.4x faster than tied for G=2/4/8) at the cost of a real,
+also-monotonic quality hit. This is the real tradeoff curve a production
+decision would sit on -- not "untying costs quality" (true only for the
+matched-budget arms) and not "untying is free" (true only for the
+full-capacity arms, which spend up to 7.72x the params to get there).
+
+Real, disclosed limit specific to this part: still MPS/fp32/5M tokens
+per arm, not the 25M-token CUDA reference config, and wall-clock
+numbers are local-hardware-specific (MPS matmul scheduling, not
+representative of CUDA kernel launch/memory-bandwidth tradeoffs at
+production batch size). The QUALITY deltas and their monotonic shape
+are the more portable claim; the exact 1.6x/2.5x/3.4x speed multipliers
+should be treated as directionally suggestive only until measured on
+CUDA.
+
 ## Real, disclosed limits on everything above
 
 - Scaled-down local runs: smaller model, 5M tokens (not 25M), fp32 on
@@ -260,15 +317,28 @@ steps).
 2. **Confirm `mult=16`** at full scale -- a 2x FLOP/parameter cut for
    ~0.02 loss would be the single largest efficiency result in the
    project so far.
-2a. **Confirm weight tying (Part 4/4b) at full CUDA scale, `n_layer=8`,
-   including a real G=8 point** -- a real +0.19-0.22 effect (G=4,
-   matched budget) and a roughly-monotonic G=2 midpoint are large enough
-   locally that they should transfer, but nothing past `n_layer=4` has
-   been checked, and G=8 (the value that matters for production) has
-   never been run at all. Dispatch blocked as of 2026-08-19: Windows/
-   RTX3060 has been offline 9h+ (Tailscale `desktop-2sreddp`), longer
+2a. **Confirmed locally at real depth (Part 4c) -- now confirm on CUDA
+   at the real 25M-token config.** The `n_layer=8` local run answered
+   the depth-transfer question already (the shape holds), so what CUDA
+   still needs to confirm is SCALE: does the matched-budget quality cost
+   and the budget-matched wall-clock speedup both hold at 25M tokens,
+   bf16, the real batch size? Dispatch blocked as of 2026-08-19: Windows/
+   RTX3060 has been offline 16h+ (Tailscale `desktop-2sreddp`), longer
    than the documented flip-flop pattern -- treat as a real outage, not
    routine flakiness, until it clears.
+2b. **Find the minimum per-group multiplier that recovers tied's
+   quality, for a fixed G** (e.g. G=4) -- Part 4c only tested the two
+   extremes (budget-matched = mult/G, full-capacity = mult unchanged).
+   The real production question is the cheapest per-group width that
+   still matches tied's loss: sweep per-group multiplier at fixed G
+   between those two endpoints to find the actual speed/quality knee,
+   rather than picking one of the two ends blind.
+2c. **Once 2b finds a candidate (G, per-group multiplier) that matches
+   tied's quality with a real compute saving, this stops being an
+   ablation and becomes a real architecture candidate** -- would need
+   integration into the main HZ-0H training path (not just this
+   isolated sweep script) and a CUDA-confirmed throughput number before
+   being treated as a production change.
 3. **Test the two together** (`mult=16` + `softmax_scaled`) -- they are
    independent changes and may compose.
 4. Dispatched but NOT yet returned (Windows box was down, then
