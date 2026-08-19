@@ -1,0 +1,268 @@
+{
+  "device": "mps",
+  "dtype": "float32",
+  "scaled_down_local_run": true,
+  "not_comparable_to_cuda_reference_numbers": "Absolute losses are NOT comparable to the 25M-token CUDA numbers (dense BDH 1.3848, matched Transformer 1.5141). Only DIRECTION and rough magnitude of the tying effect is the real signal here.",
+  "tied_baseline_uses_real_oracle": "tied_baseline trains the real BDH class via bdh_variable_depth_forward, not DepthUntiedBDH's tied special case -- the untied module's equivalence to the oracle is separately proven by tests/reference/test_hz0h_bdh_depth_untied_torch.py",
+  "budget_matching_rule": "untied_budget_matched per-level multiplier = budget_matched_multiplier(16, depth=4) = 4, so its TOTAL encoder/encoder_v/decoder params across 4 levels approximate tied_baseline's single set.",
+  "curriculum_stages": [
+    [
+      2500000,
+      2
+    ],
+    [
+      3750000,
+      3
+    ],
+    [
+      5000000,
+      4
+    ]
+  ],
+  "target_tokens": 5000000,
+  "shape": {
+    "n_embd": 256,
+    "n_layer": 4,
+    "n_head": 4,
+    "tied_multiplier": 16,
+    "matched_multiplier": 4,
+    "batch_size": 8,
+    "sequence_length": 256
+  },
+  "seed": 7,
+  "arms": {
+    "tied_baseline": {
+      "name": "tied_baseline",
+      "parameter_count": 3276800,
+      "best_validation_loss": 1.9354167133569717,
+      "final_validation_loss": 1.9354167133569717,
+      "validation_history": [
+        {
+          "step": 200,
+          "depth": 2,
+          "validation_loss": 2.7560911774635315
+        },
+        {
+          "step": 400,
+          "depth": 2,
+          "validation_loss": 2.612442761659622
+        },
+        {
+          "step": 600,
+          "depth": 2,
+          "validation_loss": 2.3758630752563477
+        },
+        {
+          "step": 800,
+          "depth": 2,
+          "validation_loss": 2.3074434399604797
+        },
+        {
+          "step": 1000,
+          "depth": 2,
+          "validation_loss": 2.2463537752628326
+        },
+        {
+          "step": 1200,
+          "depth": 2,
+          "validation_loss": 2.195550963282585
+        },
+        {
+          "step": 1400,
+          "depth": 3,
+          "validation_loss": 2.056224048137665
+        },
+        {
+          "step": 1600,
+          "depth": 3,
+          "validation_loss": 2.0834905356168747
+        },
+        {
+          "step": 1800,
+          "depth": 3,
+          "validation_loss": 2.0458068251609802
+        },
+        {
+          "step": 2000,
+          "depth": 4,
+          "validation_loss": 2.018169403076172
+        },
+        {
+          "step": 2200,
+          "depth": 4,
+          "validation_loss": 1.9629398882389069
+        },
+        {
+          "step": 2400,
+          "depth": 4,
+          "validation_loss": 1.953144371509552
+        },
+        {
+          "step": 2442,
+          "depth": 4,
+          "validation_loss": 1.9354167133569717
+        }
+      ],
+      "training_seconds": 98.8790616250044,
+      "tokens_seen": 5001216,
+      "validation_loss_minus_tied_baseline": 0.0,
+      "params_vs_tied_baseline": 1.0
+    },
+    "untied_budget_matched": {
+      "name": "untied_budget_matched",
+      "parameter_count": 3276800,
+      "best_validation_loss": 2.124469056725502,
+      "final_validation_loss": 2.124469056725502,
+      "validation_history": [
+        {
+          "step": 200,
+          "depth": 2,
+          "validation_loss": 2.779590457677841
+        },
+        {
+          "step": 400,
+          "depth": 2,
+          "validation_loss": 2.665054053068161
+        },
+        {
+          "step": 600,
+          "depth": 2,
+          "validation_loss": 2.5152714252471924
+        },
+        {
+          "step": 800,
+          "depth": 2,
+          "validation_loss": 2.452652156352997
+        },
+        {
+          "step": 1000,
+          "depth": 2,
+          "validation_loss": 2.4289737939834595
+        },
+        {
+          "step": 1200,
+          "depth": 2,
+          "validation_loss": 2.3494565188884735
+        },
+        {
+          "step": 1400,
+          "depth": 3,
+          "validation_loss": 2.2589161694049835
+        },
+        {
+          "step": 1600,
+          "depth": 3,
+          "validation_loss": 2.27639839053154
+        },
+        {
+          "step": 1800,
+          "depth": 3,
+          "validation_loss": 2.2243581414222717
+        },
+        {
+          "step": 2000,
+          "depth": 4,
+          "validation_loss": 2.192521497607231
+        },
+        {
+          "step": 2200,
+          "depth": 4,
+          "validation_loss": 2.1575620472431183
+        },
+        {
+          "step": 2400,
+          "depth": 4,
+          "validation_loss": 2.1549647748470306
+        },
+        {
+          "step": 2442,
+          "depth": 4,
+          "validation_loss": 2.124469056725502
+        }
+      ],
+      "training_seconds": 39.72040037500119,
+      "tokens_seen": 5001216,
+      "per_level_multiplier": 4,
+      "validation_loss_minus_tied_baseline": 0.18905234336853027,
+      "params_vs_tied_baseline": 1.0
+    },
+    "untied_full_capacity": {
+      "name": "untied_full_capacity",
+      "parameter_count": 12713984,
+      "best_validation_loss": 1.9283760040998459,
+      "final_validation_loss": 1.9283760040998459,
+      "validation_history": [
+        {
+          "step": 200,
+          "depth": 2,
+          "validation_loss": 2.75968137383461
+        },
+        {
+          "step": 400,
+          "depth": 2,
+          "validation_loss": 2.5726103484630585
+        },
+        {
+          "step": 600,
+          "depth": 2,
+          "validation_loss": 2.368576794862747
+        },
+        {
+          "step": 800,
+          "depth": 2,
+          "validation_loss": 2.30033341050148
+        },
+        {
+          "step": 1000,
+          "depth": 2,
+          "validation_loss": 2.2543559074401855
+        },
+        {
+          "step": 1200,
+          "depth": 2,
+          "validation_loss": 2.2017634212970734
+        },
+        {
+          "step": 1400,
+          "depth": 3,
+          "validation_loss": 2.0772610008716583
+        },
+        {
+          "step": 1600,
+          "depth": 3,
+          "validation_loss": 2.080184504389763
+        },
+        {
+          "step": 1800,
+          "depth": 3,
+          "validation_loss": 2.0424228608608246
+        },
+        {
+          "step": 2000,
+          "depth": 4,
+          "validation_loss": 2.0072121173143387
+        },
+        {
+          "step": 2200,
+          "depth": 4,
+          "validation_loss": 1.9600823670625687
+        },
+        {
+          "step": 2400,
+          "depth": 4,
+          "validation_loss": 1.9604399055242538
+        },
+        {
+          "step": 2442,
+          "depth": 4,
+          "validation_loss": 1.9283760040998459
+        }
+      ],
+      "training_seconds": 106.90995279199706,
+      "tokens_seen": 5001216,
+      "per_level_multiplier": 16,
+      "validation_loss_minus_tied_baseline": -0.0070407092571258545,
+      "params_vs_tied_baseline": 3.88
+    }
+  }
+}

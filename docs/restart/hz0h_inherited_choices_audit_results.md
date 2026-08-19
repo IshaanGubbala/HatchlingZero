@@ -1,10 +1,12 @@
-# Auditing BDH's Inherited Choices: Width Is ~2x Oversized, and Softmax+Temperature Beats Upstream Attention
+# Auditing BDH's Inherited Choices: Width Is ~2x Oversized, Softmax+Temperature Beats Upstream Attention, and Weight Tying Is Load-Bearing
 
-Date: 2026-08-18. Status: real, multi-seed results on a scaled-down
+Date: 2026-08-18/19. Status: real, multi-seed results on a scaled-down
 local (MPS) setup. **One confirmed quality win over upstream BDH, one
-confirmed ~2x FLOP saving, and three inherited choices vindicated by
-real measurement rather than assumption.** Full-scale CUDA confirmation
-is dispatched but not yet returned.
+confirmed ~2x FLOP saving, one confirmed load-bearing structural choice
+(weight tying), and three inherited choices vindicated by real
+measurement rather than assumption.** Full-scale CUDA confirmation for
+Parts 1-3 is dispatched but not yet returned (Windows/RTX3060 is offline
+as of this writing -- see Part 4's own next-steps note).
 
 ## Why this audit happened
 
@@ -156,6 +158,44 @@ showing scaling DOES matter under softmax. The `scaled_scores_control`
 arm was then kept deliberately as a harness self-check rather than a
 candidate.
 
+## Part 4: weight tying across depth -- the defining choice, now tested (3 seeds, confirmed)
+
+`reference/hz0h_bdh_depth_untied_torch.py` + `scripts/hz0h_bdh_depth_untied_ablation_sweep.py`.
+Same harness/config as Parts 2-3 (`mult=16` baseline). `DepthUntiedBDH`
+gives each recurrent level its OWN `encoder`/`encoder_v`/`decoder`
+instead of the oracle's single set reused every level; `embed`/`ln`/
+`attn`/`lm_head` stay shared, matching what upstream itself shares.
+**Proven bit-exact against the real oracle** when every level is forced
+to identical weights (`tests/reference/test_hz0h_bdh_depth_untied_torch.py`,
+`torch.equal`).
+
+Two untied arms, both compared to `tied_baseline` (real oracle, `mult=16`):
+
+| seed | tied_baseline | untied_budget_matched (Δ, 1.0x params) | untied_full_capacity (Δ, 3.88x params) |
+|---|---:|---:|---:|
+| 7 | 1.9354 | 2.1245 (**+0.1891**) | 1.9284 (-0.0070) |
+| 8 | 1.9124 | 2.1371 (**+0.2247**) | 1.9675 (+0.0551) |
+| 9 | 1.9213 | 2.1189 (**+0.1976**) | 1.9385 (+0.0173) |
+
+`untied_budget_matched` divides the per-level multiplier by depth
+(`budget_matched_multiplier(16, depth=4) = 4`) so its TOTAL
+encoder/encoder_v/decoder param count across all levels approximates
+the tied baseline's single set -- isolates tying itself from the
+capacity confound. `untied_full_capacity` gives every level the SAME
+per-level multiplier as the tied baseline (3.88x more total params in
+those three matrices), an upper bound on what untying could buy if
+capacity were free.
+
+**Real conclusion: weight tying is load-bearing, not an inherited
+artifact.** At matched capacity, untying costs +0.19 to +0.22 -- the
+single largest effect size found across this entire audit, bigger than
+`standard_attention`'s own +0.28 relative to its baseline's absolute
+scale. Even paying 3.88x the parameters only gets untying back to
+roughly parity with tied (mixed sign, ±0.02-0.06) -- extra capacity
+cannot buy back what tying provides. This is real evidence that reusing
+one weight set across recurrent iterations acts as a genuine
+regularizer/inductive bias, not just a parameter-count-saving trick.
+
 ## Real, disclosed limits on everything above
 
 - Scaled-down local runs: smaller model, 5M tokens (not 25M), fp32 on
@@ -177,15 +217,22 @@ candidate.
 2. **Confirm `mult=16`** at full scale -- a 2x FLOP/parameter cut for
    ~0.02 loss would be the single largest efficiency result in the
    project so far.
+2a. **Confirm weight tying (Part 4)** at full CUDA scale, `n_layer=8` --
+   a real +0.19-0.22 effect at matched budget locally is large enough
+   that it should transfer, but has not been checked past `n_layer=4`
+   where the tied/untied structural difference is smaller in absolute
+   iteration count. Dispatch blocked as of 2026-08-19: Windows/RTX3060
+   has been offline 8h (Tailscale `desktop-2sreddp`), longer than the
+   documented flip-flop pattern -- treat as a real outage, not routine
+   flakiness, until it clears.
 3. **Test the two together** (`mult=16` + `softmax_scaled`) -- they are
    independent changes and may compose.
 4. Dispatched but NOT yet returned (Windows box was down, then
    recovered): `hz0h_bdh_cost_breakdown_result.json` (per-stage CUDA
    timing vs FLOP share) and `hz0h_bdh_width_frontier_result.json`
    (full-scale width sweep).
-5. Still-untested inherited choices from the same audit, in rough
-   priority order: **weight tying across depth** (the defining BDH
-   choice, never ablated), `V = x` narrow while `Q,K` are wide,
-   **ReLU** as the sparsifier (it is what creates the ~5% sparsity),
-   and the `ln(x + ln(yMLP))` double-LayerNorm with
-   `elementwise_affine=False`.
+5. **Weight tying across depth: now tested, see Part 4.** Confirmed
+   load-bearing (3 seeds). Still-untested from the same audit, in rough
+   priority order: `V = x` narrow while `Q,K` are wide, **ReLU** as the
+   sparsifier (it is what creates the ~5% sparsity), and the
+   `ln(x + ln(yMLP))` double-LayerNorm with `elementwise_affine=False`.
