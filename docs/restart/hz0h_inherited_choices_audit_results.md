@@ -9,13 +9,16 @@ measurement rather than assumption, one honest 3-seed NULL result
 (a promising single-seed lead for shared-base low-rank adapters did not
 replicate -- see Part 4d), and one real green-light structural signal
 (a single fitted linear operator explains most one-step recurrent
-dynamics and composes almost exactly at 2 steps -- Part 5), and one
+dynamics and composes almost exactly at 2 steps -- Part 5), one
 real prototype result with the strongest efficiency signal in the
 whole audit (a trained jump operator, "settle 4 real iterations then
 jump the rest," gets 1.9x real wall-clock speedup for +0.029 loss --
 Part 6, single-model prototype, needs firming up before production use
 but doesn't cost parameters or the tying-quality penalty every other
-lever in this doc pays).** Full-scale CUDA
+lever in this doc pays), and one important negative capstone result
+(stacking every confirmed win into one recipe LOST on quality to both
+raw BDH and the matched Transformer, confounded and not yet isolated --
+Part 7).** Full-scale CUDA
 confirmation for Parts 1-3 is dispatched but not yet returned
 (Windows/RTX3060 is offline
 as of this writing -- see Part 4's own next-steps note).
@@ -531,6 +534,99 @@ scale, this is the strongest efficiency lever found in this entire
 audit -- it doesn't cost parameters, doesn't cost the tying-quality
 penalty found in Parts 4/4b/4c, and gives a real, tunable speed/quality
 dial via how many real iterations run before jumping.
+
+## Part 7: the capstone comparison -- stacking every win does NOT beat raw BDH or the Transformer
+
+Follow-up (2026-08-19), same day: the obvious next question after Parts
+1-6 is "if we combine every confirmed positive, how does the result
+compare to raw BDH and the matched Transformer, on both quality and
+real throughput?" `reference/hz0h_bdh_combined_best_torch.py` (proven
+bit-exact against the tested `softmax_scaled` ablation) stacks `mult=16`
+(Part 2), `softmax_scaled` attention (Part 3), weight tying kept exactly
+as upstream (Part 4 found untying load-bearing-BAD), and the trained
+jump operator at its best-found hybrid point (`real_prefix=4,
+num_jumps=2`, Part 6). `scripts/hz0h_bdh_combined_best_comparison.py`
+trains this combined recipe, raw BDH (true canonical `mult=32`), and the
+matched Transformer on the SAME data/recipe/token budget (5M tokens,
+`n_embd=256`, `n_layer=8`, MPS), then measures validation loss and real
+throughput (uncompiled and with `torch.compile`, which was empirically
+confirmed to give ~1.55x on this machine's MPS backend before being
+included -- not assumed).
+
+**Real, honest result -- the combined recipe LOST on quality to both
+baselines:**
+
+| arm | val loss | params | tok/s (uncompiled) | tok/s (`torch.compile`) |
+|---|---:|---:|---:|---:|
+| `raw_bdh` (canonical) | 1.9191 | 6.42M | 28,144 | 45,401 (1.6x) |
+| `combined_best` | **2.0586** | 3.80M | 100,433 | 120,957 (1.2x) |
+| `matched_transformer` | 1.9778 | 8.49M | 183,588 | 469,001 (2.6x) |
+
+`combined_best` is +0.1395 WORSE than raw BDH and +0.0808 WORSE than the
+matched Transformer -- despite using every individually-confirmed
+positive finding from this entire audit. It IS genuinely faster than
+raw BDH (3.6x uncompiled, 2.7x compiled -- the jump-hybrid recurrence
+and narrower width both did their job on throughput), but the
+Transformer is still both faster AND higher quality than the best
+combined BDH recipe.
+
+**Real, honest diagnosis -- confounded, not yet isolated.** Two
+plausible causes were stacked together without a control run to
+separate them: (1) `mult=16` has roughly half `raw_bdh`'s parameter
+count (3.80M vs 6.42M, before the jump operator's own small addition),
+and Part 4 already established fewer params costs quality on its own;
+(2) the jump operator's substitution cost, found to be only +0.029 in
+Part 6's SMALLER prototype (`n_embd=128`, 1.5M tokens), may cost
+noticeably more at this larger scale (`n_embd=256`, 5M tokens) -- this
+run never evaluated the `mult=16 + softmax_scaled` teacher at its OWN
+full real depth=8 (no jumps) as an intermediate checkpoint, so the
+capacity cost and the jump-substitution cost cannot currently be told
+apart.
+
+**This is a real, useful negative result, not a wasted run: individually
+confirmed wins do not automatically compose, and this audit's central
+methodological lesson (isolate one variable at a time, per-seed,
+against a real control) applies to COMBINING findings just as much as
+to finding them in the first place.** The obvious immediate follow-up,
+not yet run: evaluate the same `mult=16 + softmax_scaled` teacher at its
+own full real depth=8 (no jump substitution) to isolate exactly how much
+of the +0.1395 gap is the width/capacity cost versus the jump cost,
+before concluding anything about whether this specific stacked recipe
+is salvageable.
+
+### Part 7 addendum: a research pass over PRE-audit project history for other real wins
+
+A pass over `docs/restart/*.md` and git history (before this session's
+audit began) for confirmed positives not yet in this recipe surfaced
+real candidates for a future combined-recipe round:
+
+- **Wide-GEMM encoder layout remap** (`reference/hz0h_bdh_wide_gemm_encoder_torch.py`,
+  commit `a314bc5`): real, CPU+CUDA-parity-confirmed **1.705x faster**,
+  pure execution remap of the SAME math (reshapes the per-head broadcast
+  matmul into one big GEMM) -- composes freely with the quality-side
+  recipe since it changes nothing numerically. **Caveat: forward-only,
+  not yet wired for gradient flow** -- real integration work needed
+  before it can replace the training-time encoder call.
+- **bmm encoder_v layout remap** (`reference/hz0h_bdh_bmm_encoder_v_torch.py`,
+  commit `31ae1d2`): same story, **1.509x faster**, same forward-only
+  caveat. Different projection than the wide-GEMM remap above, so the
+  two may compose (not yet measured together).
+- **`torch.compile(mode="max-autotune")`**: a prior CUDA result found
+  +4.6% over default compile mode. Cheap to try here too -- a one-line
+  flag change to `measure_throughput`'s `torch.compile` call.
+- **Activation checkpointing**: real but config-dependent in prior CUDA
+  work (2.08x speedup at one config, -11.2% at another) -- do not add
+  blindly, needs the specific winning config identified first.
+- **Confirmed NOT worth adding**: GPU-native integration (prior result:
+  1.57x SLOWER, a real loss) and 2:4 structured sparsity (real hardware
+  blocker, not available on this Mac).
+
+None of these were in `combined_best`'s recipe. The wide-GEMM and
+bmm-encoder_v remaps are the cleanest next additions -- zero numerical
+change, so they cannot explain or worsen Part 7's quality gap, only
+throughput -- but need real training-path integration (not just a
+forward-pass benchmark) before they can be added to a training run like
+this comparison.
 
 ## Concrete next steps
 
