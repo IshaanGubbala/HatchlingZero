@@ -5,10 +5,9 @@ local (MPS) setup. **One confirmed quality win over upstream BDH, one
 confirmed ~2x FLOP saving, one confirmed load-bearing structural choice
 (weight tying) with a real speed/quality tradeoff curve across it at
 production depth, three inherited choices vindicated by real
-measurement rather than assumption, and one promising but UNCONFIRMED
-single-seed lead (shared-base low-rank adapters may recover most of
-full-untying's quality win at ~1/7th the extra parameters -- needs a
-3-seed re-run before being treated as real).** Full-scale CUDA
+measurement rather than assumption, and one honest 3-seed NULL result
+(a promising single-seed lead for shared-base low-rank adapters did not
+replicate -- see Part 4d for the full diagnosis).** Full-scale CUDA
 confirmation for Parts 1-3 is dispatched but not yet returned
 (Windows/RTX3060 is offline
 as of this writing -- see Part 4's own next-steps note).
@@ -301,7 +300,7 @@ are the more portable claim; the exact 1.6x/2.5x/3.4x speed multipliers
 should be treated as directionally suggestive only until measured on
 CUDA.
 
-### Part 4d: shared-base + low-rank adapter -- SINGLE SEED, PRELIMINARY ONLY
+### Part 4d: shared-base + low-rank adapter -- 3-SEED RESULT: NULL, DID NOT REPLICATE
 
 Follow-up (2026-08-19), same day, prompted directly by the question "do
 we really need each group's own FULL toolbox, or can groups share a
@@ -315,63 +314,65 @@ rank-`r` correction PER GROUP (`W_group = W_shared + A_group @
 B_group`). `B_group` is zero-initialized, so at construction every
 group is bit-exact identical to the tied oracle -- proven by
 `tests/reference/test_hz0h_bdh_depth_adapter_torch.py`, same gate
-pattern as the untied module.
+pattern as the untied module. Mechanism itself is correct; the RESULT
+below is what failed to replicate, not the code.
 
-**CRITICAL CAVEAT, stated up front: this is ONE seed (seed=7), not the
-3-seed standard used everywhere else in this audit.** The 3-seed run
-was started, then deliberately killed and replaced with a single-seed
-run to get a fast directional read before committing the ~45-50min
-budget to all 3 -- per explicit instruction, not an oversight. Nothing
-below should be treated as confirmed until re-run at 3 seeds.
+**First pass was a single seed (seed=7 only, deliberately, to get a
+fast read before the 3-seed budget) and showed a promising lead: rank=4
+landed at -0.0085 vs tied, comparable to full-capacity untying's -0.0079
+win but at 1.14x params instead of 7.72x.** That lead is why this part
+was re-run properly. It did NOT hold up.
 
-`n_layer=8`, `mult=16`, `groups=8` (the most expensive full-untying
-case, so the biggest potential saving), ranks swept: 4, 8, 16.
+**Real 3-seed result, `n_layer=8`, `mult=16`, `groups=8`, ranks
+2/3/4/6/8/16** (`results/local/hz0h_depth_adapter_full_seed{7,8,9}.json`):
 
-| arm | loss | Δ vs tied | params (x tied) | extra params |
-|---|---:|---:|---:|---:|
-| tied_baseline | 1.9365 | 0.0000 | 1.00x | -- |
-| adapter r=4 | 1.9279 | **-0.0085** | **1.14x** | 467K |
-| adapter r=8 | 1.9538 | +0.0173 | 1.29x | 934K |
-| adapter r=16 | 1.9418 | +0.0053 | 1.57x | 1868K |
+| rank | seed 7 Δ | seed 8 Δ | seed 9 Δ | mean Δ | sign pattern |
+|---|---:|---:|---:|---:|---|
+| 2 | +0.0086 | -0.0273 | +0.0034 | -0.0051 | +-+ |
+| 3 | +0.0138 | -0.0115 | -0.0029 | -0.0002 | +-- |
+| 4 | +0.0159 | -0.0242 | -0.0070 | -0.0051 | +-- |
+| 6 | +0.0057 | -0.0012 | +0.0091 | +0.0045 | +-+ |
+| 8 | +0.0123 | -0.0092 | +0.0018 | +0.0016 | +-+ |
+| 16 | +0.0290 | -0.0364 | -0.0064 | -0.0046 | +-- |
 
-For comparison, Part 4c's `untied_full_capacity` at G=8, seed 7 (same
-`n_layer=8` config, different run -- MPS non-determinism applies, see
-below): loss 1.9115, Δ -0.0079, params 7.72x.
+`tied_baseline` itself across the 3 seeds: 1.9262 / 1.9655 / 1.9386 --
+a spread of **0.039**, larger than every single mean effect above
+(all under 0.006 in magnitude).
 
-**Preliminary, UNCONFIRMED observation 1: r=4 landed at essentially the
-same quality win as full-capacity untying (-0.0085 vs -0.0079) at
-~1.14x params instead of 7.72x** -- roughly 6.8x fewer extra parameters
-for a comparable win, IF this replicates. This is the entire point of
-building the adapter and the reason it's worth a real 3-seed run, but
-it is currently an n=1 result and must not be treated as more than
-that.
+**Real conclusion: NOT ONE rank shows a consistent sign across all 3
+seeds.** Every rank wins in some seed and loses in another. This is not
+"a small but real effect obscured by noise" -- the `tied_baseline`
+reference itself varies by 0.039 seed-to-seed while the largest mean
+effect is 0.0051, roughly 7-15x smaller than the reference's own noise.
+The original single-seed "r=4 beats tied by -0.0085" result was inside
+that noise band, not a real signal -- confirmed directly: rerunning the
+exact same seed (7) with the same code produced tied=1.9262 and
+r4=1.9421 (Δ **+0.0159**, the OPPOSITE sign from the original
+preliminary run's Δ-0.0085 at the same nominal seed). MPS run-to-run
+non-determinism (already disclosed in Part 4b) plus ordinary
+single-training-run variance are large enough here to flip the
+headline result's sign even at identical seed and config.
 
-**Preliminary, UNCONFIRMED observation 2: the rank sweep is NOT
-monotonic (r=4 beats tied, r=8 is worse than tied, r=16 partially
-recovers).** With a single seed this cannot be distinguished from
-run-to-run noise -- it could be a real non-monotonic relationship
-(e.g. a small rank generalizes better than a mid-size rank that overfits
-the correction) or it could simply be seed variance, exactly the kind
-of thing the 3-seed standard exists to filter out. Do not draw a
-"smaller rank is better" conclusion from this alone.
+**Real diagnosis: this experimental design cannot resolve an effect
+this small.** Each arm (including `tied_baseline`) is ONE training run.
+Comparing one noisy run against another noisy run means the comparison
+noise is at least as large as either run's own noise -- and here it
+dominates. A real follow-up would need either (a) multiple independent
+`tied_baseline` reps per seed to establish a stable reference mean and
+variance before comparing adapters against it, or (b) a much larger
+token budget / longer run where training noise shrinks relative to any
+real effect, or (c) just accept that if the adapter mechanism has a
+real effect at this scale, it is smaller than ~0.03 in validation loss
+and not worth chasing further with this harness.
 
-Real, disclosed limit specific to this part: `tied_baseline` here
-(1.9365) differs from Part 4c's own `tied_baseline` at the same seed
-and config (1.9194) -- the same MPS run-to-run non-determinism already
-disclosed in Part 4b applies again. All deltas above are computed
-within this run's own matched `tied_baseline`, so the comparison stays
-valid; the cross-reference to Part 4c's `untied_full_capacity` number
-crosses that boundary and should be read as approximate, not exact.
-
-**Real next step for this part specifically: re-run at 3 seeds before
-treating either observation as a finding**, then, if r=4 (or whichever
-rank wins) still recovers most of full-capacity untying's win at low
-seeds, that becomes the strongest efficiency candidate in the whole
-audit -- close to full-untying's quality at a fraction of its param
-cost, with the same wall-clock cost as tied (the adapter, like
-full-capacity untying, is a params-vs-quality lever, not a
-compute-vs-quality lever -- the speed win still only lives in the
-budget-matched untied arms from Part 4c).
+**Honest bottom line: the shared-base low-rank adapter idea is
+unconfirmed, not refuted, but the specific numeric lead ("r=4 recovers
+full-untying's win at 1/7th the params") is dead -- it was noise, and
+should not be repeated as a finding.** Contrast with Parts 4/4b/4c,
+where every reported effect had a consistent sign across all 3 seeds
+(the actual bar this result failed to clear). This is exactly the kind
+of result the 3-seed standard exists to catch, and it worked as
+intended here.
 
 ## Real, disclosed limits on everything above
 
@@ -416,16 +417,16 @@ budget-matched untied arms from Part 4c).
    integration into the main HZ-0H training path (not just this
    isolated sweep script) and a CUDA-confirmed throughput number before
    being treated as a production change.
-2d. **HIGHEST PRIORITY, cheap, local: re-run Part 4d's adapter sweep at
-   3 seeds.** The single-seed result (r=4 landing at -0.0085 delta,
-   1.14x params, vs full-untying's -0.0079 at 7.72x params) is the most
-   parameter-efficient result in this whole audit IF it replicates, and
-   it hasn't been checked for seed-to-seed consistency at all yet --
-   unlike everything else in this document. Same script
-   (`scripts/hz0h_bdh_depth_adapter_ablation_sweep.py`), just seeds
-   7/8/9 instead of 7 alone (~45-50min total). Also worth sweeping a
-   couple more ranks around r=4 (e.g. 2, 3, 6) once seeds confirm the
-   non-monotonic shape is real rather than noise.
+2d. **DONE, NULL RESULT -- see Part 4d.** The 3-seed re-run (ranks
+   2/3/4/6/8/16) found no rank with a consistent sign across seeds; the
+   original single-seed lead did not replicate and was noise, not a
+   real effect. Do not re-attempt this exact experiment without first
+   fixing the underlying issue: `tied_baseline` varied 0.039 across
+   seeds (single un-averaged run each), 7-15x larger than any measured
+   adapter effect. A real follow-up would need multiple `tied_baseline`
+   reps per seed to establish a stable reference before comparing
+   adapters against it -- otherwise any future adapter/architecture
+   ablation at this token budget faces the same noise floor.
 3. **Test the two together** (`mult=16` + `softmax_scaled`) -- they are
    independent changes and may compose.
 4. Dispatched but NOT yet returned (Windows box was down, then
