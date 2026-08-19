@@ -3,9 +3,14 @@
 Date: 2026-08-18/19. Status: real, multi-seed results on a scaled-down
 local (MPS) setup. **One confirmed quality win over upstream BDH, one
 confirmed ~2x FLOP saving, one confirmed load-bearing structural choice
-(weight tying), and three inherited choices vindicated by real
-measurement rather than assumption.** Full-scale CUDA confirmation for
-Parts 1-3 is dispatched but not yet returned (Windows/RTX3060 is offline
+(weight tying) with a real speed/quality tradeoff curve across it at
+production depth, three inherited choices vindicated by real
+measurement rather than assumption, and one promising but UNCONFIRMED
+single-seed lead (shared-base low-rank adapters may recover most of
+full-untying's quality win at ~1/7th the extra parameters -- needs a
+3-seed re-run before being treated as real).** Full-scale CUDA
+confirmation for Parts 1-3 is dispatched but not yet returned
+(Windows/RTX3060 is offline
 as of this writing -- see Part 4's own next-steps note).
 
 ## Why this audit happened
@@ -296,6 +301,78 @@ are the more portable claim; the exact 1.6x/2.5x/3.4x speed multipliers
 should be treated as directionally suggestive only until measured on
 CUDA.
 
+### Part 4d: shared-base + low-rank adapter -- SINGLE SEED, PRELIMINARY ONLY
+
+Follow-up (2026-08-19), same day, prompted directly by the question "do
+we really need each group's own FULL toolbox, or can groups share a
+base and each pay for only a small correction?" Part 4c's
+`untied_full_capacity` (every group gets a full independent matrix)
+matched or beat tied quality at every G, but cost up to 7.72x the
+params at G=8. `reference/hz0h_bdh_depth_adapter_torch.py`
+(`AdapterDepthBDH`) tests a LoRA-style middle ground: ONE shared
+full-size `encoder`/`encoder_v`/`decoder` (same as tied), plus a small
+rank-`r` correction PER GROUP (`W_group = W_shared + A_group @
+B_group`). `B_group` is zero-initialized, so at construction every
+group is bit-exact identical to the tied oracle -- proven by
+`tests/reference/test_hz0h_bdh_depth_adapter_torch.py`, same gate
+pattern as the untied module.
+
+**CRITICAL CAVEAT, stated up front: this is ONE seed (seed=7), not the
+3-seed standard used everywhere else in this audit.** The 3-seed run
+was started, then deliberately killed and replaced with a single-seed
+run to get a fast directional read before committing the ~45-50min
+budget to all 3 -- per explicit instruction, not an oversight. Nothing
+below should be treated as confirmed until re-run at 3 seeds.
+
+`n_layer=8`, `mult=16`, `groups=8` (the most expensive full-untying
+case, so the biggest potential saving), ranks swept: 4, 8, 16.
+
+| arm | loss | Δ vs tied | params (x tied) | extra params |
+|---|---:|---:|---:|---:|
+| tied_baseline | 1.9365 | 0.0000 | 1.00x | -- |
+| adapter r=4 | 1.9279 | **-0.0085** | **1.14x** | 467K |
+| adapter r=8 | 1.9538 | +0.0173 | 1.29x | 934K |
+| adapter r=16 | 1.9418 | +0.0053 | 1.57x | 1868K |
+
+For comparison, Part 4c's `untied_full_capacity` at G=8, seed 7 (same
+`n_layer=8` config, different run -- MPS non-determinism applies, see
+below): loss 1.9115, Δ -0.0079, params 7.72x.
+
+**Preliminary, UNCONFIRMED observation 1: r=4 landed at essentially the
+same quality win as full-capacity untying (-0.0085 vs -0.0079) at
+~1.14x params instead of 7.72x** -- roughly 6.8x fewer extra parameters
+for a comparable win, IF this replicates. This is the entire point of
+building the adapter and the reason it's worth a real 3-seed run, but
+it is currently an n=1 result and must not be treated as more than
+that.
+
+**Preliminary, UNCONFIRMED observation 2: the rank sweep is NOT
+monotonic (r=4 beats tied, r=8 is worse than tied, r=16 partially
+recovers).** With a single seed this cannot be distinguished from
+run-to-run noise -- it could be a real non-monotonic relationship
+(e.g. a small rank generalizes better than a mid-size rank that overfits
+the correction) or it could simply be seed variance, exactly the kind
+of thing the 3-seed standard exists to filter out. Do not draw a
+"smaller rank is better" conclusion from this alone.
+
+Real, disclosed limit specific to this part: `tied_baseline` here
+(1.9365) differs from Part 4c's own `tied_baseline` at the same seed
+and config (1.9194) -- the same MPS run-to-run non-determinism already
+disclosed in Part 4b applies again. All deltas above are computed
+within this run's own matched `tied_baseline`, so the comparison stays
+valid; the cross-reference to Part 4c's `untied_full_capacity` number
+crosses that boundary and should be read as approximate, not exact.
+
+**Real next step for this part specifically: re-run at 3 seeds before
+treating either observation as a finding**, then, if r=4 (or whichever
+rank wins) still recovers most of full-capacity untying's win at low
+seeds, that becomes the strongest efficiency candidate in the whole
+audit -- close to full-untying's quality at a fraction of its param
+cost, with the same wall-clock cost as tied (the adapter, like
+full-capacity untying, is a params-vs-quality lever, not a
+compute-vs-quality lever -- the speed win still only lives in the
+budget-matched untied arms from Part 4c).
+
 ## Real, disclosed limits on everything above
 
 - Scaled-down local runs: smaller model, 5M tokens (not 25M), fp32 on
@@ -339,6 +416,16 @@ CUDA.
    integration into the main HZ-0H training path (not just this
    isolated sweep script) and a CUDA-confirmed throughput number before
    being treated as a production change.
+2d. **HIGHEST PRIORITY, cheap, local: re-run Part 4d's adapter sweep at
+   3 seeds.** The single-seed result (r=4 landing at -0.0085 delta,
+   1.14x params, vs full-untying's -0.0079 at 7.72x params) is the most
+   parameter-efficient result in this whole audit IF it replicates, and
+   it hasn't been checked for seed-to-seed consistency at all yet --
+   unlike everything else in this document. Same script
+   (`scripts/hz0h_bdh_depth_adapter_ablation_sweep.py`), just seeds
+   7/8/9 instead of 7 alone (~45-50min total). Also worth sweeping a
+   couple more ranks around r=4 (e.g. 2, 3, 6) once seeds confirm the
+   non-monotonic shape is real rather than noise.
 3. **Test the two together** (`mult=16` + `softmax_scaled`) -- they are
    independent changes and may compose.
 4. Dispatched but NOT yet returned (Windows box was down, then
