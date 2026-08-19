@@ -33,6 +33,7 @@ holds), MPS/fp32, reduced token budget vs the 25M-token CUDA reference.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import math
 import random
@@ -53,6 +54,27 @@ from reference.hz0h_bdh_torch import BDH, BDHConfig
 from reference.hz0h_bdh_variable_depth_torch import bdh_variable_depth_forward
 from scripts.hz0h_bdh_width_flop_frontier_local import pick_device, synchronize
 from scripts.hz0h_factorized_curriculum_full_comparison import depth_at, lr_at, parse_stages, read_batch
+
+
+def autocast_context(args, device):
+    """Real motivation: production CUDA training in this project uses
+    bf16 (confirmed by `results/cuda/hz0h_bdh_cost_breakdown_result.json`'s
+    own `"dtype": "bfloat16"`), but this script defaulted to fp32,
+    roughly doubling memory versus what past successful runs on this
+    exact RTX 3060 needed -- the likely real explanation for why this
+    comparison's raw_bdh arm OOM'd where earlier production runs did
+    not. Uses `torch.autocast` (NOT a hard `.to(dtype=bfloat16)` model
+    cast) deliberately: BDH's `Attention` module asserts its RoPE
+    `freqs` buffer stays fp32
+    (`reference/hz0h_bdh_torch.py`), and autocast keeps master weights
+    in fp32 while only casting compute ops -- the standard, safe mixed-
+    precision pattern, and it sidesteps that assertion entirely rather
+    than fighting it. Only engages on CUDA (`--dtype bfloat16`); MPS/CPU
+    stay fp32 by default, consistent with this project's other local
+    scripts' disclosed fp32-only MPS limitation."""
+    if args.dtype == "bfloat16" and device.type == "cuda":
+        return torch.autocast(device_type="cuda", dtype=torch.bfloat16)
+    return contextlib.nullcontext()
 
 
 def curriculum_stages(target_tokens: int, n_layer: int) -> list:
@@ -79,15 +101,16 @@ def train_bdh(config: BDHConfig, args, device, use_softmax_scaled: bool) -> BDH:
             idx, target = data[:, :-1].contiguous(), data[:, 1:].contiguous()
             depth = depth_at(tokens, stages)
             optimizer.zero_grad(set_to_none=True)
-            if args.gradient_checkpointing:
-                if use_softmax_scaled:
-                    _, loss = combined_bdh_forward_training_checkpointed(model, idx, depth, target)
+            with autocast_context(args, device):
+                if args.gradient_checkpointing:
+                    if use_softmax_scaled:
+                        _, loss = combined_bdh_forward_training_checkpointed(model, idx, depth, target)
+                    else:
+                        _, loss = bdh_variable_depth_forward_checkpointed(model, idx, depth, target)
+                elif use_softmax_scaled:
+                    _, loss = combined_bdh_forward(model, None, idx, real_prefix_iterations=depth, num_jumps=0, targets=target)
                 else:
-                    _, loss = bdh_variable_depth_forward_checkpointed(model, idx, depth, target)
-            elif use_softmax_scaled:
-                _, loss = combined_bdh_forward(model, None, idx, real_prefix_iterations=depth, num_jumps=0, targets=target)
-            else:
-                _, loss = bdh_variable_depth_forward(model, idx, depth, target)
+                    _, loss = bdh_variable_depth_forward(model, idx, depth, target)
             loss.backward()
             optimizer.step()
             tokens += args.batch_size * args.sequence_length
@@ -119,8 +142,9 @@ def train_transformer(args, device) -> MatchedTransformerLM:
             data = read_batch(handle, args.batch_size, args.sequence_length, device, epochs)
             idx, target = data[:, :-1].contiguous(), data[:, 1:].contiguous()
             optimizer.zero_grad(set_to_none=True)
-            logits = model(idx)
-            loss = torch.nn.functional.cross_entropy(logits.reshape(-1, logits.size(-1)), target.reshape(-1))
+            with autocast_context(args, device):
+                logits = model(idx)
+                loss = torch.nn.functional.cross_entropy(logits.reshape(-1, logits.size(-1)), target.reshape(-1))
             loss.backward()
             optimizer.step()
             tokens += args.batch_size * args.sequence_length
@@ -141,21 +165,22 @@ def train_jump(model: BDH, args, device) -> JumpOperator:
         for step in range(args.jump_steps):
             data = read_batch(handle, args.batch_size, args.sequence_length, device, epochs)
             idx = data[:, :-1].contiguous()
-            with torch.no_grad():
+            with torch.no_grad(), autocast_context(args, device):
                 x_states = combined_bdh_forward_with_trajectory(model, idx, args.n_layer)
             r = random.choice(starting_depths)
             x_r, x_target = x_states[r].detach(), x_states[r + 2].detach()
             optimizer.zero_grad(set_to_none=True)
-            predicted = jump(x_r)
-            state_loss = torch.nn.functional.mse_loss(predicted, x_target)
-            B, _, T, D = predicted.shape
-            with torch.no_grad():
-                target_logits = x_target.view(B, T, D) @ model.lm_head
-            predicted_logits = predicted.view(B, T, D) @ model.lm_head
-            logits_loss = torch.nn.functional.kl_div(
-                torch.nn.functional.log_softmax(predicted_logits, dim=-1),
-                torch.nn.functional.softmax(target_logits, dim=-1), reduction="batchmean",
-            )
+            with autocast_context(args, device):
+                predicted = jump(x_r)
+                state_loss = torch.nn.functional.mse_loss(predicted, x_target)
+                B, _, T, D = predicted.shape
+                with torch.no_grad():
+                    target_logits = x_target.view(B, T, D) @ model.lm_head
+                predicted_logits = predicted.view(B, T, D) @ model.lm_head
+                logits_loss = torch.nn.functional.kl_div(
+                    torch.nn.functional.log_softmax(predicted_logits, dim=-1),
+                    torch.nn.functional.softmax(target_logits, dim=-1), reduction="batchmean",
+                )
             (state_loss + 0.1 * logits_loss).backward()
             optimizer.step()
     synchronize(device)
@@ -169,7 +194,7 @@ def train_jump(model: BDH, args, device) -> JumpOperator:
 def evaluate_loss(forward_fn, args, device) -> float:
     epochs = [0]
     losses = []
-    with args.validation_data.open() as handle, torch.no_grad():
+    with args.validation_data.open() as handle, torch.no_grad(), autocast_context(args, device):
         for _ in range(args.eval_batches):
             data = read_batch(handle, args.batch_size, args.sequence_length, device, epochs)
             idx, target = data[:, :-1].contiguous(), data[:, 1:].contiguous()
@@ -207,6 +232,11 @@ def main() -> None:
     parser.add_argument("--learning-rate", type=float, default=1e-3)
     parser.add_argument("--eval-batches", type=int, default=8)
     parser.add_argument("--jump-steps", type=int, default=500)
+    parser.add_argument("--dtype", choices=["float32", "bfloat16"], default="float32",
+                        help="bfloat16 only engages on CUDA (via autocast, not a hard model cast -- "
+                             "see autocast_context's docstring). Matches this project's real production "
+                             "CUDA training dtype; roughly halves memory versus this script's previous "
+                             "fp32-only default, which is the likely real cause of the raw_bdh OOM.")
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--n-embd", type=int, default=256,
                         help="Default width for all three arms; overridden per-arm by "
