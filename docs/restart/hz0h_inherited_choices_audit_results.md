@@ -196,6 +196,49 @@ cannot buy back what tying provides. This is real evidence that reusing
 one weight set across recurrent iterations acts as a genuine
 regularizer/inductive bias, not just a parameter-count-saving trick.
 
+### Part 4b: the full C ~ (depth/groups)*P curve, not just the two endpoints (3 seeds)
+
+Follow-up (2026-08-19) generalized `DepthUntiedBDH` to a `groups`
+parameter: `groups` independent weight sets, `depth // groups` adjacent
+levels sharing each one (`W1,W1,W2,W2` for `depth=4, groups=2`).
+`groups=1` collapses to the tied structure (separately proven bit-exact,
+same gate pattern) and `groups=depth=4` is the fully-untied arms above
+-- `groups=2` fills in the missing midpoint, motivated directly by the
+closed form `C ~ (depth/groups) * P` at fixed total params: if the
+quality cost scales with compute reduction, G=2 should land roughly
+between G=1 and G=4, not near either endpoint.
+
+Real, disclosed note: this is a SEPARATE run of the whole sweep
+(including a fresh `tied_baseline`), and MPS training is not bit-
+deterministic seed-to-seed even with `torch.manual_seed` fixed -- the
+re-run's `tied_baseline` absolute losses (1.9158/1.9036/1.9255) differ
+slightly from Part 4's original run (1.9354/1.9124/1.9213) despite
+identical seeds and config. Deltas below are computed WITHIN this
+second run's own matched `tied_baseline`, so the comparison stays valid;
+only cross-run absolute-value comparisons are unsafe.
+
+| seed | tied (G=1) | G=2 matched (Δ) | G=2 full-cap (Δ, 1.96x) | G=4 matched (Δ) | G=4 full-cap (Δ, 3.88x) |
+|---|---:|---:|---:|---:|---:|
+| 7 | 1.9158 | 2.0215 (+0.1057) | 1.9540 (+0.0382) | 2.1192 (+0.2034) | 1.9368 (+0.0210) |
+| 8 | 1.9036 | 2.0238 (+0.1202) | 1.9422 (+0.0386) | 2.1124 (+0.2088) | 1.9619 (+0.0582) |
+| 9 | 1.9255 | 2.0187 (+0.0932) | 1.9346 (+0.0090) | 2.1259 (+0.2004) | 1.9167 (-0.0089) |
+| **mean** | -- | **+0.1064** | **+0.0286** | **+0.2042** | **+0.0234** |
+
+**Real conclusion: the cost of untying is roughly monotonic in G, not a
+cliff.** At matched params, G=2 costs about half of what G=4 costs
+(+0.106 vs +0.204, consistent -- not exactly 2x, but the right
+direction and order of magnitude), and this holds in all 3 seeds. At
+full capacity (extra params allowed), G=2 and G=4 land at nearly the
+SAME small residual cost (+0.029 vs +0.023) -- meaning most of what
+extra capacity buys back is available already at G=2; going all the way
+to G=4 does not meaningfully unlock more of it. Practically: if a
+partial-untying architecture is pursued, G=2 looks like the more
+efficient operating point than jumping straight to fully untied -- half
+the quality cost per unit of compute saved. This is still `n_layer=4`
+only; a real G=8 point needs `n_layer=8`, which needs either a much
+longer local run or the CUDA machine (currently offline, see next
+steps).
+
 ## Real, disclosed limits on everything above
 
 - Scaled-down local runs: smaller model, 5M tokens (not 25M), fp32 on
@@ -217,14 +260,15 @@ regularizer/inductive bias, not just a parameter-count-saving trick.
 2. **Confirm `mult=16`** at full scale -- a 2x FLOP/parameter cut for
    ~0.02 loss would be the single largest efficiency result in the
    project so far.
-2a. **Confirm weight tying (Part 4)** at full CUDA scale, `n_layer=8` --
-   a real +0.19-0.22 effect at matched budget locally is large enough
-   that it should transfer, but has not been checked past `n_layer=4`
-   where the tied/untied structural difference is smaller in absolute
-   iteration count. Dispatch blocked as of 2026-08-19: Windows/RTX3060
-   has been offline 8h (Tailscale `desktop-2sreddp`), longer than the
-   documented flip-flop pattern -- treat as a real outage, not routine
-   flakiness, until it clears.
+2a. **Confirm weight tying (Part 4/4b) at full CUDA scale, `n_layer=8`,
+   including a real G=8 point** -- a real +0.19-0.22 effect (G=4,
+   matched budget) and a roughly-monotonic G=2 midpoint are large enough
+   locally that they should transfer, but nothing past `n_layer=4` has
+   been checked, and G=8 (the value that matters for production) has
+   never been run at all. Dispatch blocked as of 2026-08-19: Windows/
+   RTX3060 has been offline 9h+ (Tailscale `desktop-2sreddp`), longer
+   than the documented flip-flop pattern -- treat as a real outage, not
+   routine flakiness, until it clears.
 3. **Test the two together** (`mult=16` + `softmax_scaled`) -- they are
    independent changes and may compose.
 4. Dispatched but NOT yet returned (Windows box was down, then
