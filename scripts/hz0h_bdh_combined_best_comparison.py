@@ -45,7 +45,9 @@ import torch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from reference.hz0a_matched_transformer import MatchedTransformerConfig, MatchedTransformerLM
+from reference.hz0h_bdh_checkpointed_torch import bdh_variable_depth_forward_checkpointed
 from reference.hz0h_bdh_combined_best_torch import combined_bdh_forward, combined_bdh_forward_with_trajectory
+from reference.hz0h_bdh_combined_checkpointed_torch import combined_bdh_forward_training_checkpointed
 from reference.hz0h_bdh_jump_operator_torch import JumpOperator
 from reference.hz0h_bdh_torch import BDH, BDHConfig
 from reference.hz0h_bdh_variable_depth_torch import bdh_variable_depth_forward
@@ -77,7 +79,12 @@ def train_bdh(config: BDHConfig, args, device, use_softmax_scaled: bool) -> BDH:
             idx, target = data[:, :-1].contiguous(), data[:, 1:].contiguous()
             depth = depth_at(tokens, stages)
             optimizer.zero_grad(set_to_none=True)
-            if use_softmax_scaled:
+            if args.gradient_checkpointing:
+                if use_softmax_scaled:
+                    _, loss = combined_bdh_forward_training_checkpointed(model, idx, depth, target)
+                else:
+                    _, loss = bdh_variable_depth_forward_checkpointed(model, idx, depth, target)
+            elif use_softmax_scaled:
                 _, loss = combined_bdh_forward(model, None, idx, real_prefix_iterations=depth, num_jumps=0, targets=target)
             else:
                 _, loss = bdh_variable_depth_forward(model, idx, depth, target)
@@ -212,6 +219,16 @@ def main() -> None:
     parser.add_argument("--transformer-n-embd", type=int, default=None)
     parser.add_argument("--n-layer", type=int, default=8)
     parser.add_argument("--n-head", type=int, default=4)
+    parser.add_argument("--gradient-checkpointing", action="store_true",
+                        help="Wrap each recurrent iteration's BDH forward in torch.utils.checkpoint, "
+                             "trading recompute for memory. Real, needed fix at large scale: a 599M-param "
+                             "mult=32 BDH OOM'd on a 12GB RTX 3060 even at batch_size=4 without this -- "
+                             "the wide intermediate tensors (size B*T*D*mult, independent of head count) "
+                             "retained across all n_layer un-checkpointed layers exceeded available VRAM. "
+                             "Only applies to the raw_bdh and combined_best teacher training paths (not the "
+                             "matched Transformer, which doesn't have this problem at the same param count, "
+                             "and not the jump operator's own distillation, which needs the real "
+                             "trajectory states and is comparatively cheap anyway).")
     parser.add_argument("--jump-hidden-mult", type=int, default=4,
                         help="JumpOperator's hidden width as a multiple of d_model. Shrink this "
                              "at large model scale -- the jump operator's own param count grows "
@@ -227,6 +244,23 @@ def main() -> None:
     report = {"device": str(device), "shape": vars(args).copy()}
     report["shape"] = {k: str(v) for k, v in report["shape"].items()}
 
+    def free_gpu_memory(*objs) -> None:
+        """Real memory hygiene: each arm's model (and, for combined_best,
+        its jump operator) is trained and benchmarked, then explicitly
+        freed before the NEXT arm trains -- so at no point are all three
+        large models resident simultaneously. Not what caused the raw_bdh
+        OOM (that happened on arm 1 alone, before any other model
+        existed), but a real latent risk at this scale worth closing
+        while already fixing the memory story with checkpointing."""
+        for obj in objs:
+            del obj
+        if device.type == "cuda":
+            torch.cuda.empty_cache()
+        elif device.type == "mps":
+            torch.mps.empty_cache()
+
+    throughput = {}
+
     print("=== training raw_bdh (canonical mult=32) ===", flush=True)
     raw_config = BDHConfig(n_layer=args.n_layer, n_embd=args.raw_n_embd, n_head=args.n_head,
                             mlp_internal_dim_multiplier=32, vocab_size=256, dropout=0.0)
@@ -236,6 +270,14 @@ def main() -> None:
     )
     raw_params = sum(p.numel() for p in raw_model.parameters())
     print(f"[raw_bdh] validation_loss={raw_loss:.4f} params={raw_params/1e6:.2f}M", flush=True)
+    print("=== measuring raw_bdh throughput (uncompiled + compiled) ===", flush=True)
+    for compile_it in (False, True):
+        throughput.setdefault("raw_bdh", {})[str(compile_it)] = measure_throughput(
+            lambda idx: bdh_variable_depth_forward(raw_model, idx, args.n_layer), args, device, compile_it,
+        )
+        print(f"[throughput] raw_bdh compiled={compile_it}: "
+              f"{throughput['raw_bdh'][str(compile_it)]['tokens_per_second']:.0f} tok/s", flush=True)
+    free_gpu_memory(raw_model)
 
     print("=== training combined_best teacher (mult=16, softmax_scaled) ===", flush=True)
     combined_config = BDHConfig(n_layer=args.n_layer, n_embd=args.combined_n_embd, n_head=args.n_head,
@@ -249,6 +291,14 @@ def main() -> None:
     )
     combined_params = sum(p.numel() for p in combined_model.parameters()) + sum(p.numel() for p in jump.parameters())
     print(f"[combined_best] validation_loss={combined_loss:.4f} params={combined_params/1e6:.2f}M", flush=True)
+    print("=== measuring combined_best throughput (uncompiled + compiled) ===", flush=True)
+    for compile_it in (False, True):
+        throughput.setdefault("combined_best", {})[str(compile_it)] = measure_throughput(
+            lambda idx: combined_bdh_forward(combined_model, jump, idx, real_prefix_iterations=4, num_jumps=2), args, device, compile_it,
+        )
+        print(f"[throughput] combined_best compiled={compile_it}: "
+              f"{throughput['combined_best'][str(compile_it)]['tokens_per_second']:.0f} tok/s", flush=True)
+    free_gpu_memory(combined_model, jump)
 
     print("=== training matched_transformer ===", flush=True)
     transformer_model, transformer_train_seconds = train_transformer(args, device)
@@ -261,22 +311,13 @@ def main() -> None:
     transformer_loss = evaluate_loss(transformer_forward, args, device)
     transformer_params = sum(p.numel() for p in transformer_model.parameters())
     print(f"[matched_transformer] validation_loss={transformer_loss:.4f} params={transformer_params/1e6:.2f}M", flush=True)
-
-    print("=== measuring throughput (uncompiled + compiled) ===", flush=True)
-    throughput = {}
+    print("=== measuring matched_transformer throughput (uncompiled + compiled) ===", flush=True)
     for compile_it in (False, True):
-        throughput.setdefault("raw_bdh", {})[str(compile_it)] = measure_throughput(
-            lambda idx: bdh_variable_depth_forward(raw_model, idx, args.n_layer), args, device, compile_it,
-        )
-        throughput.setdefault("combined_best", {})[str(compile_it)] = measure_throughput(
-            lambda idx: combined_bdh_forward(combined_model, jump, idx, real_prefix_iterations=4, num_jumps=2), args, device, compile_it,
-        )
         throughput.setdefault("matched_transformer", {})[str(compile_it)] = measure_throughput(
             lambda idx: transformer_model(idx), args, device, compile_it,
         )
-        for name, results in throughput.items():
-            r = results[str(compile_it)]
-            print(f"[throughput] {name} compiled={compile_it}: {r['tokens_per_second']:.0f} tok/s", flush=True)
+        print(f"[throughput] matched_transformer compiled={compile_it}: "
+              f"{throughput['matched_transformer'][str(compile_it)]['tokens_per_second']:.0f} tok/s", flush=True)
 
     report["results"] = {
         "raw_bdh": {"validation_loss": raw_loss, "parameter_count": raw_params,
