@@ -1,0 +1,228 @@
+{
+  "device": "mps",
+  "dtype": "float32",
+  "scaled_down_local_run": true,
+  "not_comparable_to_cuda_reference_numbers": "Absolute losses here are NOT comparable to the 25M-token CUDA comparison (dense BDH 1.3848, matched Transformer 1.5141) -- smaller model, smaller token budget, fp32 instead of bf16. Only the SHAPE of the width/quality tradeoff is the real signal from this run.",
+  "curriculum_stages": [
+    [
+      2500000,
+      2
+    ],
+    [
+      3750000,
+      3
+    ],
+    [
+      5000000,
+      4
+    ]
+  ],
+  "target_tokens": 5000000,
+  "shape": {
+    "n_embd": 256,
+    "n_layer": 4,
+    "n_head": 4,
+    "batch_size": 8,
+    "sequence_length": 256
+  },
+  "multipliers_swept": [
+    32,
+    16
+  ],
+  "arms": {
+    "bdh_mult_32": {
+      "name": "bdh_mult_32",
+      "kind": "dense",
+      "parameter_count": 6422528,
+      "tokens_seen": 5001216,
+      "steps": 2442,
+      "epochs": 0,
+      "best_validation_loss": 1.8794465512037277,
+      "final_validation_loss": 1.8794465512037277,
+      "validation_history": [
+        {
+          "step": 200,
+          "tokens_seen": 409600,
+          "depth": 2,
+          "validation_loss": 2.753464162349701
+        },
+        {
+          "step": 400,
+          "tokens_seen": 819200,
+          "depth": 2,
+          "validation_loss": 2.590904623270035
+        },
+        {
+          "step": 600,
+          "tokens_seen": 1228800,
+          "depth": 2,
+          "validation_loss": 2.3612067699432373
+        },
+        {
+          "step": 800,
+          "tokens_seen": 1638400,
+          "depth": 2,
+          "validation_loss": 2.297590434551239
+        },
+        {
+          "step": 1000,
+          "tokens_seen": 2048000,
+          "depth": 2,
+          "validation_loss": 2.238395720720291
+        },
+        {
+          "step": 1200,
+          "tokens_seen": 2457600,
+          "depth": 2,
+          "validation_loss": 2.156359761953354
+        },
+        {
+          "step": 1400,
+          "tokens_seen": 2867200,
+          "depth": 3,
+          "validation_loss": 2.035997584462166
+        },
+        {
+          "step": 1600,
+          "tokens_seen": 3276800,
+          "depth": 3,
+          "validation_loss": 2.0397096276283264
+        },
+        {
+          "step": 1800,
+          "tokens_seen": 3686400,
+          "depth": 3,
+          "validation_loss": 1.997991070151329
+        },
+        {
+          "step": 2000,
+          "tokens_seen": 4096000,
+          "depth": 4,
+          "validation_loss": 1.9425392150878906
+        },
+        {
+          "step": 2200,
+          "tokens_seen": 4505600,
+          "depth": 4,
+          "validation_loss": 1.9045344591140747
+        },
+        {
+          "step": 2400,
+          "tokens_seen": 4915200,
+          "depth": 4,
+          "validation_loss": 1.8929190188646317
+        },
+        {
+          "step": 2442,
+          "tokens_seen": 5001216,
+          "depth": 4,
+          "validation_loss": 1.8794465512037277
+        }
+      ],
+      "training_seconds": 387.8929516249991,
+      "tokens_per_second": 12893.289189835537,
+      "latent_width_per_head": 2048,
+      "mlp_internal_dim_multiplier": 32,
+      "forward_flops_at_full_depth": 141733920768,
+      "flops_vs_widest_bdh": 1.0,
+      "validation_loss_minus_widest_bdh": 0.0
+    },
+    "bdh_mult_16": {
+      "name": "bdh_mult_16",
+      "kind": "dense",
+      "parameter_count": 3276800,
+      "tokens_seen": 5001216,
+      "steps": 2442,
+      "epochs": 0,
+      "best_validation_loss": 1.9028527587652206,
+      "final_validation_loss": 1.9028527587652206,
+      "validation_history": [
+        {
+          "step": 200,
+          "tokens_seen": 409600,
+          "depth": 2,
+          "validation_loss": 2.7731346786022186
+        },
+        {
+          "step": 400,
+          "tokens_seen": 819200,
+          "depth": 2,
+          "validation_loss": 2.6312592923641205
+        },
+        {
+          "step": 600,
+          "tokens_seen": 1228800,
+          "depth": 2,
+          "validation_loss": 2.4064505100250244
+        },
+        {
+          "step": 800,
+          "tokens_seen": 1638400,
+          "depth": 2,
+          "validation_loss": 2.3516368567943573
+        },
+        {
+          "step": 1000,
+          "tokens_seen": 2048000,
+          "depth": 2,
+          "validation_loss": 2.2667473554611206
+        },
+        {
+          "step": 1200,
+          "tokens_seen": 2457600,
+          "depth": 2,
+          "validation_loss": 2.215553730726242
+        },
+        {
+          "step": 1400,
+          "tokens_seen": 2867200,
+          "depth": 3,
+          "validation_loss": 2.084460139274597
+        },
+        {
+          "step": 1600,
+          "tokens_seen": 3276800,
+          "depth": 3,
+          "validation_loss": 2.0829371958971024
+        },
+        {
+          "step": 1800,
+          "tokens_seen": 3686400,
+          "depth": 3,
+          "validation_loss": 2.034033104777336
+        },
+        {
+          "step": 2000,
+          "tokens_seen": 4096000,
+          "depth": 4,
+          "validation_loss": 1.9775743633508682
+        },
+        {
+          "step": 2200,
+          "tokens_seen": 4505600,
+          "depth": 4,
+          "validation_loss": 1.936834916472435
+        },
+        {
+          "step": 2400,
+          "tokens_seen": 4915200,
+          "depth": 4,
+          "validation_loss": 1.918478175997734
+        },
+        {
+          "step": 2442,
+          "tokens_seen": 5001216,
+          "depth": 4,
+          "validation_loss": 1.9028527587652206
+        }
+      ],
+      "training_seconds": 224.0289326250022,
+      "tokens_per_second": 22323.97370018024,
+      "latent_width_per_head": 1024,
+      "mlp_internal_dim_multiplier": 16,
+      "forward_flops_at_full_depth": 73014444032,
+      "flops_vs_widest_bdh": 0.5151515151515151,
+      "validation_loss_minus_widest_bdh": 0.02340620756149292
+    }
+  }
+}
