@@ -85,18 +85,19 @@ def train_bdh(config: BDHConfig, args, device, use_softmax_scaled: bool) -> BDH:
             optimizer.step()
             tokens += args.batch_size * args.sequence_length
     synchronize(device)
-    print(f"[train_bdh softmax_scaled={use_softmax_scaled}] {tokens} tokens in {time.perf_counter()-started:.0f}s "
+    elapsed = time.perf_counter() - started
+    print(f"[train_bdh softmax_scaled={use_softmax_scaled}] {tokens} tokens in {elapsed:.0f}s "
           f"final_loss={float(loss):.4f}", flush=True)
     model.eval()
-    return model
+    return model, elapsed
 
 
 def train_transformer(args, device) -> MatchedTransformerLM:
     torch.manual_seed(args.seed)
     config = MatchedTransformerConfig({
-        "vocab_size": 256, "d_model": args.n_embd, "num_layers": args.n_layer,
-        "num_heads": args.n_head, "head_dim": args.n_embd // args.n_head,
-        "d_ff": args.n_embd * 4, "use_rope": True,
+        "vocab_size": 256, "d_model": args.transformer_n_embd, "num_layers": args.n_layer,
+        "num_heads": args.n_head, "head_dim": args.transformer_n_embd // args.n_head,
+        "d_ff": args.transformer_n_embd * 4, "use_rope": True,
     })
     model = MatchedTransformerLM(config).to(device=device, dtype=torch.float32)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate, weight_decay=0.1)
@@ -117,13 +118,14 @@ def train_transformer(args, device) -> MatchedTransformerLM:
             optimizer.step()
             tokens += args.batch_size * args.sequence_length
     synchronize(device)
-    print(f"[train_transformer] {tokens} tokens in {time.perf_counter()-started:.0f}s final_loss={float(loss):.4f}", flush=True)
+    elapsed = time.perf_counter() - started
+    print(f"[train_transformer] {tokens} tokens in {elapsed:.0f}s final_loss={float(loss):.4f}", flush=True)
     model.eval()
-    return model
+    return model, elapsed
 
 
 def train_jump(model: BDH, args, device) -> JumpOperator:
-    jump = JumpOperator(d_model=args.n_embd, hidden_mult=4, jump_size=2).to(device)
+    jump = JumpOperator(d_model=args.combined_n_embd, hidden_mult=args.jump_hidden_mult, jump_size=2).to(device)
     optimizer = torch.optim.AdamW(jump.parameters(), lr=1e-3)
     epochs = [0]
     starting_depths = [r for r in range(0, args.n_layer - 1, 2)]
@@ -150,10 +152,11 @@ def train_jump(model: BDH, args, device) -> JumpOperator:
             (state_loss + 0.1 * logits_loss).backward()
             optimizer.step()
     synchronize(device)
-    print(f"[train_jump] {args.jump_steps} steps in {time.perf_counter()-started:.0f}s "
+    elapsed = time.perf_counter() - started
+    print(f"[train_jump] {args.jump_steps} steps in {elapsed:.0f}s "
           f"final_state_loss={float(state_loss):.4f}", flush=True)
     jump.eval()
-    return jump
+    return jump, elapsed
 
 
 def evaluate_loss(forward_fn, args, device) -> float:
@@ -198,10 +201,26 @@ def main() -> None:
     parser.add_argument("--eval-batches", type=int, default=8)
     parser.add_argument("--jump-steps", type=int, default=500)
     parser.add_argument("--seed", type=int, default=7)
-    parser.add_argument("--n-embd", type=int, default=256)
+    parser.add_argument("--n-embd", type=int, default=256,
+                        help="Default width for all three arms; overridden per-arm by "
+                             "--raw-n-embd/--combined-n-embd/--transformer-n-embd if given, "
+                             "since matching PARAMETER COUNT across architectures with different "
+                             "param-vs-width scaling (BDH mult=32 vs mult=16 vs Transformer) "
+                             "requires different widths per arm, not one shared value.")
+    parser.add_argument("--raw-n-embd", type=int, default=None)
+    parser.add_argument("--combined-n-embd", type=int, default=None)
+    parser.add_argument("--transformer-n-embd", type=int, default=None)
     parser.add_argument("--n-layer", type=int, default=8)
     parser.add_argument("--n-head", type=int, default=4)
+    parser.add_argument("--jump-hidden-mult", type=int, default=4,
+                        help="JumpOperator's hidden width as a multiple of d_model. Shrink this "
+                             "at large model scale -- the jump operator's own param count grows "
+                             "as O(hidden_mult * d_model^2), which stops being negligible once "
+                             "d_model is in the thousands.")
     args = parser.parse_args()
+    args.raw_n_embd = args.raw_n_embd or args.n_embd
+    args.combined_n_embd = args.combined_n_embd or args.n_embd
+    args.transformer_n_embd = args.transformer_n_embd or args.n_embd
 
     device = pick_device(args.device)
     random.seed(args.seed)
@@ -209,9 +228,9 @@ def main() -> None:
     report["shape"] = {k: str(v) for k, v in report["shape"].items()}
 
     print("=== training raw_bdh (canonical mult=32) ===", flush=True)
-    raw_config = BDHConfig(n_layer=args.n_layer, n_embd=args.n_embd, n_head=args.n_head,
+    raw_config = BDHConfig(n_layer=args.n_layer, n_embd=args.raw_n_embd, n_head=args.n_head,
                             mlp_internal_dim_multiplier=32, vocab_size=256, dropout=0.0)
-    raw_model = train_bdh(raw_config, args, device, use_softmax_scaled=False)
+    raw_model, raw_train_seconds = train_bdh(raw_config, args, device, use_softmax_scaled=False)
     raw_loss = evaluate_loss(
         lambda idx, target: bdh_variable_depth_forward(raw_model, idx, args.n_layer, target), args, device,
     )
@@ -219,11 +238,11 @@ def main() -> None:
     print(f"[raw_bdh] validation_loss={raw_loss:.4f} params={raw_params/1e6:.2f}M", flush=True)
 
     print("=== training combined_best teacher (mult=16, softmax_scaled) ===", flush=True)
-    combined_config = BDHConfig(n_layer=args.n_layer, n_embd=args.n_embd, n_head=args.n_head,
+    combined_config = BDHConfig(n_layer=args.n_layer, n_embd=args.combined_n_embd, n_head=args.n_head,
                                  mlp_internal_dim_multiplier=16, vocab_size=256, dropout=0.0)
-    combined_model = train_bdh(combined_config, args, device, use_softmax_scaled=True)
+    combined_model, combined_train_seconds = train_bdh(combined_config, args, device, use_softmax_scaled=True)
     print("=== distilling jump operator against combined_best's trajectories ===", flush=True)
-    jump = train_jump(combined_model, args, device)
+    jump, jump_train_seconds = train_jump(combined_model, args, device)
     combined_loss = evaluate_loss(
         lambda idx, target: combined_bdh_forward(combined_model, jump, idx, real_prefix_iterations=4, num_jumps=2, targets=target),
         args, device,
@@ -232,7 +251,7 @@ def main() -> None:
     print(f"[combined_best] validation_loss={combined_loss:.4f} params={combined_params/1e6:.2f}M", flush=True)
 
     print("=== training matched_transformer ===", flush=True)
-    transformer_model = train_transformer(args, device)
+    transformer_model, transformer_train_seconds = train_transformer(args, device)
 
     def transformer_forward(idx, target):
         logits = transformer_model(idx)
@@ -260,10 +279,15 @@ def main() -> None:
             print(f"[throughput] {name} compiled={compile_it}: {r['tokens_per_second']:.0f} tok/s", flush=True)
 
     report["results"] = {
-        "raw_bdh": {"validation_loss": raw_loss, "parameter_count": raw_params},
+        "raw_bdh": {"validation_loss": raw_loss, "parameter_count": raw_params,
+                    "training_seconds": raw_train_seconds},
         "combined_best": {"validation_loss": combined_loss, "parameter_count": combined_params,
+                          "training_seconds": combined_train_seconds + jump_train_seconds,
+                          "base_training_seconds": combined_train_seconds,
+                          "jump_training_seconds": jump_train_seconds,
                           "recipe": "mult=16 + softmax_scaled attention + weight-tying kept + real_prefix=4,jumps=2"},
-        "matched_transformer": {"validation_loss": transformer_loss, "parameter_count": transformer_params},
+        "matched_transformer": {"validation_loss": transformer_loss, "parameter_count": transformer_params,
+                                "training_seconds": transformer_train_seconds},
     }
     report["throughput"] = throughput
     args.out.parent.mkdir(parents=True, exist_ok=True)
