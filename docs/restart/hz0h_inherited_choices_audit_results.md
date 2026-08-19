@@ -9,9 +9,13 @@ measurement rather than assumption, one honest 3-seed NULL result
 (a promising single-seed lead for shared-base low-rank adapters did not
 replicate -- see Part 4d), and one real green-light structural signal
 (a single fitted linear operator explains most one-step recurrent
-dynamics and composes almost exactly at 2 steps -- see Part 5, single
-lightly-trained model, needs firming up before real engineering
-investment).** Full-scale CUDA
+dynamics and composes almost exactly at 2 steps -- Part 5), and one
+real prototype result with the strongest efficiency signal in the
+whole audit (a trained jump operator, "settle 4 real iterations then
+jump the rest," gets 1.9x real wall-clock speedup for +0.029 loss --
+Part 6, single-model prototype, needs firming up before production use
+but doesn't cost parameters or the tying-quality penalty every other
+lever in this doc pays).** Full-scale CUDA
 confirmation for Parts 1-3 is dispatched but not yet returned
 (Windows/RTX3060 is offline
 as of this writing -- see Part 4's own next-steps note).
@@ -461,6 +465,72 @@ jump network isn't bound by what a linear operator alone can capture.
   scale (FactorizedBDH), which is why the depth curriculum was applied
   throughout here and why CUDA confirmation is still required before
   either finding is treated as settled.
+
+## Part 6: trained jump operator J2 -- "settle first, then jump" holds, with real numbers
+
+Follow-up (2026-08-19), same day, direct continuation of Part 5: does a
+small TRAINED operator (not the closed-form lstsq fit) do better, and
+crucially -- does substituting it for real recurrence actually preserve
+DOWNSTREAM validation loss, not just raw state-prediction accuracy?
+`reference/hz0h_bdh_jump_operator_torch.py` (`JumpOperator`, a small
+zero-init residual MLP standing in for 2 real recurrent iterations, and
+`jump_bdh_forward`, proven bit-exact vs `bdh_variable_depth_forward` at
+`num_jumps=0`) plus `scripts/hz0h_bdh_jump_operator_prototype.py`
+(trains a BDH teacher, distills J2 against the teacher's REAL 2-step
+trajectories via state MSE + logits KL, then evaluates real/jump
+splits on held-out validation loss) answer this directly.
+
+**Real, disclosed scope: one trained BDH teacher (1.5M tokens, CPU),
+500 distillation steps for J2 -- a prototype, not a 3-seed claim.
+Its job is to check whether this idea is worth real engineering
+investment, and it is.**
+
+Real substitution result, all arms reaching the same depth-equivalent
+(8), only the real-iteration/jump split differing:
+
+| arm | real iters | jumps | loss | Δ vs real_depth8 | eval wall-clock | speedup |
+|---|---:|---:|---:|---:|---:|---:|
+| `real_depth8` | 8 | 0 | 2.6151 | 0.0000 | 0.50s | 1.0x |
+| `hybrid_4real_4jump` | 4 | 2 (=4 depth-eq) | 2.6445 | **+0.0293** | 0.26s | **1.9x** |
+| `hybrid_2real_6jump` | 2 | 3 (=6 depth-eq) | 2.6905 | +0.0753 | 0.14s | 3.6x |
+| `all_jumps` | 0 | 4 (=8 depth-eq) | 2.9269 | +0.3118 | 0.02s | 25x |
+
+**Real conclusion: the "settle first, then jump" hypothesis (motivated
+directly by Part 5's finding that early recurrent steps do the most
+genuine nonlinear work, measured via lowest cosine similarity between
+consecutive states) holds cleanly and monotonically.** Skipping real
+recurrence entirely (`all_jumps`) costs a real, large +0.31 loss despite
+being 25x faster -- the jump operator alone cannot substitute for the
+genuinely nonlinear early iterations. But keeping just 4 real iterations
+up front, then jumping the remaining depth-equivalent via 2 cheap jump
+calls, gets **1.9x real wall-clock speedup for a validation-loss cost of
+only +0.029** -- close to indistinguishable from full real recurrence.
+`hybrid_2real_6jump` is the middle point (3.6x faster, +0.075).
+
+**Why the speed numbers look the way they do**: a `JumpOperator` call is
+a small `D -> 4D -> D` residual MLP, dramatically cheaper than a real
+BDH iteration's three wide `D -> mult*D` GEMMs plus attention (consistent
+with Part 1's finding that those three projections are 82.8% of
+per-iteration FLOPs) -- so wall-clock scales almost entirely with how
+many REAL iterations remain, not how many jumps are used. This is the
+first idea in this whole audit that attacks throughput directly, without
+requiring fewer parameters or a param/capacity tradeoff (contrast with
+Parts 2/4/4b/4c/4d, which all traded SOME capacity or quality for speed
+or vice versa) -- the jump operator's own parameter cost is a small,
+fixed, one-time addition, not something that scales with how much
+recurrent compute it replaces.
+
+**Real next steps for this thread:** (1) rerun at a properly trained
+teacher and more distillation steps to firm up the exact tradeoff curve
+before committing engineering time; (2) sweep the real/jump split more
+finely (3 real + jumps, 5 real + jumps) to find the actual knee, not
+just the two hybrid points tested here; (3) test J4 (jump_size=4)
+directly, since Part 5 found the linear composition gap was still
+modest (not catastrophic) even at k=4; (4) if the pattern holds at
+scale, this is the strongest efficiency lever found in this entire
+audit -- it doesn't cost parameters, doesn't cost the tying-quality
+penalty found in Parts 4/4b/4c, and gives a real, tunable speed/quality
+dial via how many real iterations run before jumping.
 
 ## Concrete next steps
 

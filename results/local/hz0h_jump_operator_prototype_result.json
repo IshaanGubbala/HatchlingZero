@@ -1,0 +1,111 @@
+{
+  "device": "cpu",
+  "single_model_prototype_not_a_3seed_claim": "One trained BDH + one trained jump operator. Structural/prototype result, not a statistical claim -- answers 'does this look viable at all.'",
+  "shape": {
+    "n_embd": 128,
+    "n_layer": 8,
+    "n_head": 4,
+    "mult": 16,
+    "jump_hidden_mult": 4,
+    "jump_steps": 500
+  },
+  "jump_training": {
+    "training_seconds": 34.55148012501013,
+    "history": [
+      {
+        "step": 50,
+        "starting_depth": 0,
+        "state_loss": 0.6432309746742249,
+        "logits_loss": 25.740318298339844
+      },
+      {
+        "step": 100,
+        "starting_depth": 4,
+        "state_loss": 0.07749219983816147,
+        "logits_loss": 6.689793586730957
+      },
+      {
+        "step": 150,
+        "starting_depth": 2,
+        "state_loss": 0.10689102113246918,
+        "logits_loss": 5.509106159210205
+      },
+      {
+        "step": 200,
+        "starting_depth": 4,
+        "state_loss": 0.0547805055975914,
+        "logits_loss": 5.159472465515137
+      },
+      {
+        "step": 250,
+        "starting_depth": 4,
+        "state_loss": 0.05047003924846649,
+        "logits_loss": 4.282092571258545
+      },
+      {
+        "step": 300,
+        "starting_depth": 6,
+        "state_loss": 0.025341469794511795,
+        "logits_loss": 3.3326222896575928
+      },
+      {
+        "step": 350,
+        "starting_depth": 6,
+        "state_loss": 0.022892311215400696,
+        "logits_loss": 2.4976651668548584
+      },
+      {
+        "step": 400,
+        "starting_depth": 6,
+        "state_loss": 0.027063539251685143,
+        "logits_loss": 3.1151015758514404
+      },
+      {
+        "step": 450,
+        "starting_depth": 4,
+        "state_loss": 0.049649160355329514,
+        "logits_loss": 5.205105304718018
+      },
+      {
+        "step": 500,
+        "starting_depth": 6,
+        "state_loss": 0.028928181156516075,
+        "logits_loss": 4.006462097167969
+      }
+    ]
+  },
+  "arms": {
+    "real_depth8": {
+      "validation_loss": 2.615133434534073,
+      "real_prefix_iterations": 8,
+      "num_jumps": 0,
+      "depth_equivalent": 8,
+      "eval_seconds": 0.4976814159890637,
+      "validation_loss_minus_real_depth8": 0.0
+    },
+    "all_jumps": {
+      "validation_loss": 2.9269482493400574,
+      "real_prefix_iterations": 0,
+      "num_jumps": 4,
+      "depth_equivalent": 8,
+      "eval_seconds": 0.023460041993530467,
+      "validation_loss_minus_real_depth8": 0.3118148148059845
+    },
+    "hybrid_2real_6jump": {
+      "validation_loss": 2.6904572248458862,
+      "real_prefix_iterations": 2,
+      "num_jumps": 3,
+      "depth_equivalent": 8,
+      "eval_seconds": 0.14276204199995846,
+      "validation_loss_minus_real_depth8": 0.07532379031181335
+    },
+    "hybrid_4real_4jump": {
+      "validation_loss": 2.644454747438431,
+      "real_prefix_iterations": 4,
+      "num_jumps": 2,
+      "depth_equivalent": 8,
+      "eval_seconds": 0.25963783299084753,
+      "validation_loss_minus_real_depth8": 0.02932131290435791
+    }
+  }
+}
