@@ -5,9 +5,13 @@ local (MPS) setup. **One confirmed quality win over upstream BDH, one
 confirmed ~2x FLOP saving, one confirmed load-bearing structural choice
 (weight tying) with a real speed/quality tradeoff curve across it at
 production depth, three inherited choices vindicated by real
-measurement rather than assumption, and one honest 3-seed NULL result
+measurement rather than assumption, one honest 3-seed NULL result
 (a promising single-seed lead for shared-base low-rank adapters did not
-replicate -- see Part 4d for the full diagnosis).** Full-scale CUDA
+replicate -- see Part 4d), and one real green-light structural signal
+(a single fitted linear operator explains most one-step recurrent
+dynamics and composes almost exactly at 2 steps -- see Part 5, single
+lightly-trained model, needs firming up before real engineering
+investment).** Full-scale CUDA
 confirmation for Parts 1-3 is dispatched but not yet returned
 (Windows/RTX3060 is offline
 as of this writing -- see Part 4's own next-steps note).
@@ -374,7 +378,78 @@ where every reported effect had a consistent sign across all 3 seeds
 of result the 3-seed standard exists to catch, and it worked as
 intended here.
 
-## Real, disclosed limits on everything above
+## Part 5: BDH trajectory linearizability diagnostic -- a real green light for a jump-ahead operator
+
+Follow-up (2026-08-19), separate question from Parts 1-4: not "how do
+we make the repeated transform cheaper" but "does the repeated
+transform actually need to be repeated `R` full nonlinear times, or
+does it settle into something a single cheap operator could jump
+across?" `reference/hz0h_bdh_trajectory_torch.py`
+(`bdh_forward_with_trajectory`, bit-exact vs the oracle at full depth)
+captures the real recurrent state `x_0..x_8` and the encoder ReLU mask
+at every step; `scripts/hz0h_bdh_linearizability_diagnostic.py` trains
+a small real BDH (CPU, `n_embd=128`, `n_layer=8`, `mult=16`, 1.5M
+tokens -- deliberately run on CPU so it could execute alongside the
+concurrent MPS-based Part 4 sweep without resource contention) and
+fits closed-form (ridge least squares, no gradient training needed for
+the diagnostic itself) latent linear operators on the captured states.
+
+**Real, disclosed scope: this is ONE model, lightly trained (1.5M
+tokens, ~3 minutes) -- a structural/qualitative diagnostic, not a
+3-seed quantitative claim.** Its job is to decide whether investing in
+a real jump-operator architecture is well-motivated at all, not to
+pin down exact numbers.
+
+**Finding 1: BDH's recurrence genuinely settles, on its own.** Both the
+per-step update magnitude and the encoder ReLU activation pattern
+stabilize monotonically with depth, with no mechanism forcing this:
+
+| step | cosine(x_r, x_r+1) | \|Δx\|/\|x\| | ReLU-mask IoU |
+|---|---:|---:|---:|
+| 0->1 | 0.786 | 0.652 | 0.655 |
+| 2->3 | 0.945 | 0.329 | 0.787 |
+| 4->5 | 0.976 | 0.215 | 0.868 |
+| 6->7 | 0.992 | 0.124 | 0.920 |
+| 7->8 | 0.994 | 0.103 | -- |
+
+This is exactly the regime where local linearization is expected to
+work best (the update shrinks and the piecewise-linear ReLU region
+stabilizes) -- and it's an empirical property of trained BDH, not an
+assumption.
+
+**Finding 2, the crucial test: does a single fitted operator K COMPOSE
+across multiple steps, or only fit locally?** Pooled a one-step
+operator K (via ridge least squares across ALL consecutive-step pairs,
+valid because the oracle literally reuses the same weights every
+iteration) in a PCA-reduced latent space, then compared `K^k` (composed)
+against a separately, directly-fit `A_k` (the honest upper bound on
+what any k-step operator could achieve) at k=2 and k=4:
+
+| latent dim | one-step error | K² vs A₂ gap (k=2) | K⁴ vs A₄ gap (k=4) |
+|---|---:|---:|---:|
+| 32 | 0.172 | +0.0065 | +0.0623 |
+| 64 | 0.163 | +0.0086 | +0.0863 |
+| 128 | 0.155 | +0.0093 | +0.0858 |
+
+**Real conclusion: a single linear operator explains a real majority of
+one-step dynamics (~83-85%, i.e. 1 minus the ~15-17% relative error)
+and composes almost exactly at k=2 (gap under 1%).** At k=4 the gap
+grows to a real but modest ~6-9 points -- degrading, not collapsing.
+This is a genuine green light, not proof: it says a `J_2`-style jump
+(replace 2 real recurrent iterations with one learned/fit operator)
+is well-supported by this data; `J_4` would need either a properly
+end-to-end-trained jump network (not just post-hoc least squares) or
+accepting some quality cost, consistent with the horizon-4 gap seen
+here.
+
+**Real next steps for this specific thread:** (1) rerun at a properly
+trained model (more tokens, full curriculum depth) to firm up these
+numbers before investing engineering time in an actual jump-operator
+architecture; (2) if the pattern holds, prototype a real learned `J_2`
+(trained end-to-end against real BDH's own 2-step trajectories as the
+target, per the `L_multi` loss sketch this thread was built to test)
+rather than the closed-form post-hoc fit used here, since a trained
+jump network isn't bound by what a linear operator alone can capture.
 
 - Scaled-down local runs: smaller model, 5M tokens (not 25M), fp32 on
   MPS (not bf16), `n_layer=4` (not 8). **Absolute losses here are NOT
