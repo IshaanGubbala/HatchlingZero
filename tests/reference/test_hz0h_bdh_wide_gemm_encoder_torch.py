@@ -49,15 +49,20 @@ def test_wide_gemm_matches_oracle_broadcast_matmul(seed, n_embd, n_head, mult, b
     )
 
 
-def test_wide_encoder_view_is_detached_not_the_live_parameter():
-    """Real, disclosed scope limit: wide_encoder_view returns a detached
-    snapshot, so it does NOT track gradients back into model.encoder. This
-    test exists so that scope limit stays enforced/documented, not silently
-    dropped in a later edit."""
+def test_wide_encoder_view_tracks_gradients_back_to_the_live_parameter():
+    """Training-integration follow-up (2026-08-20): wide_encoder_view no
+    longer detaches -- permute/reshape/contiguous are natively
+    differentiable, so gradients must flow all the way back to
+    model.encoder through the wide view."""
     config = BDHConfig(n_embd=32, n_head=4, mlp_internal_dim_multiplier=8)
     model = BDH(config)
     encoder_wide = wide_encoder_view(model.encoder)
-    assert not encoder_wide.requires_grad
+    assert encoder_wide.requires_grad
+    loss = encoder_wide.sum()
+    loss.backward()
+    assert model.encoder.grad is not None
+    assert torch.isfinite(model.encoder.grad).all()
+    assert float(model.encoder.grad.abs().sum()) > 0
 
 
 def test_wide_gemm_rejects_wrong_head_dim():

@@ -17,14 +17,23 @@ to BDH's math -- this is purely an execution-layout claim, meant to be
 falsified or confirmed by a real parity test and a real GPU timing
 comparison, not assumed correct or assumed faster.
 
-Real, disclosed scope limit: this is forward-only, not yet training-
-integrated. ``wide_encoder_view`` returns a detached tensor, so gradients
-do not flow back into a wide-native parameter through it. Wiring this into
-an actual trainable forward pass -- so the wide cache is rebuilt once per
-optimizer step, not once per forward call, avoiding the exact
-permute-every-forward anti-pattern this remap exists to eliminate -- is a
-separate, disclosed follow-up, left for after the layout claim itself is
-confirmed (on real GPU timing) to be worth that added complexity.
+Training integration (2026-08-20, follow-up per this file's own prior
+disclosed scope limit): ``wide_encoder_view`` no longer detaches its
+output. ``permute``/``reshape``/``contiguous`` are all natively
+differentiable PyTorch ops -- the ONLY thing that ever blocked gradient
+flow back to ``model.encoder`` was the explicit ``.detach()`` call
+itself, not anything structural about the remap. Removing it makes the
+whole wide-GEMM path trainable with zero additional code; see
+``reference/hz0h_bdh_wide_gemm_trainable_torch.py`` for the full
+recurrent forward pass built on top, proven bit-exact (logits AND
+gradients) against the oracle.
+
+Real, still-open optimization (not a correctness gap): this rebuilds
+the wide view fresh every forward call, matching the oracle's own
+convention of recomputing ``model._w(model.encoder)`` fresh every call
+(needed for ternary-quantization support) -- caching the wide view once
+per optimizer step instead of once per forward call remains a real,
+disclosed, not-yet-attempted further speedup.
 """
 from __future__ import annotations
 
@@ -35,9 +44,10 @@ def wide_encoder_view(encoder: torch.Tensor) -> torch.Tensor:
     """Reshape BDH's per-head encoder ``(nh, D, N)`` into the GPU-native
     wide layout ``D x (nh*N)``. Real data movement (permute + contiguous)
     -- meant to be called once per set of weights (e.g. once per optimizer
-    step in a training loop), not once per forward call."""
+    step in a training loop), not once per forward call. Gradients flow
+    back to ``encoder`` normally through this view (no detach)."""
     nh, D, N = encoder.shape
-    return encoder.detach().permute(1, 0, 2).reshape(D, nh * N).contiguous()
+    return encoder.permute(1, 0, 2).reshape(D, nh * N).contiguous()
 
 
 def bdh_wide_gemm_encoder_step(x: torch.Tensor, encoder_wide: torch.Tensor, nh: int, N: int) -> torch.Tensor:

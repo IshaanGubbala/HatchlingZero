@@ -53,6 +53,7 @@ from reference.hz0h_bdh_jump_operator_torch import JumpOperator, jump_bdh_forwar
 from reference.hz0h_bdh_torch import BDH, BDHConfig
 from reference.hz0h_bdh_trajectory_torch import bdh_forward_with_trajectory
 from reference.hz0h_bdh_variable_depth_torch import bdh_variable_depth_forward
+from reference.hz0h_bdh_wide_gemm_trainable_torch import bdh_wide_gemm_trainable_forward
 from scripts.hz0h_bdh_combined_best_comparison import autocast_context, curriculum_stages, make_optimizer
 from scripts.hz0h_bdh_width_flop_frontier_local import pick_device, synchronize
 from scripts.hz0h_factorized_curriculum_full_comparison import depth_at, lr_at, read_batch
@@ -67,7 +68,16 @@ def train_teacher(config: BDHConfig, args, device) -> BDH:
     epochs = [0]
     tokens = 0
 
-    raw_fn = bdh_variable_depth_forward_checkpointed if args.gradient_checkpointing else bdh_variable_depth_forward
+    if args.use_wide_gemm and args.gradient_checkpointing:
+        raise RuntimeError(
+            "--use-wide-gemm + --gradient-checkpointing is not implemented yet -- real, disclosed "
+            "gap, not a silent fallback. bdh_wide_gemm_trainable_forward has no checkpointed variant. "
+            "Use one or the other for now."
+        )
+    if args.use_wide_gemm:
+        raw_fn = bdh_wide_gemm_trainable_forward
+    else:
+        raw_fn = bdh_variable_depth_forward_checkpointed if args.gradient_checkpointing else bdh_variable_depth_forward
     forward_fn = torch.compile(raw_fn, mode=args.compile_mode) if args.compile_training else raw_fn
 
     started = time.perf_counter()
@@ -195,6 +205,12 @@ def main() -> None:
     parser.add_argument("--optimizer", choices=["adamw", "adam8bit"], default="adamw")
     parser.add_argument("--gradient-checkpointing", action="store_true")
     parser.add_argument("--grad-clip", type=float, default=1.0)
+    parser.add_argument("--use-wide-gemm", action="store_true",
+                        help="Use reference/hz0h_bdh_wide_gemm_trainable_torch.py's wide-GEMM encoder + "
+                             "batched-GEMM encoder_v layout instead of the oracle's broadcasted per-head "
+                             "matmuls -- real, prior-measured forward-only wins (1.705x/1.509x) now wired "
+                             "for training. Not yet combinable with --gradient-checkpointing (real gap, "
+                             "errors loudly rather than silently ignoring the flag).")
     parser.add_argument("--compile-mode", choices=["default", "reduce-overhead", "max-autotune"], default="max-autotune")
     parser.add_argument("--compile-training", action="store_true",
                         help="torch.compile the teacher's training forward pass. See "
