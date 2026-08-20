@@ -18,13 +18,18 @@ but doesn't cost parameters or the tying-quality penalty every other
 lever in this doc pays), one important negative capstone result
 (stacking every confirmed win into one recipe LOST on quality to both
 raw BDH and the matched Transformer, confounded and not yet isolated --
-Part 7), and one real CUDA-confirmed hidden cost (RoPE application is
+Part 7), one real CUDA-confirmed hidden cost (RoPE application is
 36.5% of per-level wall-clock time despite ZERO FLOPs, invisible to
-every FLOP-based argument in this whole audit until now -- Part 8).**
-Full-scale CUDA
-confirmation for Parts 1-3 is dispatched but not yet returned
-(Windows/RTX3060 is offline
-as of this writing -- see Part 4's own next-steps note).
+every FLOP-based argument in this whole audit until now -- Part 8), and
+one real, first-time production-scale CUDA result (Part 9) that
+reframes the whole "why bother with BDH" question: `raw_bdh` (mult=16,
+plain attention) BEATS the matched Transformer on validation loss
+(1.7038 vs 2.3016) at nearly equal params, on real 10M-token training
+-- even though it is 66x slower in throughput. Both are true at once,
+not a contradiction. `combined_best`'s own arm remained broken (real
+validation_loss=49.6306, a depth-8-specific divergence gradient
+clipping only partially fixed), so this quality win belongs to plain
+BDH, not the stacked recipe.**
 
 ## Why this audit happened
 
@@ -704,6 +709,86 @@ kernel's measured time disproportionately) rather than a real,
 reproducible architectural cost. **Do not act on this finding (e.g.
 building a fused-RoPE optimization) until a clean-GPU-state rerun
 confirms the same result.** Requested as an immediate follow-up.
+
+## Part 9: real matched-param capstone lands on CUDA -- raw_bdh BEATS the matched Transformer on quality
+
+Windows dispatch, 2026-08-20. The parameter-matched capstone comparison
+(Part 7's local small-scale version, now run for real on the RTX 3060 at
+~300M params, real 10M-token curriculum, bf16, gradient checkpointing,
+int8 optimizer state, `mult=16` for all BDH arms per this doc's own
+"drop canonical mult=32" correction) produced two real arms and one
+broken one:
+
+| arm | val loss | params | status |
+|---|---:|---:|---|
+| `raw_bdh` (mult=16, plain attention) | **1.7038** | 300.32M | clean, real, usable |
+| `matched_transformer` | 2.3016 | 302.57M | clean, real, usable |
+| `combined_best` (mult=16 + softmax_scaled + jump) | 49.6306 | 296.98M | BROKEN -- see below |
+
+**Real, first-time result that reframes the whole "why bother with
+BDH" question from earlier in this session: `raw_bdh` beats the matched
+Transformer on validation loss, at nearly identical parameter count,
+on real 10M-token training.** This is the first time this project has
+measured BDH-vs-Transformer quality at matched params on real
+production-scale CUDA hardware with both sides fully real (real RoPE,
+real curriculum, matched weight_decay/optimizer/batch_size). It directly
+contradicts the framing several messages earlier in this session that
+"the Transformer wins outright, no asterisks" -- that framing was based
+on THROUGHPUT alone (the real, separately-confirmed 66x speed gap,
+Part 8 addendum), not quality. **Both are true simultaneously: BDH is
+dramatically slower (66x) AND gets a real, better validation loss at
+this exact matched-param scale.** That is a genuine, disclosed tradeoff,
+not a contradiction -- and it means the earlier "just use the
+Transformer" conclusion needs to be walked back to "use the Transformer
+if throughput is what matters; BDH may be worth the compute cost if
+quality-per-parameter is what matters," pending 3-seed confirmation
+(this is a single real run, not yet replicated).
+
+### combined_best's real failure mode: depth-dependent divergence, not a single bad step
+
+Gradient clipping (added this session specifically for this bug) fixed
+the ORIGINAL NaN point (step 1350, previously hard NaN, now
+loss=2.9669 there -- healthy) and combined_best trained stably through
+the depth=4 and depth=6 curriculum stages (losses 1.9-4.4, normal
+noise). But a NEW, different divergence appeared entering the FINAL
+depth=8 stage specifically:
+
+```text
+step 4650  loss=3.5039   (healthy)
+step 4700  loss=8.5399
+step 4750  loss=9.9610
+step 4800  loss=14.7525
+step 4850  loss=12.9649
+final_loss=12.6063, validation_loss=49.6306 (ln(256)=5.5 is the random-
+guessing baseline for this byte-level task -- 49.6 is not "undertrained",
+it's a numerically corrupted state)
+```
+
+**Real diagnostic conclusion: this points to the instability compounding
+with recurrent DEPTH itself, not a single large gradient spike that
+clipping alone can suppress.** softmax_scaled attention was clean at
+shallower curriculum depths (4, 6) and only broke down once training
+reached the full real depth (8) -- consistent with a per-iteration
+numerical issue (likely in the `(QR @ QR.mT) * scale` reduction under
+bf16, per the mechanism already suspected when this bug was first found)
+that accumulates or compounds across repeated iterations of the SAME
+tied weights, rather than a one-off unlucky batch. Not yet diagnosed or
+fixed -- real, open follow-up.
+
+Also real: `combined_best`'s jump-operator distillation "succeeded"
+numerically (`final_state_loss=0.4687`) but that number is meaningless
+-- it was distilling against an already-numerically-corrupted teacher's
+garbage trajectories, disclosed rather than treated as a working result.
+
+### Compiled throughput for combined_best: a real regression, not a win
+
+`combined_best`'s compiled throughput (249 tok/s) was SLOWER than
+uncompiled (683 tok/s) at this shape -- the opposite of `raw_bdh`'s
+story (which OOM'd under default compile mode rather than merely being
+slow). This specific run predates this session's `max-autotune` default
+switch (HEAD `c0354dc`, before `3660053`), so it used `torch.compile`'s
+plain default mode -- unconfirmed whether `max-autotune` fixes this
+regression too, real follow-up once retested.
 
 ## Concrete next steps
 

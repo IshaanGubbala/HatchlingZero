@@ -1,0 +1,43 @@
+{
+  "device": "cuda",
+  "shape": {
+    "data": "data\\packed\\hz0h_bytes_25m_train.jsonl",
+    "validation_data": "data\\packed\\hz0h_bytes_25m_val.jsonl",
+    "out": "results\\local\\hz0h_matched_param_capstone_combined_retry_result.json",
+    "device": "cuda",
+    "target_tokens": "10000000",
+    "batch_size": "8",
+    "sequence_length": "256",
+    "warmup_steps": "200",
+    "learning_rate": "0.001",
+    "grad_clip": "1.0",
+    "eval_batches": "8",
+    "jump_steps": "500",
+    "log_every": "50",
+    "skip_raw": "True",
+    "skip_combined": "False",
+    "skip_transformer": "True",
+    "optimizer": "adam8bit",
+    "dtype": "bfloat16",
+    "seed": "7",
+    "n_embd": "256",
+    "raw_n_embd": "2496",
+    "combined_n_embd": "2432",
+    "transformer_n_embd": "1536",
+    "raw_mult": "16",
+    "n_layer": "8",
+    "n_head": "8",
+    "gradient_checkpointing": "True",
+    "jump_hidden_mult": "1"
+  },
+  "results": {
+    "combined_best": {
+      "validation_loss": 49.6305890083313,
+      "parameter_count": 296981248,
+      "training_seconds": 9675.01103960001,
+      "base_training_seconds": 9300.382839100013,
+      "jump_training_seconds": 374.6282004999957,
+      "recipe": "mult=16 + softmax_scaled attention + weight-tying kept + real_prefix=4,jumps=2"
+    }
+  }
+}
