@@ -147,9 +147,15 @@ def train_bdh(config: BDHConfig, args, device, use_softmax_scaled: bool) -> BDH:
             loss.backward()
             optimizer.step()
             tokens += args.batch_size * args.sequence_length
+            if args.log_every and (step + 1) % args.log_every == 0:
+                now = time.perf_counter()
+                rate = tokens / (now - started)
+                eta = (steps - step - 1) / max(step + 1, 1) * (now - started)
+                print(f"[train_bdh softmax_scaled={use_softmax_scaled}] step {step+1}/{steps} "
+                      f"depth={depth} loss={float(loss):.4f} {rate:.0f} tok/s eta={eta:.0f}s", flush=True)
     synchronize(device)
     elapsed = time.perf_counter() - started
-    print(f"[train_bdh softmax_scaled={use_softmax_scaled}] {tokens} tokens in {elapsed:.0f}s "
+    print(f"[train_bdh softmax_scaled={use_softmax_scaled}] DONE {tokens} tokens in {elapsed:.0f}s "
           f"final_loss={float(loss):.4f}", flush=True)
     model.eval()
     return model, elapsed
@@ -181,9 +187,15 @@ def train_transformer(args, device) -> MatchedTransformerLM:
             loss.backward()
             optimizer.step()
             tokens += args.batch_size * args.sequence_length
+            if args.log_every and (step + 1) % args.log_every == 0:
+                now = time.perf_counter()
+                rate = tokens / (now - started)
+                eta = (steps - step - 1) / max(step + 1, 1) * (now - started)
+                print(f"[train_transformer] step {step+1}/{steps} loss={float(loss):.4f} "
+                      f"{rate:.0f} tok/s eta={eta:.0f}s", flush=True)
     synchronize(device)
     elapsed = time.perf_counter() - started
-    print(f"[train_transformer] {tokens} tokens in {elapsed:.0f}s final_loss={float(loss):.4f}", flush=True)
+    print(f"[train_transformer] DONE {tokens} tokens in {elapsed:.0f}s final_loss={float(loss):.4f}", flush=True)
     model.eval()
     return model, elapsed
 
@@ -216,9 +228,15 @@ def train_jump(model: BDH, args, device) -> JumpOperator:
                 )
             (state_loss + 0.1 * logits_loss).backward()
             optimizer.step()
+            if args.log_every and (step + 1) % args.log_every == 0:
+                now = time.perf_counter()
+                rate = (step + 1) / (now - started)
+                eta = (args.jump_steps - step - 1) / max(step + 1, 1) * (now - started)
+                print(f"[train_jump] step {step+1}/{args.jump_steps} state_loss={float(state_loss):.4f} "
+                      f"logits_loss={float(logits_loss):.4f} {rate:.1f} step/s eta={eta:.0f}s", flush=True)
     synchronize(device)
     elapsed = time.perf_counter() - started
-    print(f"[train_jump] {args.jump_steps} steps in {elapsed:.0f}s "
+    print(f"[train_jump] DONE {args.jump_steps} steps in {elapsed:.0f}s "
           f"final_state_loss={float(state_loss):.4f}", flush=True)
     jump.eval()
     return jump, elapsed
@@ -265,6 +283,19 @@ def main() -> None:
     parser.add_argument("--learning-rate", type=float, default=1e-3)
     parser.add_argument("--eval-batches", type=int, default=8)
     parser.add_argument("--jump-steps", type=int, default=500)
+    parser.add_argument("--log-every", type=int, default=50,
+                        help="Print progress (step, loss, tok/s, ETA) every N steps during training. "
+                             "0 disables progress logging (only the final per-arm summary prints). "
+                             "Real gap this fixes: the script previously only printed once, at the very "
+                             "end of each arm's full training run, with no way to check progress or "
+                             "throughput mid-run.")
+    parser.add_argument("--skip-raw", action="store_true",
+                        help="Skip training/evaluating/benchmarking raw_bdh entirely. For resuming a run "
+                             "after killing it partway through and already having that arm's result.")
+    parser.add_argument("--skip-combined", action="store_true",
+                        help="Skip combined_best (and its jump operator) entirely. See --skip-raw.")
+    parser.add_argument("--skip-transformer", action="store_true",
+                        help="Skip matched_transformer entirely. See --skip-raw.")
     parser.add_argument("--optimizer", choices=["adamw", "adam8bit"], default="adamw",
                         help="adam8bit (bitsandbytes) quantizes optimizer momentum/variance state "
                              "to int8, a real ~4x reduction there specifically -- CUDA-only, requires "
@@ -333,77 +364,87 @@ def main() -> None:
             torch.mps.empty_cache()
 
     throughput = {}
+    results = {}
 
-    print(f"=== training raw_bdh (mult={args.raw_mult}) ===", flush=True)
-    raw_config = BDHConfig(n_layer=args.n_layer, n_embd=args.raw_n_embd, n_head=args.n_head,
-                            mlp_internal_dim_multiplier=args.raw_mult, vocab_size=256, dropout=0.0)
-    raw_model, raw_train_seconds = train_bdh(raw_config, args, device, use_softmax_scaled=False)
-    raw_loss = evaluate_loss(
-        lambda idx, target: bdh_variable_depth_forward(raw_model, idx, args.n_layer, target), args, device,
-    )
-    raw_params = sum(p.numel() for p in raw_model.parameters())
-    print(f"[raw_bdh] validation_loss={raw_loss:.4f} params={raw_params/1e6:.2f}M", flush=True)
-    print("=== measuring raw_bdh throughput (uncompiled + compiled) ===", flush=True)
-    for compile_it in (False, True):
-        throughput.setdefault("raw_bdh", {})[str(compile_it)] = measure_throughput(
-            lambda idx: bdh_variable_depth_forward(raw_model, idx, args.n_layer), args, device, compile_it,
+    if args.skip_raw:
+        print("=== SKIPPING raw_bdh (--skip-raw) ===", flush=True)
+    else:
+        print(f"=== training raw_bdh (mult={args.raw_mult}) ===", flush=True)
+        raw_config = BDHConfig(n_layer=args.n_layer, n_embd=args.raw_n_embd, n_head=args.n_head,
+                                mlp_internal_dim_multiplier=args.raw_mult, vocab_size=256, dropout=0.0)
+        raw_model, raw_train_seconds = train_bdh(raw_config, args, device, use_softmax_scaled=False)
+        raw_loss = evaluate_loss(
+            lambda idx, target: bdh_variable_depth_forward(raw_model, idx, args.n_layer, target), args, device,
         )
-        print(f"[throughput] raw_bdh compiled={compile_it}: "
-              f"{throughput['raw_bdh'][str(compile_it)]['tokens_per_second']:.0f} tok/s", flush=True)
-    free_gpu_memory(raw_model)
+        raw_params = sum(p.numel() for p in raw_model.parameters())
+        print(f"[raw_bdh] validation_loss={raw_loss:.4f} params={raw_params/1e6:.2f}M", flush=True)
+        print("=== measuring raw_bdh throughput (uncompiled + compiled) ===", flush=True)
+        for compile_it in (False, True):
+            throughput.setdefault("raw_bdh", {})[str(compile_it)] = measure_throughput(
+                lambda idx: bdh_variable_depth_forward(raw_model, idx, args.n_layer), args, device, compile_it,
+            )
+            print(f"[throughput] raw_bdh compiled={compile_it}: "
+                  f"{throughput['raw_bdh'][str(compile_it)]['tokens_per_second']:.0f} tok/s", flush=True)
+        free_gpu_memory(raw_model)
+        results["raw_bdh"] = {"validation_loss": raw_loss, "parameter_count": raw_params,
+                              "training_seconds": raw_train_seconds}
 
-    print("=== training combined_best teacher (mult=16, softmax_scaled) ===", flush=True)
-    combined_config = BDHConfig(n_layer=args.n_layer, n_embd=args.combined_n_embd, n_head=args.n_head,
-                                 mlp_internal_dim_multiplier=16, vocab_size=256, dropout=0.0)
-    combined_model, combined_train_seconds = train_bdh(combined_config, args, device, use_softmax_scaled=True)
-    print("=== distilling jump operator against combined_best's trajectories ===", flush=True)
-    jump, jump_train_seconds = train_jump(combined_model, args, device)
-    combined_loss = evaluate_loss(
-        lambda idx, target: combined_bdh_forward(combined_model, jump, idx, real_prefix_iterations=4, num_jumps=2, targets=target),
-        args, device,
-    )
-    combined_params = sum(p.numel() for p in combined_model.parameters()) + sum(p.numel() for p in jump.parameters())
-    print(f"[combined_best] validation_loss={combined_loss:.4f} params={combined_params/1e6:.2f}M", flush=True)
-    print("=== measuring combined_best throughput (uncompiled + compiled) ===", flush=True)
-    for compile_it in (False, True):
-        throughput.setdefault("combined_best", {})[str(compile_it)] = measure_throughput(
-            lambda idx: combined_bdh_forward(combined_model, jump, idx, real_prefix_iterations=4, num_jumps=2), args, device, compile_it,
+    if args.skip_combined:
+        print("=== SKIPPING combined_best (--skip-combined) ===", flush=True)
+    else:
+        print("=== training combined_best teacher (mult=16, softmax_scaled) ===", flush=True)
+        combined_config = BDHConfig(n_layer=args.n_layer, n_embd=args.combined_n_embd, n_head=args.n_head,
+                                     mlp_internal_dim_multiplier=16, vocab_size=256, dropout=0.0)
+        combined_model, combined_train_seconds = train_bdh(combined_config, args, device, use_softmax_scaled=True)
+        print("=== distilling jump operator against combined_best's trajectories ===", flush=True)
+        jump, jump_train_seconds = train_jump(combined_model, args, device)
+        combined_loss = evaluate_loss(
+            lambda idx, target: combined_bdh_forward(combined_model, jump, idx, real_prefix_iterations=4, num_jumps=2, targets=target),
+            args, device,
         )
-        print(f"[throughput] combined_best compiled={compile_it}: "
-              f"{throughput['combined_best'][str(compile_it)]['tokens_per_second']:.0f} tok/s", flush=True)
-    free_gpu_memory(combined_model, jump)
+        combined_params = sum(p.numel() for p in combined_model.parameters()) + sum(p.numel() for p in jump.parameters())
+        print(f"[combined_best] validation_loss={combined_loss:.4f} params={combined_params/1e6:.2f}M", flush=True)
+        print("=== measuring combined_best throughput (uncompiled + compiled) ===", flush=True)
+        for compile_it in (False, True):
+            throughput.setdefault("combined_best", {})[str(compile_it)] = measure_throughput(
+                lambda idx: combined_bdh_forward(combined_model, jump, idx, real_prefix_iterations=4, num_jumps=2), args, device, compile_it,
+            )
+            print(f"[throughput] combined_best compiled={compile_it}: "
+                  f"{throughput['combined_best'][str(compile_it)]['tokens_per_second']:.0f} tok/s", flush=True)
+        free_gpu_memory(combined_model, jump)
+        results["combined_best"] = {
+            "validation_loss": combined_loss, "parameter_count": combined_params,
+            "training_seconds": combined_train_seconds + jump_train_seconds,
+            "base_training_seconds": combined_train_seconds,
+            "jump_training_seconds": jump_train_seconds,
+            "recipe": "mult=16 + softmax_scaled attention + weight-tying kept + real_prefix=4,jumps=2",
+        }
 
-    print("=== training matched_transformer ===", flush=True)
-    transformer_model, transformer_train_seconds = train_transformer(args, device)
+    if args.skip_transformer:
+        print("=== SKIPPING matched_transformer (--skip-transformer) ===", flush=True)
+    else:
+        print("=== training matched_transformer ===", flush=True)
+        transformer_model, transformer_train_seconds = train_transformer(args, device)
 
-    def transformer_forward(idx, target):
-        logits = transformer_model(idx)
-        loss = torch.nn.functional.cross_entropy(logits.reshape(-1, 256), target.reshape(-1))
-        return logits, loss
+        def transformer_forward(idx, target):
+            logits = transformer_model(idx)
+            loss = torch.nn.functional.cross_entropy(logits.reshape(-1, 256), target.reshape(-1))
+            return logits, loss
 
-    transformer_loss = evaluate_loss(transformer_forward, args, device)
-    transformer_params = sum(p.numel() for p in transformer_model.parameters())
-    print(f"[matched_transformer] validation_loss={transformer_loss:.4f} params={transformer_params/1e6:.2f}M", flush=True)
-    print("=== measuring matched_transformer throughput (uncompiled + compiled) ===", flush=True)
-    for compile_it in (False, True):
-        throughput.setdefault("matched_transformer", {})[str(compile_it)] = measure_throughput(
-            lambda idx: transformer_model(idx), args, device, compile_it,
-        )
-        print(f"[throughput] matched_transformer compiled={compile_it}: "
-              f"{throughput['matched_transformer'][str(compile_it)]['tokens_per_second']:.0f} tok/s", flush=True)
+        transformer_loss = evaluate_loss(transformer_forward, args, device)
+        transformer_params = sum(p.numel() for p in transformer_model.parameters())
+        print(f"[matched_transformer] validation_loss={transformer_loss:.4f} params={transformer_params/1e6:.2f}M", flush=True)
+        print("=== measuring matched_transformer throughput (uncompiled + compiled) ===", flush=True)
+        for compile_it in (False, True):
+            throughput.setdefault("matched_transformer", {})[str(compile_it)] = measure_throughput(
+                lambda idx: transformer_model(idx), args, device, compile_it,
+            )
+            print(f"[throughput] matched_transformer compiled={compile_it}: "
+                  f"{throughput['matched_transformer'][str(compile_it)]['tokens_per_second']:.0f} tok/s", flush=True)
+        results["matched_transformer"] = {"validation_loss": transformer_loss, "parameter_count": transformer_params,
+                                          "training_seconds": transformer_train_seconds}
 
-    report["results"] = {
-        "raw_bdh": {"validation_loss": raw_loss, "parameter_count": raw_params,
-                    "training_seconds": raw_train_seconds},
-        "combined_best": {"validation_loss": combined_loss, "parameter_count": combined_params,
-                          "training_seconds": combined_train_seconds + jump_train_seconds,
-                          "base_training_seconds": combined_train_seconds,
-                          "jump_training_seconds": jump_train_seconds,
-                          "recipe": "mult=16 + softmax_scaled attention + weight-tying kept + real_prefix=4,jumps=2"},
-        "matched_transformer": {"validation_loss": transformer_loss, "parameter_count": transformer_params,
-                                "training_seconds": transformer_train_seconds},
-    }
-    report["throughput"] = throughput
+    report["results"] = results
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(f"[done] wrote {args.out}", flush=True)
