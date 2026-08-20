@@ -34,7 +34,14 @@ number was itself a bug -- `measure_throughput` was silently running in
 fp32, not bf16). Both are true at once, not a contradiction.
 `combined_best`'s own arm remained broken (real validation_loss=49.6306,
 a depth-8-specific divergence gradient clipping only partially fixed),
-so this quality win belongs to plain BDH, not the stacked recipe.**
+so this quality win belongs to plain BDH, not the stacked recipe.
+Finally, a first-pass small-scale local result (Part 11) directly
+measuring the realized per-round operator gate `g_r` (not a proxy for
+it): ~85% of its nominal width is exactly zero every round, and unlike
+anything measured before in this project, the ACTIVE SET stabilizes
+across recurrent depth (round-to-round support overlap rises from 0.52
+to 0.89) -- real evidence for "the architecture discovers sparsity
+after paying for it," not yet confirmed at production scale.**
 
 ## Why this audit happened
 
@@ -968,6 +975,80 @@ independently confirmed rather than assumed.
 training with zero OOM** (bit-exact levers from Parts 8-9's addenda),
 confirming both new levers are usable together on real hardware, not
 just individually.
+
+## Part 11: g_r -- the realized per-round operator gate -- is genuinely sparse AND its support stabilizes across depth (small local scale, first pass)
+
+Motivated by a real reframing (2026-08-20): BDH's per-token update
+algebraically collapses to `x' ~= x + x @ (E @ diag(g_r) @ D)`, where
+`g_r = x_sparse_r (elementwise*) y_sparse_r` is the coefficient vector
+selecting which of the `N`-per-head rank-1 operators `e_n d_n^T` (`E`'s
+columns paired with `D`'s rows) are active THIS token, THIS round.
+Every prior optimization attempt in this audit either preserved `g_r`
+(kept quality, kept the compute -- wide-GEMM/bmm layout remaps) or
+reduced/approximated something ADJACENT to it (width, `E`/`E_v`/`D`
+directly, or the hidden state `x_r` itself, in the jump operator's
+case) -- never `g_r` directly. This part measures `g_r` for the first
+time.
+
+`reference/hz0h_bdh_g_r_operator_diagnostic_torch.py` adds a capture
+point to `bdh_variable_depth_forward`'s exact math (proven bit-exact
+against it, logits + loss, by
+`tests/reference/test_hz0h_bdh_g_r_operator_diagnostic_torch.py`) that
+exposes `xy_sparse` per round without changing BDH's computation at
+all. `scripts/hz0h_bdh_g_r_operator_diagnostic.py` trains a small local
+raw BDH (`n_embd=256, mult=16, n_layer=8, n_head=8`, `N=512` per head --
+NOT production scale, see caveats below) via the same `train_bdh` used
+by the main capstone comparison, then pools `g_r` over 20 held-out
+batches (162,560 samples per round) and measures density, round-to-round
+support overlap, top-k energy concentration, and effective rank
+(participation ratio of the SVD spectrum).
+
+**Real numbers, this run
+(`results/local/hz0h_g_r_operator_diagnostic_result.json`):**
+
+- **Density**: 83-86% of `g_r`'s `N=512` entries are EXACTLY zero, every
+  round (real zeros -- `g_r` is a product of two ReLUs, not a
+  thresholding artifact). Only ~15% of the nominal width is active per
+  token/round.
+- **Concentration**: the top 2% of dims (`k=10` of 512) already explain
+  82-88% of a token-round's L2 energy; the top 10% (`k=51`) explain
+  99.0-99.1%.
+- **Round-to-round support drift -- the new finding, not previously
+  measured anywhere in this project**: Jaccard overlap between
+  consecutive rounds' active sets RISES monotonically from 0.52 (round
+  0-to-1) to 0.89 (round 6-to-7). Early rounds churn heavily; by the
+  final two rounds the active set has nearly stabilized.
+- **Effective rank**: 34-40% of `N` per individual round, but 46% when
+  pooled across all 8 rounds -- consistent with "any single token uses
+  a small, concentrated subset, but WHICH subset varies enough across
+  different tokens that the union spans much more of the space than any
+  one token needs."
+
+**Real implication for the follow-ups proposed alongside this
+reframing**: this is genuine first-pass evidence for "the architecture
+discovers sparsity after paying for it" -- both halves of the earlier
+router post-mortem are confirmed here too: (1) there IS real sparsity
+to exploit (~85% exact zeros), so a perfect oracle router is not chasing
+nothing, and (2) the fact that per-round support only stabilizes by
+round ~6-7, not round 1-2, argues AGAINST a static x-only router (which
+is what actually shipped and lost) and FOR the proposed "recurrent
+active-set" idea specifically: discover the active support over the
+first couple of REAL rounds (using both `x` and the attention-derived
+`a`, unlike the router), then restrict later rounds to it with periodic
+refresh -- matching where the Jaccard curve says the support actually
+settles, not a guess made before any rounds have run.
+
+**Real, disclosed limits -- this is a hypothesis check, not a
+confirmed result**: small scale (`n_embd=256`, not the `n_embd=2496`
+production shape used in Parts 8-10), 12 seconds / 300K tokens of
+training (final training loss 3.30 -- likely meaningfully undertrained,
+not the converged model these statistics ideally should come from),
+single seed, no CUDA confirmation. Whether density/stabilization hold
+in direction AND magnitude at production width and with a properly
+converged model is the real open question before anything gets built on
+top of this -- same caveat this project already attaches to every other
+local-scale-first result (Part 5, Part 6's original prototype, both of
+which changed materially at production scale).
 
 ## Concrete next steps
 

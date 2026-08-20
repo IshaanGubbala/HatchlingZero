@@ -1,0 +1,32 @@
+=== training raw BDH (n_embd=256 mult=16 n_layer=8 n_head=8, N=512 per head) for g_r diagnostic ===
+/Users/ishaangubbala/Documents/Training/scripts/hz0h_bdh_combined_best_comparison.py:161: UserWarning: Converting a tensor with requires_grad=True to a scalar may lead to unexpected behavior.
+Consider using tensor.detach() first. (Triggered internally at /Users/runner/work/pytorch/pytorch/torch/csrc/autograd/generated/python_variable_methods.cpp:823.)
+  f"depth={depth} loss={float(loss):.4f} {rate:.0f} tok/s eta={eta:.0f}s", flush=True)
+[train_bdh softmax_scaled=False] step 20/293 depth=4 loss=3.6222 28909 tok/s eta=10s
+[train_bdh softmax_scaled=False] step 40/293 depth=4 loss=3.1800 30361 tok/s eta=9s
+[train_bdh softmax_scaled=False] step 60/293 depth=4 loss=2.7827 30872 tok/s eta=8s
+[train_bdh softmax_scaled=False] step 80/293 depth=4 loss=3.2960 31122 tok/s eta=7s
+[train_bdh softmax_scaled=False] step 100/293 depth=4 loss=2.9783 31270 tok/s eta=6s
+[train_bdh softmax_scaled=False] step 120/293 depth=4 loss=3.3661 31380 tok/s eta=6s
+[train_bdh softmax_scaled=False] step 140/293 depth=4 loss=2.3315 31460 tok/s eta=5s
+[train_bdh softmax_scaled=False] step 160/293 depth=6 loss=2.0985 30494 tok/s eta=4s
+[train_bdh softmax_scaled=False] step 180/293 depth=6 loss=2.7272 29318 tok/s eta=4s
+[train_bdh softmax_scaled=False] step 200/293 depth=6 loss=3.0042 28436 tok/s eta=3s
+[train_bdh softmax_scaled=False] step 220/293 depth=6 loss=2.3905 27752 tok/s eta=3s
+[train_bdh softmax_scaled=False] step 240/293 depth=8 loss=2.4748 26444 tok/s eta=2s
+[train_bdh softmax_scaled=False] step 260/293 depth=8 loss=2.0465 25399 tok/s eta=1s
+[train_bdh softmax_scaled=False] step 280/293 depth=8 loss=2.8842 24567 tok/s eta=1s
+[train_bdh softmax_scaled=False] DONE 300032 tokens in 12s final_loss=3.3018
+[trained] params=3.28M in 12s
+=== collecting g_r over 20 held-out batches ===
+[collected] 162560 samples/round in 1s
+[round 0] exact_zero=0.847 eff_rank=196.8/512 (38.4%) top-128_energy=0.992
+[round 1] exact_zero=0.833 eff_rank=203.2/512 (39.7%) top-128_energy=0.992
+[round 2] exact_zero=0.837 eff_rank=196.1/512 (38.3%) top-128_energy=0.992
+[round 3] exact_zero=0.848 eff_rank=189.3/512 (37.0%) top-128_energy=0.992
+[round 4] exact_zero=0.856 eff_rank=185.7/512 (36.3%) top-128_energy=0.992
+[round 5] exact_zero=0.860 eff_rank=182.1/512 (35.6%) top-128_energy=0.992
+[round 6] exact_zero=0.863 eff_rank=177.2/512 (34.6%) top-128_energy=0.992
+[round 7] exact_zero=0.863 eff_rank=171.3/512 (33.5%) top-128_energy=0.992
+[pooled] eff_rank=235.4/512 (46.0%)
+[done] wrote results/local/hz0h_g_r_operator_diagnostic_result.json
