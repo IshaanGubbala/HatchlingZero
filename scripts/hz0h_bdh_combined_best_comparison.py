@@ -145,6 +145,8 @@ def train_bdh(config: BDHConfig, args, device, use_softmax_scaled: bool) -> BDH:
                 else:
                     _, loss = bdh_variable_depth_forward(model, idx, depth, target)
             loss.backward()
+            if args.grad_clip > 0:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
             optimizer.step()
             tokens += args.batch_size * args.sequence_length
             if args.log_every and (step + 1) % args.log_every == 0:
@@ -185,6 +187,8 @@ def train_transformer(args, device) -> MatchedTransformerLM:
                 logits = model(idx)
                 loss = torch.nn.functional.cross_entropy(logits.reshape(-1, logits.size(-1)), target.reshape(-1))
             loss.backward()
+            if args.grad_clip > 0:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
             optimizer.step()
             tokens += args.batch_size * args.sequence_length
             if args.log_every and (step + 1) % args.log_every == 0:
@@ -227,6 +231,8 @@ def train_jump(model: BDH, args, device) -> JumpOperator:
                     torch.nn.functional.softmax(target_logits, dim=-1), reduction="batchmean",
                 )
             (state_loss + 0.1 * logits_loss).backward()
+            if args.grad_clip > 0:
+                torch.nn.utils.clip_grad_norm_(jump.parameters(), args.grad_clip)
             optimizer.step()
             if args.log_every and (step + 1) % args.log_every == 0:
                 now = time.perf_counter()
@@ -296,6 +302,15 @@ def main() -> None:
     parser.add_argument("--sequence-length", type=int, default=256)
     parser.add_argument("--warmup-steps", type=int, default=100)
     parser.add_argument("--learning-rate", type=float, default=1e-3)
+    parser.add_argument("--grad-clip", type=float, default=1.0,
+                        help="Max gradient norm (torch.nn.utils.clip_grad_norm_), 0 disables. Real gap "
+                             "fixed here: this script had NO clipping at all until combined_best diverged "
+                             "to NaN mid-training at production scale (Windows dispatch, 2026-08-20, "
+                             "n_embd=2432, bf16, step 1350/4883 -- trained normally through step 1300, "
+                             "then NaN and never recovered). softmax_scaled attention (Part 3) was only "
+                             "ever validated at small scale (n_embd=256, fp32) before this; raw_bdh (plain "
+                             "attention) trained cleanly at the SAME width/dtype/checkpointing settings, "
+                             "isolating this to softmax_scaled specifically, not the memory-saving levers.")
     parser.add_argument("--eval-batches", type=int, default=8)
     parser.add_argument("--jump-steps", type=int, default=500)
     parser.add_argument("--log-every", type=int, default=50,
