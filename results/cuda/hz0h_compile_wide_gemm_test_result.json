@@ -1,0 +1,58 @@
+{
+  "device": "cuda",
+  "shape": {
+    "n_embd": 2496,
+    "mult": 16,
+    "n_layer": 8,
+    "n_head": 8,
+    "dtype": "bfloat16",
+    "optimizer": "adam8bit",
+    "target_tokens": 500000
+  },
+  "teacher_params": 300318720,
+  "jump_params": 12465024,
+  "teacher_training_seconds": 826.2872602999996,
+  "jump_training_seconds": 4622.670611300011,
+  "arms": {
+    "real_depth8": {
+      "validation_loss": 2.770718514919281,
+      "real_prefix_iterations": 8,
+      "num_jumps": 0,
+      "depth_equivalent": 8,
+      "tokens_per_second": 53.604498332875245,
+      "peak_memory_gb": 5.201994752,
+      "validation_loss_minus_real_depth8": 0.0,
+      "speedup_vs_real_depth8": 1.0
+    },
+    "all_jumps": {
+      "validation_loss": 16.17737340927124,
+      "real_prefix_iterations": 0,
+      "num_jumps": 4,
+      "depth_equivalent": 8,
+      "tokens_per_second": 202746.5826007459,
+      "peak_memory_gb": 1.795853312,
+      "validation_loss_minus_real_depth8": 13.40665489435196,
+      "speedup_vs_real_depth8": 3782.268072759911
+    },
+    "hybrid_2real": {
+      "validation_loss": 5.940210819244385,
+      "real_prefix_iterations": 2,
+      "num_jumps": 3,
+      "depth_equivalent": 8,
+      "tokens_per_second": 212.70169349802754,
+      "peak_memory_gb": 5.226925056,
+      "validation_loss_minus_real_depth8": 3.1694923043251038,
+      "speedup_vs_real_depth8": 3.9679821677871976
+    },
+    "hybrid_4real": {
+      "validation_loss": 3.9651321172714233,
+      "real_prefix_iterations": 4,
+      "num_jumps": 2,
+      "depth_equivalent": 8,
+      "tokens_per_second": 106.70700652797912,
+      "peak_memory_gb": 5.227055104,
+      "validation_loss_minus_real_depth8": 1.1944136023521423,
+      "speedup_vs_real_depth8": 1.9906352982793702
+    }
+  }
+}

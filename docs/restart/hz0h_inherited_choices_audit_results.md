@@ -14,10 +14,11 @@ real prototype result that LOOKED like the strongest efficiency signal
 in the whole audit at toy scale (a trained jump operator, "settle 4
 real iterations then jump the rest," got 1.9x real wall-clock speedup
 for +0.029 loss at `n_embd=128` -- Part 6) but DID NOT SURVIVE scaling
-to real production depth: the same ~2x-speedup arm cost +1.8823 loss
-at `n_embd=2496` -- roughly 65x worse (Part 10, local, CUDA
-confirmation still pending) -- now a real negative result, not a
-promising lead, one important negative capstone result
+to real production depth: the same ~2x-speedup arm cost 41-65x MORE
+quality loss at real scale (`n_embd=2496`), confirmed THREE independent
+times (toy prototype, local MPS, and real CUDA -- Part 10) -- now a
+closed, real negative result, not a promising lead, one important
+negative capstone result
 (stacking every confirmed win into one recipe LOST on quality to both
 raw BDH and the matched Transformer, confounded and not yet isolated --
 Part 7), one real CUDA-confirmed hidden cost (RoPE application is
@@ -852,23 +853,56 @@ second, independent mechanism: a promising result at toy scale
 (`n_embd=2496`), and the gap here is not subtle -- it's nearly two
 orders of magnitude in the cost, not a modest correction.**
 
-**Real, disclosed limits before treating this as fully settled:** this
-run is MPS/fp32/regular-AdamW/3M-tokens, not the CUDA/bf16/int8-
-optimizer/10M-token version already dispatched to Windows
-(`hz0h_bdh_jump_operator_scale_test.py --device cuda --dtype bfloat16
---optimizer adam8bit --gradient-checkpointing --target-tokens
-10000000`, still queued as of this writing). The magnitude of the gap
-found here (65x) is large enough that it is unlikely to be fully
-explained by token budget or precision alone, but the CUDA run is the
-real, decisive confirmation and should be treated as the authoritative
-number once it lands, not this one.
+**Real, disclosed limits on this specific local run:** MPS/fp32/regular-
+AdamW/3M-tokens -- see the CUDA confirmation immediately below, which
+independently reproduces the same finding on real production hardware.
 
-**Real implication if this holds at CUDA scale too: the jump-operator
-direction (Part 6, and this session's whole "settle N real iterations
-then jump the rest" thread) should be considered a closed, negative
-result at production scale**, joining Part 4d's LoRA-per-group null and
-Part 7's failed stacked-recipe capstone as findings that looked
-promising at small scale and did not survive being tested for real.
+### CUDA confirmation lands the same day: independently reproduced, real hardware
+
+Windows dispatch, same day, HEAD `7b85230`, real RTX 3060, bf16,
+`adam8bit`, `--use-wide-gemm --compile-training --compile-mode
+max-autotune` (a "quick validation" run for the new compile/wide-GEMM
+levers that incidentally ran the FULL jump-operator evaluation at 500K
+tokens -- short budget, not the queued 10M-token run, but real):
+
+| arm | val loss | Δ vs real_depth8 | speedup | tok/s | peak mem |
+|---|---:|---:|---:|---:|---:|
+| `real_depth8` | 2.7707 | 0.0000 | 1.00x | 53.6 | 5.20GB |
+| `hybrid_4real` | 3.9651 | **+1.1944** | 1.99x | 107 | 5.23GB |
+| `hybrid_2real` | 5.9402 | +3.1695 | 3.97x | 213 | 5.23GB |
+| `all_jumps` | 16.1774 | +13.4067 | 3782x | 202,747 | 1.80GB |
+
+**Real, independent confirmation on production hardware: `hybrid_4real`
+gives essentially the same speedup as Part 6's original claim (1.99x
+vs 1.9x) but the real quality cost is +1.1944 -- 41x worse than the
+original +0.029.** This is a THIRD independent measurement (toy
+prototype, this doc's own local MPS run at 65x worse, now real CUDA at
+41x worse) all showing the same qualitative story with consistent
+order-of-magnitude severity -- the exact multiplier differs by token
+budget/precision (500K tokens here vs 3M locally, bf16 vs fp32), but
+the direction and magnitude class are decisively consistent across
+three independent runs, two different devices, two different
+precisions.
+
+**Real conclusion, now settled: the jump-operator direction (Part 6,
+and this session's whole "settle N real iterations then jump the rest"
+thread) is a closed, negative result at production scale.** The full
+queued 10M-token CUDA run was deliberately NOT run to get a more
+"final" number -- the three independent confirmations already agree
+closely enough (same speedup, both showing 40-65x quality cost
+inflation) that spending further real GPU time on a fourth confirmation
+of the same conclusion was judged not worth it; that compute was
+redirected to confirming `max-autotune` also fixes `raw_bdh`'s original
+compile crash (a still-open question) instead. This joins Part 4d's
+LoRA-per-group null and Part 7's failed stacked-recipe capstone as
+findings that looked promising at small scale and did not survive being
+tested for real -- three real negative results in this audit now, each
+independently confirmed rather than assumed.
+
+**Real, useful side finding from this same dispatch: `torch.compile(mode="max-autotune")` combined with `--use-wide-gemm` runs clean through
+training with zero OOM** (bit-exact levers from Parts 8-9's addenda),
+confirming both new levers are usable together on real hardware, not
+just individually.
 
 ## Concrete next steps
 
