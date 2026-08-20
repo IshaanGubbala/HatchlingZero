@@ -125,6 +125,18 @@ def train_bdh(config: BDHConfig, args, device, use_softmax_scaled: bool) -> BDH:
     stages = curriculum_stages(args.target_tokens, config.n_layer)
     epochs = [0]
     tokens = 0
+
+    if args.gradient_checkpointing:
+        raw_fn = combined_bdh_forward_training_checkpointed if use_softmax_scaled else bdh_variable_depth_forward_checkpointed
+    elif use_softmax_scaled:
+        raw_fn = lambda m, idx, depth, target: combined_bdh_forward(m, None, idx, real_prefix_iterations=depth, num_jumps=0, targets=target)
+    else:
+        raw_fn = bdh_variable_depth_forward
+    # Compiled ONCE here, not per-step -- torch.compile's own guard system
+    # handles recompiling automatically when `depth` changes across
+    # curriculum stages (a handful of times total, not every step).
+    forward_fn = torch.compile(raw_fn, mode=args.compile_mode) if args.compile_training else raw_fn
+
     started = time.perf_counter()
     with args.data.open() as handle:
         for step in range(steps):
@@ -135,15 +147,7 @@ def train_bdh(config: BDHConfig, args, device, use_softmax_scaled: bool) -> BDH:
             depth = depth_at(tokens, stages)
             optimizer.zero_grad(set_to_none=True)
             with autocast_context(args, device):
-                if args.gradient_checkpointing:
-                    if use_softmax_scaled:
-                        _, loss = combined_bdh_forward_training_checkpointed(model, idx, depth, target)
-                    else:
-                        _, loss = bdh_variable_depth_forward_checkpointed(model, idx, depth, target)
-                elif use_softmax_scaled:
-                    _, loss = combined_bdh_forward(model, None, idx, real_prefix_iterations=depth, num_jumps=0, targets=target)
-                else:
-                    _, loss = bdh_variable_depth_forward(model, idx, depth, target)
+                _, loss = forward_fn(model, idx, depth, target)
             loss.backward()
             if args.grad_clip > 0:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
@@ -276,7 +280,7 @@ def measure_throughput(forward_only_fn, args, device, compile_it: bool) -> dict:
     inference throughput than adding checkpointing here would have
     been."""
     idx = torch.randint(256, (args.batch_size, args.sequence_length), device=device)
-    fn = torch.compile(forward_only_fn) if compile_it else forward_only_fn
+    fn = torch.compile(forward_only_fn, mode=args.compile_mode) if compile_it else forward_only_fn
     if device.type == "cuda":
         torch.cuda.reset_peak_memory_stats()
     with torch.no_grad():
@@ -309,6 +313,20 @@ def main() -> None:
     parser.add_argument("--sequence-length", type=int, default=256)
     parser.add_argument("--warmup-steps", type=int, default=100)
     parser.add_argument("--learning-rate", type=float, default=1e-3)
+    parser.add_argument("--compile-mode", choices=["default", "reduce-overhead", "max-autotune"], default="max-autotune",
+                        help="torch.compile mode. Real prior CUDA finding on this exact card "
+                             "(docs/restart/hz0h_rope_hoist_and_compile_mode_results.md): default mode "
+                             "OOM'd this session (Inductor generated an anomalous fp32 buffer during "
+                             "kernel fusion); max-autotune was independently measured at +4.6% speed AND "
+                             "~96% LESS peak memory than default on the same RTX 3060 -- likely sidesteps "
+                             "that OOM rather than just being faster. Defaults to max-autotune, not "
+                             "PyTorch's own 'default', on that basis.")
+    parser.add_argument("--compile-training", action="store_true",
+                        help="Also torch.compile the training forward pass (previously only the "
+                             "post-training throughput benchmark ever used compile in this script). "
+                             "Real, disclosed, UNTESTED combination: compile + gradient checkpointing "
+                             "together has not been validated in this project's history -- prior compile "
+                             "wins were measured on uncheckpointed raw BDH at a shape that fit without it.")
     parser.add_argument("--grad-clip", type=float, default=1.0,
                         help="Max gradient norm (torch.nn.utils.clip_grad_norm_), 0 disables. Real gap "
                              "fixed here: this script had NO clipping at all until combined_best diverged "

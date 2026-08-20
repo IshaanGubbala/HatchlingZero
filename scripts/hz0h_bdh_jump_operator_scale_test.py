@@ -66,6 +66,10 @@ def train_teacher(config: BDHConfig, args, device) -> BDH:
     stages = curriculum_stages(args.target_tokens, config.n_layer)
     epochs = [0]
     tokens = 0
+
+    raw_fn = bdh_variable_depth_forward_checkpointed if args.gradient_checkpointing else bdh_variable_depth_forward
+    forward_fn = torch.compile(raw_fn, mode=args.compile_mode) if args.compile_training else raw_fn
+
     started = time.perf_counter()
     with args.data.open() as handle:
         for step in range(steps):
@@ -76,10 +80,7 @@ def train_teacher(config: BDHConfig, args, device) -> BDH:
             depth = depth_at(tokens, stages)
             optimizer.zero_grad(set_to_none=True)
             with autocast_context(args, device):
-                if args.gradient_checkpointing:
-                    _, loss = bdh_variable_depth_forward_checkpointed(model, idx, depth, target)
-                else:
-                    _, loss = bdh_variable_depth_forward(model, idx, depth, target)
+                _, loss = forward_fn(model, idx, depth, target)
             loss.backward()
             if args.grad_clip > 0:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
@@ -194,6 +195,12 @@ def main() -> None:
     parser.add_argument("--optimizer", choices=["adamw", "adam8bit"], default="adamw")
     parser.add_argument("--gradient-checkpointing", action="store_true")
     parser.add_argument("--grad-clip", type=float, default=1.0)
+    parser.add_argument("--compile-mode", choices=["default", "reduce-overhead", "max-autotune"], default="max-autotune")
+    parser.add_argument("--compile-training", action="store_true",
+                        help="torch.compile the teacher's training forward pass. See "
+                             "scripts/hz0h_bdh_combined_best_comparison.py's --compile-training for the "
+                             "full rationale (max-autotune default, real +4.6%%/-96%% memory prior result, "
+                             "compile+checkpointing combo untested in this project's history).")
     parser.add_argument("--target-tokens", type=int, default=10_000_000)
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--sequence-length", type=int, default=256)
