@@ -84,10 +84,43 @@ def curriculum_stages(target_tokens: int, n_layer: int) -> list:
     return parse_stages(",".join(f"{b}:{d}" for b, d in zip(boundaries, depths)))
 
 
+def make_optimizer(params, args, device):
+    """Real motivation: fp32 AdamW's two moment buffers alone cost 2x
+    model size (on top of params + grads), a real, measured contributor
+    to the raw_bdh OOM (Windows dispatch, `hz0h_matched_param_capstone`,
+    2026-08-19: ~9.6GB of model+gradient+optimizer-state alone for a
+    599M-param model). `bitsandbytes`' `Adam8bit` quantizes JUST that
+    optimizer state to int8 (~4x smaller there specifically), a real,
+    standard, widely-used technique -- NOT the same as int8 forward-pass
+    quantization (this project's own separate, already-existing ternary
+    mechanism in `reference/hz0h_bdh_torch.py`); the forward/backward
+    math here stays exactly whatever `--dtype` says (fp32 or bf16 via
+    autocast), only the optimizer's internal bookkeeping changes
+    precision. CUDA-only (bitsandbytes' kernels are CUDA-specific);
+    requesting it on CPU/MPS is a real, loud error rather than a silent
+    fallback, since a silent fallback would make this flag look like it
+    did something when it didn't."""
+    if args.optimizer == "adamw":
+        return torch.optim.AdamW(params, lr=args.learning_rate, weight_decay=0.1)
+    if device.type != "cuda":
+        raise RuntimeError(
+            f"--optimizer adam8bit requires CUDA (bitsandbytes has no CPU/MPS kernels), "
+            f"got device={device}. Use --optimizer adamw on non-CUDA devices."
+        )
+    try:
+        import bitsandbytes as bnb
+    except ImportError as error:
+        raise RuntimeError(
+            "--optimizer adam8bit requires the bitsandbytes package (pip install bitsandbytes), "
+            "which is not installed."
+        ) from error
+    return bnb.optim.Adam8bit(params, lr=args.learning_rate, weight_decay=0.1)
+
+
 def train_bdh(config: BDHConfig, args, device, use_softmax_scaled: bool) -> BDH:
     torch.manual_seed(args.seed)
     model = BDH(config).to(device=device, dtype=torch.float32)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate, weight_decay=0.1)
+    optimizer = make_optimizer(model.parameters(), args, device)
     steps = math.ceil(args.target_tokens / (args.batch_size * args.sequence_length))
     stages = curriculum_stages(args.target_tokens, config.n_layer)
     epochs = [0]
@@ -130,7 +163,7 @@ def train_transformer(args, device) -> MatchedTransformerLM:
         "d_ff": args.transformer_n_embd * 4, "use_rope": True,
     })
     model = MatchedTransformerLM(config).to(device=device, dtype=torch.float32)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate, weight_decay=0.1)
+    optimizer = make_optimizer(model.parameters(), args, device)
     steps = math.ceil(args.target_tokens / (args.batch_size * args.sequence_length))
     epochs = [0]
     tokens = 0
@@ -232,6 +265,11 @@ def main() -> None:
     parser.add_argument("--learning-rate", type=float, default=1e-3)
     parser.add_argument("--eval-batches", type=int, default=8)
     parser.add_argument("--jump-steps", type=int, default=500)
+    parser.add_argument("--optimizer", choices=["adamw", "adam8bit"], default="adamw",
+                        help="adam8bit (bitsandbytes) quantizes optimizer momentum/variance state "
+                             "to int8, a real ~4x reduction there specifically -- CUDA-only, requires "
+                             "the bitsandbytes package. Does NOT touch forward/backward precision "
+                             "(see --dtype for that); a separate lever from bf16, stacks with it.")
     parser.add_argument("--dtype", choices=["float32", "bfloat16"], default="float32",
                         help="bfloat16 only engages on CUDA (via autocast, not a hard model cast -- "
                              "see autocast_context's docstring). Matches this project's real production "
@@ -247,6 +285,11 @@ def main() -> None:
     parser.add_argument("--raw-n-embd", type=int, default=None)
     parser.add_argument("--combined-n-embd", type=int, default=None)
     parser.add_argument("--transformer-n-embd", type=int, default=None)
+    parser.add_argument("--raw-mult", type=int, default=32,
+                        help="mlp_internal_dim_multiplier for raw_bdh. Default 32 (true canonical BDH). "
+                             "Real bug fixed here: this used to be HARDCODED to 32 regardless of any chat "
+                             "instruction to use a different value -- always pass this explicitly rather "
+                             "than assuming a chat message describing intent changed the actual behavior.")
     parser.add_argument("--n-layer", type=int, default=8)
     parser.add_argument("--n-head", type=int, default=4)
     parser.add_argument("--gradient-checkpointing", action="store_true",
@@ -291,9 +334,9 @@ def main() -> None:
 
     throughput = {}
 
-    print("=== training raw_bdh (canonical mult=32) ===", flush=True)
+    print(f"=== training raw_bdh (mult={args.raw_mult}) ===", flush=True)
     raw_config = BDHConfig(n_layer=args.n_layer, n_embd=args.raw_n_embd, n_head=args.n_head,
-                            mlp_internal_dim_multiplier=32, vocab_size=256, dropout=0.0)
+                            mlp_internal_dim_multiplier=args.raw_mult, vocab_size=256, dropout=0.0)
     raw_model, raw_train_seconds = train_bdh(raw_config, args, device, use_softmax_scaled=False)
     raw_loss = evaluate_loss(
         lambda idx, target: bdh_variable_depth_forward(raw_model, idx, args.n_layer, target), args, device,
