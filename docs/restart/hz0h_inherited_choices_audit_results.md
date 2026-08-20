@@ -790,6 +790,34 @@ switch (HEAD `c0354dc`, before `3660053`), so it used `torch.compile`'s
 plain default mode -- unconfirmed whether `max-autotune` fixes this
 regression too, real follow-up once retested.
 
+### raw_bdh's 66x throughput gap: confirmed genuinely compute-bound, real memory data
+
+A real question came up mid-session: was `raw_bdh`'s 153-164 tok/s
+figure (the 66x-slower-than-Transformer result driving this whole
+part) actually memory-pressure-limited on the RTX 3060, rather than a
+real reflection of how expensive this shape's math is? Answered twice,
+independently, with the same conclusion:
+
+- Locally (this Mac, MPS, fp32): peak memory stayed FLAT at 1.20GB
+  through the entire `no_grad` throughput loop -- no growth at all.
+- On the real RTX 3060 (`torch.cuda.max_memory_allocated`, precise, not
+  `nvidia-smi` sampling): **peak_memory_allocated=7.96GB, 66% of the
+  12GB ceiling** -- real headroom, not a near-miss.
+
+**Both independently confirm the 66x throughput gap is genuinely
+compute-bound.** The math at `mult=16, n_embd=2496` really is that
+expensive per token; it is not an artifact of memory contention,
+thrashing, or being near a hardware ceiling.
+
+Separately, also confirmed as a REAL, reproducible bug rather than a
+one-off: rerunning the exact same default-compile-mode measurement
+crashed AGAIN with the byte-identical failure signature (same `(8, 8,
+2496, 4992)` fp32 buffer shape, same 2.97 GiB allocation failure) --
+Inductor is deterministically generating this fp32 intermediate at this
+shape under default compile mode, not something that happened once by
+chance. Whether `--compile-mode max-autotune` avoids it is the next
+real test, already dispatched.
+
 ## Concrete next steps
 
 1. **Confirm `softmax_scaled` at full CUDA scale** (25M tokens, bf16,
