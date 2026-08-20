@@ -23,6 +23,13 @@ per recurrent round and pooled across rounds:
   product, so exact zeros are real, not a threshold artifact) and the
   fraction above a small positive threshold (guards against near-zero
   noise being counted as "active").
+- `f_x`/`f_y`/`f_xy` (added 2026-08-20): `u=x_sparse`'s and
+  `v=y_sparse`'s active fractions captured SEPARATELY (not just their
+  product's zero pattern, which can't distinguish which factor was
+  zero) -- `f_x` is known right after `E`, before attention/`E_v` even
+  run, so it directly sizes the real, EXACT (not approximate)
+  compute-skipping opportunity: `E_v` only needs evaluating on `u`'s
+  support, and the decoder only needs the `f_xy` intersection.
 - support Jaccard overlap between round r and r+1 (does the active set
   drift smoothly or churn completely each round?).
 - top-k energy concentration: what fraction of a token-round's L2 energy
@@ -65,23 +72,67 @@ from scripts.hz0h_bdh_width_flop_frontier_local import pick_device, synchronize
 from scripts.hz0h_factorized_curriculum_full_comparison import read_batch
 
 
-def collect_g_states(model, args, device, max_batches: int) -> list[torch.Tensor]:
-    """Returns a list of length `n_layer`, each entry a `[samples, N]`
-    tensor pooling `g_r` across ALL held-out batches/tokens/heads for
-    that recurrent round -- `samples = max_batches * batch_size *
-    sequence_length * n_head`."""
+def collect_uv_states(model, args, device, max_batches: int, max_samples_per_batch: int
+                       ) -> tuple[list[torch.Tensor], list[torch.Tensor]]:
+    """Returns `(u_rounds, v_rounds)`, each a list of length `n_layer`,
+    entries `[samples, N]` pooling `u=x_sparse`/`v=y_sparse` across held-
+    out batches/tokens/heads for that round -- `samples <= max_batches *
+    max_samples_per_batch`.
+
+    Real bug fixed here before this ever ran at production width: the
+    original version pooled EVERY token/head position from every batch
+    with no cap. At local scale (N=512) that was ~2.7GB total, fine --
+    but at production scale (N=4992, ~9.75x wider, plus 2x more tokens
+    per batch at sequence_length=256 vs 128) the same settings would
+    pool ~50GB+ across CPU RAM, real risk of OOM-crashing whichever
+    machine runs it. Fixed by randomly subsampling each batch down to
+    `max_samples_per_batch` positions BEFORE storing -- and critically,
+    using the SAME sampled indices for every round within a batch (not
+    independent per round), because `support_jaccard` pairs row i of
+    round r with row i of round r+1 assuming they are the SAME
+    token/head/batch position; sampling independently per round would
+    silently corrupt that pairing."""
     epochs = [0]
-    per_round: list[list[torch.Tensor]] = [[] for _ in range(model.config.n_layer)]
+    per_round_u: list[list[torch.Tensor]] = [[] for _ in range(model.config.n_layer)]
+    per_round_v: list[list[torch.Tensor]] = [[] for _ in range(model.config.n_layer)]
+    generator = torch.Generator().manual_seed(args.seed)
     model.eval()
     with args.validation_data.open() as handle, torch.no_grad():
         for _ in range(max_batches):
             data = read_batch(handle, args.batch_size, args.sequence_length, device, epochs)
             idx = data[:, :-1].contiguous()
-            _, _, g_states = bdh_forward_with_g_r(model, idx, model.config.n_layer)
-            for r, g in enumerate(g_states):
-                # g: (B, n_head, T, N) -> (B*n_head*T, N), pool heads/tokens/batch together
-                per_round[r].append(g.reshape(-1, g.shape[-1]).cpu())
-    return [torch.cat(chunks, dim=0) for chunks in per_round]
+            _, _, u_states, v_states = bdh_forward_with_g_r(model, idx, model.config.n_layer)
+            # (B, n_head, T, N) -> (B*n_head*T, N), pool heads/tokens/batch together
+            flat_u0 = u_states[0].reshape(-1, u_states[0].shape[-1])
+            total = flat_u0.shape[0]
+            if total > max_samples_per_batch:
+                keep = torch.randperm(total, generator=generator)[:max_samples_per_batch]
+            else:
+                keep = torch.arange(total)
+            for r, (u, v) in enumerate(zip(u_states, v_states)):
+                flat_u = u.reshape(-1, u.shape[-1])[keep]
+                flat_v = v.reshape(-1, v.shape[-1])[keep]
+                per_round_u[r].append(flat_u.cpu())
+                per_round_v[r].append(flat_v.cpu())
+    return ([torch.cat(chunks, dim=0) for chunks in per_round_u],
+            [torch.cat(chunks, dim=0) for chunks in per_round_v])
+
+
+def gate_support_stats(u: torch.Tensor, v: torch.Tensor, threshold: float = 1e-6) -> dict:
+    """Real, exact-compute-skipping-relevant numbers (2026-08-20
+    discussion): `f_x` = fraction of `u=x_sparse` active (known right
+    after `E`, before attention/`E_v` even run -- this is exactly the
+    fraction of `E_v`'s columns that provably cannot matter this
+    token/round, computable with zero extra work). `f_y` = fraction of
+    `v=y_sparse` active. `f_xy` = fraction where BOTH are active (the
+    real decoder support, `g_r = u*v`'s nonzero fraction) -- this is
+    what actually reaches the decoder, always `<= min(f_x, f_y)`."""
+    active_u = u > threshold
+    active_v = v > threshold
+    f_x = float(active_u.float().mean())
+    f_y = float(active_v.float().mean())
+    f_xy = float((active_u & active_v).float().mean())
+    return {"f_x_active_fraction": f_x, "f_y_active_fraction": f_y, "f_xy_intersection_fraction": f_xy}
 
 
 def density_stats(g: torch.Tensor, threshold: float = 1e-6) -> dict:
@@ -161,6 +212,12 @@ def main() -> None:
     parser.add_argument("--n-head", type=int, default=8)
     parser.add_argument("--eval-batches", type=int, default=20,
                          help="Held-out batches to pool g_r statistics over after training.")
+    parser.add_argument("--max-samples-per-batch", type=int, default=2048,
+                         help="Cap on token/head positions kept per batch (same indices shared "
+                              "across all rounds, see collect_uv_states). Bounds CPU RAM "
+                              "regardless of N/batch_size/sequence_length -- real fix needed "
+                              "before running this at production width (N=4992), where the "
+                              "uncapped version would pool ~50GB+.")
     parser.add_argument("--top-k-fractions", type=float, nargs="+", default=[0.02, 0.05, 0.1, 0.25],
                          help="Report top-k energy concentration at these fractions of N.")
     args = parser.parse_args()
@@ -178,41 +235,52 @@ def main() -> None:
     params = sum(p.numel() for p in model.parameters())
     print(f"[trained] params={params/1e6:.2f}M in {train_seconds:.0f}s", flush=True)
 
-    print(f"=== collecting g_r over {args.eval_batches} held-out batches ===", flush=True)
+    print(f"=== collecting u/v over {args.eval_batches} held-out batches "
+          f"(<= {args.max_samples_per_batch} samples/batch/round) ===", flush=True)
     started = time.perf_counter()
-    per_round = collect_g_states(model, args, device, args.eval_batches)
-    print(f"[collected] {per_round[0].shape[0]} samples/round in {time.perf_counter()-started:.0f}s", flush=True)
+    per_round_u, per_round_v = collect_uv_states(model, args, device, args.eval_batches, args.max_samples_per_batch)
+    per_round_g = [u * v for u, v in zip(per_round_u, per_round_v)]
+    print(f"[collected] {per_round_u[0].shape[0]} samples/round in {time.perf_counter()-started:.0f}s", flush=True)
 
     report = {"config": {"n_embd": args.n_embd, "mult": args.mult, "n_layer": args.n_layer,
                           "n_head": args.n_head, "N_per_head": N, "target_tokens": args.target_tokens,
-                          "eval_batches": args.eval_batches, "seed": args.seed},
+                          "eval_batches": args.eval_batches, "max_samples_per_batch": args.max_samples_per_batch,
+                          "seed": args.seed},
               "parameter_count": params, "train_seconds": train_seconds, "rounds": {}}
 
     top_ks = [max(1, int(N * frac)) for frac in args.top_k_fractions]
-    for r, g in enumerate(per_round):
+    for r, g in enumerate(per_round_g):
         stats = density_stats(g)
+        stats.update(gate_support_stats(per_round_u[r], per_round_v[r]))
         stats["top_k_energy_fraction"] = {
             f"k={k}({frac:.0%}N)": top_k_energy_fraction(g, k) for k, frac in zip(top_ks, args.top_k_fractions)
         }
         stats["effective_rank"] = effective_rank(g, seed=args.seed)
-        if r + 1 < len(per_round):
-            stats["support_jaccard_to_next_round"] = support_jaccard(g, per_round[r + 1])
+        if r + 1 < len(per_round_g):
+            stats["support_jaccard_to_next_round"] = support_jaccard(g, per_round_g[r + 1])
         report["rounds"][str(r)] = stats
-        print(f"[round {r}] exact_zero={stats['exact_zero_fraction']:.3f} "
+        print(f"[round {r}] f_x={stats['f_x_active_fraction']:.3f} f_y={stats['f_y_active_fraction']:.3f} "
+              f"f_xy={stats['f_xy_intersection_fraction']:.3f} "
               f"eff_rank={stats['effective_rank']['participation_ratio']:.1f}"
               f"/{N} ({stats['effective_rank']['fraction_of_nominal_width']:.1%}) "
               f"top-{top_ks[-1]}_energy={stats['top_k_energy_fraction'][f'k={top_ks[-1]}({args.top_k_fractions[-1]:.0%}N)']:.3f}",
               flush=True)
 
-    pooled = torch.cat(per_round, dim=0)
+    pooled_g = torch.cat(per_round_g, dim=0)
+    pooled_u = torch.cat(per_round_u, dim=0)
+    pooled_v = torch.cat(per_round_v, dim=0)
     report["pooled_across_all_rounds"] = {
-        **density_stats(pooled),
-        "effective_rank": effective_rank(pooled, seed=args.seed),
+        **density_stats(pooled_g),
+        **gate_support_stats(pooled_u, pooled_v),
+        "effective_rank": effective_rank(pooled_g, seed=args.seed),
         "top_k_energy_fraction": {
-            f"k={k}({frac:.0%}N)": top_k_energy_fraction(pooled, k) for k, frac in zip(top_ks, args.top_k_fractions)
+            f"k={k}({frac:.0%}N)": top_k_energy_fraction(pooled_g, k) for k, frac in zip(top_ks, args.top_k_fractions)
         },
     }
-    print(f"[pooled] eff_rank={report['pooled_across_all_rounds']['effective_rank']['participation_ratio']:.1f}"
+    print(f"[pooled] f_x={report['pooled_across_all_rounds']['f_x_active_fraction']:.3f} "
+          f"f_y={report['pooled_across_all_rounds']['f_y_active_fraction']:.3f} "
+          f"f_xy={report['pooled_across_all_rounds']['f_xy_intersection_fraction']:.3f} "
+          f"eff_rank={report['pooled_across_all_rounds']['effective_rank']['participation_ratio']:.1f}"
           f"/{N} ({report['pooled_across_all_rounds']['effective_rank']['fraction_of_nominal_width']:.1%})", flush=True)
 
     args.out.parent.mkdir(parents=True, exist_ok=True)

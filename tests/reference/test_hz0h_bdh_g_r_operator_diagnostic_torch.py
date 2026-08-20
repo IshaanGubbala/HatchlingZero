@@ -1,5 +1,5 @@
 """Real correctness tests for reference/hz0h_bdh_g_r_operator_diagnostic_torch.py:
-does capturing g_r per round change BDH's actual math? Checked on
+does capturing u/v per round change BDH's actual math? Checked on
 logits AND loss, not just shape."""
 from __future__ import annotations
 
@@ -27,32 +27,56 @@ def test_g_r_capture_matches_reference_logits_and_loss_exactly():
     targets = torch.randint(256, (2, 9))
     with torch.no_grad():
         reference_logits, reference_loss = bdh_variable_depth_forward(model, idx, model.config.n_layer, targets)
-        captured_logits, captured_loss, g_states = bdh_forward_with_g_r(model, idx, model.config.n_layer, targets)
+        captured_logits, captured_loss, u_states, v_states = bdh_forward_with_g_r(model, idx, model.config.n_layer, targets)
     assert torch.allclose(reference_logits, captured_logits, atol=1e-6, rtol=1e-5)
     assert torch.allclose(reference_loss, captured_loss, atol=1e-6, rtol=1e-5)
 
 
-def test_g_r_states_have_expected_shape_and_count():
+def test_u_v_states_have_expected_shape_and_count():
     model = _model(n_layer=5, n_embd=32, n_head=4, mult=8)
     model.eval()
     idx = torch.randint(256, (3, 7))
     N = 32 * 8 // 4
     with torch.no_grad():
-        _, _, g_states = bdh_forward_with_g_r(model, idx, model.config.n_layer)
-    assert len(g_states) == model.config.n_layer
-    for g in g_states:
-        assert g.shape == (3, 4, 7, N)
-        assert torch.isfinite(g).all()
+        _, _, u_states, v_states = bdh_forward_with_g_r(model, idx, model.config.n_layer)
+    assert len(u_states) == model.config.n_layer
+    assert len(v_states) == model.config.n_layer
+    for u, v in zip(u_states, v_states):
+        assert u.shape == (3, 4, 7, N)
+        assert v.shape == (3, 4, 7, N)
+        assert torch.isfinite(u).all() and torch.isfinite(v).all()
 
 
-def test_g_r_is_nonnegative_since_it_is_a_product_of_two_relus():
-    """g_r = ReLU(.) * ReLU(.) -- must be elementwise >= 0. A real bug in
-    the capture point (e.g. capturing after some other op) would likely
-    break this invariant silently."""
+def test_u_and_v_are_nonnegative_since_they_are_relu_outputs():
     model = _model()
     model.eval()
     idx = torch.randint(256, (2, 9))
     with torch.no_grad():
-        _, _, g_states = bdh_forward_with_g_r(model, idx, model.config.n_layer)
-    for g in g_states:
-        assert (g >= 0).all()
+        _, _, u_states, v_states = bdh_forward_with_g_r(model, idx, model.config.n_layer)
+    for u, v in zip(u_states, v_states):
+        assert (u >= 0).all()
+        assert (v >= 0).all()
+
+
+def test_g_r_recovered_as_u_times_v_matches_manual_forward_xy_sparse():
+    """g_r = u*v (recovered downstream by the caller) must match the
+    oracle's own xy_sparse exactly -- not just be "close"."""
+    import torch.nn.functional as F
+
+    model = _model(n_layer=3, n_embd=16, n_head=2, mult=4)
+    model.eval()
+    idx = torch.randint(256, (2, 5))
+    with torch.no_grad():
+        _, _, u_states, v_states = bdh_forward_with_g_r(model, idx, model.config.n_layer)
+
+        # Manually replay the oracle's own math for round 0 only, to
+        # confirm u_states[0]*v_states[0] equals the real xy_sparse.
+        x = model.ln(model.embed(idx).unsqueeze(1))
+        x_latent = x @ model._w(model.encoder)
+        x_sparse = F.relu(x_latent)
+        yKV = model.ln(model.attn(Q=x_sparse, K=x_sparse, V=x))
+        y_latent = yKV @ model._w(model.encoder_v)
+        y_sparse = F.relu(y_latent)
+        expected_xy_sparse = x_sparse * y_sparse
+
+    assert torch.allclose(u_states[0] * v_states[0], expected_xy_sparse, atol=1e-6, rtol=1e-5)
