@@ -277,6 +277,8 @@ def measure_throughput(forward_only_fn, args, device, compile_it: bool) -> dict:
     been."""
     idx = torch.randint(256, (args.batch_size, args.sequence_length), device=device)
     fn = torch.compile(forward_only_fn) if compile_it else forward_only_fn
+    if device.type == "cuda":
+        torch.cuda.reset_peak_memory_stats()
     with torch.no_grad():
         for _ in range(3):
             fn(idx)
@@ -288,7 +290,12 @@ def measure_throughput(forward_only_fn, args, device, compile_it: bool) -> dict:
         synchronize(device)
     elapsed = time.perf_counter() - started
     tokens = steps * args.batch_size * args.sequence_length
-    return {"compiled": compile_it, "seconds": elapsed, "tokens": tokens, "tokens_per_second": tokens / elapsed}
+    result = {"compiled": compile_it, "seconds": elapsed, "tokens": tokens, "tokens_per_second": tokens / elapsed}
+    if device.type == "cuda":
+        peak_gb = torch.cuda.max_memory_allocated() / 1e9
+        result["peak_memory_gb"] = peak_gb
+        print(f"[throughput] peak_memory_allocated={peak_gb:.2f}GB (real answer to 'was this memory-pressure-limited')", flush=True)
+    return result
 
 
 def main() -> None:
