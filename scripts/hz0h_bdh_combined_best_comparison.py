@@ -278,12 +278,28 @@ def measure_throughput(forward_only_fn, args, device, compile_it: bool) -> dict:
     for a call that was never going to have a backward at all, and
     plain `no_grad` is the actually-correct, cheaper fix for pure
     inference throughput than adding checkpointing here would have
-    been."""
+    been.
+
+    Second real bug fixed here (found via Windows dispatch, 2026-08-20,
+    after max-autotune failed to avoid the same byte-identical
+    fp32-upcast OOM three times running): this function never wrapped
+    `fn(idx)` in `autocast_context`, unlike every other forward call in
+    this file (train_bdh, train_transformer, evaluate_loss). Model
+    weights live in fp32 (`train_bdh` does `.to(dtype=torch.float32)`),
+    so without autocast the compiled throughput path ran -- and
+    Inductor autotuned candidate kernels for -- pure fp32 math at ~4x
+    the memory of the bf16 path everything else in this script actually
+    uses, which is what blew past the 12GB card regardless of compile
+    mode. Confirmed as the actual root cause (not compile-mode) because
+    `jump_operator_scale_test.py`'s validation run that "worked" only
+    ever compiled the *training* forward (always autocast-wrapped); its
+    throughput/eval calls use the plain uncompiled function and so never
+    exercised this code path at all."""
     idx = torch.randint(256, (args.batch_size, args.sequence_length), device=device)
     fn = torch.compile(forward_only_fn, mode=args.compile_mode) if compile_it else forward_only_fn
     if device.type == "cuda":
         torch.cuda.reset_peak_memory_stats()
-    with torch.no_grad():
+    with torch.no_grad(), autocast_context(args, device):
         for _ in range(3):
             fn(idx)
         synchronize(device)
