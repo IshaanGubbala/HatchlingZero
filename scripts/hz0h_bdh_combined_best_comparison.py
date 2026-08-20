@@ -255,16 +255,31 @@ def evaluate_loss(forward_fn, args, device) -> float:
 
 
 def measure_throughput(forward_only_fn, args, device, compile_it: bool) -> dict:
+    """Real bug fixed here (found via Windows dispatch, 2026-08-20):
+    this used to call `forward_only_fn` with NO `torch.no_grad()`
+    wrapper. `model.eval()` alone does NOT disable autograd graph
+    construction -- only `no_grad`/`inference_mode` does -- so every
+    "throughput" forward was silently building a full backward graph
+    and retaining every intermediate activation for a backward that
+    never happens. This is what OOM'd raw_bdh's throughput measurement
+    immediately after its training (which WAS correctly checkpointed)
+    completed successfully: checkpointing is a training-time trade
+    (reduce stored activations, recompute in backward); it does nothing
+    for a call that was never going to have a backward at all, and
+    plain `no_grad` is the actually-correct, cheaper fix for pure
+    inference throughput than adding checkpointing here would have
+    been."""
     idx = torch.randint(256, (args.batch_size, args.sequence_length), device=device)
     fn = torch.compile(forward_only_fn) if compile_it else forward_only_fn
-    for _ in range(3):
-        fn(idx)
-    synchronize(device)
-    steps = 10
-    started = time.perf_counter()
-    for _ in range(steps):
-        fn(idx)
-    synchronize(device)
+    with torch.no_grad():
+        for _ in range(3):
+            fn(idx)
+        synchronize(device)
+        steps = 10
+        started = time.perf_counter()
+        for _ in range(steps):
+            fn(idx)
+        synchronize(device)
     elapsed = time.perf_counter() - started
     tokens = steps * args.batch_size * args.sequence_length
     return {"compiled": compile_it, "seconds": elapsed, "tokens": tokens, "tokens_per_second": tokens / elapsed}
