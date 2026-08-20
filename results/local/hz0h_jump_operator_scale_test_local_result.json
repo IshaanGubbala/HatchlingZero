@@ -1,0 +1,54 @@
+{
+  "device": "mps",
+  "shape": {
+    "n_embd": 2496,
+    "mult": 16,
+    "n_layer": 8,
+    "n_head": 8,
+    "dtype": "float32",
+    "optimizer": "adamw",
+    "target_tokens": 3000000
+  },
+  "teacher_params": 300318720,
+  "jump_params": 12465024,
+  "teacher_training_seconds": 7723.852139499999,
+  "jump_training_seconds": 849.4632452090154,
+  "arms": {
+    "real_depth8": {
+      "validation_loss": 2.0347025245428085,
+      "real_prefix_iterations": 8,
+      "num_jumps": 0,
+      "depth_equivalent": 8,
+      "tokens_per_second": 1234.7554850283173,
+      "validation_loss_minus_real_depth8": 0.0,
+      "speedup_vs_real_depth8": 1.0
+    },
+    "all_jumps": {
+      "validation_loss": 8.256444096565247,
+      "real_prefix_iterations": 0,
+      "num_jumps": 4,
+      "depth_equivalent": 8,
+      "tokens_per_second": 97644.04328474755,
+      "validation_loss_minus_real_depth8": 6.221741572022438,
+      "speedup_vs_real_depth8": 79.07965946999477
+    },
+    "hybrid_2real": {
+      "validation_loss": 4.974880158901215,
+      "real_prefix_iterations": 2,
+      "num_jumps": 3,
+      "depth_equivalent": 8,
+      "tokens_per_second": 4780.477073159832,
+      "validation_loss_minus_real_depth8": 2.940177634358406,
+      "speedup_vs_real_depth8": 3.8715981675110345
+    },
+    "hybrid_4real": {
+      "validation_loss": 3.917039394378662,
+      "real_prefix_iterations": 4,
+      "num_jumps": 2,
+      "depth_equivalent": 8,
+      "tokens_per_second": 2453.4565412502493,
+      "validation_loss_minus_real_depth8": 1.8823368698358536,
+      "speedup_vs_real_depth8": 1.9869978882450423
+    }
+  }
+}

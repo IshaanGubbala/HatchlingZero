@@ -10,12 +10,14 @@ measurement rather than assumption, one honest 3-seed NULL result
 replicate -- see Part 4d), and one real green-light structural signal
 (a single fitted linear operator explains most one-step recurrent
 dynamics and composes almost exactly at 2 steps -- Part 5), one
-real prototype result with the strongest efficiency signal in the
-whole audit (a trained jump operator, "settle 4 real iterations then
-jump the rest," gets 1.9x real wall-clock speedup for +0.029 loss --
-Part 6, single-model prototype, needs firming up before production use
-but doesn't cost parameters or the tying-quality penalty every other
-lever in this doc pays), one important negative capstone result
+real prototype result that LOOKED like the strongest efficiency signal
+in the whole audit at toy scale (a trained jump operator, "settle 4
+real iterations then jump the rest," got 1.9x real wall-clock speedup
+for +0.029 loss at `n_embd=128` -- Part 6) but DID NOT SURVIVE scaling
+to real production depth: the same ~2x-speedup arm cost +1.8823 loss
+at `n_embd=2496` -- roughly 65x worse (Part 10, local, CUDA
+confirmation still pending) -- now a real negative result, not a
+promising lead, one important negative capstone result
 (stacking every confirmed win into one recipe LOST on quality to both
 raw BDH and the matched Transformer, confounded and not yet isolated --
 Part 7), one real CUDA-confirmed hidden cost (RoPE application is
@@ -817,6 +819,56 @@ Inductor is deterministically generating this fp32 intermediate at this
 shape under default compile mode, not something that happened once by
 chance. Whether `--compile-mode max-autotune` avoids it is the next
 real test, already dispatched.
+
+## Part 10: Part 6's jump-operator win does NOT survive scaling to production depth -- a real, important negative result
+
+Local run, `scripts/hz0h_bdh_jump_operator_scale_test.py`, real
+production shape (`n_embd=2496, mult=16, n_layer=8` -- identical to
+`raw_bdh`'s own confirmed-real config), MPS/fp32/regular AdamW (not yet
+the CUDA/bf16/int8-optimizer version, which is separately dispatched
+and still queued), 3M tokens, 2.15h real teacher training:
+
+| arm | val loss | Δ vs real_depth8 | speedup | tok/s |
+|---|---:|---:|---:|---:|
+| `real_depth8` (ground truth) | 2.0347 | 0.0000 | 1.00x | 1,235 |
+| `hybrid_4real` | 3.9170 | **+1.8823** | 1.99x | 2,453 |
+| `hybrid_2real` | 4.9749 | +2.9402 | 3.87x | 4,780 |
+| `all_jumps` | 8.2564 | +6.2217 | 79.08x | 97,644 |
+
+**Real, important comparison: Part 6's original small-prototype result
+(`n_embd=128`, 1.5M tokens) found `hybrid_4real`-equivalent cost only
++0.029 loss for ~1.9x speedup -- the strongest efficiency signal in
+this entire audit. Here, at essentially the SAME ~2x speedup
+(`hybrid_4real`, 1.99x), the real cost is +1.8823 -- roughly 65x
+worse.** This is a genuine, large, negative finding: the jump
+operator's substitution cost, measured honestly at a scale close to
+production, is catastrophic, not the small, tolerable cost the original
+prototype suggested.
+
+**This matches a pattern already documented elsewhere in this project
+(FactorizedBDH's small-probe reversal) and now confirmed again for a
+second, independent mechanism: a promising result at toy scale
+(`n_embd=128`) can look completely different at real scale
+(`n_embd=2496`), and the gap here is not subtle -- it's nearly two
+orders of magnitude in the cost, not a modest correction.**
+
+**Real, disclosed limits before treating this as fully settled:** this
+run is MPS/fp32/regular-AdamW/3M-tokens, not the CUDA/bf16/int8-
+optimizer/10M-token version already dispatched to Windows
+(`hz0h_bdh_jump_operator_scale_test.py --device cuda --dtype bfloat16
+--optimizer adam8bit --gradient-checkpointing --target-tokens
+10000000`, still queued as of this writing). The magnitude of the gap
+found here (65x) is large enough that it is unlikely to be fully
+explained by token budget or precision alone, but the CUDA run is the
+real, decisive confirmation and should be treated as the authoritative
+number once it lands, not this one.
+
+**Real implication if this holds at CUDA scale too: the jump-operator
+direction (Part 6, and this session's whole "settle N real iterations
+then jump the rest" thread) should be considered a closed, negative
+result at production scale**, joining Part 4d's LoRA-per-group null and
+Part 7's failed stacked-recipe capstone as findings that looked
+promising at small scale and did not survive being tested for real.
 
 ## Concrete next steps
 
