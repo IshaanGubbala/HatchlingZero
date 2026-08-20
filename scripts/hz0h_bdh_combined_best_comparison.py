@@ -516,6 +516,7 @@ def main() -> None:
                                           "training_seconds": transformer_train_seconds}
 
     report["results"] = results
+    report["throughput"] = throughput
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(f"[done] wrote {args.out}", flush=True)

@@ -28,11 +28,13 @@ one real, first-time production-scale CUDA result (Part 9) that
 reframes the whole "why bother with BDH" question: `raw_bdh` (mult=16,
 plain attention) BEATS the matched Transformer on validation loss
 (1.7038 vs 2.3016) at nearly equal params, on real 10M-token training
--- even though it is 66x slower in throughput. Both are true at once,
-not a contradiction. `combined_best`'s own arm remained broken (real
-validation_loss=49.6306, a depth-8-specific divergence gradient
-clipping only partially fixed), so this quality win belongs to plain
-BDH, not the stacked recipe.**
+-- at a real throughput cost, corrected as of 2026-08-20 (see Part 9's
+retraction) to ~3.7x slower, not the originally-reported 66x (that
+number was itself a bug -- `measure_throughput` was silently running in
+fp32, not bf16). Both are true at once, not a contradiction.
+`combined_best`'s own arm remained broken (real validation_loss=49.6306,
+a depth-8-specific divergence gradient clipping only partially fixed),
+so this quality win belongs to plain BDH, not the stacked recipe.**
 
 ## Why this audit happened
 
@@ -737,10 +739,12 @@ production-scale CUDA hardware with both sides fully real (real RoPE,
 real curriculum, matched weight_decay/optimizer/batch_size). It directly
 contradicts the framing several messages earlier in this session that
 "the Transformer wins outright, no asterisks" -- that framing was based
-on THROUGHPUT alone (the real, separately-confirmed 66x speed gap,
-Part 8 addendum), not quality. **Both are true simultaneously: BDH is
-dramatically slower (66x) AND gets a real, better validation loss at
-this exact matched-param scale.** That is a genuine, disclosed tradeoff,
+on THROUGHPUT alone (originally reported as a 66x speed gap; **corrected
+2026-08-20 to ~3.7x -- see the retraction later in this Part, the 66x
+figure was a measurement bug, not a real BDH cost**), not quality.
+**Both are true simultaneously: BDH is slower (~3.7x, corrected) AND
+gets a real, better validation loss at this exact matched-param scale.**
+That is a genuine, disclosed tradeoff,
 not a contradiction -- and it means the earlier "just use the
 Transformer" conclusion needs to be walked back to "use the Transformer
 if throughput is what matters; BDH may be worth the compute cost if
@@ -820,6 +824,67 @@ Inductor is deterministically generating this fp32 intermediate at this
 shape under default compile mode, not something that happened once by
 chance. Whether `--compile-mode max-autotune` avoids it is the next
 real test, already dispatched.
+
+### RETRACTION (2026-08-20): the "genuinely compute-bound, 66x slower" conclusion directly above was WRONG
+
+`--compile-mode max-autotune` did NOT avoid the crash above (same
+byte-identical failure a third time, confirmed on real CUDA) -- so the
+investigation kept going instead of stopping at "max-autotune fixes
+it." That follow-up found the real bug: `measure_throughput()` compiled
+and ran `raw_bdh`'s forward pass under `torch.no_grad()` but **never
+wrapped it in `autocast_context`**, unlike every other forward call in
+`hz0h_bdh_combined_best_comparison.py` (`train_bdh`, `train_transformer`,
+`evaluate_loss` all do). Model weights live in fp32, so the "throughput"
+measurement -- both the number quoted above (153-164 tok/s) AND the
+7.96GB peak-memory figure used to argue "compute-bound, not
+memory-pressure" -- was silently measuring pure fp32 execution, not the
+bf16 path every other number in this project uses. Fixed in commit
+`14df7b2` (added the missing `autocast_context` wrap); full local test
+suite still green (874 passed) after the fix.
+
+**Real, corrected numbers on the same RTX 3060, same shape
+(`mult=16, n_embd=2496`), after the fix:**
+
+| | peak mem | tok/s |
+|---|---:|---:|
+| uncompiled, before fix (fp32 bug) | 7.96GB | 164 |
+| uncompiled, after fix (real bf16) | 5.90GB | **2758** |
+| compiled, before fix (fp32 bug) | -- | CRASH |
+| compiled, after fix (real bf16) | 11.69GB | 617 |
+
+The corrected uncompiled throughput (2758 tok/s) is 16.8x faster and
+uses 26% less memory than the number this whole section was built on.
+Against `matched_transformer`'s uncompiled ~10130 tok/s, **the real gap
+is ~3.7x, not 66x.** The "genuinely compute-bound" conclusion above is
+retracted as measured-on-a-bug, not a real finding -- the memory
+headroom argument (7.96GB / 66% of ceiling) was real on its own terms,
+but the throughput side of that comparison was corrupted by the same
+fp32 bug, so the ratio it produced doesn't reflect BDH's real cost.
+
+This changes Part 9's framing (below), not its core result:
+`raw_bdh` beating the matched Transformer on validation loss
+(1.7038 vs 2.3016) at matched params is untouched by this bug (that
+number came from real training, not `measure_throughput`). What
+changes is the price paid for that quality win -- roughly 3.7x slower,
+not 66x -- which makes the "BDH may be worth the compute cost" framing
+dramatically more favorable than previously stated, not less.
+
+**New, separate, NOT-yet-investigated observation surfaced by this same
+fix:** compiled throughput (617 tok/s) is now confirmed SLOWER than
+uncompiled (2758 tok/s) for `raw_bdh` -- the same direction as
+`combined_best`'s already-documented regression (249 compiled vs 683
+uncompiled, a few sections above). Two independent arms now show
+`torch.compile` making BDH's forward pass slower, not faster, at this
+shape/family -- worth its own investigation, not yet started, not
+folded into any conclusion above.
+
+Also a real, disclosed gap this bug exposes: `main()` computed a
+`throughput` dict for all three arms but never actually merged it into
+the saved JSON report (only `results["results"] = results` was written,
+`throughput` was print-only). Fixed alongside the autocast bug
+(`report["throughput"] = throughput` added) so future runs archive the
+real numbers instead of requiring them to be read off a chat message or
+scrollback log.
 
 ## Part 10: Part 6's jump-operator win does NOT survive scaling to production depth -- a real, important negative result
 

@@ -1,0 +1,42 @@
+{
+  "device": "cuda",
+  "shape": {
+    "data": "data\\packed\\hz0h_bytes_25m_train.jsonl",
+    "validation_data": "data\\packed\\hz0h_bytes_25m_val.jsonl",
+    "out": "results\\local\\hz0h_raw_bdh_throughput_autocastfix_result.json",
+    "device": "cuda",
+    "target_tokens": "100000",
+    "batch_size": "8",
+    "sequence_length": "256",
+    "warmup_steps": "20",
+    "learning_rate": "0.001",
+    "compile_mode": "max-autotune",
+    "compile_training": "False",
+    "grad_clip": "1.0",
+    "eval_batches": "4",
+    "jump_steps": "500",
+    "log_every": "20",
+    "skip_raw": "False",
+    "skip_combined": "True",
+    "skip_transformer": "True",
+    "optimizer": "adam8bit",
+    "dtype": "bfloat16",
+    "seed": "7",
+    "n_embd": "256",
+    "raw_n_embd": "2496",
+    "combined_n_embd": "256",
+    "transformer_n_embd": "256",
+    "raw_mult": "16",
+    "n_layer": "8",
+    "n_head": "8",
+    "gradient_checkpointing": "True",
+    "jump_hidden_mult": "4"
+  },
+  "results": {
+    "raw_bdh": {
+      "validation_loss": 3.0848472714424133,
+      "parameter_count": 300318720,
+      "training_seconds": 96.0500655999931
+    }
+  }
+}
