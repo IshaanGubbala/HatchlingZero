@@ -1419,6 +1419,41 @@ three. Archived at
 `results/cuda/hz0h_runpod_a40_raw_300m_10m_seed9_result.json`,
 `results/cuda/hz0h_runpod_a40_matched_transformer_10m_seed{8,9}_result.json`.
 
+### Checkpointed wide-GEMM at full 10M-token scale: real, clean, first full production confirmation
+
+Real full-budget run (RunPod A40, `batch=160`, `--use-wide-gemm
+--gradient-checkpointing`, seed=7): **`validation_loss=1.6024`**,
+10,035,200 tokens in 2983s (~3364 tok/s real training throughput,
+consistent with the per-step log's 3700-4600 tok/s range across
+curriculum stages). This is the first FULL 10M-token confirmation of
+checkpointed wide-GEMM at a batch far beyond what either fix alone
+could reach (5x wide-GEMM-alone's own ceiling of 32) -- the earlier
+100K-token smoke tests already showed batch=160 training cleanly, this
+confirms it holds for a real, full production run, not just a short
+probe.
+
+Real, honest caveat: `1.6024` sits between seed=7's original result
+(`1.6844`/`1.7038`) and seeds 8/9 (`1.4080`/`1.4027`) -- not a clean
+apples-to-apples comparison against the 3-seed set above, since this
+run used a genuinely different batch size (160 vs. 32), which affects
+optimization dynamics (larger batches typically need different
+learning-rate scaling) independent of anything about wide-GEMM or
+checkpointing themselves. Still real evidence the combined fix produces
+a healthy, working model at scale, not just a memory/throughput number.
+
+Also confirmed the crash-resilience fix from earlier this Part
+working exactly as designed on this very run: the uncompiled throughput
+benchmark hit a real OOM (`SKIPPED, real OOM during the benchmark
+itself (training already succeeded, this doesn't affect the real
+training result)`) and the run continued cleanly to the compiled
+benchmark and final JSON write, rather than crashing and losing the
+real training result the way it would have before that fix. Compiled
+inference throughput at this batch: **17801 tok/s at 17.89GB peak** --
+a real, striking number for `max-autotune` at this batch size, though
+(as with earlier throughput figures in this Part) this is inference-
+only, not training throughput. Archived at
+`results/cuda/hz0h_runpod_ckptwide_10m_bs160_result.json`.
+
 ### FlashBDH: mathematically correct, but a real negative result on memory/speed as built
 
 Real attempt (2026-08-21, user-directed) at the harder follow-up to

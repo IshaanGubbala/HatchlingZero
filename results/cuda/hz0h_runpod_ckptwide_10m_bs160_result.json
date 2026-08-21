@@ -1,0 +1,55 @@
+{
+  "device": "cuda",
+  "shape": {
+    "data": "data/packed/hz0h_bytes_25m_train.jsonl",
+    "validation_data": "data/packed/hz0h_bytes_25m_val.jsonl",
+    "out": "results/runpod_ckptwide_10m_bs160.json",
+    "device": "cuda",
+    "target_tokens": "10000000",
+    "batch_size": "160",
+    "sequence_length": "256",
+    "warmup_steps": "100",
+    "learning_rate": "0.001",
+    "compile_mode": "max-autotune",
+    "compile_training": "False",
+    "grad_clip": "1.0",
+    "eval_batches": "8",
+    "jump_steps": "500",
+    "log_every": "50",
+    "skip_raw": "False",
+    "skip_combined": "True",
+    "skip_transformer": "True",
+    "optimizer": "adam8bit",
+    "dtype": "bfloat16",
+    "seed": "7",
+    "n_embd": "256",
+    "raw_n_embd": "2496",
+    "combined_n_embd": "256",
+    "transformer_n_embd": "256",
+    "raw_mult": "16",
+    "n_layer": "8",
+    "n_head": "8",
+    "gradient_checkpointing": "True",
+    "checkpoint_segment_size": "1",
+    "use_wide_gemm": "True",
+    "jump_hidden_mult": "4"
+  },
+  "results": {
+    "raw_bdh": {
+      "validation_loss": 1.6023857146501541,
+      "parameter_count": 300318720,
+      "training_seconds": 2982.8296570964158
+    }
+  },
+  "throughput": {
+    "raw_bdh": {
+      "True": {
+        "compiled": true,
+        "seconds": 23.009375229477882,
+        "tokens": 409600,
+        "tokens_per_second": 17801.43945304744,
+        "peak_memory_gb": 17.892297216
+      }
+    }
+  }
+}
