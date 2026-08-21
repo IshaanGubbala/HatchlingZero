@@ -106,6 +106,11 @@ def main() -> None:
     parser.add_argument("--compile-training", action="store_true")
     parser.add_argument("--compile-mode", choices=["default", "reduce-overhead", "max-autotune"], default="max-autotune")
     parser.add_argument("--gradient-checkpointing", action="store_true")
+    parser.add_argument("--use-wide-gemm", action="store_true",
+                        help="Train via bdh_wide_gemm_trainable_forward instead of the plain "
+                             "broadcasted matmul -- real 2.72x training-memory reduction found "
+                             "2026-08-21 (see hz0h_bdh_combined_best_comparison.py's own flag docs), "
+                             "mutually exclusive with --gradient-checkpointing.")
     parser.add_argument("--seed", type=int, default=17)
     parser.add_argument("--n-embd", type=int, default=256)
     parser.add_argument("--mult", type=int, default=16)
