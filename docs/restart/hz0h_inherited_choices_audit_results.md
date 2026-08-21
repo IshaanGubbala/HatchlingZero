@@ -47,7 +47,16 @@ hardware. Real evidence for "the architecture discovers sparsity after
 paying for it," with an honest open question about how much of the
 local-vs-production gap reflects the production model's real
 convergence versus a sampling artifact (see Part 11's CUDA
-confirmation for the full caveat) rather than a settled number.**
+confirmation for the full caveat) rather than a settled number. A
+follow-up crux measurement (`cross_token_support_jaccard`) then
+resolved the obvious next design question and got a real, disclosed
+NEGATIVE-LEANING answer: the collapse is a shared low-rank SUBSPACE
+across tokens, not tokens converging on the same discrete active
+neurons (cross-token Jaccard only reaches 0.153 even at the
+most-collapsed round, far short of the ~1.0 a static shared-mask kernel
+would need) -- so the simple, GPU-easy block-sparse design is NOT
+supported by this data; a harder subspace-projection kernel design
+remains open and unevaluated.**
 
 ## Why this audit happened
 
@@ -1142,6 +1151,60 @@ previous version's cross-round pooled summary (only per-round stats are
 computed/reported now) -- a deliberate simplification under time
 pressure, not yet added back, real per-round data is complete and
 sufficient to draw the conclusions above.
+
+### The crux question, resolved on real CUDA: naive block-sparse E_v+decoder is NOT well-supported by this data
+
+Before writing any kernel, the real open question was: does the
+effective-rank collapse at later rounds mean different TOKENS converge
+onto the SAME active neuron identities (exploitable with one static,
+shared column-subset per round -- a real, easy, dense-GEMM win, no
+gather needed), or does each token keep its OWN different small active
+set that merely happens to be jointly low-rank (genuinely per-token-
+varying support -- and naive per-token gather does NOT save real FLOPs,
+since gathering a different weight slice per token costs as much as the
+matmul it replaces, the exact reason Part 7's MoE-style router lost on
+real wall-clock despite a real theoretical FLOP reduction).
+
+Measured directly via `cross_token_support_jaccard` (pairwise support
+overlap between DIFFERENT tokens at the same round, reusing the
+already-collected SVD reservoir, no new data). Real result on the same
+production-scale run (Windows dispatch, `n_embd=2496`):
+
+| round | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| eff. rank (% of N) | 9.7% | 10.2% | 10.5% | 10.2% | 9.5% | 6.2% | 2.1% | 0.8% |
+| cross-token Jaccard | 0.065 | 0.071 | 0.077 | 0.086 | 0.101 | 0.120 | 0.138 | **0.153** |
+
+**Real, non-noise correlation**: cross-token Jaccard rises monotonically
+as effective rank collapses (roughly doubling, 0.065 -> 0.153) --
+tokens genuinely do share MORE support as depth increases. But the
+ABSOLUTE magnitude answers the crux question clearly: even at round 7
+(lowest effective rank), 0.153 is nowhere near the ~1.0 a shared-
+identity static mask would need -- it's only ~1.9x the local
+prototype's independence baseline (~0.081 for that density). Round 0
+(0.065) is actually BELOW that baseline.
+
+**Real conclusion, disclosed rather than spun as a win**: the sparsity
+is mostly per-token-varying, not primarily a shared static mask, even
+at the most-collapsed round. The effective-rank collapse is real, but
+it reflects many DIFFERENT individual per-token active sets all living
+inside one small (~40-dimension) shared SUBSPACE -- not tokens
+converging onto the same discrete set of active neurons. A naive
+static-column-mask kernel is NOT well-supported by this data; the more
+likely real risk is repeating Part 7's router failure mode (real
+theoretical FLOP reduction, real wall-clock loss from gather/scatter
+overhead). A different, harder, NOT YET EVALUATED kernel idea survives
+this result: project each token's activation into the shared ~40-dim
+subspace once, do the dense math there, project back out -- exploiting
+the shared SUBSPACE rather than shared neuron IDENTITY. Whether that is
+practical (extra projection cost vs. savings, numerical fidelity of a
+~40-dim subspace approximation of a `N=4992`-wide computation) is a
+real open question, not yet investigated.
+
+No bugs found adding `cross_token_support_jaccard` itself -- verified
+via the run's own reproducibility check (every pre-existing stat
+matched the prior run byte-for-byte at the same seed, confirming the
+new addition didn't disturb anything already validated).
 
 ## Concrete next steps
 
