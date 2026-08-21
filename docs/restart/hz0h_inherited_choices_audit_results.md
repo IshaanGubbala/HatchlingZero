@@ -1537,6 +1537,80 @@ correct and reusable, but this session's build does not currently
 outperform the simpler checkpointed-wide-GEMM path on either memory or
 speed, and should not be used in production training as-is.
 
+## Part 12: hard domain-block routing -- exact gradient isolation proven, first real signal is negative
+
+Real, direct response to Part 11's own finding: if ordinary training
+won't make BDH's neurons specialize by domain on their own (Part 11's
+within/across-domain overlap ratio stayed flat at 1.03x-1.18x at both
+2M and 10M tokens), force it structurally. The 2026-08-21 proposal:
+partition the per-head latent width into a shared block plus one block
+per domain; mask non-active blocks to zero (both forward AND
+gradient) for each training batch based on its domain label; add
+cross-domain suppression, orthogonality, capacity-balancing,
+expert-dropout, and mixed-domain-blending losses to keep specialists
+from collapsing; compare dense vs. hard-routed vs. soft-learned-router
+arms.
+
+**Foundation built and proven correct first, before any of the larger
+machinery**, matching this project's "measure before building further"
+discipline: `reference/hz0h_bdh_domain_masked_torch.py`'s
+`bdh_domain_masked_forward` masks `x_sparse`/`y_sparse` (both real
+ReLU outputs) after their ReLUs. The real, load-bearing claim -- that
+masking gives an EXACT gradient firewall, not an approximate one -- is
+proven, not assumed: `test_masked_block_receives_exactly_zero_gradient`
+checks bit-for-bit that a masked block's `encoder`/`encoder_v`/
+`decoder` weight columns receive precisely zero gradient (via the
+plain chain rule through the elementwise mask multiply -- no custom
+backward needed), while the active block's weights demonstrably do
+move under a real optimizer step. 7/7 tests passing, including
+confirming that switching the active domain label moves which block is
+frozen.
+
+**First real training signal, local scale (2026-08-21,
+`scripts/hz0h_bdh_domain_masked_comparison.py`)**: dense vs. hard-
+routed only (no soft-router arm, no auxiliary losses yet -- deliberately
+the minimal version, real follow-up if this showed promise). 1M tokens,
+`n_embd=256`, real per-domain train/val splits
+(`scripts/hz0h_bdh_domain_bytes_prep.py`, now also writing per-domain
+train files, not just the validation splits and round-robin-mixed
+stream Part 11 needed):
+
+| domain | dense | hard-routed |
+|---|---:|---:|
+| code | 1.954 | 2.505 |
+| documentation | 1.833 | 2.465 |
+| json_and_configuration | 0.400 | 0.731 |
+| mathematical_and_structured | 2.215 | 2.668 |
+| terminal_and_debugging | 1.852 | 2.444 |
+| **mean** | **1.651** | **2.162** |
+
+**Real, honest result: dense beats hard-routed on EVERY domain
+individually, not just on average -- more severe than the proposal's
+own anticipated tradeoff** ("forcing specialization should improve
+in-domain performance but will likely impose a structural out-of-domain
+cost" -- here it loses even ON the domain it was specifically masked
+for). Plausible, real explanation, not yet confirmed: with no
+mixed-domain rehearsal or capacity balancing yet, each specialist block
+only receives gradient updates on ~1/5 of training steps (one domain
+chosen uniformly per step) while only ~40% of the network's width
+(shared + one block) is active on any given step -- real capacity/
+update-frequency starvation at this small budget, a directly testable
+hypothesis (does a longer budget or capacity-balancing close the gap?)
+rather than necessarily a fundamental flaw in the masking mechanism
+itself. Archived at
+`results/local/hz0h_domain_masked_comparison_result.json`.
+
+**Real, disclosed limits before treating this as settled**: single
+seed, small local scale (`n_embd=256`, not the `n_embd=2496` production
+shape), short budget (1M tokens) -- the exact caveat this project
+attaches to every other local-scale-first result (Part 5, Part 6, Part
+11 itself, which changed materially at production scale in BOTH
+directions this session). Whether this negative result holds at
+production scale/budget, or with the proposal's own additional
+machinery (mixed-domain rehearsal in particular, which directly targets
+the "not enough updates per block" hypothesis), is real, open, not yet
+tested.
+
 ## Concrete next steps
 
 1. **Confirm `softmax_scaled` at full CUDA scale** (25M tokens, bf16,

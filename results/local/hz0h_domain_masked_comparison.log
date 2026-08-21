@@ -1,0 +1,49 @@
+=== layout: N=512, shared=128, per-domain=[76, 76, 76, 76, 80] ===
+=== training dense arm ===
+/Users/ishaangubbala/Documents/Training/scripts/hz0h_bdh_domain_masked_comparison.py:82: UserWarning: Converting a tensor with requires_grad=True to a scalar may lead to unexpected behavior.
+Consider using tensor.detach() first. (Triggered internally at /Users/runner/work/pytorch/pytorch/torch/csrc/autograd/generated/python_variable_methods.cpp:823.)
+  print(f"[dense] step {step+1}/{steps} loss={float(loss):.4f}", flush=True)
+[dense] step 50/977 loss=3.0940
+[dense] step 100/977 loss=2.7875
+[dense] step 150/977 loss=2.6463
+[dense] step 200/977 loss=2.2758
+[dense] step 250/977 loss=2.5114
+[dense] step 300/977 loss=2.3844
+[dense] step 350/977 loss=1.6290
+[dense] step 400/977 loss=2.4027
+[dense] step 450/977 loss=2.1958
+[dense] step 500/977 loss=1.6454
+[dense] step 550/977 loss=2.1613
+[dense] step 600/977 loss=1.8823
+[dense] step 650/977 loss=1.9282
+[dense] step 700/977 loss=2.1263
+[dense] step 750/977 loss=2.2845
+[dense] step 800/977 loss=1.6236
+[dense] step 850/977 loss=1.7565
+[dense] step 900/977 loss=1.3069
+[dense] step 950/977 loss=1.7386
+[dense] DONE in 67s final_loss=1.5846
+[dense] per-domain validation_loss: {'code': 1.9538832187652588, 'documentation': 1.8330160935719808, 'json_and_configuration': 0.39985062678654987, 'mathematical_and_structured': 2.2147358020146686, 'terminal_and_debugging': 1.8524577379226685}
+=== training hard_routed arm ===
+[hard_routed] step 50/977 domain=documentation loss=3.4549
+[hard_routed] step 100/977 domain=mathematical_and_structured loss=3.3902
+[hard_routed] step 150/977 domain=json_and_configuration loss=2.0921
+[hard_routed] step 200/977 domain=terminal_and_debugging loss=3.1542
+[hard_routed] step 250/977 domain=code loss=2.8976
+[hard_routed] step 300/977 domain=code loss=3.0817
+[hard_routed] step 350/977 domain=documentation loss=4.9590
+[hard_routed] step 400/977 domain=terminal_and_debugging loss=2.6410
+[hard_routed] step 450/977 domain=json_and_configuration loss=1.6580
+[hard_routed] step 500/977 domain=documentation loss=2.7291
+[hard_routed] step 550/977 domain=documentation loss=2.6933
+[hard_routed] step 600/977 domain=documentation loss=2.7429
+[hard_routed] step 650/977 domain=documentation loss=2.4943
+[hard_routed] step 700/977 domain=code loss=2.6030
+[hard_routed] step 750/977 domain=mathematical_and_structured loss=3.2348
+[hard_routed] step 800/977 domain=documentation loss=3.1256
+[hard_routed] step 850/977 domain=documentation loss=2.5819
+[hard_routed] step 900/977 domain=documentation loss=3.0166
+[hard_routed] step 950/977 domain=terminal_and_debugging loss=2.2534
+[hard_routed] DONE in 74s final_loss=2.4171 domain_counts={'code': 173, 'documentation': 194, 'json_and_configuration': 202, 'mathematical_and_structured': 207, 'terminal_and_debugging': 201}
+[hard_routed] per-domain validation_loss: {'code': 2.504885260264079, 'documentation': 2.4648765246073405, 'json_and_configuration': 0.7305230736732483, 'mathematical_and_structured': 2.667654800415039, 'terminal_and_debugging': 2.4441333929697673}
+[done] wrote results/local/hz0h_domain_masked_comparison_result.json

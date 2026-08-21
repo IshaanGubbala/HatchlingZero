@@ -35,6 +35,10 @@ Writes:
 - `data/packed/domains/{name}_val.jsonl`: per-domain, UN-mixed windows
   from each domain's validation split, so downstream code can tag
   samples by their real domain.
+- `data/packed/domains/{name}_train.jsonl`: per-domain, UN-mixed
+  training windows (added 2026-08-21 for hard domain-block routing,
+  which needs real domain-labeled batches at train time, not a
+  pre-mixed stream).
 
 Never modifies `data/packed/external/*` or the tokenizer itself.
 """
@@ -104,7 +108,19 @@ def main() -> None:
         with val_out.open("w") as handle:
             for window in val_windows:
                 handle.write(json.dumps(window) + "\n")
-        print(f"[{name}] train_windows={len(train_windows)} val_windows={len(val_windows)} -> {val_out}", flush=True)
+        # Real addition (2026-08-21): the domain specialization
+        # diagnostic only ever needed per-domain VALIDATION splits (to
+        # measure within/across-domain overlap on a trained model) plus
+        # one round-robin-MIXED training file (to train a dense
+        # baseline). Hard domain-block routing needs the opposite for
+        # training: real, domain-labeled batches, not a pre-mixed
+        # stream -- so each domain's own train windows get written out
+        # separately here too, not just folded into mixed_train.jsonl.
+        train_out = args.out_dir / f"{name}_train.jsonl"
+        with train_out.open("w") as handle:
+            for window in train_windows:
+                handle.write(json.dumps(window) + "\n")
+        print(f"[{name}] train_windows={len(train_windows)} val_windows={len(val_windows)} -> {val_out}, {train_out}", flush=True)
 
     print("=== building round-robin mixed training set ===", flush=True)
     per_domain_lists = list(domain_train_windows.values())
