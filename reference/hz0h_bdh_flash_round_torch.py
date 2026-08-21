@@ -99,11 +99,20 @@ def _layer_norm_with_local_backward(x: torch.Tensor, normalized_shape: tuple, gr
     instead of a hand-derived formula. Cheap (O(B*T*D), a small
     fraction of a round's total FLOPs) and uses PyTorch's own trusted
     LN backward rather than new math. Returns dL/dx for this LN."""
+    # Real fix (2026-08-21, found on real CUDA hardware): PyTorch's own
+    # native LayerNorm backward kernel, run here with NO active autocast
+    # (this whole function runs deep inside BDHFlashRoundFunction.backward,
+    # well outside any `with autocast` lexical scope), promotes its
+    # returned gradient dtype internally rather than strictly preserving
+    # the input's dtype -- a real, observed behavior, not assumed.
+    # Casting both the incoming grad_output and the returned grad_x to
+    # match `x`'s own dtype makes this function's dtype contract exact
+    # regardless of what PyTorch's kernel does internally.
     with torch.enable_grad():
         leaf = x.detach().requires_grad_(True)
         out = F.layer_norm(leaf, normalized_shape)
-    (grad_x,) = torch.autograd.grad(out, leaf, grad_outputs=grad_output)
-    return grad_x
+    (grad_x,) = torch.autograd.grad(out, leaf, grad_outputs=grad_output.to(x.dtype))
+    return grad_x.to(x.dtype)
 
 
 class BDHFlashRoundFunction(torch.autograd.Function):
@@ -171,6 +180,10 @@ class BDHFlashRoundFunction(torch.autograd.Function):
     def backward(ctx, grad_x_next):
         x, u, v, yKV, yKV_ln, yMLP, x_plus_y, encoder, encoder_v, decoder, r_phases = ctx.saved_tensors
         D, nh, N, T, B = ctx.dims
+        # Defensive: the incoming gradient's dtype isn't guaranteed to
+        # match the saved (compute_dtype) tensors -- cast once up front
+        # rather than risk a mismatch several ops downstream.
+        grad_x_next = grad_x_next.to(x.dtype)
 
         # x_next = LN(x + yMLP_ln) -- local LN backward, gradient w.r.t.
         # the SUM applies identically to both summands.
