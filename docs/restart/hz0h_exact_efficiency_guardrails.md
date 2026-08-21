@@ -62,9 +62,9 @@ Required parity gates:
 - Never promote a result based only on theoretical FLOPs. It must improve real
   wall-clock and memory without failing parity.
 
-## Current one-shot experiment
+## Closed result: exact sparse decoder through vendor SpMM
 
-`exact_sparse_decoder_vendor_spmm_v1` is allowed once because it is materially
+`exact_sparse_decoder_vendor_spmm_v1` was allowed once because it is materially
 different from prior sparse work:
 
 - it performs no routing, top-k selection, pruning, or thresholding;
@@ -76,14 +76,30 @@ different from prior sparse work:
   AdamW update;
 - CUDA arms run in separate processes.
 
-It shares the old lane's central risk: sparse-format construction and irregular
-indexing may cost more than skipped BF16 tensor-core work. Therefore the stop
-condition is strict: if neither COO nor CSR beats dense forward+backward at the
-real `D=2496`, decoder-width `39936`, measured 10-15% active regime, close this
-vendor-SpMM lane. Do not retry different density guesses, small tile changes,
-or repeated runs hoping for noise to reverse the result.
+Real A40 result (`torch 2.8.0+cu128`, BF16, `D=2496`, decoder width `39936`):
 
-If it passes, the next distinct gate is sampled `encoder_v`: compute only
-columns where `x_sparse` is already exactly zero/nonzero, then prove full-model
-parity and benchmark the combined path. Only after both operator gates pass may
-we run a complete matched training-step comparison against the Transformer.
+- COO failed before timing: `addmm_sparse_cuda` is not implemented for BF16.
+- CSR failed before timing: `sampled_addmm_out_sparse_csr` is not implemented
+  for BF16.
+- Dense forward+backward control was finite at 112,218 token-rows/s and
+  462,323,712 peak allocated bytes. This is an operator microbenchmark, not a
+  full training number.
+
+The generator also exposed a real measurement bug: requested density was 12%,
+but random values were passed through ReLU after the 12% mask, leaving 6.0%
+actual nonzeros. The report recorded the actual density, so it did not silently
+claim 12%; the generator is fixed for future diagnostics. This does not affect
+the backend-support conclusion because both sparse arms failed during operator
+dispatch before density-dependent timing.
+
+**Verdict: vendor-SpMM lane closed.** Do not retry COO/CSR with different
+density, shape, or warmup settings on this PyTorch/CUDA stack. FP32/FP16 retries
+would violate the locked BF16 exact-comparison condition. A future PyTorch or
+CUDA release that explicitly adds BF16 support is the only valid reason to
+reopen it.
+
+The previously proposed sampled `encoder_v` vendor-sparse follow-up is also
+blocked by the same missing BF16 backend and must not be dispatched as another
+version of this experiment. Any surviving exact compute-skipping design must
+use a genuinely different primitive and pass a roofline/preflight argument
+before implementation; it may not merely repackage COO/CSR or per-token gather.

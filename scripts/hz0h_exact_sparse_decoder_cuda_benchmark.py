@@ -31,9 +31,11 @@ def make_inputs(args, device):
     generator = torch.Generator(device=device).manual_seed(args.seed)
     rows = args.batch_size * args.sequence_length
     latent_width = args.n_embd * args.multiplier
-    values = torch.randn(rows, latent_width, device=device, dtype=torch.bfloat16, generator=generator)
+    values = torch.randn(
+        rows, latent_width, device=device, dtype=torch.bfloat16, generator=generator
+    ).abs()
     keep = torch.rand(rows, latent_width, device=device, generator=generator) < args.active_fraction
-    values = (values.relu() * keep).detach().requires_grad_(True)
+    values = (values * keep).detach().requires_grad_(True)
     weight = torch.randn(
         latent_width,
         args.n_embd,

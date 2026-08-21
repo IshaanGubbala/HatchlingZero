@@ -1,0 +1,37 @@
+{
+  "experiment_id": "exact_sparse_decoder_vendor_spmm_v1",
+  "scope": "decoder operator forward+backward microbenchmark; not an end-to-end training claim",
+  "device": "NVIDIA A40",
+  "torch_version": "2.8.0+cu128",
+  "dtype": "bfloat16",
+  "shape": {
+    "batch_size": 1,
+    "sequence_length": 256,
+    "rows": 256,
+    "n_embd": 2496,
+    "decoder_input_width": 39936,
+    "active_fraction_requested": 0.12,
+    "active_fraction_realized": 0.060010274251302086,
+    "generator_bug": "random values were ReLUed after applying the 12% mask, halving realized density; fixed after this run"
+  },
+  "parity": {
+    "coo": {
+      "supported": false,
+      "error": "NotImplementedError: addmm_sparse_cuda not implemented for BFloat16"
+    },
+    "csr": {
+      "supported": false,
+      "error": "NotImplementedError: sampled_addmm_out_sparse_csr not implemented for BFloat16"
+    }
+  },
+  "dense_control": {
+    "seconds": 0.011406323872506618,
+    "seconds_per_step": 0.0022812647745013236,
+    "tokens_per_second": 112218.45130009545,
+    "peak_memory_allocated_bytes": 462323712,
+    "peak_memory_reserved_bytes": 467664896,
+    "finite": true
+  },
+  "verdict": "closed_unsupported",
+  "reopen_only_if": "the production PyTorch/CUDA BF16 backend adds the required sparse-dense training operators"
+}
