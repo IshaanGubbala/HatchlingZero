@@ -1258,6 +1258,42 @@ relative to production. Production-scale (`n_embd=2496`) CUDA
 confirmation is the natural next dispatch before drawing a real
 conclusion either way.
 
+### CUDA confirmation: production scale AGREES with local -- a real, closed negative result
+
+Windows dispatch, real production shape (`n_embd=2496`, 2M tokens,
+`final_loss=1.0195` -- the best-converged model in this whole domain-
+specialization line of testing), same 5 real domains, 3840 samples per
+domain per round:
+
+| round | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| within-domain | 0.041 | 0.040 | 0.039 | 0.042 | 0.041 | 0.052 | 0.076 | 0.102 |
+| across-domain | 0.037 | 0.036 | 0.037 | 0.038 | 0.040 | 0.050 | 0.074 | 0.092 |
+| ratio | 1.10x | 1.09x | 1.05x | 1.09x | 1.03x | 1.04x | 1.03x | 1.12x |
+
+**Real answer, and notably the first time this session production
+scale AGREED with the local prototype rather than diverging sharply in
+either direction** (contrast the jump operator, which got much worse at
+scale, and `g_r`'s effective-rank collapse, which got much stronger):
+the ratio stays in a tight 1.03x-1.12x band across all 8 rounds --
+essentially flat, barely above 1.0. Both within- and across-domain
+values rise together with depth (same ~2.5x growth in both, tracking
+the already-documented effective-rank collapse), but domain identity
+itself adds almost nothing on top of that shared trend.
+
+**Real, disclosed conclusion**: hard-filtering neurons by domain during
+training, to cut compute, is NOT supported by this data -- BDH does not
+show meaningful preferential neuron activation by domain (code vs.
+math vs. documentation vs. terminal/debugging vs. JSON/config) at this
+training scale and budget. A real, honest caveat this doesn't rule out:
+2M tokens on a 300M-param model is still a modest budget -- whether
+domain specialization would emerge with substantially more training is
+a different, unanswered question (the same "maybe it needs more scale
+to show up" caveat this project has attached to every negative result
+so far), not something this test can distinguish from "never happens."
+Closed as a real negative result at THIS budget, not a permanent
+verdict on the underlying idea.
+
 ## Concrete next steps
 
 1. **Confirm `softmax_scaled` at full CUDA scale** (25M tokens, bf16,
