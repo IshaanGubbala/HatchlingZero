@@ -127,7 +127,12 @@ def train_bdh(config: BDHConfig, args, device, use_softmax_scaled: bool) -> BDH:
     tokens = 0
 
     if args.gradient_checkpointing:
-        raw_fn = combined_bdh_forward_training_checkpointed if use_softmax_scaled else bdh_variable_depth_forward_checkpointed
+        if use_softmax_scaled:
+            raw_fn = combined_bdh_forward_training_checkpointed
+        else:
+            raw_fn = lambda m, idx, depth, target: bdh_variable_depth_forward_checkpointed(
+                m, idx, depth, target, checkpoint_segment_size=args.checkpoint_segment_size,
+            )
     elif use_softmax_scaled:
         raw_fn = lambda m, idx, depth, target: combined_bdh_forward(m, None, idx, real_prefix_iterations=depth, num_jumps=0, targets=target)
     else:
@@ -404,6 +409,16 @@ def main() -> None:
                              "matched Transformer, which doesn't have this problem at the same param count, "
                              "and not the jump operator's own distillation, which needs the real "
                              "trajectory states and is comparatively cheap anyway).")
+    parser.add_argument("--checkpoint-segment-size", type=int, default=1,
+                        help="Rounds recomputed as one checkpoint segment (raw_bdh path only -- "
+                             "combined_best's checkpointed path has no segment-size parameter). "
+                             "1 (default) gives minimum memory, maximum recompute overhead; larger "
+                             "values retain more activations per segment (less recompute, more "
+                             "memory) -- real tradeoff, not yet measured on this project's shapes "
+                             "before this flag existed (real RunPod A40 dispatch, 2026-08-21, found "
+                             "raw_bdh's un-checkpointed batch=8 training already sits at 38.7GB/44.43GB "
+                             "-- 87%% of capacity -- motivating a real look at whether segment_size>1 "
+                             "recovers some of checkpointing's ~28%% measured throughput cost).")
     parser.add_argument("--jump-hidden-mult", type=int, default=4,
                         help="JumpOperator's hidden width as a multiple of d_model. Shrink this "
                              "at large model scale -- the jump operator's own param count grows "
