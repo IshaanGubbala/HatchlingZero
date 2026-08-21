@@ -143,34 +143,47 @@ class BDHFlashRoundFunction(torch.autograd.Function):
         param_dtype = encoder.dtype
         compute_dtype = torch.get_autocast_gpu_dtype() if torch.is_autocast_enabled() else x.dtype
         ctx.param_dtype = param_dtype
-        x = x.to(compute_dtype)
-        encoder = encoder.to(compute_dtype)
-        encoder_v = encoder_v.to(compute_dtype)
-        decoder = decoder.to(compute_dtype)
 
-        B = x.shape[0]
-        r_phases = torch.arange(0, T, device=x.device, dtype=freqs.dtype).view(1, 1, -1, 1) * freqs
+        # Real, second autocast bug found on real CUDA hardware
+        # (2026-08-21): `forward()` runs INSIDE the caller's `with
+        # autocast` lexical scope (Function.apply() executes eagerly
+        # there), so autocast's own per-op policy is still active for
+        # every op below -- and autocast has a real, documented policy
+        # of forcing LayerNorm to run (and RETURN) in fp32 regardless
+        # of input dtype, silently overriding the explicit bf16 casts
+        # just below. Disabling autocast's automatic policy for the
+        # rest of this function gives full, deterministic control: every
+        # op uses exactly the dtype already explicitly assigned, with
+        # zero surprise promotion.
+        with torch.autocast(device_type=x.device.type, enabled=False):
+            x = x.to(compute_dtype)
+            encoder = encoder.to(compute_dtype)
+            encoder_v = encoder_v.to(compute_dtype)
+            decoder = decoder.to(compute_dtype)
 
-        encoder_wide = encoder.permute(1, 0, 2).reshape(D, nh * N)
-        x_latent = (x.squeeze(1) @ encoder_wide).view(B, T, nh, N).permute(0, 2, 1, 3)
-        u = F.relu(x_latent)
+            B = x.shape[0]
+            r_phases = torch.arange(0, T, device=x.device, dtype=freqs.dtype).view(1, 1, -1, 1) * freqs
 
-        QR = _rope(r_phases, u)
-        scores = (QR @ QR.mT).tril(diagonal=-1)
-        yKV = scores @ x
+            encoder_wide = encoder.permute(1, 0, 2).reshape(D, nh * N)
+            x_latent = (x.squeeze(1) @ encoder_wide).view(B, T, nh, N).permute(0, 2, 1, 3)
+            u = F.relu(x_latent)
 
-        yKV_ln = F.layer_norm(yKV, (D,))
+            QR = _rope(r_phases, u)
+            scores = (QR @ QR.mT).tril(diagonal=-1)
+            yKV = scores @ x
 
-        y_latent = torch.einsum("bhtd,hdn->bhtn", yKV_ln, encoder_v)
-        v = F.relu(y_latent)
+            yKV_ln = F.layer_norm(yKV, (D,)).to(compute_dtype)
 
-        g = u * v
-        g_flat = g.transpose(1, 2).reshape(B, 1, T, N * nh)
-        yMLP = g_flat @ decoder
-        yMLP_ln = F.layer_norm(yMLP, (D,))
+            y_latent = torch.einsum("bhtd,hdn->bhtn", yKV_ln, encoder_v)
+            v = F.relu(y_latent)
 
-        x_plus_y = x + yMLP_ln
-        x_next = F.layer_norm(x_plus_y, (D,))
+            g = u * v
+            g_flat = g.transpose(1, 2).reshape(B, 1, T, N * nh)
+            yMLP = g_flat @ decoder
+            yMLP_ln = F.layer_norm(yMLP, (D,)).to(compute_dtype)
+
+            x_plus_y = x + yMLP_ln
+            x_next = F.layer_norm(x_plus_y, (D,)).to(compute_dtype)
 
         ctx.save_for_backward(x, u, v, yKV, yKV_ln, yMLP, x_plus_y, encoder, encoder_v, decoder, r_phases)
         ctx.dims = (D, nh, N, T, B)
