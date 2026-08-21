@@ -526,14 +526,23 @@ def main() -> None:
         raw_config = BDHConfig(n_layer=args.n_layer, n_embd=args.raw_n_embd, n_head=args.n_head,
                                 mlp_internal_dim_multiplier=args.raw_mult, vocab_size=256, dropout=0.0)
         raw_model, raw_train_seconds = train_bdh(raw_config, args, device, use_softmax_scaled=False)
+        # Real fix (2026-08-21): eval/throughput used to ALWAYS use the plain
+        # broadcast-matmul forward regardless of --use-wide-gemm, so a large
+        # batch that trained fine under wide-GEMM could still OOM here on the
+        # bug wide-GEMM was built to avoid. Same math either way (bit-exact,
+        # see reference/hz0h_bdh_wide_gemm_trainable_torch.py's own tests) --
+        # matching training's actual forward path fixes the OOM at its source
+        # instead of just catching it, and is the more correct thing to
+        # measure anyway (eval should reflect what was actually trained).
+        raw_forward_fn = bdh_wide_gemm_trainable_forward if args.use_wide_gemm else bdh_variable_depth_forward
         raw_loss = evaluate_loss(
-            lambda idx, target: bdh_variable_depth_forward(raw_model, idx, args.n_layer, target), args, device,
+            lambda idx, target: raw_forward_fn(raw_model, idx, args.n_layer, target), args, device,
         )
         raw_params = sum(p.numel() for p in raw_model.parameters())
         print(f"[raw_bdh] validation_loss={raw_loss:.4f} params={raw_params/1e6:.2f}M", flush=True)
         print("=== measuring raw_bdh throughput (uncompiled + compiled) ===", flush=True)
         measure_throughput_resilient(
-            "raw_bdh", lambda idx: bdh_variable_depth_forward(raw_model, idx, args.n_layer), args, device, throughput,
+            "raw_bdh", lambda idx: raw_forward_fn(raw_model, idx, args.n_layer), args, device, throughput,
         )
         free_gpu_memory(raw_model)
         results["raw_bdh"] = {"validation_loss": raw_loss, "parameter_count": raw_params,
