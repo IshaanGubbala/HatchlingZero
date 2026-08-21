@@ -773,6 +773,23 @@ if throughput is what matters; BDH may be worth the compute cost if
 quality-per-parameter is what matters," pending 3-seed confirmation
 (this is a single real run, not yet replicated).
 
+### Cross-hardware reproducibility check (2026-08-21): same result, different GPU entirely
+
+A second full 10M-token `raw_bdh` run at the identical shape/recipe
+(`n_embd=2496, mult=16, n_layer=8`, `seed=7`, bf16, adam8bit) landed on
+a rented RunPod A40 (`results/cuda/hz0h_runpod_a40_raw_300m_10m_result.json`)
+-- completely different hardware, driver stack, and PyTorch/CUDA build
+than the original Windows/RTX3060 run this Part's headline number came
+from. Real result: **`validation_loss=1.6844`**, very close to the
+original `1.7038`. **Real, precise caveat**: this uses the SAME seed
+(7) as the original run, so it confirms the result isn't an artifact of
+one specific GPU/driver/library combination (a real, non-trivial check
+-- floating-point non-determinism across different hardware is a real
+phenomenon) but it is NOT a substitute for the still-pending 3-SEED
+confirmation noted above, which tests run-to-run variance rather than
+hardware reproducibility. Both checks are real and both still matter;
+neither replaces the other.
+
 ### combined_best's real failure mode: depth-dependent divergence, not a single bad step
 
 Gradient clipping (added this session specifically for this bug) fixed
