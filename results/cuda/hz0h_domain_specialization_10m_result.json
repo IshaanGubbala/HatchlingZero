@@ -1,0 +1,206 @@
+{
+  "config": {
+    "n_embd": 2496,
+    "mult": 16,
+    "n_layer": 8,
+    "n_head": 8,
+    "N_per_head": 4992,
+    "target_tokens": 10000000,
+    "seed": 17,
+    "domains": [
+      "code",
+      "documentation",
+      "json_and_configuration",
+      "mathematical_and_structured",
+      "terminal_and_debugging"
+    ]
+  },
+  "parameter_count": 300318720,
+  "train_seconds": 2014.6198002025485,
+  "rounds": {
+    "0": {
+      "within_domain_jaccard_mean": 0.02310776002705097,
+      "within_domain_jaccard_per_domain": {
+        "code": 0.022895069792866707,
+        "documentation": 0.01971413381397724,
+        "json_and_configuration": 0.02910139411687851,
+        "mathematical_and_structured": 0.021974442526698112,
+        "terminal_and_debugging": 0.02185375988483429
+      },
+      "across_domain_jaccard_mean": 0.019895372539758684,
+      "across_domain_jaccard_per_pair": {
+        "code|documentation": 0.019498378038406372,
+        "code|json_and_configuration": 0.023425480350852013,
+        "code|mathematical_and_structured": 0.01845172792673111,
+        "code|terminal_and_debugging": 0.019648760557174683,
+        "documentation|json_and_configuration": 0.01952281966805458,
+        "documentation|mathematical_and_structured": 0.019392024725675583,
+        "documentation|terminal_and_debugging": 0.0184427909553051,
+        "json_and_configuration|mathematical_and_structured": 0.019920501857995987,
+        "json_and_configuration|terminal_and_debugging": 0.019961003214120865,
+        "mathematical_and_structured|terminal_and_debugging": 0.02069023810327053
+      }
+    },
+    "1": {
+      "within_domain_jaccard_mean": 0.021671827882528305,
+      "within_domain_jaccard_per_domain": {
+        "code": 0.021008117124438286,
+        "documentation": 0.019128073006868362,
+        "json_and_configuration": 0.026531405746936798,
+        "mathematical_and_structured": 0.020168598741292953,
+        "terminal_and_debugging": 0.021522944793105125
+      },
+      "across_domain_jaccard_mean": 0.020385454408824444,
+      "across_domain_jaccard_per_pair": {
+        "code|documentation": 0.019076962023973465,
+        "code|json_and_configuration": 0.022958453744649887,
+        "code|mathematical_and_structured": 0.019647177308797836,
+        "code|terminal_and_debugging": 0.021331973373889923,
+        "documentation|json_and_configuration": 0.018659278750419617,
+        "documentation|mathematical_and_structured": 0.019506730139255524,
+        "documentation|terminal_and_debugging": 0.019400594756007195,
+        "json_and_configuration|mathematical_and_structured": 0.020572876557707787,
+        "json_and_configuration|terminal_and_debugging": 0.022321106866002083,
+        "mathematical_and_structured|terminal_and_debugging": 0.020379390567541122
+      }
+    },
+    "2": {
+      "within_domain_jaccard_mean": 0.024842417612671853,
+      "within_domain_jaccard_per_domain": {
+        "code": 0.0233644787222147,
+        "documentation": 0.022310487926006317,
+        "json_and_configuration": 0.030885830521583557,
+        "mathematical_and_structured": 0.022565443068742752,
+        "terminal_and_debugging": 0.025085847824811935
+      },
+      "across_domain_jaccard_mean": 0.023175985738635062,
+      "across_domain_jaccard_per_pair": {
+        "code|documentation": 0.022462692111730576,
+        "code|json_and_configuration": 0.025560565292835236,
+        "code|mathematical_and_structured": 0.02192586660385132,
+        "code|terminal_and_debugging": 0.023716161027550697,
+        "documentation|json_and_configuration": 0.02255428396165371,
+        "documentation|mathematical_and_structured": 0.02200988493859768,
+        "documentation|terminal_and_debugging": 0.022839486598968506,
+        "json_and_configuration|mathematical_and_structured": 0.02281361073255539,
+        "json_and_configuration|terminal_and_debugging": 0.024763621389865875,
+        "mathematical_and_structured|terminal_and_debugging": 0.023113684728741646
+      }
+    },
+    "3": {
+      "within_domain_jaccard_mean": 0.027592430636286736,
+      "within_domain_jaccard_per_domain": {
+        "code": 0.026627251878380775,
+        "documentation": 0.02410878613591194,
+        "json_and_configuration": 0.034151844680309296,
+        "mathematical_and_structured": 0.02641315571963787,
+        "terminal_and_debugging": 0.026661114767193794
+      },
+      "across_domain_jaccard_mean": 0.02567419484257698,
+      "across_domain_jaccard_per_pair": {
+        "code|documentation": 0.02477525919675827,
+        "code|json_and_configuration": 0.02772151492536068,
+        "code|mathematical_and_structured": 0.024932099506258965,
+        "code|terminal_and_debugging": 0.026013705879449844,
+        "documentation|json_and_configuration": 0.02455863542854786,
+        "documentation|mathematical_and_structured": 0.025403078645467758,
+        "documentation|terminal_and_debugging": 0.024959487840533257,
+        "json_and_configuration|mathematical_and_structured": 0.02573610469698906,
+        "json_and_configuration|terminal_and_debugging": 0.027275003492832184,
+        "mathematical_and_structured|terminal_and_debugging": 0.02536705881357193
+      }
+    },
+    "4": {
+      "within_domain_jaccard_mean": 0.028865599259734153,
+      "within_domain_jaccard_per_domain": {
+        "code": 0.027970748022198677,
+        "documentation": 0.026530997827649117,
+        "json_and_configuration": 0.03339796140789986,
+        "mathematical_and_structured": 0.02697492018342018,
+        "terminal_and_debugging": 0.029453368857502937
+      },
+      "across_domain_jaccard_mean": 0.027372068352997304,
+      "across_domain_jaccard_per_pair": {
+        "code|documentation": 0.02639147825539112,
+        "code|json_and_configuration": 0.029292408376932144,
+        "code|mathematical_and_structured": 0.02675820328295231,
+        "code|terminal_and_debugging": 0.02825227379798889,
+        "documentation|json_and_configuration": 0.02666379138827324,
+        "documentation|mathematical_and_structured": 0.025904472917318344,
+        "documentation|terminal_and_debugging": 0.026366984471678734,
+        "json_and_configuration|mathematical_and_structured": 0.02731265127658844,
+        "json_and_configuration|terminal_and_debugging": 0.028913622722029686,
+        "mathematical_and_structured|terminal_and_debugging": 0.027864797040820122
+      }
+    },
+    "5": {
+      "within_domain_jaccard_mean": 0.03255592025816441,
+      "within_domain_jaccard_per_domain": {
+        "code": 0.032979171723127365,
+        "documentation": 0.030444109812378883,
+        "json_and_configuration": 0.03449710085988045,
+        "mathematical_and_structured": 0.032316550612449646,
+        "terminal_and_debugging": 0.03254266828298569
+      },
+      "across_domain_jaccard_mean": 0.031565374508500096,
+      "across_domain_jaccard_per_pair": {
+        "code|documentation": 0.03186463192105293,
+        "code|json_and_configuration": 0.03172226995229721,
+        "code|mathematical_and_structured": 0.03178156912326813,
+        "code|terminal_and_debugging": 0.032639969140291214,
+        "documentation|json_and_configuration": 0.029878173023462296,
+        "documentation|mathematical_and_structured": 0.03308245912194252,
+        "documentation|terminal_and_debugging": 0.03179901838302612,
+        "json_and_configuration|mathematical_and_structured": 0.03047492355108261,
+        "json_and_configuration|terminal_and_debugging": 0.03056422621011734,
+        "mathematical_and_structured|terminal_and_debugging": 0.03184650465846062
+      }
+    },
+    "6": {
+      "within_domain_jaccard_mean": 0.044174765795469285,
+      "within_domain_jaccard_per_domain": {
+        "code": 0.04545871168375015,
+        "documentation": 0.04446221888065338,
+        "json_and_configuration": 0.04010848328471184,
+        "mathematical_and_structured": 0.04805883392691612,
+        "terminal_and_debugging": 0.042785581201314926
+      },
+      "across_domain_jaccard_mean": 0.04109666869044304,
+      "across_domain_jaccard_per_pair": {
+        "code|documentation": 0.04478190466761589,
+        "code|json_and_configuration": 0.03705928474664688,
+        "code|mathematical_and_structured": 0.04499127343297005,
+        "code|terminal_and_debugging": 0.04459657892584801,
+        "documentation|json_and_configuration": 0.035053133964538574,
+        "documentation|mathematical_and_structured": 0.046635232865810394,
+        "documentation|terminal_and_debugging": 0.0430169440805912,
+        "json_and_configuration|mathematical_and_structured": 0.03578527271747589,
+        "json_and_configuration|terminal_and_debugging": 0.035367581993341446,
+        "mathematical_and_structured|terminal_and_debugging": 0.043679479509592056
+      }
+    },
+    "7": {
+      "within_domain_jaccard_mean": 0.06420685425400734,
+      "within_domain_jaccard_per_domain": {
+        "code": 0.07022026926279068,
+        "documentation": 0.06941913068294525,
+        "json_and_configuration": 0.04487413540482521,
+        "mathematical_and_structured": 0.0729125440120697,
+        "terminal_and_debugging": 0.06360819190740585
+      },
+      "across_domain_jaccard_mean": 0.05450055599212646,
+      "across_domain_jaccard_per_pair": {
+        "code|documentation": 0.0626271441578865,
+        "code|json_and_configuration": 0.04361402615904808,
+        "code|mathematical_and_structured": 0.06193244829773903,
+        "code|terminal_and_debugging": 0.06133776903152466,
+        "documentation|json_and_configuration": 0.04318172484636307,
+        "documentation|mathematical_and_structured": 0.06309670209884644,
+        "documentation|terminal_and_debugging": 0.06189010292291641,
+        "json_and_configuration|mathematical_and_structured": 0.04297618567943573,
+        "json_and_configuration|terminal_and_debugging": 0.04326848313212395,
+        "mathematical_and_structured|terminal_and_debugging": 0.06108097359538078
+      }
+    }
+  }
+}

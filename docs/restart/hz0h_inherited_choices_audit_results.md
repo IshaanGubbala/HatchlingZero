@@ -1339,6 +1339,46 @@ so far), not something this test can distinguish from "never happens."
 Closed as a real negative result at THIS budget, not a permanent
 verdict on the underlying idea.
 
+### Full 10M-token domain-specialization confirmation: same conclusion at 5x the budget
+
+Real full-budget rerun (RunPod A40, batch=32, `--use-wide-gemm`, the new
+memory/speed fix from earlier this Part -- 10M tokens trained in 2015s
+thanks to it, vs. an estimated ~2.5-2.7h this same test would have taken
+on the RTX3060 the 2M-token version ran on):
+
+| round | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| within-domain | 0.023 | 0.022 | 0.025 | 0.028 | 0.029 | 0.033 | 0.044 | 0.064 |
+| across-domain | 0.020 | 0.020 | 0.023 | 0.026 | 0.027 | 0.032 | 0.041 | 0.055 |
+| ratio | 1.16x | 1.06x | 1.07x | 1.07x | 1.05x | 1.03x | 1.07x | 1.18x |
+
+**Real answer: this directly closes the "maybe it needs more scale to
+show up" caveat from the 2M-token result** -- at 5x the token budget
+(and the same real production shape/params as every other Part 9/10/11
+result), the ratio stays in the same flat 1.03x-1.18x band, no trend
+toward separation. A real, secondary observation worth noting
+honestly: BOTH within- and across-domain absolute values dropped
+compared to the 2M-token run (e.g. round 0: 0.023/0.020 here vs.
+0.041/0.037 at 2M tokens) -- more training makes activation support
+sparser/more token-specific overall, consistent with the earlier
+effective-rank findings, but this shift is proportional across both
+within- and across-domain measurements, so the RATIO (the thing that
+actually answers the domain-specialization question) is unaffected.
+Closed as a real negative result at production scale and budget, not
+just the earlier small-scale check.
+
+### Seed=8 lands toward Part 9's still-open 3-seed confirmation
+
+Real second seed of the `raw_bdh` 10M-token production run (same shape,
+`--use-wide-gemm`, batch=32), run in parallel with the domain-
+specialization confirmation above on the pod's second A40:
+**`validation_loss=1.4080`** -- genuinely different from seed=7's
+1.6844/1.7038 (real seed variance, and notably BETTER here), the first
+actual different-seed data point toward the 3-seed confirmation Part 9
+has flagged as pending all session. Still only 2 of 3 seeds; a third
+run would close this out. Archived at
+`results/cuda/hz0h_runpod_a40_raw_300m_10m_seed8_result.json`.
+
 ## Concrete next steps
 
 1. **Confirm `softmax_scaled` at full CUDA scale** (25M tokens, bf16,
