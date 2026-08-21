@@ -891,6 +891,34 @@ changes is the price paid for that quality win -- roughly 3.7x slower,
 not 66x -- which makes the "BDH may be worth the compute cost" framing
 dramatically more favorable than previously stated, not less.
 
+**Real, disclosed distinction (2026-08-21) -- the ~3.7x figure above is
+INFERENCE-only, not training**: `measure_throughput` runs a bare
+forward pass under `no_grad` -- no backward, no optimizer step. A
+separate real dispatch measured actual TRAINING throughput (forward +
+backward + `optimizer.step()`, same bf16/adam8bit recipe, same matched
+~300M-param shapes, same 2M-token budget) for both arms directly:
+
+| | training tok/s | params |
+|---|---:|---:|
+| `raw_bdh` (domain-mix run, varies by curriculum depth) | ~1040-1402 | 300.32M |
+| `matched_transformer` | ~7223-7235 (flat, no recurrence to slow down) | 302.57M |
+
+**Real training-time gap: ~5.2x-6.9x, somewhat larger than the 3.7x
+inference-only figure** -- expected, since BDH's backward pass runs
+through the SAME tied weights 8 times per step (real per-step backward
+cost scales with recurrence depth in a way a Transformer's distinct-
+per-layer weights don't), and inference-only throughput never pays that
+backward cost at all. Both numbers are real and both matter for
+different purposes (~3.7x is the right number for inference-time cost;
+~5.2x-6.9x is the right number for how long a training run actually
+takes) -- neither one alone is "the" BDH-vs-Transformer speed ratio,
+and conflating them was the exact original mistake the fp32-autocast
+bug caused. `matched_transformer`'s own post-training inference
+benchmark also confirmed clean on this same dispatch: uncompiled 29337
+tok/s, compiled (max-autotune) 32185 tok/s (1.10x, no crash, no
+fp32-upcast issue) -- archived at
+`results/cuda/hz0h_matched_transformer_training_throughput_result.json`.
+
 **New, separate, NOT-yet-investigated observation surfaced by this same
 fix:** compiled throughput (617 tok/s) is now confirmed SLOWER than
 uncompiled (2758 tok/s) for `raw_bdh` -- the same direction as
