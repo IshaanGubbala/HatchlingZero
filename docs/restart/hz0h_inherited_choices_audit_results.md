@@ -1419,6 +1419,89 @@ three. Archived at
 `results/cuda/hz0h_runpod_a40_raw_300m_10m_seed9_result.json`,
 `results/cuda/hz0h_runpod_a40_matched_transformer_10m_seed{8,9}_result.json`.
 
+### FlashBDH: mathematically correct, but a real negative result on memory/speed as built
+
+Real attempt (2026-08-21, user-directed) at the harder follow-up to
+checkpointed wide-GEMM: `BDHFlashRoundFunction`
+(`reference/hz0h_bdh_flash_round_torch.py`), a custom
+`torch.autograd.Function` per BDH round with a hand-derived analytic
+backward -- intended to avoid checkpointing's real, measured ~28%
+recompute-forward tax entirely (standard backprop-through-matmuls
+theory predicts backward costs ~2x forward FLOPs regardless of method;
+checkpointing's extra cost is specifically the redundant "redo forward"
+1x on top of that).
+
+**The math is real and proven correct, on two independent gates**:
+bit-exact (logits, loss, gradients) against `bdh_variable_depth_forward`,
+AND `torch.autograd.gradcheck` (double-precision finite-difference,
+both single-round and 2-round-chained) on the raw Function in
+isolation. All 5 tests passed on the first implementation attempt.
+Getting there required finding and fixing THREE real, distinct
+autocast/dtype bugs on real CUDA hardware, invisible to local CPU/fp32
+tests which never exercised autocast at all: (1) custom Function
+forward/backward don't automatically share a dtype under
+`torch.autocast` since backward runs outside the lexical `with
+autocast` scope; (2) PyTorch's native LayerNorm backward kernel
+promotes its returned gradient dtype internally even with no active
+autocast; (3) the real root cause underlying both -- `forward()` itself
+still runs INSIDE the caller's active autocast scope, so autocast's own
+per-op policy (which forces LayerNorm to run and RETURN in fp32
+regardless of input dtype) silently overrode the explicit bf16 casts,
+meaning saved tensors were fp32 when bf16 was assumed. Fixed by
+explicitly disabling autocast's automatic policy for the whole function
+body (`torch.autocast(..., enabled=False)`), giving full deterministic
+control. Real accuracy check on CUDA after all three fixes: forward
+loss matches the oracle within normal bf16 rounding noise (5.65100 vs.
+5.65051 oracle, same magnitude as wide-GEMM's own 5.65082 deviation);
+gradient norms match within <1%, individual-element max-abs relative
+differences of 4.5-9% consistent with real bf16 precision compounding
+over 8 real recurrent rounds via a different operation order, not a
+bug (the underlying math was already proven exact via double-precision
+gradcheck).
+
+**But the real, honest practical result is negative for THIS
+implementation**: measured on the RTX A40 at the real production shape
+(`n_embd=2496`), FlashBDH's memory and throughput do NOT beat what
+already exists --
+
+| config | batch=8 | batch=32 | real ceiling |
+|---|---:|---:|---:|
+| wide-GEMM alone | ~14GB / ~4200 tok/s | 34GB(est) / 5071 tok/s | 32 |
+| checkpointed wide-GEMM | ~8GB / 2509 tok/s | 14.55GB(*) / 2662 tok/s | ~160-168 |
+| **FlashBDH** | **16.43GB / 2658 tok/s** | **34.46GB / 3296 tok/s** | **~32-40** |
+
+(*checkpointed wide-GEMM's own reported "peak_memory" figures earlier
+in this Part were later found to come from a disconnected benchmark
+that doesn't use checkpointing at all -- see the real training-loop
+probe numbers used here instead.)
+
+**Real root cause, understood, not just observed**: `ctx.save_for_backward`
+keeps a round's saved tensors alive until THAT round's own `backward()`
+is called -- which, for a normal sequential forward pass through
+`n_iterations` rounds, only happens after every later round's backward
+has already run (standard reverse-order backprop). Saving LESS per
+round (no broadcast-expansion bug, no retained QR/scores) is real and
+helps somewhat, but without an OUTER discard-and-recompute mechanism
+across round boundaries -- exactly what `torch.utils.checkpoint`
+provides -- memory still scales with `n_iterations`, just with a
+smaller per-round constant than the plain path. And wrapping FlashBDH's
+rounds in `torch.utils.checkpoint` on top would defeat the entire
+point: checkpoint's own recompute would just re-run the whole custom
+Function's forward again, exactly the redundant work FlashBDH exists to
+avoid. This is a genuine structural gap in the current design, not a
+bug to patch -- a real cross-round memory-discipline mechanism (outside
+`torch.utils.checkpoint`'s own recompute-based approach) would be
+needed to actually deliver the intended win, real future work if
+pursued further.
+
+**Disclosed as a real negative result for this implementation, matching
+this project's own standing discipline (Part 6, Part 7, Part 10)** --
+the underlying idea (avoid checkpointing's recompute tax via analytic
+backward) remains theoretically sound and the math is now proven
+correct and reusable, but this session's build does not currently
+outperform the simpler checkpointed-wide-GEMM path on either memory or
+speed, and should not be used in production training as-is.
+
 ## Concrete next steps
 
 1. **Confirm `softmax_scaled` at full CUDA scale** (25M tokens, bf16,
