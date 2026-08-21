@@ -52,6 +52,7 @@ from reference.hz0h_bdh_combined_checkpointed_torch import combined_bdh_forward_
 from reference.hz0h_bdh_jump_operator_torch import JumpOperator
 from reference.hz0h_bdh_torch import BDH, BDHConfig
 from reference.hz0h_bdh_variable_depth_torch import bdh_variable_depth_forward
+from reference.hz0h_bdh_wide_gemm_checkpointed_torch import bdh_wide_gemm_forward_checkpointed
 from reference.hz0h_bdh_wide_gemm_trainable_torch import bdh_wide_gemm_trainable_forward
 from scripts.hz0h_bdh_width_flop_frontier_local import pick_device, synchronize
 from scripts.hz0h_factorized_curriculum_full_comparison import depth_at, lr_at, parse_stages, read_batch
@@ -128,12 +129,18 @@ def train_bdh(config: BDHConfig, args, device, use_softmax_scaled: bool) -> BDH:
     tokens = 0
 
     if args.use_wide_gemm and args.gradient_checkpointing:
-        raise RuntimeError(
-            "--use-wide-gemm --gradient-checkpointing together is a real, disclosed gap, not a "
-            "silent fallback -- bdh_wide_gemm_trainable_forward has no checkpointed variant. Use "
-            "one or the other until this is implemented."
+        if use_softmax_scaled:
+            raise RuntimeError(
+                "--use-wide-gemm --gradient-checkpointing --softmax-scaled together: real, "
+                "disclosed gap -- the checkpointed wide-GEMM path only covers raw_bdh's plain-"
+                "attention forward (bdh_wide_gemm_forward_checkpointed), not combined_best's "
+                "softmax_scaled attention. Use one lever or the other for combined_best until "
+                "this is implemented."
+            )
+        raw_fn = lambda m, idx, depth, target: bdh_wide_gemm_forward_checkpointed(
+            m, idx, depth, target, checkpoint_segment_size=args.checkpoint_segment_size,
         )
-    if args.gradient_checkpointing:
+    elif args.gradient_checkpointing:
         if use_softmax_scaled:
             raw_fn = combined_bdh_forward_training_checkpointed
         else:
@@ -439,9 +446,14 @@ def main() -> None:
                              "copy of the weight for backward (67%% of a 37.8GB peak at batch=8 was "
                              "this alone) -- the wide-GEMM path saves only the true, unexpanded "
                              "weight, cutting real training peak memory 37.8GB->13.9GB (2.72x) at "
-                             "the same batch/shape, with ZERO checkpointing needed. Mutually "
-                             "exclusive with --gradient-checkpointing (see the loud error if both "
-                             "are passed) -- no checkpointed variant of this path exists yet.")
+                             "the same batch/shape, with ZERO checkpointing needed. Combined with "
+                             "--gradient-checkpointing (raw_bdh only, not combined_best -- loud "
+                             "error there), this uses bdh_wide_gemm_forward_checkpointed: a real "
+                             "follow-up probe found plain checkpointing ALONE gets batch=8's "
+                             "backward peak to 8.0GB, lower than wide-GEMM alone's 13.9GB, since "
+                             "checkpointing avoids retaining every round simultaneously while "
+                             "wide-GEMM-without-checkpointing still does (just at the bug-fixed "
+                             "size) -- the two fixes are complementary, not overlapping.")
     parser.add_argument("--jump-hidden-mult", type=int, default=4,
                         help="JumpOperator's hidden width as a multiple of d_model. Shrink this "
                              "at large model scale -- the jump operator's own param count grows "
