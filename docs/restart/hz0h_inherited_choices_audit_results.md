@@ -27,14 +27,20 @@ every FLOP-based argument in this whole audit until now -- Part 8), and
 one real, first-time production-scale CUDA result (Part 9) that
 reframes the whole "why bother with BDH" question: `raw_bdh` (mult=16,
 plain attention) BEATS the matched Transformer on validation loss
-(1.7038 vs 2.3016) at nearly equal params, on real 10M-token training
--- at a real throughput cost, corrected as of 2026-08-20 (see Part 9's
-retraction) to ~3.7x slower, not the originally-reported 66x (that
-number was itself a bug -- `measure_throughput` was silently running in
-fp32, not bf16). Both are true at once, not a contradiction.
-`combined_best`'s own arm remained broken (real validation_loss=49.6306,
-a depth-8-specific divergence gradient clipping only partially fixed),
-so this quality win belongs to plain BDH, not the stacked recipe.
+at nearly equal params, on real 10M-token training -- at a real
+throughput cost, corrected as of 2026-08-20 (see Part 9's retraction)
+to ~3.7x slower (inference) / ~5.2x-6.9x slower (real training), not
+the originally-reported 66x (that number was itself a bug --
+`measure_throughput` was silently running in fp32, not bf16). Both are
+true at once, not a contradiction. **UPDATE (2026-08-21): this is no
+longer a single-run result -- a real 3-seed confirmation (on a rented
+RunPod A40, using two further memory/speed fixes found the same day)
+now shows `raw_bdh` beating `matched_transformer` on EVERY one of 3
+seeds** (1.6844/1.4080/1.4027 vs. 2.3016/1.8988/1.9353, means 1.498 vs.
+2.045). `combined_best`'s own arm remained broken (real
+validation_loss=49.6306, a depth-8-specific divergence gradient
+clipping only partially fixed), so this quality win belongs to plain
+BDH, not the stacked recipe.
 Finally, Part 11 directly measures the realized per-round operator gate
 `g_r` (not a proxy for it), first at small local scale then CONFIRMED
 on real production-scale CUDA (`n_embd=2496`, matching Part 9's shape):
@@ -770,8 +776,11 @@ That is a genuine, disclosed tradeoff,
 not a contradiction -- and it means the earlier "just use the
 Transformer" conclusion needs to be walked back to "use the Transformer
 if throughput is what matters; BDH may be worth the compute cost if
-quality-per-parameter is what matters," pending 3-seed confirmation
-(this is a single real run, not yet replicated).
+quality-per-parameter is what matters." **UPDATE (2026-08-21): the
+3-seed confirmation this needed is now done -- see later in this Part
+-- `raw_bdh` beat `matched_transformer` on all 3 real seeds
+(1.6844/1.4080/1.4027 vs. 2.3016/1.8988/1.9353), not just the single
+original run.**
 
 ### Cross-hardware reproducibility check (2026-08-21): same result, different GPU entirely
 
@@ -1378,6 +1387,37 @@ actual different-seed data point toward the 3-seed confirmation Part 9
 has flagged as pending all session. Still only 2 of 3 seeds; a third
 run would close this out. Archived at
 `results/cuda/hz0h_runpod_a40_raw_300m_10m_seed8_result.json`.
+
+### 3-SEED CONFIRMATION COMPLETE: raw_bdh beats matched_transformer on EVERY seed
+
+Seed=9 (same shape/recipe, `--use-wide-gemm`, batch=32, RunPod A40)
+completed cleanly: **`validation_loss=1.4027`**. This is the third real
+seed for `raw_bdh` and closes the 3-seed confirmation Part 9 has
+flagged as pending since it was first reported. In parallel, the
+matched Transformer control arm also picked up 2 more real seeds this
+session (previously only seed=7 had ever been run), so both arms of
+the comparison now have 3 real seeds each -- not just BDH:
+
+| seed | `raw_bdh` | `matched_transformer` |
+|---|---:|---:|
+| 7 | 1.6844 (A40) / 1.7038 (original RTX3060, same seed) | 2.3016 |
+| 8 | 1.4080 | 1.8988 |
+| 9 | 1.4027 | 1.9353 |
+| **mean** | **1.498** | **2.045** |
+
+**Real, decisive result: `raw_bdh` beats `matched_transformer` on
+EVERY individual seed, not just on average** -- a real, now-properly-
+confirmed finding, not a single-run artifact. This closes the "pending
+3-seed confirmation" caveat attached to Part 9's headline result since
+this document's very first version. Real, disclosed caveat that
+remains: seed=7's `raw_bdh` number is unusually close to `raw_bdh`
+seeds 8/9 being a matched PAIR (1.4080, 1.4027) while seed=7 sits
+noticeably higher (1.6844/1.7038) -- worth noting as a real, visible
+seed-to-seed spread rather than three near-identical numbers, though
+the direction (BDH < Transformer) is completely consistent across all
+three. Archived at
+`results/cuda/hz0h_runpod_a40_raw_300m_10m_seed9_result.json`,
+`results/cuda/hz0h_runpod_a40_matched_transformer_10m_seed{8,9}_result.json`.
 
 ## Concrete next steps
 
