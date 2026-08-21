@@ -41,6 +41,20 @@ per recurrent round and pooled across rounds:
   vectors -- the ONE statistic that genuinely needs actual sample
   vectors rather than running sums, so it alone gets a small fixed
   memory budget) both per-round and pooled across all rounds.
+- `cross_token_support_jaccard` (added 2026-08-21): the crux question
+  before building any block-sparse kernel. Low effective rank means the
+  pooled `g_r` vectors jointly span a low-dimensional subspace -- it
+  does NOT by itself mean different tokens share the same ACTIVE NEURON
+  IDENTITIES (could be correlated activation on genuinely different
+  supports). HIGH cross-token Jaccard (measured on random pairs of
+  DIFFERENT tokens within the same round) means a STATIC, shared
+  column-subset per round is exploitable with a real dense-GEMM, no
+  gather needed; LOW cross-token Jaccard means the sparsity is real but
+  token-specific, and naive per-token gather does NOT save real FLOPs
+  (gathering a different weight slice per token costs as much as the
+  matmul it replaces -- the same reason the earlier MoE-style router in
+  this project's history lost on real wall-clock despite a real
+  theoretical FLOP reduction).
 
 Real, disclosed limits: local-scale results (n_embd=256) are a
 first-pass signal check, matching this project's established pattern of
@@ -177,7 +191,41 @@ class StreamingRoundStats:
         if self.svd_reservoir:
             pooled = torch.cat(self.svd_reservoir, dim=0)
             stats["effective_rank"] = effective_rank(pooled, seed=seed)
+            stats["cross_token_support_jaccard"] = cross_token_support_jaccard(pooled, seed=seed)
         return stats
+
+
+def cross_token_support_jaccard(g: torch.Tensor, threshold: float = 1e-6, n_pairs: int = 2000, seed: int = 0) -> dict:
+    """Real crux measurement (2026-08-21): a low `effective_rank` (SVD
+    participation ratio) means the pooled `g_r` vectors jointly span a
+    low-dimensional subspace -- it does NOT by itself mean different
+    tokens share the same ACTIVE NEURON IDENTITIES. Those are genuinely
+    different claims: low effective rank with LOW cross-token Jaccard
+    would mean each token uses its own different small active set that
+    happens to be jointly low-rank (correlated activation, not shared
+    identity) -- exploiting that requires per-token-varying gather,
+    which does NOT save real FLOPs naively (gathering a different
+    weight slice per token costs as much as the matmul it replaces,
+    the same reason the earlier MoE-style router lost). HIGH
+    cross-token Jaccard would mean different tokens actually reuse the
+    SAME small set of active neurons -- exploitable via one STATIC,
+    shared column-subset per round, real GPU-friendly dense-GEMM
+    savings, no gather needed. Measured here on random PAIRS of
+    DIFFERENT samples within the SAME round's already-collected SVD
+    reservoir (no new data collection)."""
+    n = g.shape[0]
+    if n < 2:
+        return {"mean_jaccard": float("nan"), "pairs_used": 0}
+    generator = torch.Generator().manual_seed(seed + 1)
+    idx_a = torch.randint(0, n, (n_pairs,), generator=generator)
+    idx_b = torch.randint(0, n, (n_pairs,), generator=generator)
+    distinct = idx_a != idx_b
+    idx_a, idx_b = idx_a[distinct], idx_b[distinct]
+    support_a = g[idx_a] > threshold
+    support_b = g[idx_b] > threshold
+    intersection = (support_a & support_b).sum(dim=-1).float()
+    union = (support_a | support_b).sum(dim=-1).float().clamp(min=1.0)
+    return {"mean_jaccard": float((intersection / union).mean()), "pairs_used": int(idx_a.shape[0])}
 
 
 def effective_rank(g: torch.Tensor, max_samples: int = 4000, seed: int = 0) -> dict:
@@ -294,12 +342,14 @@ def main() -> None:
         stats = acc.finalize(seed=args.seed)
         report["rounds"][str(r)] = stats
         eff_rank = stats.get("effective_rank", {})
+        cross_jaccard = stats.get("cross_token_support_jaccard", {})
         print(f"[round {r}] f_x={stats['f_x_active_fraction']:.3f} f_y={stats['f_y_active_fraction']:.3f} "
               f"f_xy={stats['f_xy_intersection_fraction']:.3f} "
               f"eff_rank={eff_rank.get('participation_ratio', float('nan')):.1f}"
               f"/{N} ({eff_rank.get('fraction_of_nominal_width', float('nan')):.1%}) "
               f"top-{top_ks[-1]}_energy={stats['top_k_energy_fraction'].get(top_k_label, float('nan')):.3f} "
-              f"jaccard_to_next={stats.get('support_jaccard_to_next_round', float('nan')):.3f}",
+              f"jaccard_to_next={stats.get('support_jaccard_to_next_round', float('nan')):.3f} "
+              f"cross_token_jaccard={cross_jaccard.get('mean_jaccard', float('nan')):.3f}",
               flush=True)
 
     args.out.parent.mkdir(parents=True, exist_ok=True)

@@ -11,173 +11,205 @@
     "seed": 11
   },
   "parameter_count": 3276800,
-  "train_seconds": 12.624141375010367,
+  "train_seconds": 12.552626832999522,
   "rounds": {
     "0": {
-      "exact_zero_fraction": 0.8481469101793184,
-      "above_threshold_fraction": 0.1518478874146469,
-      "f_x_active_fraction": 0.35076661598025344,
-      "f_y_active_fraction": 0.45159483181210014,
-      "f_xy_intersection_fraction": 0.15185288556917445,
+      "exact_zero_fraction": 0.8468943077748216,
+      "above_threshold_fraction": 0.15309892789585383,
+      "f_x_active_fraction": 0.3503891111358883,
+      "f_y_active_fraction": 0.4558104147122601,
+      "f_xy_intersection_fraction": 0.15310557207723302,
       "top_k_energy_fraction": {
-        "k=10": 0.8840222954750061,
-        "k=25": 0.973301163315773,
-        "k=51": 0.9907445132732391,
-        "k=128": 0.9921258449554443
+        "k=10": 0.8830840051174164,
+        "k=25": 0.9727832227945328,
+        "k=51": 0.9906465411186218,
+        "k=128": 0.9921258360147476
       },
       "samples_seen": 162560,
-      "support_jaccard_to_next_round": 0.5185409933328629,
+      "support_jaccard_to_next_round": 0.5139871776103974,
       "effective_rank": {
-        "participation_ratio": 194.64123668447266,
+        "participation_ratio": 196.48929835453592,
         "nominal_width": 512,
-        "fraction_of_nominal_width": 0.38015866539936066,
+        "fraction_of_nominal_width": 0.38376816084870297,
         "samples_used": 4000
+      },
+      "cross_token_support_jaccard": {
+        "mean_jaccard": 0.09254598617553711,
+        "pairs_used": 1998
       }
     },
     "1": {
-      "exact_zero_fraction": 0.8312593955693283,
-      "above_threshold_fraction": 0.16873507762518455,
-      "f_x_active_fraction": 0.3616941196711983,
-      "f_y_active_fraction": 0.46938683216966043,
-      "f_xy_intersection_fraction": 0.1687401718980684,
+      "exact_zero_fraction": 0.8314586969811146,
+      "above_threshold_fraction": 0.16853613665723424,
+      "f_x_active_fraction": 0.3594870139294722,
+      "f_y_active_fraction": 0.4716888788178211,
+      "f_xy_intersection_fraction": 0.16854070227915846,
       "top_k_energy_fraction": {
-        "k=10": 0.8551567047834396,
-        "k=25": 0.9637965798377991,
-        "k=51": 0.9898846954107284,
-        "k=128": 0.9921259582042694
+        "k=10": 0.8558805674314499,
+        "k=25": 0.9638135433197021,
+        "k=51": 0.9899048209190369,
+        "k=128": 0.9921259611845017
       },
       "samples_seen": 162560,
-      "support_jaccard_to_next_round": 0.6632111310958863,
+      "support_jaccard_to_next_round": 0.6635662823915481,
       "effective_rank": {
-        "participation_ratio": 199.8922291054466,
+        "participation_ratio": 200.78517598311046,
         "nominal_width": 512,
-        "fraction_of_nominal_width": 0.3904145099715754,
+        "fraction_of_nominal_width": 0.3921585468420126,
         "samples_used": 4000
+      },
+      "cross_token_support_jaccard": {
+        "mean_jaccard": 0.10188183188438416,
+        "pairs_used": 1998
       }
     },
     "2": {
-      "exact_zero_fraction": 0.8352431530088891,
-      "above_threshold_fraction": 0.16475268987220104,
-      "f_x_active_fraction": 0.3446844146007628,
-      "f_y_active_fraction": 0.4676840594434363,
-      "f_xy_intersection_fraction": 0.16475652259165846,
+      "exact_zero_fraction": 0.8370423204316868,
+      "above_threshold_fraction": 0.16295274148775837,
+      "f_x_active_fraction": 0.3421926303172675,
+      "f_y_active_fraction": 0.46671070489357774,
+      "f_xy_intersection_fraction": 0.1629571509173536,
       "top_k_energy_fraction": {
-        "k=10": 0.8374117493629456,
-        "k=25": 0.9603737831115723,
-        "k=51": 0.9900464445352555,
+        "k=10": 0.8396973848342896,
+        "k=25": 0.9613655239343644,
+        "k=51": 0.9902085304260254,
         "k=128": 0.9921259880065918
       },
       "samples_seen": 162560,
-      "support_jaccard_to_next_round": 0.7233337670564651,
+      "support_jaccard_to_next_round": 0.7286709278821946,
       "effective_rank": {
-        "participation_ratio": 195.10119149466195,
+        "participation_ratio": 194.68708218477482,
         "nominal_width": 512,
-        "fraction_of_nominal_width": 0.3810570146380116,
+        "fraction_of_nominal_width": 0.3802482073921383,
         "samples_used": 4000
+      },
+      "cross_token_support_jaccard": {
+        "mean_jaccard": 0.10331571102142334,
+        "pairs_used": 1998
       }
     },
     "3": {
-      "exact_zero_fraction": 0.8464741984690268,
-      "above_threshold_fraction": 0.15352193276713214,
-      "f_x_active_fraction": 0.3201277004452202,
-      "f_y_active_fraction": 0.4578905240757259,
-      "f_xy_intersection_fraction": 0.15352546511672613,
+      "exact_zero_fraction": 0.8487556998185285,
+      "above_threshold_fraction": 0.15124069574311025,
+      "f_x_active_fraction": 0.31824615959107405,
+      "f_y_active_fraction": 0.45651561106283833,
+      "f_xy_intersection_fraction": 0.15124387966366265,
       "top_k_energy_fraction": {
-        "k=10": 0.8325909078121185,
-        "k=25": 0.9606263220310212,
-        "k=51": 0.9905709147453308,
+        "k=10": 0.8350383818149567,
+        "k=25": 0.9618508964776993,
+        "k=51": 0.9906965404748916,
         "k=128": 0.9921259880065918
       },
       "samples_seen": 162560,
-      "support_jaccard_to_next_round": 0.7900790333747864,
+      "support_jaccard_to_next_round": 0.7928345888853073,
       "effective_rank": {
-        "participation_ratio": 189.67309087722165,
+        "participation_ratio": 189.0321697509172,
         "nominal_width": 512,
-        "fraction_of_nominal_width": 0.37045525561957354,
+        "fraction_of_nominal_width": 0.36920345654476017,
         "samples_used": 4000
+      },
+      "cross_token_support_jaccard": {
+        "mean_jaccard": 0.09962937235832214,
+        "pairs_used": 1998
       }
     },
     "4": {
-      "exact_zero_fraction": 0.8545024481345349,
-      "above_threshold_fraction": 0.14549407958984376,
-      "f_x_active_fraction": 0.3028469055656373,
-      "f_y_active_fraction": 0.4521485456331508,
-      "f_xy_intersection_fraction": 0.14549725149560164,
+      "exact_zero_fraction": 0.8564736193559301,
+      "above_threshold_fraction": 0.14352300448680488,
+      "f_x_active_fraction": 0.30197286530742495,
+      "f_y_active_fraction": 0.45110185277743603,
+      "f_xy_intersection_fraction": 0.14352592408187745,
       "top_k_energy_fraction": {
-        "k=10": 0.8298381745815278,
-        "k=25": 0.961140763759613,
-        "k=51": 0.990886715054512,
+        "k=10": 0.8323673844337464,
+        "k=25": 0.9624856770038605,
+        "k=51": 0.9909652650356293,
         "k=128": 0.9921259880065918
       },
       "samples_seen": 162560,
-      "support_jaccard_to_next_round": 0.837373360991478,
+      "support_jaccard_to_next_round": 0.8395836263895035,
       "effective_rank": {
-        "participation_ratio": 186.73923998999223,
+        "participation_ratio": 185.59068265236715,
         "nominal_width": 512,
-        "fraction_of_nominal_width": 0.36472507810545357,
+        "fraction_of_nominal_width": 0.3624818020554046,
         "samples_used": 4000
+      },
+      "cross_token_support_jaccard": {
+        "mean_jaccard": 0.09709015488624573,
+        "pairs_used": 1998
       }
     },
     "5": {
-      "exact_zero_fraction": 0.8588230283241572,
-      "above_threshold_fraction": 0.14117336723748156,
-      "f_x_active_fraction": 0.29343250905434914,
-      "f_y_active_fraction": 0.44946438045952264,
-      "f_xy_intersection_fraction": 0.1411765992172121,
+      "exact_zero_fraction": 0.8604289618064099,
+      "above_threshold_fraction": 0.13956779419906495,
+      "f_x_active_fraction": 0.29322977141132506,
+      "f_y_active_fraction": 0.448525183970534,
+      "f_xy_intersection_fraction": 0.1395706296905758,
       "top_k_energy_fraction": {
-        "k=10": 0.8278639853000641,
-        "k=25": 0.9616612613201141,
-        "k=51": 0.9910474210977555,
+        "k=10": 0.8310696125030518,
+        "k=25": 0.9631153911352157,
+        "k=51": 0.9910725802183151,
         "k=128": 0.9921259880065918
       },
       "samples_seen": 162560,
-      "support_jaccard_to_next_round": 0.8681564152240753,
+      "support_jaccard_to_next_round": 0.8698052376508713,
       "effective_rank": {
-        "participation_ratio": 183.48845679353013,
+        "participation_ratio": 181.57465052703586,
         "nominal_width": 512,
-        "fraction_of_nominal_width": 0.35837589217486354,
+        "fraction_of_nominal_width": 0.3546379893106169,
         "samples_used": 4000
+      },
+      "cross_token_support_jaccard": {
+        "mean_jaccard": 0.09600464999675751,
+        "pairs_used": 1998
       }
     },
     "6": {
-      "exact_zero_fraction": 0.86093204528328,
-      "above_threshold_fraction": 0.13906473475178396,
-      "f_x_active_fraction": 0.28845294141393946,
-      "f_y_active_fraction": 0.44796882689468503,
-      "f_xy_intersection_fraction": 0.13906758225808932,
+      "exact_zero_fraction": 0.8621399406373031,
+      "above_threshold_fraction": 0.13785675529419905,
+      "f_x_active_fraction": 0.2892358254259966,
+      "f_y_active_fraction": 0.44698295292891854,
+      "f_xy_intersection_fraction": 0.13785973496324433,
       "top_k_energy_fraction": {
-        "k=10": 0.8266663998365402,
-        "k=25": 0.9619757294654846,
-        "k=51": 0.9911152392625808,
+        "k=10": 0.8305576562881469,
+        "k=25": 0.9634583085775376,
+        "k=51": 0.9911084860563278,
         "k=128": 0.9921259880065918
       },
       "samples_seen": 162560,
-      "support_jaccard_to_next_round": 0.8877003133296967,
+      "support_jaccard_to_next_round": 0.8880518227815628,
       "effective_rank": {
-        "participation_ratio": 179.1104533751271,
+        "participation_ratio": 176.32853915979894,
         "nominal_width": 512,
-        "fraction_of_nominal_width": 0.3498251042482951,
+        "fraction_of_nominal_width": 0.3443916780464823,
         "samples_used": 4000
+      },
+      "cross_token_support_jaccard": {
+        "mean_jaccard": 0.09645496308803558,
+        "pairs_used": 1998
       }
     },
     "7": {
-      "exact_zero_fraction": 0.8617674820066437,
-      "above_threshold_fraction": 0.1382291778804749,
-      "f_x_active_fraction": 0.28628519613911785,
-      "f_y_active_fraction": 0.4467623372716228,
-      "f_xy_intersection_fraction": 0.1382321335199311,
+      "exact_zero_fraction": 0.8627709095872294,
+      "above_threshold_fraction": 0.13722571425550567,
+      "f_x_active_fraction": 0.2874791543314776,
+      "f_y_active_fraction": 0.4456749863511934,
+      "f_xy_intersection_fraction": 0.13722874198372909,
       "top_k_energy_fraction": {
-        "k=10": 0.8260728359222412,
-        "k=25": 0.9621186047792435,
-        "k=51": 0.9911302655935288,
+        "k=10": 0.8303998589515686,
+        "k=25": 0.963481143116951,
+        "k=51": 0.991115465760231,
         "k=128": 0.9921259880065918
       },
       "samples_seen": 162560,
       "effective_rank": {
-        "participation_ratio": 173.85531872491362,
+        "participation_ratio": 170.2707484354252,
         "nominal_width": 512,
-        "fraction_of_nominal_width": 0.3395611693845969,
+        "fraction_of_nominal_width": 0.3325600555379398,
         "samples_used": 4000
+      },
+      "cross_token_support_jaccard": {
+        "mean_jaccard": 0.09754008054733276,
+        "pairs_used": 1998
       }
     }
   }
