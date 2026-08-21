@@ -228,6 +228,31 @@ def cross_token_support_jaccard(g: torch.Tensor, threshold: float = 1e-6, n_pair
     return {"mean_jaccard": float((intersection / union).mean()), "pairs_used": int(idx_a.shape[0])}
 
 
+def cross_domain_support_jaccard(g_a: torch.Tensor, g_b: torch.Tensor, threshold: float = 1e-6,
+                                  n_pairs: int = 2000, seed: int = 0) -> dict:
+    """Real follow-up (2026-08-21): `cross_token_support_jaccard` above
+    measures overlap between random DIFFERENT tokens drawn from ONE
+    pooled reservoir (mixed-domain held-out data, no domain labels) --
+    it can't distinguish "tokens never share support" from "tokens
+    share support WITHIN a domain but not ACROSS domains," since mixing
+    domains together and averaging would wash out the second case. This
+    variant compares two SEPARATE reservoirs (each from a single,
+    labeled domain, see `hz0h_bdh_domain_specialization_diagnostic.py`)
+    -- same real Jaccard-over-support math, just sampling from two
+    distinct tensors instead of one."""
+    n_a, n_b = g_a.shape[0], g_b.shape[0]
+    if n_a < 1 or n_b < 1:
+        return {"mean_jaccard": float("nan"), "pairs_used": 0}
+    generator = torch.Generator().manual_seed(seed + 2)
+    idx_a = torch.randint(0, n_a, (n_pairs,), generator=generator)
+    idx_b = torch.randint(0, n_b, (n_pairs,), generator=generator)
+    support_a = g_a[idx_a] > threshold
+    support_b = g_b[idx_b] > threshold
+    intersection = (support_a & support_b).sum(dim=-1).float()
+    union = (support_a | support_b).sum(dim=-1).float().clamp(min=1.0)
+    return {"mean_jaccard": float((intersection / union).mean()), "pairs_used": int(n_pairs)}
+
+
 def effective_rank(g: torch.Tensor, max_samples: int = 4000, seed: int = 0) -> dict:
     """Participation ratio `(sum(s))^2 / sum(s^2)` over SVD singular
     values of a randomly-subsampled `[samples, N]` slice -- a real

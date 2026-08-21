@@ -1,0 +1,45 @@
+=== training raw BDH on DOMAIN-MIXED data (n_embd=256 mult=16 n_layer=8 n_head=8, N=512 per head) ===
+/Users/ishaangubbala/Documents/Training/scripts/hz0h_bdh_combined_best_comparison.py:161: UserWarning: Converting a tensor with requires_grad=True to a scalar may lead to unexpected behavior.
+Consider using tensor.detach() first. (Triggered internally at /Users/runner/work/pytorch/pytorch/torch/csrc/autograd/generated/python_variable_methods.cpp:823.)
+  f"depth={depth} loss={float(loss):.4f} {rate:.0f} tok/s eta={eta:.0f}s", flush=True)
+[train_bdh softmax_scaled=False] step 20/489 depth=4 loss=3.2522 33932 tok/s eta=28s
+[train_bdh softmax_scaled=False] step 40/489 depth=4 loss=2.4213 34337 tok/s eta=27s
+[train_bdh softmax_scaled=False] step 60/489 depth=4 loss=2.5810 34471 tok/s eta=25s
+[train_bdh softmax_scaled=False] step 80/489 depth=4 loss=2.6378 34554 tok/s eta=24s
+[train_bdh softmax_scaled=False] step 100/489 depth=4 loss=2.0817 34593 tok/s eta=23s
+[train_bdh softmax_scaled=False] step 120/489 depth=4 loss=2.3085 34617 tok/s eta=22s
+[train_bdh softmax_scaled=False] step 140/489 depth=4 loss=2.1909 34633 tok/s eta=21s
+[train_bdh softmax_scaled=False] step 160/489 depth=4 loss=2.3728 34637 tok/s eta=19s
+[train_bdh softmax_scaled=False] step 180/489 depth=4 loss=2.3878 34653 tok/s eta=18s
+[train_bdh softmax_scaled=False] step 200/489 depth=4 loss=2.4167 34663 tok/s eta=17s
+[train_bdh softmax_scaled=False] step 220/489 depth=4 loss=1.4216 34671 tok/s eta=16s
+[train_bdh softmax_scaled=False] step 240/489 depth=4 loss=1.1204 34675 tok/s eta=15s
+[train_bdh softmax_scaled=False] step 260/489 depth=6 loss=2.0492 33802 tok/s eta=14s
+[train_bdh softmax_scaled=False] step 280/489 depth=6 loss=1.0415 32738 tok/s eta=13s
+[train_bdh softmax_scaled=False] step 300/489 depth=6 loss=1.6577 31883 tok/s eta=12s
+[train_bdh softmax_scaled=False] step 320/489 depth=6 loss=1.9530 31149 tok/s eta=11s
+[train_bdh softmax_scaled=False] step 340/489 depth=6 loss=1.5706 30516 tok/s eta=10s
+[train_bdh softmax_scaled=False] step 360/489 depth=6 loss=1.8249 29955 tok/s eta=9s
+[train_bdh softmax_scaled=False] step 380/489 depth=8 loss=1.6138 29098 tok/s eta=8s
+[train_bdh softmax_scaled=False] step 400/489 depth=8 loss=1.9879 28123 tok/s eta=6s
+[train_bdh softmax_scaled=False] step 420/489 depth=8 loss=1.4560 27298 tok/s eta=5s
+[train_bdh softmax_scaled=False] step 440/489 depth=8 loss=1.6125 26580 tok/s eta=4s
+[train_bdh softmax_scaled=False] step 460/489 depth=8 loss=1.2422 25952 tok/s eta=2s
+[train_bdh softmax_scaled=False] step 480/489 depth=8 loss=1.7616 25397 tok/s eta=1s
+[train_bdh softmax_scaled=False] DONE 1001472 tokens in 40s final_loss=1.8977
+[trained] params=3.28M in 40s
+=== collecting per-domain reservoirs (15 batches/domain) ===
+[code] round0_samples=3840 in 1s
+[documentation] round0_samples=3840 in 1s
+[json_and_configuration] round0_samples=3840 in 1s
+[mathematical_and_structured] round0_samples=3840 in 1s
+[terminal_and_debugging] round0_samples=3840 in 1s
+[round 0] within_domain=0.0656 across_domain=0.0621 ratio=1.06x
+[round 1] within_domain=0.0525 across_domain=0.0497 ratio=1.06x
+[round 2] within_domain=0.0514 across_domain=0.0494 ratio=1.04x
+[round 3] within_domain=0.0540 across_domain=0.0517 ratio=1.04x
+[round 4] within_domain=0.0544 across_domain=0.0536 ratio=1.01x
+[round 5] within_domain=0.0596 across_domain=0.0585 ratio=1.02x
+[round 6] within_domain=0.0697 across_domain=0.0646 ratio=1.08x
+[round 7] within_domain=0.0775 across_domain=0.0705 ratio=1.10x
+[done] wrote results/local/hz0h_domain_specialization_result.json

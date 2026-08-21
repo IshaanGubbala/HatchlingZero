@@ -1206,6 +1206,58 @@ via the run's own reproducibility check (every pre-existing stat
 matched the prior run byte-for-byte at the same seed, confirming the
 new addition didn't disturb anything already validated).
 
+### Domain-conditioned specialization test: real local first-pass, no meaningful signal yet
+
+A follow-up hypothesis (2026-08-21, user-proposed): the previous
+`cross_token_support_jaccard` measurement pooled random token pairs
+from a single, roughly homogeneous byte-level corpus (Python/ML-config-
+like content) -- it could not distinguish "support really is
+per-token-random" from "support IS domain-conditioned, this dataset
+just never had more than one domain to condition on." This project
+already has real, unused domain-labeled data sitting in
+`data/packed/external/` (code, documentation, json_and_configuration,
+mathematical_and_structured, terminal_and_debugging -- confirmed
+genuinely distinct by decoding real samples: code is Python source,
+`mathematical_and_structured` is StackExchange math discussion,
+`terminal_and_debugging` is StackOverflow-style Q&A), tokenized with
+the BPE tokenizer at `data/tokenizer/hz0a_24576.json` rather than this
+project's byte-level vocab. `scripts/hz0h_bdh_domain_bytes_prep.py`
+bridges this: decodes the packed BPE sequences back to text via
+`tokenizer.hz0a_tokenizer.HZ0ATokenizer`, re-encodes as raw UTF-8
+bytes, and re-chunks into byte-level windows compatible with this
+project's existing `read_batch` format -- no new tokenizer or model
+change, a pure format bridge. Writes a domain-mixed training set and
+per-domain (labeled) validation sets under `data/packed/domains/` (not
+committed -- `data/` is gitignored project-wide, same as every other
+dataset in this repo).
+
+`scripts/hz0h_bdh_domain_specialization_diagnostic.py` trains on the
+real domain mix, then compares WITHIN-domain cross-token Jaccard (two
+different code snippets, say) against ACROSS-domain (a code token vs.
+a math token), per round, via the new `cross_domain_support_jaccard`
+(added alongside `cross_token_support_jaccard` in
+`scripts/hz0h_bdh_g_r_operator_diagnostic.py`).
+
+**Real local result (small scale, `n_embd=256`, 1M tokens, converged to
+`final_loss=1.90`)**: within/across ratio stays in **1.01x-1.10x**
+across all 8 rounds -- essentially no separation. If domain-conditioned
+specialization were real and strong, WITHIN should be meaningfully
+above 1.0x; instead it's indistinguishable from noise at this scale.
+
+**Real, disclosed limits before treating this as a negative result**:
+this is a SINGLE local-scale run, and this exact project has already
+seen local-scale results diverge dramatically from production scale in
+BOTH directions this session (the jump operator got much WORSE at real
+scale; `g_r`'s effective-rank collapse got much STRONGER at real scale
+than local predicted) -- so a local near-null result here is a real,
+honest data point, not yet a settled answer, same caveat attached to
+every other local-scale-first result in this Part. The domain-mixed
+training set is also real but modest (~21.5K windows from ~1500 packed
+source rows per domain) and the model itself is small/under-parameterized
+relative to production. Production-scale (`n_embd=2496`) CUDA
+confirmation is the natural next dispatch before drawing a real
+conclusion either way.
+
 ## Concrete next steps
 
 1. **Confirm `softmax_scaled` at full CUDA scale** (25M tokens, bf16,
