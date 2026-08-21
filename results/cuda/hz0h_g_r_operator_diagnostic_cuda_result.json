@@ -1,0 +1,184 @@
+{
+  "config": {
+    "n_embd": 2496,
+    "mult": 16,
+    "n_layer": 8,
+    "n_head": 8,
+    "N_per_head": 4992,
+    "target_tokens": 2000000,
+    "eval_batches": 20,
+    "svd_reservoir_size": 4000,
+    "seed": 11
+  },
+  "parameter_count": 300318720,
+  "train_seconds": 1946.7487766999984,
+  "rounds": {
+    "0": {
+      "exact_zero_fraction": 0.8998902504116881,
+      "above_threshold_fraction": 0.10010932136984432,
+      "f_x_active_fraction": 0.30326645495844823,
+      "f_y_active_fraction": 0.3759366817100375,
+      "f_xy_intersection_fraction": 0.10010970470952053,
+      "top_k_energy_fraction": {
+        "k=99": 0.9918932169675827,
+        "k=249": 0.9958298206329346,
+        "k=499": 0.9960704386234284,
+        "k=1248": 0.9960784912109375
+      },
+      "samples_seen": 326400,
+      "support_jaccard_to_next_round": 0.45285179615020754,
+      "effective_rank": {
+        "participation_ratio": 481.8720598352435,
+        "nominal_width": 4992,
+        "fraction_of_nominal_width": 0.09652885814007281,
+        "samples_used": 4000
+      }
+    },
+    "1": {
+      "exact_zero_fraction": 0.8871134948730469,
+      "above_threshold_fraction": 0.11288585326250862,
+      "f_x_active_fraction": 0.32624944499894687,
+      "f_y_active_fraction": 0.37997167549881283,
+      "f_xy_intersection_fraction": 0.11288638806810566,
+      "top_k_energy_fraction": {
+        "k=99": 0.9904116541147232,
+        "k=249": 0.9956302404403686,
+        "k=499": 0.9960702896118164,
+        "k=1248": 0.9960784912109375
+      },
+      "samples_seen": 326400,
+      "support_jaccard_to_next_round": 0.566170510649681,
+      "effective_rank": {
+        "participation_ratio": 511.15078754804046,
+        "nominal_width": 4992,
+        "fraction_of_nominal_width": 0.10239398789023246,
+        "samples_used": 4000
+      }
+    },
+    "2": {
+      "exact_zero_fraction": 0.8747474849925322,
+      "above_threshold_fraction": 0.1252518160202924,
+      "f_x_active_fraction": 0.34215342652563957,
+      "f_y_active_fraction": 0.3833312479654948,
+      "f_xy_intersection_fraction": 0.12525238710291245,
+      "top_k_energy_fraction": {
+        "k=99": 0.9872237265110015,
+        "k=249": 0.9950879484415054,
+        "k=499": 0.9960562080144882,
+        "k=1248": 0.9960784912109375
+      },
+      "samples_seen": 326400,
+      "support_jaccard_to_next_round": 0.5942369848489761,
+      "effective_rank": {
+        "participation_ratio": 524.0852316341404,
+        "nominal_width": 4992,
+        "fraction_of_nominal_width": 0.10498502236260826,
+        "samples_used": 4000
+      }
+    },
+    "3": {
+      "exact_zero_fraction": 0.8649677530924479,
+      "above_threshold_fraction": 0.13503153183880975,
+      "f_x_active_fraction": 0.34461828643200443,
+      "f_y_active_fraction": 0.3806914864334406,
+      "f_xy_intersection_fraction": 0.13503212498683556,
+      "top_k_energy_fraction": {
+        "k=99": 0.9771318227052689,
+        "k=249": 0.9934652090072632,
+        "k=499": 0.9960015296936036,
+        "k=1248": 0.9960784912109375
+      },
+      "samples_seen": 326400,
+      "support_jaccard_to_next_round": 0.6094199240207672,
+      "effective_rank": {
+        "participation_ratio": 508.7741585001403,
+        "nominal_width": 4992,
+        "fraction_of_nominal_width": 0.10191790034057298,
+        "samples_used": 4000
+      }
+    },
+    "4": {
+      "exact_zero_fraction": 0.8547855122884115,
+      "above_threshold_fraction": 0.14521389755548214,
+      "f_x_active_fraction": 0.33686516256893384,
+      "f_y_active_fraction": 0.3724575102562998,
+      "f_xy_intersection_fraction": 0.1452144016939051,
+      "top_k_energy_fraction": {
+        "k=99": 0.9537339687347413,
+        "k=249": 0.9897041857242584,
+        "k=499": 0.9958462804555893,
+        "k=1248": 0.9960784912109375
+      },
+      "samples_seen": 326400,
+      "support_jaccard_to_next_round": 0.6466835916042328,
+      "effective_rank": {
+        "participation_ratio": 474.19339286983035,
+        "nominal_width": 4992,
+        "fraction_of_nominal_width": 0.09499066363578332,
+        "samples_used": 4000
+      }
+    },
+    "5": {
+      "exact_zero_fraction": 0.8528161172305836,
+      "above_threshold_fraction": 0.1471833345001819,
+      "f_x_active_fraction": 0.3201608844831878,
+      "f_y_active_fraction": 0.3569948413325291,
+      "f_xy_intersection_fraction": 0.14718377730425666,
+      "top_k_energy_fraction": {
+        "k=99": 0.929367583990097,
+        "k=249": 0.9869860947132111,
+        "k=499": 0.9958349317312241,
+        "k=1248": 0.9960784912109375
+      },
+      "samples_seen": 326400,
+      "support_jaccard_to_next_round": 0.7292453438043595,
+      "effective_rank": {
+        "participation_ratio": 310.4667641522396,
+        "nominal_width": 4992,
+        "fraction_of_nominal_width": 0.06219286140870184,
+        "samples_used": 4000
+      }
+    },
+    "6": {
+      "exact_zero_fraction": 0.8547654873717065,
+      "above_threshold_fraction": 0.14523396585501877,
+      "f_x_active_fraction": 0.3097318761488971,
+      "f_y_active_fraction": 0.35189906999176623,
+      "f_xy_intersection_fraction": 0.14523442511465035,
+      "top_k_energy_fraction": {
+        "k=99": 0.9156755626201629,
+        "k=249": 0.9860651642084122,
+        "k=499": 0.9958962202072144,
+        "k=1248": 0.9960784912109375
+      },
+      "samples_seen": 326400,
+      "support_jaccard_to_next_round": 0.8206978172063828,
+      "effective_rank": {
+        "participation_ratio": 106.13741382409012,
+        "nominal_width": 4992,
+        "fraction_of_nominal_width": 0.02126150116668472,
+        "samples_used": 4000
+      }
+    },
+    "7": {
+      "exact_zero_fraction": 0.8549561833400352,
+      "above_threshold_fraction": 0.14504320256850298,
+      "f_x_active_fraction": 0.3089508385751762,
+      "f_y_active_fraction": 0.356541021010455,
+      "f_xy_intersection_fraction": 0.14504373288622088,
+      "top_k_energy_fraction": {
+        "k=99": 0.9115451753139496,
+        "k=249": 0.9862557381391526,
+        "k=499": 0.995933273434639,
+        "k=1248": 0.9960784912109375
+      },
+      "samples_seen": 326400,
+      "effective_rank": {
+        "participation_ratio": 41.15637171078396,
+        "nominal_width": 4992,
+        "fraction_of_nominal_width": 0.008244465486935889,
+        "samples_used": 4000
+      }
+    }
+  }
+}

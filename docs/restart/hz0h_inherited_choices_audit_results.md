@@ -35,13 +35,19 @@ fp32, not bf16). Both are true at once, not a contradiction.
 `combined_best`'s own arm remained broken (real validation_loss=49.6306,
 a depth-8-specific divergence gradient clipping only partially fixed),
 so this quality win belongs to plain BDH, not the stacked recipe.
-Finally, a first-pass small-scale local result (Part 11) directly
-measuring the realized per-round operator gate `g_r` (not a proxy for
-it): ~85% of its nominal width is exactly zero every round, and unlike
-anything measured before in this project, the ACTIVE SET stabilizes
-across recurrent depth (round-to-round support overlap rises from 0.52
-to 0.89) -- real evidence for "the architecture discovers sparsity
-after paying for it," not yet confirmed at production scale.**
+Finally, Part 11 directly measures the realized per-round operator gate
+`g_r` (not a proxy for it), first at small local scale then CONFIRMED
+on real production-scale CUDA (`n_embd=2496`, matching Part 9's shape):
+~85-90% of its nominal width is exactly zero every round, the active
+set stabilizes across recurrent depth (round-to-round support overlap
+rises to 0.82-0.89 by the final rounds), and -- a real surprise, MORE
+favorable than the local prototype suggested -- effective rank
+collapses to under 1% of nominal width by the final round on real
+hardware. Real evidence for "the architecture discovers sparsity after
+paying for it," with an honest open question about how much of the
+local-vs-production gap reflects the production model's real
+convergence versus a sampling artifact (see Part 11's CUDA
+confirmation for the full caveat) rather than a settled number.**
 
 ## Why this audit happened
 
@@ -1049,6 +1055,93 @@ converged model is the real open question before anything gets built on
 top of this -- same caveat this project already attaches to every other
 local-scale-first result (Part 5, Part 6's original prototype, both of
 which changed materially at production scale).
+
+### CUDA confirmation lands the same day: real production scale, and MORE favorable than the local prototype
+
+Windows dispatch, real `n_embd=2496` (`N=4992` per head, matching Part
+9's shape exactly), 2M tokens trained to a real, healthy `final_loss=1.5855`
+(vs the local prototype's undertrained `3.30`). First attempt crashed --
+see the two real bugs fixed and disclosed below before this result --
+second attempt succeeded cleanly (result archived at
+`results/cuda/hz0h_g_r_operator_diagnostic_cuda_result.json`).
+
+**`f_x`/`f_y`/`f_xy` direction and rough magnitude confirmed**: `f_x`
+0.30-0.35 (matches the local 0.29-0.36 window closely), `f_xy`
+0.10-0.15 (local was 0.14-0.17, close), `f_y` real and consistently
+LOWER than local (0.35-0.38 vs 0.45-0.47) -- a genuine, disclosed gap,
+not noise, but doesn't change the exact-compute-skip estimate
+materially: `ND(1+f_x+f_xy)` vs `3ND` is still a real ~2x reduction on
+the `E_v`+decoder portion at this scale too.
+
+**Top-k energy concentration confirmed, if slightly less extreme at
+early rounds**: `k=99` (2% of `N`) explains 91-99% of energy depending
+on round; `k=1248` (25% of `N`) explains 99.6% of energy EVERY round,
+flat across depth -- an independent confirmation of the same
+low-effective-dimensionality story from a different angle.
+
+**The real surprise, not anticipated by the local prototype**:
+effective rank does not stay roughly flat around 35-40% like the local
+run showed -- it collapses monotonically and dramatically with depth:
+
+| round | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| eff. rank (% of N=4992) | 9.7% | 10.2% | 10.5% | 10.2% | 9.5% | 6.2% | 2.1% | **0.8%** |
+
+By the final round, only ~41 of 4992 dimensions (participation ratio)
+carry real signal across a 4000-sample reservoir -- combined with the
+round-to-round support Jaccard also rising to 0.82 by round 6-7 (same
+direction as local's 0.52->0.89, similar magnitude), this is a
+substantially STRONGER, more actionable signal for "recurrent
+active-set BDH" than the local prototype implied: by round ~5-6, later
+rounds are not just similar in support to the previous round, they are
+using an extremely low-dimensional subspace, not merely a smallish
+fraction of the nominal width.
+
+**Real, disclosed reason to treat this as promising but not yet
+settled, rather than a clean win**: this local-vs-production divergence
+runs OPPOSITE to this project's usual pattern (small-scale usually
+looks promising and gets refuted at scale -- FactorizedBDH, the jump
+operator). Here production looks BETTER than local predicted, which is
+unusual enough to warrant a specific hypothesis rather than just
+banking the number: the local model was meaningfully undertrained
+(loss 3.30, likely still close to representing tokens somewhat
+randomly) while the production model converged properly (loss 1.5855)
+-- a plausible, coherent explanation is that a well-trained model
+genuinely learns to concentrate its computation into fewer effective
+directions, and the local prototype's high effective-rank number
+partly reflects its own lack of convergence, not a true small-width
+architectural difference. Also a real methodological limitation shared
+by both runs: the 4000-sample SVD reservoir is drawn from only 20
+batches of 8 sequences each, so reservoir samples are NOT fully i.i.d.
+(same handful of source sequences, correlated adjacent tokens) --
+could bias the effective-rank estimate downward versus a truly random
+population sample. Both caveats argue for a larger/more-diverse-batch
+re-measurement on a fully-converged model before treating the <1%
+figure as a hard design target, not for discarding the signal.
+
+**Two real bugs fixed before this result was obtainable at all**,
+disclosed in full in commit `3863a7b`: (1) the original collection
+design pooled full `u`/`v` tensors across all batches even after
+capping per-batch samples, reaching an estimated ~20-25GB peak against
+a machine with 16.7GB TOTAL system RAM -- a real crash (silent
+OS-level OOM-kill, zero traceback) on the first CUDA attempt, after a
+real, non-wasted 32-minute training run. Rewritten to a streaming
+design (`StreamingRoundStats`) where every statistic that reduces to a
+per-sample mean is a running weighted average computed and discarded
+one batch at a time, with only the SVD reservoir given a small fixed
+memory budget (~638MB regardless of `N`). (2) A second bug caught
+LOCALLY before re-dispatch, not by any test: the first streaming
+rewrite summed active-fraction counts over both the sample and feature
+dimensions but divided only by the sample count, silently producing
+`f_x`/`f_y`/`f_xy` in the hundreds instead of fractions in `[0, 1]` --
+caught by rerunning locally and eyeballing the printed numbers, not by
+automated tests (none existed for this specific arithmetic).
+
+**Real, disclosed gap in this run**: the streaming rewrite dropped the
+previous version's cross-round pooled summary (only per-round stats are
+computed/reported now) -- a deliberate simplification under time
+pressure, not yet added back, real per-round data is complete and
+sufficient to draw the conclusions above.
 
 ## Concrete next steps
 
