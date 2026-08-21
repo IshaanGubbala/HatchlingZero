@@ -126,3 +126,25 @@ blocked by the same missing BF16 backend and must not be dispatched as another
 version of this experiment. Any surviving exact compute-skipping design must
 use a genuinely different primitive and pass a roofline/preflight argument
 before implementation; it may not merely repackage COO/CSR or per-token gather.
+
+## Current one-shot experiment: symmetric dense attention backward
+
+`bdh_symmetric_dense_backward_v1` reopens the attention lane for one narrowly
+defined reason allowed by the table above: it changes the reduction algorithm,
+not tile sizes or launch count. Generic autograd treats shared `Q=K` as two
+matmul input roles and forms two `T^2*N` Q-gradient products. The exact identity
+
+```text
+dQ = dS @ Q + dS.T @ Q = (dS + dS.T) @ Q
+```
+
+uses one vendor dense BF16 GEMM instead. Forward remains the oracle's dense
+`tril(Q@Q.T,-1)@V`; no sparse format, custom Triton kernel, approximation, or
+precision change is introduced. This is distinct from the closed Triton design,
+whose separate query-role and key-role kernels explicitly retained both
+reductions.
+
+The one-shot gate is the production attention shape (`T=256`, `N=4992`,
+`D=2496`) with fresh processes. Close it if parity fails or operator
+forward+backward does not beat raw autograd. Only a positive operator result may
+advance to a full training-step integration against checkpointed wide-GEMM.
