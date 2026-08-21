@@ -339,6 +339,38 @@ def measure_throughput(forward_only_fn, args, device, compile_it: bool) -> dict:
     return result
 
 
+def measure_throughput_resilient(label: str, forward_only_fn, args, device, throughput: dict) -> None:
+    """Real fix (2026-08-21): `measure_throughput` can OOM at batch
+    sizes TRAINING itself survives -- it always benchmarks the plain,
+    unoptimized forward regardless of --use-wide-gemm/--gradient-
+    checkpointing, and runs AFTER training while the model/optimizer
+    state is still resident, on top of torch.compile's own autotune
+    scratch-memory spike. An uncaught OOM here used to crash the whole
+    script AFTER training had already succeeded, losing the real
+    training results (validation_loss, params) that were never written
+    to disk. Real, observed case (RunPod A40, 2026-08-21):
+    batch=128/160 checkpointed-wide-gemm training completed cleanly
+    (real DONE line, real validation_loss) -- only the post-training
+    COMPILED throughput benchmark OOM'd, and the whole run's output
+    JSON was never written as a result. Catches CUDA OOM per
+    `compile_it` value, logs it, clears the cache, and continues -- a
+    partial (or empty) throughput dict for one arm is far better than
+    losing that arm's already-real training result, or the other arms
+    that haven't run yet."""
+    for compile_it in (False, True):
+        try:
+            throughput.setdefault(label, {})[str(compile_it)] = measure_throughput(
+                forward_only_fn, args, device, compile_it,
+            )
+            print(f"[throughput] {label} compiled={compile_it}: "
+                  f"{throughput[label][str(compile_it)]['tokens_per_second']:.0f} tok/s", flush=True)
+        except torch.cuda.OutOfMemoryError as error:
+            print(f"[throughput] {label} compiled={compile_it}: SKIPPED, real OOM during the "
+                  f"benchmark itself (training already succeeded, this doesn't affect the real "
+                  f"training result) -- {error}", flush=True)
+            torch.cuda.empty_cache()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data", type=Path, default=Path("data/packed/hz0h_bytes_25m_train.jsonl"))
@@ -500,12 +532,9 @@ def main() -> None:
         raw_params = sum(p.numel() for p in raw_model.parameters())
         print(f"[raw_bdh] validation_loss={raw_loss:.4f} params={raw_params/1e6:.2f}M", flush=True)
         print("=== measuring raw_bdh throughput (uncompiled + compiled) ===", flush=True)
-        for compile_it in (False, True):
-            throughput.setdefault("raw_bdh", {})[str(compile_it)] = measure_throughput(
-                lambda idx: bdh_variable_depth_forward(raw_model, idx, args.n_layer), args, device, compile_it,
-            )
-            print(f"[throughput] raw_bdh compiled={compile_it}: "
-                  f"{throughput['raw_bdh'][str(compile_it)]['tokens_per_second']:.0f} tok/s", flush=True)
+        measure_throughput_resilient(
+            "raw_bdh", lambda idx: bdh_variable_depth_forward(raw_model, idx, args.n_layer), args, device, throughput,
+        )
         free_gpu_memory(raw_model)
         results["raw_bdh"] = {"validation_loss": raw_loss, "parameter_count": raw_params,
                               "training_seconds": raw_train_seconds}
@@ -526,12 +555,11 @@ def main() -> None:
         combined_params = sum(p.numel() for p in combined_model.parameters()) + sum(p.numel() for p in jump.parameters())
         print(f"[combined_best] validation_loss={combined_loss:.4f} params={combined_params/1e6:.2f}M", flush=True)
         print("=== measuring combined_best throughput (uncompiled + compiled) ===", flush=True)
-        for compile_it in (False, True):
-            throughput.setdefault("combined_best", {})[str(compile_it)] = measure_throughput(
-                lambda idx: combined_bdh_forward(combined_model, jump, idx, real_prefix_iterations=4, num_jumps=2), args, device, compile_it,
-            )
-            print(f"[throughput] combined_best compiled={compile_it}: "
-                  f"{throughput['combined_best'][str(compile_it)]['tokens_per_second']:.0f} tok/s", flush=True)
+        measure_throughput_resilient(
+            "combined_best",
+            lambda idx: combined_bdh_forward(combined_model, jump, idx, real_prefix_iterations=4, num_jumps=2),
+            args, device, throughput,
+        )
         free_gpu_memory(combined_model, jump)
         results["combined_best"] = {
             "validation_loss": combined_loss, "parameter_count": combined_params,
@@ -556,12 +584,7 @@ def main() -> None:
         transformer_params = sum(p.numel() for p in transformer_model.parameters())
         print(f"[matched_transformer] validation_loss={transformer_loss:.4f} params={transformer_params/1e6:.2f}M", flush=True)
         print("=== measuring matched_transformer throughput (uncompiled + compiled) ===", flush=True)
-        for compile_it in (False, True):
-            throughput.setdefault("matched_transformer", {})[str(compile_it)] = measure_throughput(
-                lambda idx: transformer_model(idx), args, device, compile_it,
-            )
-            print(f"[throughput] matched_transformer compiled={compile_it}: "
-                  f"{throughput['matched_transformer'][str(compile_it)]['tokens_per_second']:.0f} tok/s", flush=True)
+        measure_throughput_resilient("matched_transformer", lambda idx: transformer_model(idx), args, device, throughput)
         results["matched_transformer"] = {"validation_loss": transformer_loss, "parameter_count": transformer_params,
                                           "training_seconds": transformer_train_seconds}
 

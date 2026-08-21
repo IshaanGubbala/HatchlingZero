@@ -1,0 +1,62 @@
+{
+  "device": "cuda",
+  "shape": {
+    "data": "data/packed/hz0h_bytes_25m_train.jsonl",
+    "validation_data": "data/packed/hz0h_bytes_25m_val.jsonl",
+    "out": "results/runpod_matched_transformer_10m_seed9.json",
+    "device": "cuda",
+    "target_tokens": "10000000",
+    "batch_size": "32",
+    "sequence_length": "256",
+    "warmup_steps": "100",
+    "learning_rate": "0.001",
+    "compile_mode": "max-autotune",
+    "compile_training": "False",
+    "grad_clip": "1.0",
+    "eval_batches": "8",
+    "jump_steps": "500",
+    "log_every": "100",
+    "skip_raw": "True",
+    "skip_combined": "True",
+    "skip_transformer": "False",
+    "optimizer": "adam8bit",
+    "dtype": "bfloat16",
+    "seed": "9",
+    "n_embd": "256",
+    "raw_n_embd": "256",
+    "combined_n_embd": "256",
+    "transformer_n_embd": "1536",
+    "raw_mult": "32",
+    "n_layer": "8",
+    "n_head": "8",
+    "gradient_checkpointing": "False",
+    "checkpoint_segment_size": "1",
+    "use_wide_gemm": "False",
+    "jump_hidden_mult": "4"
+  },
+  "results": {
+    "matched_transformer": {
+      "validation_loss": 1.9352930933237076,
+      "parameter_count": 302568960,
+      "training_seconds": 348.07481211423874
+    }
+  },
+  "throughput": {
+    "matched_transformer": {
+      "False": {
+        "compiled": false,
+        "seconds": 0.7959658429026604,
+        "tokens": 81920,
+        "tokens_per_second": 102918.98921348325,
+        "peak_memory_gb": 3.656880128
+      },
+      "True": {
+        "compiled": true,
+        "seconds": 0.5885213278234005,
+        "tokens": 81920,
+        "tokens_per_second": 139196.31477583764,
+        "peak_memory_gb": 2.885801984
+      }
+    }
+  }
+}
