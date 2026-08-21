@@ -119,6 +119,26 @@ class BDHFlashRoundFunction(torch.autograd.Function):
 
     @staticmethod
     def forward(ctx, x, encoder, encoder_v, decoder, freqs, D, nh, N, T):
+        # Real bug found on real CUDA hardware (2026-08-21), invisible to
+        # local CPU/fp32 tests which never exercised autocast at all:
+        # custom autograd.Function forward/backward do NOT automatically
+        # share a consistent dtype under `torch.autocast` -- forward()
+        # runs inside the caller's `with autocast` block (so its ops get
+        # cast), but backward() runs later, OUTSIDE that lexical scope,
+        # with no ambient autocast context at all. Without explicit
+        # handling this produces mixed bf16/fp32 tensors that crash the
+        # backward matmuls. Fixed by casting once, explicitly, up front,
+        # and saving the CAST tensors for backward -- no reliance on
+        # autocast's automatic (autograd-integrated) dtype bookkeeping,
+        # which custom Functions don't get for free.
+        param_dtype = encoder.dtype
+        compute_dtype = torch.get_autocast_gpu_dtype() if torch.is_autocast_enabled() else x.dtype
+        ctx.param_dtype = param_dtype
+        x = x.to(compute_dtype)
+        encoder = encoder.to(compute_dtype)
+        encoder_v = encoder_v.to(compute_dtype)
+        decoder = decoder.to(compute_dtype)
+
         B = x.shape[0]
         r_phases = torch.arange(0, T, device=x.device, dtype=freqs.dtype).view(1, 1, -1, 1) * freqs
 
@@ -204,7 +224,18 @@ class BDHFlashRoundFunction(torch.autograd.Function):
 
         grad_x = grad_x + grad_x_from_attn + grad_x_from_encoder
 
-        return grad_x, grad_encoder, grad_encoder_v, grad_decoder, None, None, None, None, None
+        # Real, standard mixed-precision-training practice: parameter
+        # gradients accumulate into the fp32 master weight's `.grad`, so
+        # cast back explicitly rather than relying on implicit upcasting
+        # -- `grad_x` itself stays in compute_dtype (consistent across
+        # round boundaries, matches what the previous round's backward
+        # expects, since every round uniformly used compute_dtype
+        # internally).
+        param_dtype = ctx.param_dtype
+        return (
+            grad_x, grad_encoder.to(param_dtype), grad_encoder_v.to(param_dtype), grad_decoder.to(param_dtype),
+            None, None, None, None, None,
+        )
 
 
 def bdh_flash_round_forward(
