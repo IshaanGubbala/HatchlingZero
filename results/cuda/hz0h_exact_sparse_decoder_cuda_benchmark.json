@@ -3,7 +3,9 @@
   "scope": "decoder operator forward+backward microbenchmark; not an end-to-end training claim",
   "device": "NVIDIA A40",
   "torch_version": "2.8.0+cu128",
-  "dtype": "bfloat16",
+  "input_and_output_dtype": "bfloat16",
+  "sparse_compute_dtype": "float32 compatibility fallback",
+  "strict_bfloat16_equivalence": false,
   "shape": {
     "batch_size": 1,
     "sequence_length": 256,
@@ -14,24 +16,52 @@
     "active_fraction_realized": 0.060010274251302086,
     "generator_bug": "random values were ReLUed after applying the 12% mask, halving realized density; fixed after this run"
   },
-  "parity": {
+  "native_bfloat16": {
+    "coo_supported": false,
+    "coo_error": "addmm_sparse_cuda not implemented for BFloat16",
+    "csr_supported": false,
+    "csr_error": "sampled_addmm_out_sparse_csr not implemented for BFloat16"
+  },
+  "fp32_compatibility_parity": {
     "coo": {
-      "supported": false,
-      "error": "NotImplementedError: addmm_sparse_cuda not implemented for BFloat16"
+      "output_max_abs_error": 0.03125,
+      "active_input_gradient_max_abs_error": 0.015625,
+      "omitted_input_gradients_are_zero": true,
+      "weight_gradient_max_abs_error": 0.0625,
+      "finite": true
     },
     "csr": {
-      "supported": false,
-      "error": "NotImplementedError: sampled_addmm_out_sparse_csr not implemented for BFloat16"
+      "output_max_abs_error": 0.03125,
+      "active_input_gradient_max_abs_error": 0.015625,
+      "omitted_input_gradients_are_zero": true,
+      "weight_gradient_max_abs_error": 0.0625,
+      "finite": true
     }
   },
-  "dense_control": {
-    "seconds": 0.011406323872506618,
-    "seconds_per_step": 0.0022812647745013236,
-    "tokens_per_second": 112218.45130009545,
-    "peak_memory_allocated_bytes": 462323712,
-    "peak_memory_reserved_bytes": 467664896,
-    "finite": true
+  "arms": {
+    "dense_bfloat16": {
+      "tokens_per_second": 122446.31994244693,
+      "peak_memory_allocated_bytes": 462323712,
+      "peak_memory_reserved_bytes": 467664896,
+      "finite": true
+    },
+    "coo_fp32_fallback": {
+      "tokens_per_second": 5028.389358513892,
+      "throughput_over_dense": 0.04106607173557662,
+      "peak_memory_allocated_bytes": 1883217920,
+      "peak_memory_reserved_bytes": 1910505472,
+      "allocated_memory_over_dense": 4.073375150613084,
+      "finite": true
+    },
+    "csr_fp32_fallback": {
+      "tokens_per_second": 9653.707718357535,
+      "throughput_over_dense": 0.07884032548217894,
+      "peak_memory_allocated_bytes": 1456624640,
+      "peak_memory_reserved_bytes": 1509949440,
+      "allocated_memory_over_dense": 3.150659596711319,
+      "finite": true
+    }
   },
-  "verdict": "closed_unsupported",
-  "reopen_only_if": "the production PyTorch/CUDA BF16 backend adds the required sparse-dense training operators"
+  "verdict": "closed_native_bf16_unsupported_and_fp32_fallback_slower_larger",
+  "reopen_only_if": "a future native BF16 primitive has materially different storage and kernel behavior"
 }

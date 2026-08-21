@@ -56,7 +56,12 @@ def make_inputs(args, device):
 def operation(arm, values, weight):
     if arm == "dense":
         return values @ weight
-    return exact_sparse_decoder_mm(values, weight, layout=arm)
+    return exact_sparse_decoder_mm(
+        values,
+        weight,
+        layout=arm,
+        allow_cuda_bf16_fp32_fallback=True,
+    )
 
 
 def run_child(args) -> dict:
@@ -133,7 +138,12 @@ def verify_parity(args) -> dict:
     active = values != 0
     for layout in ("coo", "csr"):
         try:
-            candidate = exact_sparse_decoder_mm(values, weight, layout=layout)
+            candidate = exact_sparse_decoder_mm(
+                values,
+                weight,
+                layout=layout,
+                allow_cuda_bf16_fp32_fallback=True,
+            )
             candidate.backward(gradient)
             reports[layout] = {
                 "supported": True,
@@ -177,6 +187,8 @@ def run_parent(args) -> None:
     report = {
         "experiment_id": "exact_sparse_decoder_vendor_spmm_v1",
         "scope": "decoder operator forward+backward microbenchmark; not an end-to-end training claim",
+        "sparse_compute_dtype": "float32 compatibility fallback cast back to bfloat16",
+        "strict_bfloat16_equivalence": False,
         "novelty_vs_closed_sparse_lanes": (
             "skips only realized exact ReLU-product zeros via vendor CUDA COO/CSR SpMM; "
             "no router, top-k, pruning, threshold, gather_mm, or changed model math"

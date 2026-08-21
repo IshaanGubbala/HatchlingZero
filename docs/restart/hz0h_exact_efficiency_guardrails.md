@@ -62,7 +62,7 @@ Required parity gates:
 - Never promote a result based only on theoretical FLOPs. It must improve real
   wall-clock and memory without failing parity.
 
-## Closed result: exact sparse decoder through vendor SpMM
+## Closed result: exact-support sparse decoder through vendor SpMM
 
 `exact_sparse_decoder_vendor_spmm_v1` was allowed once because it is materially
 different from prior sparse work:
@@ -76,7 +76,8 @@ different from prior sparse work:
   AdamW update;
 - CUDA arms run in separate processes.
 
-Real A40 result (`torch 2.8.0+cu128`, BF16, `D=2496`, decoder width `39936`):
+The first A40 dispatch (`torch 2.8.0+cu128`, BF16, `D=2496`, decoder width
+`39936`) established that native BF16 is unsupported:
 
 - COO failed before timing: `addmm_sparse_cuda` is not implemented for BF16.
 - CSR failed before timing: `sampled_addmm_out_sparse_csr` is not implemented
@@ -92,11 +93,33 @@ claim 12%; the generator is fixed for future diagnostics. This does not affect
 the backend-support conclusion because both sparse arms failed during operator
 dispatch before density-dependent timing.
 
-**Verdict: vendor-SpMM lane closed.** Do not retry COO/CSR with different
-density, shape, or warmup settings on this PyTorch/CUDA stack. FP32/FP16 retries
-would violate the locked BF16 exact-comparison condition. A future PyTorch or
-CUDA release that explicitly adds BF16 support is the only valid reason to
-reopen it.
+A diagnostic-only compatibility fallback then upcast the sparse operation and
+weight to FP32 and cast its output back to BF16. This preserves the exact zero
+support and autograd connectivity but does **not** preserve strict BF16
+accumulation semantics; observed errors were within BF16 scale, not bit-exact:
+
+| arm | token-rows/s | vs dense | peak allocated | vs dense |
+|---|---:|---:|---:|---:|
+| dense BF16 | 122,446 | 1.000x | 462MB | 1.00x |
+| COO FP32 fallback | 5,028 | 0.041x | 1.88GB | 4.07x |
+| CSR FP32 fallback | 9,654 | 0.079x | 1.46GB | 3.15x |
+
+Both fallbacks were finite. Maximum errors versus dense BF16 were 0.03125 for
+output, 0.015625 for active input gradients, and 0.0625 for weight gradients;
+omitted input gradients were exactly zero as required by the ReLU-product
+support contract.
+
+This second run inherited the already-disclosed generator bug and realized
+6.0% nonzeros rather than the requested 12%. That accidentally made the input
+*more* sparse and therefore more favorable to sparse execution. Losing by
+13-24x under the favorable density is sufficient to close the lane; increasing
+density into the measured production 10-15% range cannot justify another run.
+
+**Verdict: vendor-SpMM lane closed for two independent reasons.** Native BF16
+is unavailable, and the FP32 compatibility path is dramatically slower and
+larger. Do not retry COO/CSR with different density, shape, warmup, or casting
+settings on this stack. A future native BF16 primitive with materially
+different storage/kernel behavior is the only valid reason to reopen it.
 
 The previously proposed sampled `encoder_v` vendor-sparse follow-up is also
 blocked by the same missing BF16 backend and must not be dispatched as another

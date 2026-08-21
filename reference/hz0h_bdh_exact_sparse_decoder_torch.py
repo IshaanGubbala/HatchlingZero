@@ -32,6 +32,7 @@ def exact_sparse_decoder_mm(
     decoder: torch.Tensor,
     *,
     layout: SparseLayout = "auto",
+    allow_cuda_bf16_fp32_fallback: bool = False,
 ) -> torch.Tensor:
     """Compute ``decoder_input @ decoder`` while skipping exact zeros.
 
@@ -41,6 +42,12 @@ def exact_sparse_decoder_mm(
     this is exact for BDH because the gate Jacobian is also zero at every
     omitted entry. It is not a drop-in gradient-equivalent operator for an
     arbitrary leaf tensor whose zeros could later become trainable.
+
+    Native CUDA sparse-mm does not support BF16 on the production
+    PyTorch/CUDA stack. ``allow_cuda_bf16_fp32_fallback`` exists only for the
+    closed diagnostic benchmark: it changes this operation's numerical
+    execution to FP32 and therefore must never be enabled by a production
+    exact-BF16 training path.
 
     COO is the compatibility
     fallback because it supports BF16 autograd on CPU in current PyTorch.
@@ -59,12 +66,25 @@ def exact_sparse_decoder_mm(
     selected_layout = "csr" if layout == "auto" and decoder_input.is_cuda else layout
     if selected_layout == "auto":
         selected_layout = "coo"
+
+    # The explicit fallback lets the benchmark measure the vendor sparse
+    # implementation despite its missing BF16 kernel. It preserves support
+    # and autograd connectivity, but not BF16 accumulation semantics.
+    compute_dtype = decoder_input.dtype
+    needs_upcast = decoder_input.is_cuda and compute_dtype == torch.bfloat16
+    if needs_upcast and not allow_cuda_bf16_fp32_fallback:
+        raise RuntimeError(
+            "native CUDA sparse-mm does not support BF16 on this stack; "
+            "the FP32 fallback is diagnostic-only and must be explicitly enabled"
+        )
+    mm_input = decoder_input.to(torch.float32) if needs_upcast else decoder_input
+    mm_weight = decoder.to(torch.float32) if needs_upcast else decoder
+
     sparse_input = (
-        decoder_input.to_sparse_csr()
-        if selected_layout == "csr"
-        else decoder_input.to_sparse()
+        mm_input.to_sparse_csr() if selected_layout == "csr" else mm_input.to_sparse()
     )
-    return torch.sparse.mm(sparse_input, decoder)
+    result = torch.sparse.mm(sparse_input, mm_weight)
+    return result.to(compute_dtype) if needs_upcast else result
 
 
 def bdh_exact_sparse_decoder_forward(
@@ -74,6 +94,7 @@ def bdh_exact_sparse_decoder_forward(
     targets: torch.Tensor | None = None,
     *,
     sparse_layout: SparseLayout = "auto",
+    allow_cuda_bf16_fp32_fallback: bool = False,
 ):
     """Run exact BDH math with only the final per-round decoder sparse."""
     if n_iterations < 0:
@@ -103,6 +124,7 @@ def bdh_exact_sparse_decoder_forward(
             decoder_input,
             model.decoder,
             layout=sparse_layout,
+            allow_cuda_bf16_fp32_fallback=allow_cuda_bf16_fp32_fallback,
         ).view(batch, 1, sequence, dim)
         x = model.ln(x + model.ln(decoder_output))
 
