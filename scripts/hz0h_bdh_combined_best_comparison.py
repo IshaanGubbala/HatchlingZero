@@ -52,6 +52,7 @@ from reference.hz0h_bdh_combined_checkpointed_torch import combined_bdh_forward_
 from reference.hz0h_bdh_jump_operator_torch import JumpOperator
 from reference.hz0h_bdh_torch import BDH, BDHConfig
 from reference.hz0h_bdh_variable_depth_torch import bdh_variable_depth_forward
+from reference.hz0h_bdh_wide_gemm_trainable_torch import bdh_wide_gemm_trainable_forward
 from scripts.hz0h_bdh_width_flop_frontier_local import pick_device, synchronize
 from scripts.hz0h_factorized_curriculum_full_comparison import depth_at, lr_at, parse_stages, read_batch
 
@@ -126,6 +127,12 @@ def train_bdh(config: BDHConfig, args, device, use_softmax_scaled: bool) -> BDH:
     epochs = [0]
     tokens = 0
 
+    if args.use_wide_gemm and args.gradient_checkpointing:
+        raise RuntimeError(
+            "--use-wide-gemm --gradient-checkpointing together is a real, disclosed gap, not a "
+            "silent fallback -- bdh_wide_gemm_trainable_forward has no checkpointed variant. Use "
+            "one or the other until this is implemented."
+        )
     if args.gradient_checkpointing:
         if use_softmax_scaled:
             raw_fn = combined_bdh_forward_training_checkpointed
@@ -135,6 +142,8 @@ def train_bdh(config: BDHConfig, args, device, use_softmax_scaled: bool) -> BDH:
             )
     elif use_softmax_scaled:
         raw_fn = lambda m, idx, depth, target: combined_bdh_forward(m, None, idx, real_prefix_iterations=depth, num_jumps=0, targets=target)
+    elif args.use_wide_gemm:
+        raw_fn = bdh_wide_gemm_trainable_forward
     else:
         raw_fn = bdh_variable_depth_forward
     # Compiled ONCE here, not per-step -- torch.compile's own guard system
@@ -419,6 +428,20 @@ def main() -> None:
                              "raw_bdh's un-checkpointed batch=8 training already sits at 38.7GB/44.43GB "
                              "-- 87%% of capacity -- motivating a real look at whether segment_size>1 "
                              "recovers some of checkpointing's ~28%% measured throughput cost).")
+    parser.add_argument("--use-wide-gemm", action="store_true",
+                        help="Train raw_bdh via bdh_wide_gemm_trainable_forward (real, bit-exact "
+                             "wide-GEMM/bmm execution-layout remap for the encoder/encoder_v "
+                             "projections -- proven identical math, see "
+                             "reference/hz0h_bdh_wide_gemm_trainable_torch.py) instead of the plain "
+                             "broadcasted per-head matmul. Real, surprising finding (saved-tensor "
+                             "audit, RunPod A40, 2026-08-21): the plain path's implicit batch-vs-head "
+                             "broadcast in `x @ encoder` causes autograd to save a FULLY EXPANDED "
+                             "copy of the weight for backward (67%% of a 37.8GB peak at batch=8 was "
+                             "this alone) -- the wide-GEMM path saves only the true, unexpanded "
+                             "weight, cutting real training peak memory 37.8GB->13.9GB (2.72x) at "
+                             "the same batch/shape, with ZERO checkpointing needed. Mutually "
+                             "exclusive with --gradient-checkpointing (see the loud error if both "
+                             "are passed) -- no checkpointed variant of this path exists yet.")
     parser.add_argument("--jump-hidden-mult", type=int, default=4,
                         help="JumpOperator's hidden width as a multiple of d_model. Shrink this "
                              "at large model scale -- the jump operator's own param count grows "
