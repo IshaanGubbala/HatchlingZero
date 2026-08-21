@@ -173,6 +173,24 @@ def run_parent(args) -> None:
             result["peak_memory_allocated_bytes"] / dense["peak_memory_allocated_bytes"]
         )
     report = {
+        "experiment_id": "exact_sparse_decoder_vendor_spmm_v1",
+        "scope": "decoder operator forward+backward microbenchmark; not an end-to-end training claim",
+        "novelty_vs_closed_sparse_lanes": (
+            "skips only realized exact ReLU-product zeros via vendor CUDA COO/CSR SpMM; "
+            "no router, top-k, pruning, threshold, gather_mm, or changed model math"
+        ),
+        "stop_condition": (
+            "close vendor-SpMM lane if neither parity-passing COO nor CSR beats dense "
+            "at the production shape; do not repeat with cosmetic tuning"
+        ),
+        "methodological_guards": {
+            "fresh_subprocess_per_timed_arm": True,
+            "same_seed_and_tensors": True,
+            "cuda_synchronized_timing": True,
+            "forward_and_backward_in_scope": True,
+            "optimizer_step_in_scope": False,
+            "full_model_training_in_scope": False,
+        },
         "device": torch.cuda.get_device_name(),
         "torch_version": torch.__version__,
         "dtype": "bfloat16",
