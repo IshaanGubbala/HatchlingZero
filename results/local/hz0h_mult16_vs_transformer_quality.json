@@ -1,0 +1,83 @@
+{
+  "device": "cuda",
+  "shape": {
+    "data": "data/packed/hz0h_bytes_25m_train.jsonl",
+    "validation_data": "data/packed/hz0h_bytes_25m_val.jsonl",
+    "out": "results/local/hz0h_mult16_vs_transformer_quality.json",
+    "device": "auto",
+    "target_tokens": "5000000",
+    "batch_size": "8",
+    "sequence_length": "256",
+    "warmup_steps": "100",
+    "learning_rate": "0.001",
+    "compile_mode": "max-autotune",
+    "compile_training": "False",
+    "grad_clip": "1.0",
+    "eval_batches": "8",
+    "jump_steps": "500",
+    "log_every": "50",
+    "skip_raw": "False",
+    "skip_combined": "True",
+    "skip_transformer": "False",
+    "optimizer": "adamw",
+    "dtype": "bfloat16",
+    "seed": "7",
+    "n_embd": "256",
+    "raw_n_embd": "2496",
+    "combined_n_embd": "256",
+    "transformer_n_embd": "1536",
+    "raw_mult": "16",
+    "n_layer": "8",
+    "n_head": "8",
+    "gradient_checkpointing": "True",
+    "checkpoint_segment_size": "1",
+    "use_wide_gemm": "True",
+    "jump_hidden_mult": "4"
+  },
+  "results": {
+    "raw_bdh": {
+      "validation_loss": 1.8585141897201538,
+      "parameter_count": 300318720,
+      "training_seconds": 1705.482327079866
+    },
+    "matched_transformer": {
+      "validation_loss": 2.5299230217933655,
+      "parameter_count": 302568960,
+      "training_seconds": 306.6339712878689
+    }
+  },
+  "throughput": {
+    "raw_bdh": {
+      "False": {
+        "compiled": false,
+        "seconds": 2.4360991320572793,
+        "tokens": 20480,
+        "tokens_per_second": 8406.882844174199,
+        "peak_memory_gb": 5.085761024
+      },
+      "True": {
+        "compiled": true,
+        "seconds": 1.3209208040498197,
+        "tokens": 20480,
+        "tokens_per_second": 15504.336018639598,
+        "peak_memory_gb": 4.51720448
+      }
+    },
+    "matched_transformer": {
+      "False": {
+        "compiled": false,
+        "seconds": 0.21989895775914192,
+        "tokens": 20480,
+        "tokens_per_second": 93133.6838005026,
+        "peak_memory_gb": 5.617975808
+      },
+      "True": {
+        "compiled": true,
+        "seconds": 0.18200498586520553,
+        "tokens": 20480,
+        "tokens_per_second": 112524.38993713977,
+        "peak_memory_gb": 5.059879424
+      }
+    }
+  }
+}
