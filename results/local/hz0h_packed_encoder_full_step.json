@@ -1,0 +1,81 @@
+{
+  "experiment_id": "bdh_packed_encoder_full_step_v1",
+  "scope": "complete production training step: forward, backward, grad clipping, one AdamW step",
+  "device": "NVIDIA A40",
+  "torch_version": "2.8.0+cu128",
+  "dtype": "bfloat16",
+  "config": {
+    "batch_size": 8,
+    "sequence_length": 256,
+    "n_embd": 2496,
+    "n_head": 8,
+    "multiplier": 16,
+    "n_layer": 8,
+    "vocab_size": 256,
+    "checkpoint_segment_size": 1,
+    "grad_clip": 1.0
+  },
+  "fresh_subprocess_per_arm": true,
+  "one_step_parity": {
+    "existing_vs_cached_loss_max_abs_diff": 0.0,
+    "existing_vs_packed_loss_max_abs_diff": 0.0,
+    "existing_vs_cached_param_max_abs_diff": 0.0,
+    "existing_vs_packed_non_encoder_param_max_abs_diff": 7.450580596923828e-09,
+    "existing_vs_packed_encoder_max_abs_diff_through_unpack": 0.0005866289138793945,
+    "finite": true
+  },
+  "arms": {
+    "existing": {
+      "arm": "existing",
+      "seconds_per_step_trials": [
+        0.9678994162008167,
+        0.9699214500840754,
+        0.9711888174992055
+      ],
+      "seconds_per_step_mean": 0.9696698945946992,
+      "seconds_per_step_stdev": 0.0013546218042039188,
+      "tokens_per_second_mean": 2112.0589712192923,
+      "peak_memory_allocated_bytes": 7359992320,
+      "peak_memory_reserved_bytes": 8661237760,
+      "final_loss": 4.537998199462891,
+      "finite": true
+    },
+    "cached_encoder": {
+      "arm": "cached_encoder",
+      "seconds_per_step_trials": [
+        0.9511616874951869,
+        0.9521846383810043,
+        0.9540737248957157
+      ],
+      "seconds_per_step_mean": 0.9524733502573023,
+      "seconds_per_step_stdev": 0.0012062355674179865,
+      "tokens_per_second_mean": 2150.191393225596,
+      "peak_memory_allocated_bytes": 7359992320,
+      "peak_memory_reserved_bytes": 8824815616,
+      "final_loss": 4.537998199462891,
+      "finite": true
+    },
+    "packed": {
+      "arm": "packed",
+      "seconds_per_step_trials": [
+        0.9299446254968643,
+        0.9305767422076314,
+        0.9314897953066975
+      ],
+      "seconds_per_step_mean": 0.9306703876703978,
+      "seconds_per_step_stdev": 0.0006342788765348887,
+      "tokens_per_second_mean": 2200.564267577525,
+      "peak_memory_allocated_bytes": 6762566144,
+      "peak_memory_reserved_bytes": 8413773824,
+      "final_loss": 4.486747741699219,
+      "finite": true
+    }
+  },
+  "cached_over_existing_throughput": 1.0180546199352993,
+  "packed_over_existing_throughput": 1.041904746772832,
+  "packed_over_cached_throughput": 1.0234271583965193,
+  "packed_over_existing_allocated_memory": 0.9188278805160492,
+  "packed_over_existing_reserved_memory": 0.9714285714285714,
+  "packed_over_cached_reserved_memory": 0.9534220532319392,
+  "stop_condition": "close if one-step parity fails, or packed does not beat cached_encoder on throughput or memory"
+}
