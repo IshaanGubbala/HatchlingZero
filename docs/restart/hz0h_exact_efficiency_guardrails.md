@@ -127,7 +127,7 @@ version of this experiment. Any surviving exact compute-skipping design must
 use a genuinely different primitive and pass a roofline/preflight argument
 before implementation; it may not merely repackage COO/CSR or per-token gather.
 
-## Current one-shot experiment: symmetric dense attention backward
+## Passed operator gate: symmetric dense attention backward
 
 `bdh_symmetric_dense_backward_v1` reopens the attention lane for one narrowly
 defined reason allowed by the table above: it changes the reduction algorithm,
@@ -144,7 +144,37 @@ precision change is introduced. This is distinct from the closed Triton design,
 whose separate query-role and key-role kernels explicitly retained both
 reductions.
 
-The one-shot gate is the production attention shape (`T=256`, `N=4992`,
-`D=2496`) with fresh processes. Close it if parity fails or operator
-forward+backward does not beat raw autograd. Only a positive operator result may
-advance to a full training-step integration against checkpointed wide-GEMM.
+The one-shot production attention gate (`T=256`, `N=4992`, `D=2496`) passed on
+an A40 with fresh processes:
+
+| shape | raw | symmetric | speedup | peak allocated |
+|---|---:|---:|---:|---:|
+| B=1, T=256, N=4992, D=2496 | 76,408 tok/s | 81,471 tok/s | **1.066x** | identical, 199.5MB |
+| B=2, T=512, N=8192, D=4096 | 48,260 tok/s | 51,385 tok/s | **1.065x** | identical, 1.141GB |
+
+Forward output and value gradients are bit-identical to raw BF16. Q-gradient
+accumulation order changes, producing max-absolute raw-vs-symmetric differences
+of 32 at the production shape and 64 at the larger shape. Independent float64
+ground truth clears this as ordinary BF16 accumulation noise rather than a
+candidate error: at production shape, Q-gradient L2-relative error is 0.004109
+for raw versus truth and **0.003715 for symmetric versus truth**; at the larger
+shape it is 0.004109 raw and **0.003713 symmetric**. Symmetric is slightly
+closer to float64 in both checks. Local full-model named-gradient and AdamW
+parity remains green.
+
+Three follow-ups are closed and must not be repeated:
+
+- Removing the expanded value copy through broadcast matmul was 1.004x at the
+  production shape and 0.984x at the larger shape, with no memory reduction.
+- CUDA graph capture was consistently 2-3% slower than plain symmetric across
+  five low-variance trials. Although peak allocated memory fell 34-42%, peak
+  reserved memory rose 15-39%.
+- Direct batch-ceiling measurement confirmed both plain and graphed paths fit
+  batch 128 and OOM at 256. Graph capture provides no real batching advantage.
+
+**Current status:** the plain symmetric backward from `d83db47` is the sole
+standing exact operator win. It is not yet a training-system claim. The next
+valid gate is one full 300M checkpointed-wide-GEMM training-step comparison
+including forward, backward, clipping, and optimizer update in fresh processes.
+Do not run more attention-only broadcast, graph-capture, tile, or batch-size
+sweeps before that integration gate.
