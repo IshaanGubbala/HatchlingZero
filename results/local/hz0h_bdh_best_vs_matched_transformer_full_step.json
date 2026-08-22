@@ -1,0 +1,59 @@
+{
+  "experiment_id": "bdh_best_vs_matched_transformer_full_step_v1",
+  "scope": "complete production training step: forward, backward, grad clipping, one AdamW step",
+  "device": "NVIDIA A40",
+  "torch_version": "2.8.0+cu128",
+  "dtype": "bfloat16",
+  "config": {
+    "batch_size": 8,
+    "sequence_length": 256,
+    "n_layer": 8,
+    "n_head": 8,
+    "bdh_n_embd": 2496,
+    "bdh_multiplier": 16,
+    "transformer_d_model": 1536,
+    "vocab_size": 256,
+    "checkpoint_segment_size": 1,
+    "grad_clip": 1.0
+  },
+  "bdh_forward": "bdh_packed_encoder_symmetric_forward_checkpointed (this session's max-speed BDH: 981d8e1)",
+  "param_count_ratio_transformer_over_bdh": 1.0074928396072014,
+  "fresh_subprocess_per_arm": true,
+  "arms": {
+    "bdh_best": {
+      "arm": "bdh_best",
+      "param_count": 300318720,
+      "seconds_per_step_trials": [
+        0.9199391663074493,
+        0.9175705160945654,
+        0.920154857262969
+      ],
+      "seconds_per_step_mean": 0.9192215132216613,
+      "seconds_per_step_stdev": 0.001170747420050467,
+      "tokens_per_second_mean": 2227.972224912609,
+      "peak_memory_allocated_bytes": 6526898688,
+      "peak_memory_reserved_bytes": 8229224448,
+      "final_loss": 4.503564834594727,
+      "finite": true
+    },
+    "matched_transformer": {
+      "arm": "matched_transformer",
+      "param_count": 302568960,
+      "seconds_per_step_trials": [
+        0.12558334432542323,
+        0.1258186399936676,
+        0.1259114623069763
+      ],
+      "seconds_per_step_mean": 0.1257711488753557,
+      "seconds_per_step_stdev": 0.000138098774297003,
+      "tokens_per_second_mean": 16283.543708658102,
+      "peak_memory_allocated_bytes": 6111443456,
+      "peak_memory_reserved_bytes": 6949961728,
+      "final_loss": 0.009736708365380764,
+      "finite": true
+    }
+  },
+  "bdh_over_transformer_throughput": 0.136823548041817,
+  "bdh_over_transformer_allocated_memory": 1.0679798864198147,
+  "bdh_over_transformer_reserved_memory": 1.184067592033796
+}
