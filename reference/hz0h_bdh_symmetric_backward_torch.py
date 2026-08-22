@@ -35,14 +35,28 @@ class _BDHSymmetricBackward(torch.autograd.Function):
         if value.shape[:3] != (batch, 1, sequence):
             raise ValueError("BDH value must have shape (B, 1, T, D)")
 
-        scores = (q @ q.mT).tril(diagonal=-1)
-        output = scores @ value
+        # Every prior benchmark of this Function fed q/value as manually
+        # constructed same-dtype tensors, never through a real autocast-
+        # wrapped forward. Under real autocast, LayerNorm is forced to
+        # return fp32 regardless of ambient dtype (the same lesson learned
+        # building FlashBDH earlier in this project), so a LayerNorm'd
+        # `value` can arrive fp32 while `q` arrives bf16 -- backward (which
+        # runs outside the caller's autocast scope entirely) then mixes
+        # dtypes in its manual bmm calls and crashes. Disable autocast for
+        # this Function's own body and explicitly normalize both inputs to
+        # q's dtype so forward and backward always operate on one dtype.
+        compute_dtype = q.dtype
+        with torch.autocast(device_type=q.device.type, enabled=False):
+            value = value.to(compute_dtype)
+            scores = (q @ q.mT).tril(diagonal=-1)
+            output = scores @ value
         ctx.save_for_backward(q, value, scores)
         return output
 
     @staticmethod
     def backward(ctx, grad_output: torch.Tensor):
         q, value, scores = ctx.saved_tensors
+        grad_output = grad_output.to(q.dtype)
         batch, heads, sequence, latent = q.shape
         dim = value.shape[-1]
 

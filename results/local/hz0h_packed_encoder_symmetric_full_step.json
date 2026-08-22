@@ -1,0 +1,61 @@
+{
+  "experiment_id": "bdh_packed_encoder_symmetric_full_step_v1",
+  "scope": "complete production training step: forward, backward, grad clipping, one AdamW step",
+  "device": "NVIDIA A40",
+  "torch_version": "2.8.0+cu128",
+  "dtype": "bfloat16",
+  "config": {
+    "batch_size": 8,
+    "sequence_length": 256,
+    "n_embd": 2496,
+    "n_head": 8,
+    "multiplier": 16,
+    "n_layer": 8,
+    "vocab_size": 256,
+    "checkpoint_segment_size": 1,
+    "grad_clip": 1.0
+  },
+  "algorithmic_difference": "packed encoder (native (D, nh*N) parameter) + symmetric attention backward ((dS+dS.T)@Q identity), combined -- both independently validated as real wins, this is the integration",
+  "fresh_subprocess_per_arm": true,
+  "one_step_parity": {
+    "loss_max_abs_diff": 0.0,
+    "post_adamw_step_param_max_abs_diff": 0.0005985861644148827,
+    "finite": true
+  },
+  "arms": {
+    "packed": {
+      "arm": "packed",
+      "seconds_per_step_trials": [
+        0.9248507600044832,
+        0.9254959461046383,
+        0.924791001714766
+      ],
+      "seconds_per_step_mean": 0.9250459026079625,
+      "seconds_per_step_stdev": 0.0003191625760983405,
+      "tokens_per_second_mean": 2213.944188311214,
+      "peak_memory_allocated_bytes": 6762566144,
+      "peak_memory_reserved_bytes": 8413773824,
+      "final_loss": 4.486747741699219,
+      "finite": true
+    },
+    "packed_symmetric": {
+      "arm": "packed_symmetric",
+      "seconds_per_step_trials": [
+        0.9164342592936009,
+        0.9174710505176336,
+        0.9185006868094205
+      ],
+      "seconds_per_step_mean": 0.9174686655402183,
+      "seconds_per_step_stdev": 0.0008436171863359558,
+      "tokens_per_second_mean": 2232.228823634112,
+      "peak_memory_allocated_bytes": 6526898688,
+      "peak_memory_reserved_bytes": 8229224448,
+      "final_loss": 4.503564834594727,
+      "finite": true
+    }
+  },
+  "combined_over_packed_throughput": 1.008258851067445,
+  "combined_over_packed_allocated_memory": 0.9651511791556977,
+  "combined_over_packed_reserved_memory": 0.9780658025922233,
+  "stop_condition": "close if one-step parity fails or combined does not beat packed alone on throughput"
+}
