@@ -1,0 +1,122 @@
+{
+  "symmetric": {
+    "arm": "symmetric",
+    "max_working_batch_size": 128,
+    "attempts": [
+      {
+        "batch_size": 1,
+        "ok": true,
+        "peak_memory_allocated_bytes": 198987264,
+        "peak_memory_reserved_bytes": 255852544
+      },
+      {
+        "batch_size": 2,
+        "ok": true,
+        "peak_memory_allocated_bytes": 363220480,
+        "peak_memory_reserved_bytes": 478150656
+      },
+      {
+        "batch_size": 4,
+        "ok": true,
+        "peak_memory_allocated_bytes": 693128704,
+        "peak_memory_reserved_bytes": 924844032
+      },
+      {
+        "batch_size": 8,
+        "ok": true,
+        "peak_memory_allocated_bytes": 1356877312,
+        "peak_memory_reserved_bytes": 1822425088
+      },
+      {
+        "batch_size": 16,
+        "ok": true,
+        "peak_memory_allocated_bytes": 2686471680,
+        "peak_memory_reserved_bytes": 3642753024
+      },
+      {
+        "batch_size": 32,
+        "ok": true,
+        "peak_memory_allocated_bytes": 5345136128,
+        "peak_memory_reserved_bytes": 7262437376
+      },
+      {
+        "batch_size": 64,
+        "ok": true,
+        "peak_memory_allocated_bytes": 10660367872,
+        "peak_memory_reserved_bytes": 14499708928
+      },
+      {
+        "batch_size": 128,
+        "ok": true,
+        "peak_memory_allocated_bytes": 21292928512,
+        "peak_memory_reserved_bytes": 28976349184
+      },
+      {
+        "batch_size": 256,
+        "ok": false,
+        "oom": true,
+        "stderr_tail": null
+      }
+    ]
+  },
+  "symmetric_graphed": {
+    "arm": "symmetric_graphed",
+    "max_working_batch_size": 128,
+    "attempts": [
+      {
+        "batch_size": 1,
+        "ok": true,
+        "peak_memory_allocated_bytes": 132469248,
+        "peak_memory_reserved_bytes": 322961408
+      },
+      {
+        "batch_size": 2,
+        "ok": true,
+        "peak_memory_allocated_bytes": 229986816,
+        "peak_memory_reserved_bytes": 587202560
+      },
+      {
+        "batch_size": 4,
+        "ok": true,
+        "peak_memory_allocated_bytes": 419582464,
+        "peak_memory_reserved_bytes": 1115684864
+      },
+      {
+        "batch_size": 8,
+        "ok": true,
+        "peak_memory_allocated_bytes": 801395200,
+        "peak_memory_reserved_bytes": 2174746624
+      },
+      {
+        "batch_size": 16,
+        "ok": true,
+        "peak_memory_allocated_bytes": 1568690688,
+        "peak_memory_reserved_bytes": 4322230272
+      },
+      {
+        "batch_size": 32,
+        "ok": true,
+        "peak_memory_allocated_bytes": 3103281664,
+        "peak_memory_reserved_bytes": 7308574720
+      },
+      {
+        "batch_size": 64,
+        "ok": true,
+        "peak_memory_allocated_bytes": 6168269312,
+        "peak_memory_reserved_bytes": 17202937856
+      },
+      {
+        "batch_size": 128,
+        "ok": true,
+        "peak_memory_allocated_bytes": 12302438912,
+        "peak_memory_reserved_bytes": 34378612736
+      },
+      {
+        "batch_size": 256,
+        "ok": false,
+        "oom": true,
+        "stderr_tail": null
+      }
+    ]
+  }
+}
