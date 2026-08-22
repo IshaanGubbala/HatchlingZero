@@ -1,0 +1,370 @@
+{
+  "config": {
+    "batch_size": 8,
+    "sequence_length": 256,
+    "n_embd": 2496,
+    "n_head": 8,
+    "multiplier": 16,
+    "n_layer": 8,
+    "decoder_shape": [
+      39936,
+      2496
+    ]
+  },
+  "total_self_cuda_us_all_ops": 7830565.521999917,
+  "profiled_steps": 3,
+  "top_20_ops_by_self_cuda_time": [
+    {
+      "name": "Command Buffer Full",
+      "input_shapes": "[]",
+      "count": 1903,
+      "self_cuda_us": 2162968.2029999113,
+      "self_cuda_pct": 27.622119972345136
+    },
+    {
+      "name": "ampere_bf16_s1688gemm_bf16_64x128_sliced1x2_ldg8_f2f_nn",
+      "input_shapes": "[]",
+      "count": 96,
+      "self_cuda_us": 311629.07300000044,
+      "self_cuda_pct": 3.979649645028585
+    },
+    {
+      "name": "ampere_bf16_s16816gemm_bf16_256x128_ldg8_f2f_stages_32x3_nn",
+      "input_shapes": "[]",
+      "count": 96,
+      "self_cuda_us": 306436.99199999974,
+      "self_cuda_pct": 3.9133443317608063
+    },
+    {
+      "name": "aten::bmm",
+      "input_shapes": "[[8, 2048, 2496], [8, 2496, 4992]]",
+      "count": 96,
+      "self_cuda_us": 294991.45499999955,
+      "self_cuda_pct": 3.7671794479111784
+    },
+    {
+      "name": "void at::native::vectorized_elementwise_kernel<4, at::native::bfloat16_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda(float)#1}, std::array<char*, 2ul> >(int, at::native::bfloat16_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda(float)#1}, std::array<char*, 2ul>)",
+      "input_shapes": "[]",
+      "count": 426,
+      "self_cuda_us": 248601.1009999997,
+      "self_cuda_pct": 3.1747528361975483
+    },
+    {
+      "name": "aten::mm",
+      "input_shapes": "[[2048, 2496], [2496, 39936]]",
+      "count": 72,
+      "self_cuda_us": 233245.13200000036,
+      "self_cuda_pct": 2.9786498988444685
+    },
+    {
+      "name": "aten::mm",
+      "input_shapes": "[[2048, 39936], [39936, 2496]]",
+      "count": 72,
+      "self_cuda_us": 230918.4430000018,
+      "self_cuda_pct": 2.948936987389201
+    },
+    {
+      "name": "void at::native::elementwise_kernel<128, 4, at::native::gpu_kernel_impl_nocast<at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#12}::operator()() const::{lambda(c10::BFloat16)#1}>(at::TensorIteratorBase&, at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#12}::operator()() const::{lambda(c10::BFloat16)#1} const&)::{lambda(int)#1}>(int, at::native::gpu_kernel_impl_nocast<at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#12}::operator()() const::{lambda(c10::BFloat16)#1}>(at::TensorIteratorBase&, at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#12}::operator()() const::{lambda(c10::BFloat16)#1} const&)::{lambda(int)#1})",
+      "input_shapes": "[]",
+      "count": 288,
+      "self_cuda_us": 217941.63899999877,
+      "self_cuda_pct": 2.7832171046611296
+    },
+    {
+      "name": "aten::mul",
+      "input_shapes": "[[8, 8, 256, 4992], [1, 1, 256, 4992]]",
+      "count": 144,
+      "self_cuda_us": 201348.07699999906,
+      "self_cuda_pct": 2.5713095233583463
+    },
+    {
+      "name": "aten::copy_",
+      "input_shapes": "[[8, 8, 256, 4992], [8, 8, 256, 4992], []]",
+      "count": 240,
+      "self_cuda_us": 194664.8569999995,
+      "self_cuda_pct": 2.4859616646216676
+    },
+    {
+      "name": "aten::bmm",
+      "input_shapes": "[[8, 2496, 2048], [8, 2048, 4992]]",
+      "count": 24,
+      "self_cuda_us": 149581.34900000022,
+      "self_cuda_pct": 1.9102240901982432
+    },
+    {
+      "name": "ampere_bf16_s1688gemm_bf16_64x128_sliced1x2_ldg8_f2f_nt",
+      "input_shapes": "[]",
+      "count": 24,
+      "self_cuda_us": 149581.34900000022,
+      "self_cuda_pct": 1.9102240901982432
+    },
+    {
+      "name": "void at::native::elementwise_kernel<128, 4, at::native::gpu_kernel_impl_nocast<at::native::CUDAFunctor_add<c10::BFloat16> >(at::TensorIteratorBase&, at::native::CUDAFunctor_add<c10::BFloat16> const&)::{lambda(int)#1}>(int, at::native::gpu_kernel_impl_nocast<at::native::CUDAFunctor_add<c10::BFloat16> >(at::TensorIteratorBase&, at::native::CUDAFunctor_add<c10::BFloat16> const&)::{lambda(int)#1})",
+      "input_shapes": "[]",
+      "count": 144,
+      "self_cuda_us": 133528.01900000038,
+      "self_cuda_pct": 1.7052155253008787
+    },
+    {
+      "name": "Optimizer.step#AdamW.step",
+      "input_shapes": "[]",
+      "count": 3,
+      "self_cuda_us": 131181.57799999975,
+      "self_cuda_pct": 1.6752503715273954
+    },
+    {
+      "name": "aten::copy_",
+      "input_shapes": "[[8, 8, 256, 2496], [8, 8, 256, 2496], []]",
+      "count": 240,
+      "self_cuda_us": 121894.66500000152,
+      "self_cuda_pct": 1.5566521301372085
+    },
+    {
+      "name": "void at::native::elementwise_kernel<128, 4, at::native::gpu_kernel_impl<at::native::BinaryFunctor<float, float, float, at::native::binary_internal::MulFunctor<float> > >(at::TensorIteratorBase&, at::native::BinaryFunctor<float, float, float, at::native::binary_internal::MulFunctor<float> > const&)::{lambda(int)#1}>(int, at::native::gpu_kernel_impl<at::native::BinaryFunctor<float, float, float, at::native::binary_internal::MulFunctor<float> > >(at::TensorIteratorBase&, at::native::BinaryFunctor<float, float, float, at::native::binary_internal::MulFunctor<float> > const&)::{lambda(int)#1})",
+      "input_shapes": "[]",
+      "count": 96,
+      "self_cuda_us": 117438.87899999997,
+      "self_cuda_pct": 1.499749649882327
+    },
+    {
+      "name": "aten::bmm",
+      "input_shapes": "[[8, 2048, 4992], [8, 4992, 2496]]",
+      "count": 24,
+      "self_cuda_us": 111987.08500000002,
+      "self_cuda_pct": 1.430127679608492
+    },
+    {
+      "name": "ampere_bf16_s16816gemm_bf16_64x128_ldg8_f2f_stages_32x6_tn",
+      "input_shapes": "[]",
+      "count": 24,
+      "self_cuda_us": 111987.08500000002,
+      "self_cuda_pct": 1.430127679608492
+    },
+    {
+      "name": "void at::native::unrolled_elementwise_kernel<at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#7}::operator()() const::{lambda(float)#1}, std::array<char*, 2ul>, 4, TrivialOffsetCalculator<1, unsigned int>, TrivialOffsetCalculator<1, unsigned int>, at::native::memory::LoadWithCast<1>, at::native::memory::StoreWithCast<1> >(int, at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#7}::operator()() const::{lambda(float)#1}, std::array<char*, 2ul>, TrivialOffsetCalculator<1, unsigned int>, TrivialOffsetCalculator<1, unsigned int>, at::native::memory::LoadWithCast<1>, at::native::memory::StoreWithCast<1>)",
+      "input_shapes": "[]",
+      "count": 234,
+      "self_cuda_us": 87188.27300000245,
+      "self_cuda_pct": 1.113435201519579
+    },
+    {
+      "name": "void at::native::elementwise_kernel<128, 2, at::native::gpu_kernel_impl_nocast<at::native::BinaryFunctor<float, float, float, at::native::binary_internal::MulFunctor<float> > >(at::TensorIteratorBase&, at::native::BinaryFunctor<float, float, float, at::native::binary_internal::MulFunctor<float> > const&)::{lambda(int)#1}>(int, at::native::gpu_kernel_impl_nocast<at::native::BinaryFunctor<float, float, float, at::native::binary_internal::MulFunctor<float> > >(at::TensorIteratorBase&, at::native::BinaryFunctor<float, float, float, at::native::binary_internal::MulFunctor<float> > const&)::{lambda(int)#1})",
+      "input_shapes": "[]",
+      "count": 96,
+      "self_cuda_us": 84426.86399999785,
+      "self_cuda_pct": 1.0781707114614032
+    }
+  ],
+  "matmul_like_ops": [
+    {
+      "name": "Command Buffer Full",
+      "input_shapes": "[]",
+      "count": 1903,
+      "self_cuda_us": 2162968.2029999113,
+      "self_cuda_pct": 27.622119972345136
+    },
+    {
+      "name": "ampere_bf16_s1688gemm_bf16_64x128_sliced1x2_ldg8_f2f_nn",
+      "input_shapes": "[]",
+      "count": 96,
+      "self_cuda_us": 311629.07300000044,
+      "self_cuda_pct": 3.979649645028585
+    },
+    {
+      "name": "ampere_bf16_s16816gemm_bf16_256x128_ldg8_f2f_stages_32x3_nn",
+      "input_shapes": "[]",
+      "count": 96,
+      "self_cuda_us": 306436.99199999974,
+      "self_cuda_pct": 3.9133443317608063
+    },
+    {
+      "name": "aten::bmm",
+      "input_shapes": "[[8, 2048, 2496], [8, 2496, 4992]]",
+      "count": 96,
+      "self_cuda_us": 294991.45499999955,
+      "self_cuda_pct": 3.7671794479111784
+    },
+    {
+      "name": "aten::mm",
+      "input_shapes": "[[2048, 2496], [2496, 39936]]",
+      "count": 72,
+      "self_cuda_us": 233245.13200000036,
+      "self_cuda_pct": 2.9786498988444685
+    },
+    {
+      "name": "aten::mm",
+      "input_shapes": "[[2048, 39936], [39936, 2496]]",
+      "count": 72,
+      "self_cuda_us": 230918.4430000018,
+      "self_cuda_pct": 2.948936987389201
+    },
+    {
+      "name": "aten::bmm",
+      "input_shapes": "[[8, 2496, 2048], [8, 2048, 4992]]",
+      "count": 24,
+      "self_cuda_us": 149581.34900000022,
+      "self_cuda_pct": 1.9102240901982432
+    },
+    {
+      "name": "ampere_bf16_s1688gemm_bf16_64x128_sliced1x2_ldg8_f2f_nt",
+      "input_shapes": "[]",
+      "count": 24,
+      "self_cuda_us": 149581.34900000022,
+      "self_cuda_pct": 1.9102240901982432
+    },
+    {
+      "name": "aten::bmm",
+      "input_shapes": "[[8, 2048, 4992], [8, 4992, 2496]]",
+      "count": 24,
+      "self_cuda_us": 111987.08500000002,
+      "self_cuda_pct": 1.430127679608492
+    },
+    {
+      "name": "ampere_bf16_s16816gemm_bf16_64x128_ldg8_f2f_stages_32x6_tn",
+      "input_shapes": "[]",
+      "count": 24,
+      "self_cuda_us": 111987.08500000002,
+      "self_cuda_pct": 1.430127679608492
+    },
+    {
+      "name": "aten::mm",
+      "input_shapes": "[[2496, 2048], [2048, 39936]]",
+      "count": 24,
+      "self_cuda_us": 81674.53599999967,
+      "self_cuda_pct": 1.0430221900389653
+    },
+    {
+      "name": "ampere_bf16_s16816gemm_bf16_256x128_ldg8_f2f_stages_32x3_nt",
+      "input_shapes": "[]",
+      "count": 24,
+      "self_cuda_us": 81674.53599999967,
+      "self_cuda_pct": 1.0430221900389653
+    },
+    {
+      "name": "aten::mm",
+      "input_shapes": "[[39936, 2048], [2048, 2496]]",
+      "count": 24,
+      "self_cuda_us": 79777.44500000024,
+      "self_cuda_pct": 1.0187954468405391
+    },
+    {
+      "name": "ampere_bf16_s1688gemm_bf16_128x256_ldg8_f2f_stages_32x1_nt",
+      "input_shapes": "[]",
+      "count": 24,
+      "self_cuda_us": 79777.44500000024,
+      "self_cuda_pct": 1.0187954468405391
+    },
+    {
+      "name": "ampere_bf16_s16816gemm_bf16_256x128_ldg8_f2f_stages_32x3_tn",
+      "input_shapes": "[]",
+      "count": 24,
+      "self_cuda_us": 79200.79400000058,
+      "self_cuda_pct": 1.0114313426978745
+    },
+    {
+      "name": "void cutlass::Kernel2<cutlass_80_tensorop_bf16_s16816gemm_relu_bf16_256x128_32x3_tn_align8>(cutlass_80_tensorop_bf16_s16816gemm_relu_bf16_256x128_32x3_tn_align8::Params)",
+      "input_shapes": "[]",
+      "count": 24,
+      "self_cuda_us": 78443.32200000098,
+      "self_cuda_pct": 1.0017580694474113
+    },
+    {
+      "name": "aten::bmm",
+      "input_shapes": "[[64, 256, 4992], [64, 4992, 256]]",
+      "count": 48,
+      "self_cuda_us": 31203.939000000737,
+      "self_cuda_pct": 0.39848895858585814
+    },
+    {
+      "name": "ampere_bf16_s16816gemm_bf16_64x128_ldg8_f2f_stages_32x6_nn",
+      "input_shapes": "[]",
+      "count": 48,
+      "self_cuda_us": 31203.939000000737,
+      "self_cuda_pct": 0.39848895858585814
+    },
+    {
+      "name": "ampere_bf16_s1688gemm_bf16_64x128_sliced1x2_ldg8_f2f_tn",
+      "input_shapes": "[]",
+      "count": 48,
+      "self_cuda_us": 26292.882999999216,
+      "self_cuda_pct": 0.33577246657510945
+    },
+    {
+      "name": "aten::bmm",
+      "input_shapes": "[[64, 256, 256], [64, 256, 2496]]",
+      "count": 72,
+      "self_cuda_us": 24310.37900000149,
+      "self_cuda_pct": 0.3104549592453017
+    },
+    {
+      "name": "ampere_bf16_s1688gemm_bf16_128x128_ldg8_f2f_stages_32x1_nt",
+      "input_shapes": "[]",
+      "count": 48,
+      "self_cuda_us": 22153.28700000042,
+      "self_cuda_pct": 0.282907881145505
+    },
+    {
+      "name": "aten::bmm",
+      "input_shapes": "[[64, 256, 256], [64, 256, 4992]]",
+      "count": 24,
+      "self_cuda_us": 17447.15999999846,
+      "self_cuda_pct": 0.2228084287269009
+    },
+    {
+      "name": "aten::bmm",
+      "input_shapes": "[[64, 4992, 256], [64, 256, 256]]",
+      "count": 24,
+      "self_cuda_us": 14480.52599999978,
+      "self_cuda_pct": 0.18492311901760922
+    },
+    {
+      "name": "aten::bmm",
+      "input_shapes": "[[64, 256, 2496], [64, 2496, 256]]",
+      "count": 24,
+      "self_cuda_us": 8845.723000000755,
+      "self_cuda_pct": 0.11296403784820853
+    },
+    {
+      "name": "aten::mm",
+      "input_shapes": "[[2048, 256], [256, 2496]]",
+      "count": 3,
+      "self_cuda_us": 107.585000000312,
+      "self_cuda_pct": 0.0013739109863528083
+    },
+    {
+      "name": "ampere_bf16_s1688gemm_bf16_128x128_ldg8_f2f_stages_32x1_tn",
+      "input_shapes": "[]",
+      "count": 3,
+      "self_cuda_us": 107.585000000312,
+      "self_cuda_pct": 0.0013739109863528083
+    },
+    {
+      "name": "aten::mm",
+      "input_shapes": "[[2048, 2496], [2496, 256]]",
+      "count": 3,
+      "self_cuda_us": 105.28000000017346,
+      "self_cuda_pct": 0.001344475053613817
+    },
+    {
+      "name": "ampere_bf16_s16816gemm_bf16_64x128_ldg8_f2f_stages_64x3_nn",
+      "input_shapes": "[]",
+      "count": 3,
+      "self_cuda_us": 105.28000000017346,
+      "self_cuda_pct": 0.001344475053613817
+    },
+    {
+      "name": "aten::mm",
+      "input_shapes": "[[2496, 2048], [2048, 256]]",
+      "count": 3,
+      "self_cuda_us": 97.50199999980396,
+      "self_cuda_pct": 0.0012451463400168583
+    },
+    {
+      "name": "ampere_bf16_s16816gemm_bf16_128x128_ldg8_f2f_stages_32x5_nt",
+      "input_shapes": "[]",
+      "count": 3,
+      "self_cuda_us": 94.20699999993667,
+      "self_cuda_pct": 0.0012030676422445197
+    }
+  ]
+}
