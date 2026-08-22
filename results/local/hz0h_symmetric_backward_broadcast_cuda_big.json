@@ -1,0 +1,62 @@
+{
+  "experiment_id": "bdh_symmetric_broadcast_backward_v1",
+  "scope": "attention forward+backward operator gate; not a full training claim",
+  "device": "NVIDIA A40",
+  "torch_version": "2.8.0+cu128",
+  "dtype": "bfloat16",
+  "shape": {
+    "batch_size": 2,
+    "sequence_length": 512,
+    "n_embd": 4096,
+    "heads": 8,
+    "latent_per_head": 8192
+  },
+  "algorithmic_difference": "same (dS+dS.T)@Q identity as d83db47's symmetric arm; replaces value.expand().reshape() (a materialized (B,H,T,D) copy of value) with torch.matmul's native broadcasting over the head dimension",
+  "fresh_subprocess_per_arm": true,
+  "parity_vs_raw": {
+    "symmetric": {
+      "output_max_abs_error": 0.0,
+      "q_gradient_max_abs_error": 64.0,
+      "value_gradient_max_abs_error": 0.0,
+      "finite": true
+    },
+    "broadcast": {
+      "output_max_abs_error": 0.0,
+      "q_gradient_max_abs_error": 64.0,
+      "value_gradient_max_abs_error": 0.0,
+      "finite": true
+    }
+  },
+  "arms": {
+    "raw": {
+      "arm": "raw",
+      "seconds_per_step": 0.021313738822937012,
+      "tokens_per_second": 48044.12817980163,
+      "peak_memory_allocated_bytes": 1141145600,
+      "peak_memory_reserved_bytes": 1566572544,
+      "finite": true
+    },
+    "symmetric": {
+      "arm": "symmetric",
+      "seconds_per_step": 0.020029309019446374,
+      "tokens_per_second": 51125.07870370379,
+      "peak_memory_allocated_bytes": 1141145600,
+      "peak_memory_reserved_bytes": 1566572544,
+      "finite": true
+    },
+    "broadcast": {
+      "arm": "broadcast",
+      "seconds_per_step": 0.020354705676436425,
+      "tokens_per_second": 50307.77729129393,
+      "peak_memory_allocated_bytes": 1141145600,
+      "peak_memory_reserved_bytes": 1566572544,
+      "finite": true
+    }
+  },
+  "symmetric_over_raw_throughput": 1.0641275144461344,
+  "broadcast_over_raw_throughput": 1.047116040965938,
+  "broadcast_over_symmetric_throughput": 0.9840136889148565,
+  "broadcast_over_symmetric_allocated_memory": 1.0,
+  "broadcast_over_symmetric_reserved_memory": 1.0,
+  "stop_condition": "close if parity fails vs raw, or broadcast does not beat symmetric on both throughput and memory"
+}
