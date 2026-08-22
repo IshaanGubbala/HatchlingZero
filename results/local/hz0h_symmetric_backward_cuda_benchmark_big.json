@@ -1,0 +1,43 @@
+{
+  "experiment_id": "bdh_symmetric_dense_backward_v1",
+  "scope": "attention forward+backward operator gate; not a full training claim",
+  "device": "NVIDIA A40",
+  "torch_version": "2.8.0+cu128",
+  "dtype": "bfloat16",
+  "shape": {
+    "batch_size": 2,
+    "sequence_length": 512,
+    "n_embd": 4096,
+    "heads": 8,
+    "latent_per_head": 8192
+  },
+  "algorithmic_difference": "combines Q query/key gradients as (dS+dS.T)@Q, removing one T^2*N dense GEMM",
+  "fresh_subprocess_per_arm": true,
+  "parity": {
+    "output_max_abs_error": 0.0,
+    "q_gradient_max_abs_error": 64.0,
+    "value_gradient_max_abs_error": 0.0,
+    "finite": true
+  },
+  "arms": {
+    "raw": {
+      "arm": "raw",
+      "seconds_per_step": 0.021218556662400564,
+      "tokens_per_second": 48259.64443729273,
+      "peak_memory_allocated_bytes": 1141145600,
+      "peak_memory_reserved_bytes": 1566572544,
+      "finite": true
+    },
+    "symmetric": {
+      "arm": "symmetric",
+      "seconds_per_step": 0.019928026075164477,
+      "tokens_per_second": 51384.91871385954,
+      "peak_memory_allocated_bytes": 1141145600,
+      "peak_memory_reserved_bytes": 1566572544,
+      "finite": true
+    }
+  },
+  "symmetric_over_raw_throughput": 1.064759579416871,
+  "symmetric_over_raw_allocated_memory": 1.0,
+  "stop_condition": "close if parity fails or throughput is not greater than raw"
+}

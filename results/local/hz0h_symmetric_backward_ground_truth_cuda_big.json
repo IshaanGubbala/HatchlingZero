@@ -1,0 +1,51 @@
+{
+  "experiment_id": "bdh_symmetric_dense_backward_v1_ground_truth_check",
+  "scope": "does NOT replace the closed-lane raw-vs-symmetric BF16 comparison; checks each arm independently against a float64 reference",
+  "device": "cuda",
+  "dtype": "bfloat16",
+  "shape": {
+    "batch_size": 2,
+    "sequence_length": 512,
+    "n_embd": 4096,
+    "heads": 8,
+    "latent_per_head": 8192
+  },
+  "q_gradient": {
+    "raw_vs_truth": {
+      "max_abs_error": 50.392160869910185,
+      "l2_relative_error": 0.00410945467121572,
+      "max_relative_error_clamped": 20.447776798225533
+    },
+    "symmetric_vs_truth": {
+      "max_abs_error": 33.862599253611734,
+      "l2_relative_error": 0.0037126557131640335,
+      "max_relative_error_clamped": 18.63183195621137
+    }
+  },
+  "value_gradient": {
+    "raw_vs_truth": {
+      "max_abs_error": 137.43437422702118,
+      "l2_relative_error": 0.004070593693780805,
+      "max_relative_error_clamped": 20.47194409244633
+    },
+    "symmetric_vs_truth": {
+      "max_abs_error": 137.43437422702118,
+      "l2_relative_error": 0.004070593693780805,
+      "max_relative_error_clamped": 20.47194409244633
+    }
+  },
+  "output": {
+    "raw_vs_truth": {
+      "max_abs_error": 43.856702799981576,
+      "l2_relative_error": 0.00371446506228374,
+      "max_relative_error_clamped": 21.69797092080597
+    },
+    "symmetric_vs_truth": {
+      "max_abs_error": 43.856702799981576,
+      "l2_relative_error": 0.00371446506228374,
+      "max_relative_error_clamped": 21.69797092080597
+    }
+  },
+  "symmetric_over_raw_q_gradient_l2_relative_error_ratio": 0.9034424297629983,
+  "verdict": "symmetric error is within 2x of raw's own BF16 error against ground truth -- consistent with ordinary BF16 rounding shared by both formulations, not a symmetric-specific bug"
+}
