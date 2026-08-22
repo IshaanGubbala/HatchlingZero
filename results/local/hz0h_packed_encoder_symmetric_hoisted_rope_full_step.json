@@ -1,0 +1,61 @@
+{
+  "experiment_id": "bdh_packed_encoder_symmetric_hoisted_rope_full_step_v1",
+  "scope": "complete production training step: forward, backward, grad clipping, one AdamW step",
+  "device": "NVIDIA A40",
+  "torch_version": "2.8.0+cu128",
+  "dtype": "bfloat16",
+  "config": {
+    "batch_size": 8,
+    "sequence_length": 256,
+    "n_embd": 2496,
+    "n_head": 8,
+    "multiplier": 16,
+    "n_layer": 8,
+    "vocab_size": 256,
+    "checkpoint_segment_size": 1,
+    "grad_clip": 1.0
+  },
+  "algorithmic_difference": "RoPE phases_cos/phases_sin computed once per training step instead of once per round (identical formula to Attention.rope's internals, only the query changes per round, not the cos/sin terms)",
+  "fresh_subprocess_per_arm": true,
+  "one_step_parity": {
+    "loss_max_abs_diff": 0.0,
+    "post_adamw_step_param_max_abs_diff": 0.0,
+    "finite": true
+  },
+  "arms": {
+    "packed_symmetric": {
+      "arm": "packed_symmetric",
+      "seconds_per_step_trials": [
+        0.9119142476003617,
+        0.9139834485016763,
+        0.9140271686017514
+      ],
+      "seconds_per_step_mean": 0.9133082882345964,
+      "seconds_per_step_stdev": 0.0009858971647560277,
+      "tokens_per_second_mean": 2242.397256635803,
+      "peak_memory_allocated_bytes": 6526898688,
+      "peak_memory_reserved_bytes": 8229224448,
+      "final_loss": 4.503564834594727,
+      "finite": true
+    },
+    "packed_symmetric_hoisted_rope": {
+      "arm": "packed_symmetric_hoisted_rope",
+      "seconds_per_step_trials": [
+        0.9131572648184374,
+        0.913885643798858,
+        0.9151845582993701
+      ],
+      "seconds_per_step_mean": 0.9140758223055552,
+      "seconds_per_step_stdev": 0.0008384929388552627,
+      "tokens_per_second_mean": 2240.514353431174,
+      "peak_memory_allocated_bytes": 6527422976,
+      "peak_memory_reserved_bytes": 8355053568,
+      "final_loss": 4.503564834594727,
+      "finite": true
+    }
+  },
+  "hoisted_over_base_throughput": 0.9991603168443697,
+  "hoisted_over_base_allocated_memory": 1.0000803272771743,
+  "hoisted_over_base_reserved_memory": 1.0152905198776758,
+  "stop_condition": "close if one-step parity fails or hoisted does not beat base on throughput"
+}
