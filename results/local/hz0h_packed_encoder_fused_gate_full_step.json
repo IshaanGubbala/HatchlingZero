@@ -1,0 +1,61 @@
+{
+  "experiment_id": "bdh_packed_encoder_fused_gate_full_step_v1",
+  "scope": "complete production training step: forward, backward, grad clipping, one AdamW step",
+  "device": "NVIDIA A40",
+  "torch_version": "2.8.0+cu128",
+  "dtype": "bfloat16",
+  "config": {
+    "batch_size": 8,
+    "sequence_length": 256,
+    "n_embd": 2496,
+    "n_head": 8,
+    "multiplier": 16,
+    "n_layer": 8,
+    "vocab_size": 256,
+    "checkpoint_segment_size": 1,
+    "grad_clip": 1.0
+  },
+  "algorithmic_difference": "xy_sparse = x_sparse * relu(y_latent) as one Triton kernel (forward only) instead of a separate F.relu then elementwise multiply -- zero change to the math",
+  "fresh_subprocess_per_arm": true,
+  "one_step_parity": {
+    "loss_max_abs_diff": 0.0,
+    "post_adamw_step_param_max_abs_diff": 0.0,
+    "finite": true
+  },
+  "arms": {
+    "packed": {
+      "arm": "packed",
+      "seconds_per_step_trials": [
+        0.9226173640985508,
+        0.9232225109008141,
+        0.9252702318015509
+      ],
+      "seconds_per_step_mean": 0.9237033689336386,
+      "seconds_per_step_stdev": 0.001135149064573796,
+      "tokens_per_second_mean": 2217.1619903955702,
+      "peak_memory_allocated_bytes": 6763090432,
+      "peak_memory_reserved_bytes": 8472494080,
+      "final_loss": 4.486747741699219,
+      "finite": true
+    },
+    "packed_fused_gate": {
+      "arm": "packed_fused_gate",
+      "seconds_per_step_trials": [
+        0.9594201183994301,
+        0.9588992870005313,
+        0.9594187423994299
+      ],
+      "seconds_per_step_mean": 0.9592460492664637,
+      "seconds_per_step_stdev": 0.0002451985931851584,
+      "tokens_per_second_mean": 2135.010096279372,
+      "peak_memory_allocated_bytes": 6874468864,
+      "peak_memory_reserved_bytes": 8799649792,
+      "final_loss": 4.486747741699219,
+      "finite": true
+    }
+  },
+  "fused_over_packed_throughput": 0.9629472747268497,
+  "fused_over_packed_allocated_memory": 1.0164685705625058,
+  "fused_over_packed_reserved_memory": 1.0386138613861386,
+  "stop_condition": "close if one-step parity fails or packed_fused_gate does not beat packed on throughput"
+}
