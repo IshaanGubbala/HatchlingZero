@@ -1,0 +1,10 @@
+{
+  "context_length": 512,
+  "decode_tokens": 64,
+  "transformer_with_power_sampler": 432.8714549828715,
+  "transformer_without_power_sampler": 438.5955841372734,
+  "bdh_streaming_with_power_sampler": 42.89344796032955,
+  "bdh_streaming_without_power_sampler": 42.91552813199675,
+  "transformer_slowdown_from_power_sampler": 1.0132236235226655,
+  "bdh_slowdown_from_power_sampler": 1.0005147679358306
+}
