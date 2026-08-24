@@ -21,6 +21,7 @@ import torch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from reference.hz0h_bdh_vb_checkpointed_torch import bdh_vb_variable_depth_forward_checkpointed
+from reference.hz0h_bdh_vb_frozen_identity_torch import BDHVBFrozenIdentity
 from reference.hz0h_bdh_vb_identity_init_torch import BDHVBIdentityInit
 from reference.hz0h_bdh_vb_torch import BDHVB, BDHVBConfig
 from scripts.hz0h_bdh_combined_best_comparison import autocast_context, curriculum_stages, make_optimizer
@@ -30,7 +31,12 @@ from scripts.hz0h_factorized_curriculum_full_comparison import depth_at, lr_at, 
 
 def train_vb(config, args, device):
     torch.manual_seed(args.seed)
-    model_cls = BDHVBIdentityInit if getattr(args, "identity_init", False) else BDHVB
+    if getattr(args, "frozen_identity", False):
+        model_cls = BDHVBFrozenIdentity
+    elif getattr(args, "identity_init", False):
+        model_cls = BDHVBIdentityInit
+    else:
+        model_cls = BDHVB
     model = model_cls(config).to(device=device, dtype=torch.float32)
     optimizer = make_optimizer(model.parameters(), args, device)
     steps = math.ceil(args.target_tokens / (args.batch_size * args.sequence_length))
@@ -106,6 +112,9 @@ def main():
     parser.add_argument("--identity-init", action="store_true",
                          help="Initialize P/O near-identity (BDHVBIdentityInit) instead of "
                               "random N(0,0.02) noise (BDHVB's default).")
+    parser.add_argument("--frozen-identity", action="store_true",
+                         help="P/O fixed at exact identity, never trained (BDHVBFrozenIdentity) -- "
+                              "the crux bug-vs-optimization test. Requires d_state == n_embd.")
     args = parser.parse_args()
 
     device = pick_device(args.device)
