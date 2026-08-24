@@ -1,0 +1,24 @@
+{
+  "checkpoint": "results/local/hz0h_bdh_checkpoint_for_ablation.pt",
+  "checkpoint_final_train_loss": 0.9804399013519287,
+  "checkpoint_target_tokens": 5000000,
+  "n_layer": 8,
+  "results": {
+    "1": {
+      "validation_loss": 1.6403035447001457,
+      "real_state_reads": 8
+    },
+    "2": {
+      "validation_loss": 1.9403805434703827,
+      "real_state_reads": 4
+    },
+    "4": {
+      "validation_loss": 2.9723211899399757,
+      "real_state_reads": 2
+    },
+    "8": {
+      "validation_loss": 3.7296804189682007,
+      "real_state_reads": 1
+    }
+  }
+}
