@@ -1,0 +1,45 @@
+{
+  "checkpoint": "results/local/hz0h_bdh_checkpoint_for_ablation.pt",
+  "n_embd": 2496,
+  "n_head": 8,
+  "N_per_head": 4992,
+  "n_over_d_ratio": 16.0,
+  "paper_geometry_note": "paper's scaling runs hold d=256 while n grows to 32768-1048576, n/d ~128-4096; our production model has n/d~16 -- a fundamentally different, much narrower-neuron-pool regime",
+  "n_layer": 8,
+  "eval_batches": 2,
+  "batch_size": 2,
+  "sequence_length": 128,
+  "x_density_by_round": [
+    0.24382851272821426,
+    0.2668328881263733,
+    0.28743046522140503,
+    0.3016212284564972,
+    0.3077673316001892,
+    0.29591819643974304,
+    0.28027333319187164,
+    0.2765374928712845
+  ],
+  "y_density_by_round": [
+    0.3266800791025162,
+    0.32285672426223755,
+    0.3239949643611908,
+    0.3244248777627945,
+    0.32929109036922455,
+    0.32180292904376984,
+    0.31341519951820374,
+    0.3166251927614212
+  ],
+  "g_density_by_round": [
+    0.05060976557433605,
+    0.06026369519531727,
+    0.07350525632500648,
+    0.08755223825573921,
+    0.10724176466464996,
+    0.11622172966599464,
+    0.11019293963909149,
+    0.10654956474900246
+  ],
+  "x_density_mean": 0.28252618107944727,
+  "y_density_mean": 0.3223863821476698,
+  "g_density_mean": 0.0890171192586422
+}
