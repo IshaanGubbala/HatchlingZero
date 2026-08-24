@@ -1,0 +1,32 @@
+{
+  "config": {
+    "data": "data/packed/hz0h_bytes_25m_train.jsonl",
+    "validation_data": "data/packed/hz0h_bytes_25m_val.jsonl",
+    "out": "results/local/hz0h_vb_quality_check_batch8_control.json",
+    "device": "auto",
+    "target_tokens": 5000000,
+    "batch_size": 8,
+    "sequence_length": 256,
+    "warmup_steps": 100,
+    "learning_rate": 0.001,
+    "grad_clip": 1.0,
+    "eval_batches": 8,
+    "log_every": 50,
+    "optimizer": "adamw",
+    "dtype": "bfloat16",
+    "seed": 7,
+    "n_embd": 2496,
+    "mult": 16,
+    "n_layer": 8,
+    "n_head": 8,
+    "d_state_divisor": 4
+  },
+  "d_state": 624,
+  "results": {
+    "vb": {
+      "validation_loss": 2.016089677810669,
+      "parameter_count": 303433728,
+      "training_seconds": 2131.64882186288
+    }
+  }
+}
