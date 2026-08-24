@@ -21,6 +21,7 @@ import torch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from reference.hz0h_bdh_vb_checkpointed_torch import bdh_vb_variable_depth_forward_checkpointed
+from reference.hz0h_bdh_vb_identity_init_torch import BDHVBIdentityInit
 from reference.hz0h_bdh_vb_torch import BDHVB, BDHVBConfig
 from scripts.hz0h_bdh_combined_best_comparison import autocast_context, curriculum_stages, make_optimizer
 from scripts.hz0h_bdh_width_flop_frontier_local import pick_device, synchronize
@@ -29,7 +30,8 @@ from scripts.hz0h_factorized_curriculum_full_comparison import depth_at, lr_at, 
 
 def train_vb(config, args, device):
     torch.manual_seed(args.seed)
-    model = BDHVB(config).to(device=device, dtype=torch.float32)
+    model_cls = BDHVBIdentityInit if getattr(args, "identity_init", False) else BDHVB
+    model = model_cls(config).to(device=device, dtype=torch.float32)
     optimizer = make_optimizer(model.parameters(), args, device)
     steps = math.ceil(args.target_tokens / (args.batch_size * args.sequence_length))
     stages = curriculum_stages(args.target_tokens, config.n_layer)
@@ -98,13 +100,20 @@ def main():
     parser.add_argument("--n-layer", type=int, default=8)
     parser.add_argument("--n-head", type=int, default=8)
     parser.add_argument("--d-state-divisor", type=int, default=4)
+    parser.add_argument("--d-state", type=int, default=None,
+                         help="Direct d_state override, bypasses --d-state-divisor. "
+                              "Needed for non-integer-divisor fractions of n_embd (e.g. 3/4, 3/8).")
+    parser.add_argument("--identity-init", action="store_true",
+                         help="Initialize P/O near-identity (BDHVBIdentityInit) instead of "
+                              "random N(0,0.02) noise (BDHVB's default).")
     args = parser.parse_args()
 
     device = pick_device(args.device)
+    d_state = args.d_state if args.d_state is not None else args.n_embd // args.d_state_divisor
     config = BDHVBConfig(
         n_layer=args.n_layer, n_embd=args.n_embd, n_head=args.n_head,
         mlp_internal_dim_multiplier=args.mult, vocab_size=256, dropout=0.0,
-        d_state=args.n_embd // args.d_state_divisor,
+        d_state=d_state,
     )
     model, elapsed = train_vb(config, args, device)
     val_loss = evaluate_loss(model, args, device)
