@@ -1,0 +1,45 @@
+{
+  "checkpoint": "results/local/hz0h_bdh_checkpoint_paper_geometry.pt",
+  "n_embd": 256,
+  "n_head": 4,
+  "N_per_head": 8192,
+  "n_over_d_ratio": 128.0,
+  "paper_geometry_note": "paper's scaling runs hold d=256 while n grows to 32768-1048576, n/d ~128-4096; our production model has n/d~16 -- a fundamentally different, much narrower-neuron-pool regime",
+  "n_layer": 8,
+  "eval_batches": 2,
+  "batch_size": 2,
+  "sequence_length": 128,
+  "x_density_by_round": [
+    0.21701692789793015,
+    0.20219499617815018,
+    0.1982288509607315,
+    0.1964799165725708,
+    0.19567396491765976,
+    0.1961323320865631,
+    0.1976400688290596,
+    0.19911019504070282
+  ],
+  "y_density_by_round": [
+    0.336149200797081,
+    0.349385529756546,
+    0.342459499835968,
+    0.33322250843048096,
+    0.3259212523698807,
+    0.3204468935728073,
+    0.3172838091850281,
+    0.3162286728620529
+  ],
+  "g_density_by_round": [
+    0.05290186032652855,
+    0.042091429233551025,
+    0.040101299062371254,
+    0.04026121646165848,
+    0.04091770388185978,
+    0.041623152792453766,
+    0.04260001517832279,
+    0.04375535994768143
+  ],
+  "x_density_mean": 0.200309656560421,
+  "y_density_mean": 0.3301371708512306,
+  "g_density_mean": 0.043031504610553384
+}
