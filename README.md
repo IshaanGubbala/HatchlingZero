@@ -15,6 +15,7 @@ We do not assume the answer is yes. The most complete real, matched, same-hardwa
 - [The trusted foundation](#the-trusted-foundation)
 - [Architecture: how BDH actually works](#architecture-how-bdh-actually-works)
 - [Real evidence so far](#real-evidence-so-far)
+- [Latest: the efficiency-architecture sweep and the compound win](#latest-the-efficiency-architecture-sweep-and-the-compound-win)
 - [The research plan](#the-research-plan)
 - [Prior work (HZ-0A – HZ-0H, superseded direction)](#prior-work-hz-0a--hz-0h-superseded-direction)
 - [Repository layout](#repository-layout)
@@ -50,6 +51,9 @@ HatchlingZero's direction changed on 2026-08-11. The project's first ~7 stages (
 - **The explicit training-efficiency target (≥1.30× throughput, ≤0.70× RAM vs. the matched Transformer) remains unmet**, but real, large, disclosed progress exists: exact BDH/VB alone measured throughput ratio 0.200, ~10.7× *more* RAM (see [`docs/restart/hz0h_phase_f_training_target_gate_results.md`](docs/restart/hz0h_phase_f_training_target_gate_results.md)). BlockBDH alone beats *dense BDH* (1.944× speed, 0.579× RAM) but is **decisively negative** against the actual Transformer (~5.78× slower, ~6.18× more memory — [`docs/restart/hz0h_blocksparse_cuda_training_preflight_results.md`](docs/restart/hz0h_blocksparse_cuda_training_preflight_results.md)). Activation checkpointing's real, measured effect (81.5% less memory, 2.08× faster on a synthetic step) would, if it compounded cleanly with the existing ratios, move throughput from 0.200 to an estimated ~0.42 and RAM from 10.7× to an estimated ~2.0× more — neither clears the gate, but the largest single improvement toward it found so far, and the memory half of that estimate is now backed by a real full training run, not just an estimate.
 
 This is real, disclosed, split evidence at 25.4M–101M params — not a verdict either direction, and explicitly not yet tested at the 100M–1B+ scale where BDH's O(1) streaming state and shared-weight parameter efficiency are structurally more likely to pay off in full. Current active work: extending activation checkpointing to VB D/4 and a full matched 100M three-arm comparison, and a separate architectural direction (`HZ-CQ`, latent test-time reasoning modeled on Pathway's disclosed BDH-CQ interface, now also informed by Pathway's "Equations of Reasoning" page) tracked in [`plans/Deep Reserach Plan.md`](plans/Deep%20Reserach%20Plan.md).
+
+- **Latest, 2026-08-25 — a compound architecture (frozen-identity state compression + SVD-warmstarted low-rank decoder) now beats exact BDH on quality, training speed, training memory, AND inference speed simultaneously** — real, cross-seed-checked, GPU-verified numbers in [Latest: the efficiency-architecture sweep and the compound win](#latest-the-efficiency-architecture-sweep-and-the-compound-win) below. This is the first result in the project that clears every one of those axes at once rather than trading one for another.
+- **Long-context decode "crossover" — real, but far thinner than an earlier, methodologically-unfair benchmark implied.** An earlier decode comparison at production scale (~300M params, untrained execution-speed diagnostic) measured a Transformer KV-cache decode path that regrows its K/V tensors via `torch.cat` on every single decoded token — real, avoidable, per-step reallocation-and-copy overhead that scales with context length, not a production-realistic serving path. A fair rebuild (`reference/hz0h_matched_transformer_static_kv.py`: preallocated fixed-size KV buffer, in-place writes, no per-token `torch.cat`, flash-attention-eligible `is_causal=True` path for the initial prefill; verified bit-exact against the old cat-based path before trusting its numbers) tells a much more one-sided story below the crossover point: the fair Transformer decisively beats BDH decode at context 128 (327.1 vs. 69.5 tok/s, 4.71×), 2048 (335.6 vs. 69.5, 4.83×), and 16384 (233.2 vs. 69.5, 3.36×) on the same RTX 4090. A real crossover does still exist near context=65536 (BDH 69.4 vs. Transformer 67.5 tok/s) — but it's a 1.03× near-tie, not a decisive architectural win. Context=131072 hit a genuine 24GB VRAM ceiling (both models resident) before either architecture's behavior there could be measured. See `results/local/hz0h_static_kv_transformer_decode_benchmark.json` and `plans/HatchlingZero_BDH_Efficiency_Architecture_Plan_2026-08-24.md` §15 Tier 0. Any future long-context-decode claim should cite this fair-baseline result, not the earlier cat-based one.
 
 ---
 
@@ -225,6 +229,58 @@ Real, disclosed tension found alongside it: under *fixed-depth*
 training this cost a measured **8-9% validation CE regression**
 relative to exact BDH — see below for what fixed it.
 
+**Value Bottleneck's production-scale quality gap — isolated to a
+trainability problem, not a capacity limit.** At the 300M-param
+production shape, trainable VB lands in a tight cluster (val_loss
+1.9994-2.0453) across the *entire* width frontier (`d_state` from
+`D/8` up to `D`, i.e. even at **zero compression**), well short of
+exact BDH's 1.8585 — a flat quality wall that didn't track compression
+ratio at all, which ruled out a simple bandwidth/capacity story before
+it was even tested further. Three controlled experiments (real, trained,
+5M tokens each) pinned down why:
+
+- **Frozen-identity crux** (`P`/`O` fixed at the exact identity matrix,
+  `requires_grad=False`, at `d_state = D` — mathematically zero
+  information loss): val_loss **1.8412**, matching exact BDH. This
+  rules out both an implementation bug and an information-theoretic
+  capacity limit — the VB forward path can preserve full BDH quality
+  when the bottleneck isn't allowed to move.
+- **Identity-init, unfrozen from step 0**, swept across the same width
+  frontier: **no benefit under real compression** — every compressed
+  width (`D`×{0.75, 0.5, 0.375, 0.25, 0.125}) landed back in the
+  2.02-2.06 range, statistically indistinguishable from random init.
+  Starting at the good (identity) solution doesn't help if gradients
+  are free to move away from it immediately.
+- **Warm-start** (identity init, `P`/`O` frozen for the first 500 of
+  2442 steps, then unfrozen): val_loss **1.9065** at `d_state = D×0.75`
+  — vs. **2.0325** for the *identical* config with no freeze period.
+  Same width, same init, only the early-training protection differs.
+
+Conclusion: VB's quality gap is a **gradient-dynamics / trainability
+problem, not an architectural or capacity ceiling** — the good
+representation exists and is reachable, but early training actively
+destroys it once gradients touch `P`/`O`, and starting there doesn't
+help unless it's protected for a while first. Next direction: longer
+freeze schedules, a lower learning rate on `P`/`O` specifically, or a
+gradual unfreeze, evaluated across the full width frontier — not
+further init tuning.
+
+**In plain English:** think of `P`/`O` as a photocopier that shrinks a
+page down and blows it back up. Start it as a *perfect* copier (an
+identity map — shrink then re-enlarge gives back the exact original)
+and glue the settings shut so it can never change: it stays a perfect
+copier forever, and (this session's later result, below) that alone
+beats every trained alternative. Instead let it "learn" and adjust its
+own settings during the job, and it doesn't get better at copying — it
+drifts and makes worse copies, because nothing is pushing it back
+toward "perfect," only toward "whatever reduces this batch's error":
+
+```mermaid
+flowchart LR
+    A["📠 Copier locked at\n'perfect copy' settings,\nnever touched again"] -->|"stays perfect,\nevery single page"| B["✅ Best result"]
+    C["📠 Copier allowed to\nadjust its own settings\nwhile working"] -->|"drifts away from\n'perfect' chasing\nshort-term fixes"| D["❌ Worse result"]
+```
+
 **INT8 synaptic state** — the accumulator itself is stored in INT8
 between streaming calls instead of fp32. Works as a storage concept;
 the naive quantize/dequantize runtime cost causes a real, disclosed
@@ -240,6 +296,18 @@ for full depth from step one:
 ```text
 tokens:      0 ────────── 6.25M ────────── 12.5M ────────── 18.75M ────────── 25M
 iterations:  │  depth = 2  │  depth = 4  │   depth = 6    │    depth = 8      │
+```
+
+**In plain English:** because BDH thinks about the same input in
+repeated passes using the exact same "brain" each time (not a fresh
+brain per pass, like a Transformer), the number of passes is just a
+dial, not a redesign. So instead of always doing the hardest version of
+the exercise, ramp it up like training for a race:
+
+```mermaid
+flowchart LR
+    A["Week 1:\njog around the block\n(2 passes)"] --> B["Week 2:\nrun a mile\n(4 passes)"] --> C["Week 3:\nrun 5K\n(6 passes)"] --> D["Race day:\nfull marathon\n(8 passes)"]
+    D --> E["🏆 Faster AND better\nthan training at full\nmarathon distance\nfrom day one"]
 ```
 
 Real, 3-seed-confirmed result at 25M params on real text
@@ -361,6 +429,139 @@ BDH wins quality clearly (real margin, code/math-reasoning CE too); the Transfor
 - *BlockBDH — a real systems win over dense BDH that does not close the actual gap* ([`docs/restart/hz0h_blocksparse_cuda_training_preflight_results.md`](docs/restart/hz0h_blocksparse_cuda_training_preflight_results.md)): a real, untrained systems preflight on the actual RTX3060, at Phase F's own production scale, measured **1.944× training-step speedup and 0.579× peak RAM against dense BDH** — clearing both numeric thresholds *against that control*. But the direct comparison against the actual matched Transformer, run later the same day, all three arms in one script: BlockBDH is **0.173× the Transformer's speed (~5.78× slower) and 6.180× its peak memory (~6.18× more)** — decisively behind, not closer, on both axes simultaneously. Real, reproducible progress over dense BDH; does not by itself make a credible case for closing the training-efficiency gate.
 - *Split-V — a negative result, disclosed as one* (see "Real extensions built and measured this session" above): giving BDH's attention genuine per-head value subspaces, motivated by a real finding that naively adding more heads made attention ~95× slower (not faster), itself measured **~18% slower** than exact BDH in a local smoke test — correctness holds, no speed or quality win yet.
 - *Activation checkpointing — the real win in this list* ([`docs/restart/hz0h_activation_checkpointing_results.md`](docs/restart/hz0h_activation_checkpointing_results.md), [`docs/restart/hz0h_phase_g_checkpointed_retry_results.md`](docs/restart/hz0h_phase_g_checkpointed_retry_results.md)): trading recompute for memory across BDH's recurrent-depth loop. Real CUDA benchmark: **81.5% less peak memory, 2.08× faster** on a synthetic step at the exact 100M-param-wall config. Real, trained, full-budget confirmation: wired into the actual curriculum runner and retried at 100M params on the exact config that hit the WDDM wall above — completed all 25M tokens with peak memory pinned flat through every transition, and produced a real quality number (`1.59375` best validation loss) that **beats the matched 100M-param Transformer by 21.6%**, same params/tokens/seed/hardware. The first bucket-1 fix this session where the full trained-in-path result confirms the synthetic benchmark's direction, not just a systems-probe win against a weaker control.
+
+---
+
+## Latest: the efficiency-architecture sweep and the compound win
+
+**2026-08-24/25** — a full, disciplined sweep through
+[`plans/HatchlingZero_BDH_Efficiency_Architecture_Plan_2026-08-24.md`](plans/HatchlingZero_BDH_Efficiency_Architecture_Plan_2026-08-24.md)'s
+23 numbered items (Tiers 0-4), all real GPU runs on RunPod RTX 4090s, closed with the
+strongest result the project has produced so far: **a compound architecture that beats
+exact BDH on quality, training speed, memory, AND inference speed at once — the first
+candidate to clear all four simultaneously.**
+
+### The winning recipe
+
+Two independently-discovered compressions, stacked in one model:
+
+```mermaid
+flowchart TD
+    X["residual stream x"] --> ENC["x_latent = x @ encoder"]
+    ENC --> SPARSE1["x_sparse = ReLU(x_latent)"]
+    SPARSE1 --> VB["v = x @ P   (D → d_state=624, FROZEN at truncated identity, never trained)"]
+    VB --> ATTN["causal attention over v — reads/writes a d_state-wide state\n(4x smaller than exact BDH's D-wide state)"]
+    ATTN --> OUP["yKV = attn_out @ O   (d_state → D, FROZEN, same truncated identity)"]
+    OUP --> LN1["LayerNorm"]
+    LN1 --> ENCV["y_latent = yKV @ encoder_v"]
+    ENCV --> SPARSE2["y_sparse = ReLU(y_latent)"]
+    SPARSE1 -.gate.-> GATE["xy_sparse = x_sparse ⊙ y_sparse"]
+    SPARSE2 -.gate.-> GATE
+    GATE --> UP["alpha = xy_sparse @ decoder_up   (nh·N → r=64, SVD-warmstarted from a trained dense checkpoint)"]
+    UP --> DOWN["y = alpha @ decoder_down   (r=64 → D)"]
+    DOWN --> ADD["x_next = LayerNorm(x + y)"]
+    ADD -->|"feed back in, same frozen P/O and same trained decoder_up/decoder_down"| ENC
+```
+
+- **VB frozen-identity** (left half): the synaptic-state bottleneck `P`/`O` from the
+  Value Bottleneck work above, but initialized at a truncated identity and **frozen
+  forever** (`requires_grad=False`) instead of trained. Earlier VB work in this README
+  found trainable `P`/`O` always cost quality; this session found the fix was never
+  training them at all.
+- **Subspace decoder** (right half): the big `decoder` matrix (`nh·N → D`, ~99.7M
+  params, about a third of the whole model) factored into two small matmuls through a
+  rank-64 bottleneck, **seeded from a real SVD of an already-trained dense decoder**
+  (not random init) before being fine-tuned normally.
+
+Neither piece alone was new — VB's frozen-identity crux (§ "Real extensions" above) and
+plain low-rank factorization are known ideas. What's real and new here: (1) VB's
+frozen-forever recipe, swept properly, **beats exact BDH's own uncompressed baseline**,
+not just gets close to it, at every tested width; (2) a random-init low-rank decoder
+loses to baseline, but the *identical* architecture **beats baseline** once it's warm-started
+from a real SVD instead of noise — isolating the failure to initialization, not capacity;
+(3) stacking both in one model compounds rather than cancels.
+
+**In plain English, the decoder half:** the big `decoder` matrix is a
+third of the whole model's parameters. Shrinking it is like compressing
+a photo into a much smaller file. Two ways to build the "smaller file"
+machine:
+
+```mermaid
+flowchart LR
+    A["🖼️ Start from random\nscribbles, try to learn\na compressed photo\nfrom scratch"] --> B["❌ Never catches up —\nworse than the\nuncompressed original"]
+    C["🖼️ Start from the REAL,\nalready-good photo,\njust compress it down"] --> D["✅ Smaller AND faster —\nactually beats the\nuncompressed original"]
+```
+
+Same target file size both times, same training budget — the only
+difference is whether the compressor starts from noise or from a real
+answer it can shrink down. **In plain English, stacking both tricks
+together:** one shrinks the model's short-term "working memory," the
+other shrinks its "output writer" — two different parts of the same
+assembly line, so cutting one doesn't get in the way of cutting the
+other:
+
+```mermaid
+flowchart LR
+    M1["🧠 Working memory\n4x smaller\n(frozen photocopier trick)"] --> M2["✍️ Output writer\n37x smaller\n(compressed-photo trick)"]
+    M2 --> R["Both savings stack:\nsmaller, faster, AND\nhigher quality than\nthe uncompressed model"]
+```
+
+### Real, measured results
+
+| | exact BDH baseline | VB frozen-identity alone | Subspace decoder alone | **Compound (both)** |
+| --- | ---: | ---: | ---: | ---: |
+| val loss, seed 7 | 1.8585 | 1.7999 | 1.7972 | **1.7907** |
+| val loss, seed 13 | 1.8789 | 1.8014 | 1.7970 | **1.8077** |
+| params | 300.3M | ~300.3M | 203.4M | **206.5M** (−31%) |
+| training wall-clock (5M tok) | ~1150s | ~1150s | 967s | **966s** (~14% faster) |
+| decode tok/s (RTX 4090, flat across context 128–65536) | 69.4 | 125.2 (1.80×) | — | **158.3 (2.28×)** |
+| energy, J/token (context 2048) | 4.45 | 2.50 | — | **2.03** (~2.2× less) |
+| peak training memory | 10.44GB | — | — | **8.96GB** (~14% less) |
+| max decode batch before 24GB OOM (context 2048) | 2 | — | — | **4** (2× larger) |
+
+Every number above is a real GPU run, cross-seed where marked. **One honest downgrade,
+found and kept in, not smoothed over**: at seed 7 the compound beats *both* individual
+components; at seed 13 it beats the *baseline* by an even wider margin but lands
+*worse* than either component alone. The reliable claim is "compound beats baseline,
+2/2 seeds" — not "compound beats everything," which only held once.
+
+### A real bug caught by a sharp question, fixed, and left on the record
+
+The first pass of the decode-throughput benchmark showed BDH's tok/s falling with
+context (69→60→40→39 across 128→65536) — directly contradicting this project's own
+established finding, a few sections up, that BDH decode is architecturally `O(1)` in
+context. Investigated rather than dismissed: an isolation script that reordered the
+context sweep (ascending then descending) showed the *same* context always gave the
+*same* throughput regardless of prior work — ruling out thermal effects — and forcing
+RoPE's `freqs` buffer to float32 changed nothing, ruling out a precision theory too. The
+real cause: `torch.cuda.empty_cache()` was missing between the untimed prefill call
+(whose chunked computation genuinely scales with context) and the timed decode region —
+prefill's fragmented allocator state was bleeding into decode's own small per-step
+allocations. One line fixed it; decode throughput is flat 56–69 tok/s at every context
+once the fix lands, matching the architecture's real `O(1)` property. Left in the plan
+doc with the wrong numbers still visible next to the corrected ones, per this project's
+own philosophy above: report what happened, including the mistake.
+
+### What else the sweep closed, decisively negative
+
+Not every real experiment wins — most of Tier 2/3 didn't, and that's disclosed the same
+way:
+
+```mermaid
+flowchart LR
+    A["Filterability diagnostics\n(coactivation reordering, CertiGate\ncertificates, activation-template\nsupersets, K-means template clusters)"] -->|"real, decisive"| B["NEGATIVE\ncandidate_fraction stays ~99-100%\nat every geometry/clustering tried —\nBDH's own gate already does\nfine-grained routing a coarser\nfilter can't improve on"]
+    C["Exact sparse-execution kernels\n(gather/scatter x-skip, sparse-state-row)"] -->|"correctness: exact"| D["oracle ceilings 3.3x / 2.1x —\nreal kernels: 126x SLOWER\nand 0.6x (slower), not faster"]
+    E["Hierarchical region-gated BDH"] -->|"trained, both variants"| F["NEGATIVE — VB's frozen-identity\nlesson does NOT transfer:\nno lossless init exists for this gate"]
+```
+
+Full numbers, gates, and the reasoning behind every one of these: `plans/HatchlingZero_BDH_Efficiency_Architecture_Plan_2026-08-24.md`.
+
+### New reference implementations from this sweep
+
+- [`reference/hz0h_bdh_vb_frozen_identity_torch.py`](reference/hz0h_bdh_vb_frozen_identity_torch.py) — VB with `P`/`O` permanently frozen at truncated identity
+- [`reference/hz0h_bdh_subspace_decoder_torch.py`](reference/hz0h_bdh_subspace_decoder_torch.py) — the rank-factored decoder (`BDHSubspaceDecoder`)
+- [`reference/hz0h_bdh_vb_subspace_decoder_torch.py`](reference/hz0h_bdh_vb_subspace_decoder_torch.py) — the compound architecture (`BDHVBSubspaceDecoder`) diagrammed above, plus real O(1)-state streaming decode (`hz0h_bdh_vb_subspace_decoder_stream_torch.py`)
+- [`reference/hz0h_matched_transformer_static_kv.py`](reference/hz0h_matched_transformer_static_kv.py) — the fair, preallocated-KV Transformer decode baseline that corrected the earlier long-context "crossover" claim
 
 ---
 
