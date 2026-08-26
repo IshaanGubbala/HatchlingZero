@@ -1,0 +1,23 @@
+{
+  "device": "cuda",
+  "config": {
+    "out": "results/local/hz0h_fp8_state_microbenchmark.json",
+    "device": "auto",
+    "n_head": 8,
+    "N": 4992,
+    "d_state": 624,
+    "repeats": 200,
+    "seed": 7
+  },
+  "has_fp8_support": true,
+  "bf16_ms_per_call": 0.2340074465610087,
+  "bf16_read_ms_per_call": 0.03620979143306613,
+  "bf16_write_ms_per_call": 0.028004993218928576,
+  "fp8_ms_per_call": 0.5238405312411487,
+  "fp8_read_ms_per_call": 0.201440064702183,
+  "fp8_write_ms_per_call_zero_padded_k16": 0.2735079894773662,
+  "fp8_speedup_vs_bf16_combined": 0.4467150451427821,
+  "fp8_read_speedup_vs_bf16_read": 0.17975466542169813,
+  "fp8_write_speedup_vs_bf16_write": 0.10239186530690392,
+  "verdict": "FP8 does NOT beat BF16 -- fails Phase F's own promotion gate"
+}
