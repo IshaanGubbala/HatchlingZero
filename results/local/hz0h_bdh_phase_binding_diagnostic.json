@@ -1,0 +1,30 @@
+{
+  "checkpoint": "results/local/hz0h_bdh_checkpoint_for_ablation.pt",
+  "n_tokens": 16320,
+  "n_head": 8,
+  "N": 4992,
+  "note": "Real phase diagnostic on trained BDH's x_latent/y_latent pair. All three questions compared against explicit nulls, not just eyeballed.",
+  "q1_phase_variability": {
+    "n_neurons_sampled": 445,
+    "mean_circular_variance": 0.046141578240341014,
+    "note": "0=phase fixed whenever neuron is active (static property); 1=phase uniform/random when active (no stable per-neuron phase). Real per-neuron sample, head 0."
+  },
+  "q2_coactive_plv_vs_null": {
+    "n_real_pairs_measured": 2000,
+    "mean_plv_coactive_pairs": 0.9345602204799652,
+    "n_null_pairs_measured": 580,
+    "mean_plv_random_pairs": 0.9423264493202341,
+    "note": "Real phase-locking value (0=no consistent phase relationship, 1=perfectly locked), frequently-co-active pairs (top N by real co-activation count) vs randomly-paired neurons. If coactive >> random, real evidence of latent phase coupling structure."
+  },
+  "q3_phase_relationship_drift_across_contexts": {
+    "n_buckets": 4,
+    "bucket_mean_relative_phase_radians": [
+      0.0021986033022403715,
+      0.0025912664830684664,
+      0.0025179150700569155,
+      0.002387026324868202
+    ],
+    "max_minus_min_radians": 0.0003926631808280948,
+    "note": "Same sampled pairs' mean relative phase (phi_i - phi_j), measured separately in disjoint token-position buckets (real, sequential slices of the collected sample, not shuffled -- a rough proxy for 'different context'). Large drift = relationship is context-dependent; near-zero = fixed regardless of context."
+  }
+}
