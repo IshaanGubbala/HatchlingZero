@@ -26,7 +26,7 @@ from reference.hz0h_bdh_torch import BDH, BDHConfig, bdh_stream_chunk, bdh_strea
 from reference.hz0h_bdh_vb_subspace_decoder_stream_torch import bdh_vb_subspace_decoder_stream_chunk, bdh_vb_subspace_decoder_stream_prefill_chunked
 from reference.hz0h_bdh_vb_subspace_decoder_torch import BDHVBSubspaceDecoder, BDHVBSubspaceDecoderConfig
 from reference.hz0h_bdh_vb_torch import init_bdh_vb_states
-from scripts.hz0h_inference_benchmark import _PowerSampler, _sync, peak_memory_bytes
+from scripts.hz0h_inference_benchmark import _PowerSampler, _sync, peak_memory_bytes, reset_peak_memory
 
 
 def _measure(prefill_fn, decode_step_fn, init_states_fn, model, prompt, max_new_tokens, device, prefill_chunk_length):
@@ -113,6 +113,7 @@ def main() -> None:
             try:
                 if device.type == "cuda":
                     torch.cuda.empty_cache()
+                    reset_peak_memory(device)  # real fix, 2026-08-26: without this, peak_memory_bytes() (torch.cuda.max_memory_allocated()) is a running max NEVER reset across the whole process -- every batch size's "peak" was contaminated by whatever the highest point was in an EARLIER iteration, not that batch size's own peak. Caught by a user question about a 23.27GB reading that was ~15.7x the analytic persistent-state size.
                 bdh_r = _measure(bdh_stream_prefill_chunked, bdh_stream_chunk, init_bdh_states,
                                   bdh_model, prompt, args.decode_tokens, device, args.prefill_chunk_length)
                 bdh_r["peak_memory_bytes"] = peak_memory_bytes(device)
@@ -126,6 +127,7 @@ def main() -> None:
             try:
                 if device.type == "cuda":
                     torch.cuda.empty_cache()
+                    reset_peak_memory(device)
                 compound_r = _measure(bdh_vb_subspace_decoder_stream_prefill_chunked, bdh_vb_subspace_decoder_stream_chunk, init_bdh_vb_states,
                                        compound_model, prompt, args.decode_tokens, device, args.prefill_chunk_length)
                 compound_r["peak_memory_bytes"] = peak_memory_bytes(device)

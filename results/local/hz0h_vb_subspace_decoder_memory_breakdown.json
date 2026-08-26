@@ -1,0 +1,52 @@
+{
+  "device": "cuda",
+  "dtype": "bfloat16",
+  "note": "isolates prefill-transient-activation memory from persistent decode-state memory, per batch size, for the compound model. Not a quality or throughput claim.",
+  "config": {
+    "out": "results/local/hz0h_vb_subspace_decoder_memory_breakdown.json",
+    "device": "auto",
+    "n_embd": 2496,
+    "mult": 16,
+    "n_layer": 8,
+    "n_head": 8,
+    "d_state": 624,
+    "subspace_rank": 64,
+    "context_length": 2048,
+    "decode_tokens": 16,
+    "prefill_chunk_length": 2048,
+    "batch_sizes": [
+      1,
+      2,
+      4
+    ],
+    "seed": 7
+  },
+  "analytic_state_bytes_per_request": 398721024,
+  "by_batch_size": {
+    "1": {
+      "prefill_peak_allocated_bytes": 3261884416,
+      "prefill_peak_reserved_bytes": 3458203648,
+      "state_only_allocated_bytes_after_prefill": 821369344,
+      "analytic_state_bytes_this_batch": 398721024,
+      "decode_only_peak_allocated_bytes": 1274441728,
+      "decode_only_peak_reserved_bytes": 3458203648
+    },
+    "2": {
+      "prefill_peak_allocated_bytes": 6040267264,
+      "prefill_peak_reserved_bytes": 6522142720,
+      "state_only_allocated_bytes_after_prefill": 1220581888,
+      "analytic_state_bytes_this_batch": 797442048,
+      "decode_only_peak_allocated_bytes": 2425992704,
+      "decode_only_peak_reserved_bytes": 6524239872
+    },
+    "4": {
+      "prefill_peak_allocated_bytes": 11579337728,
+      "prefill_peak_reserved_bytes": 12593397760,
+      "state_only_allocated_bytes_after_prefill": 2017040896,
+      "analytic_state_bytes_this_batch": 1594884096,
+      "decode_only_peak_allocated_bytes": 4412121088,
+      "decode_only_peak_reserved_bytes": 12595494912
+    }
+  },
+  "model_construction_peak_allocated_bytes": 413636608
+}

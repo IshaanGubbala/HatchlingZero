@@ -1,0 +1,71 @@
+{
+  "device": "cuda",
+  "dtype": "bfloat16",
+  "note": "virtual-batch decode: N resident B=1-shaped per-request states, round-robined through single-request decode steps, no physically-batched tensor ever constructed. Compare aggregate tok/s and peak memory against the physically-batched numbers in hz0h_vb_subspace_decoder_batch_frontier.json (B1=156.2, B2=75.3, B4=77.6 aggregate tok/s).",
+  "config": {
+    "out": "results/local/hz0h_vb_subspace_decoder_virtual_batch_benchmark.json",
+    "device": "auto",
+    "n_embd": 2496,
+    "mult": 16,
+    "n_layer": 8,
+    "n_head": 8,
+    "d_state": 624,
+    "subspace_rank": 64,
+    "context_length": 2048,
+    "decode_tokens_per_request": 16,
+    "prefill_chunk_length": 2048,
+    "resident_request_counts": [
+      1,
+      2,
+      4,
+      8,
+      16,
+      32
+    ],
+    "seed": 7
+  },
+  "by_resident_request_count": {
+    "1": {
+      "aggregate_tokens_per_second": 154.85682992366176,
+      "per_request_tokens_per_second": 154.85682992366176,
+      "elapsed_seconds": 0.10332124200067483,
+      "mean_watts": 75.08,
+      "peak_memory_bytes": 3261884416
+    },
+    "2": {
+      "aggregate_tokens_per_second": 158.18002023324917,
+      "per_request_tokens_per_second": 79.09001011662458,
+      "elapsed_seconds": 0.2023011499986751,
+      "mean_watts": 199.45333333333332,
+      "peak_memory_bytes": 3658115584
+    },
+    "4": {
+      "aggregate_tokens_per_second": 158.59076209289216,
+      "per_request_tokens_per_second": 39.64769052322304,
+      "elapsed_seconds": 0.4035544009966543,
+      "mean_watts": 336.874,
+      "peak_memory_bytes": 4455067136
+    },
+    "8": {
+      "aggregate_tokens_per_second": 158.98085679269778,
+      "per_request_tokens_per_second": 19.872607099087222,
+      "elapsed_seconds": 0.8051283820095705,
+      "mean_watts": 348.708,
+      "peak_memory_bytes": 6050936320
+    },
+    "16": {
+      "aggregate_tokens_per_second": 159.07665081461664,
+      "per_request_tokens_per_second": 9.94229067591354,
+      "elapsed_seconds": 1.6092870870052138,
+      "mean_watts": 310.7994736842105,
+      "peak_memory_bytes": 9238742528
+    },
+    "32": {
+      "aggregate_tokens_per_second": 159.1966178998701,
+      "per_request_tokens_per_second": 4.97489430937094,
+      "elapsed_seconds": 3.2161487269913778,
+      "mean_watts": 291.2207894736842,
+      "peak_memory_bytes": 15620253184
+    }
+  }
+}
