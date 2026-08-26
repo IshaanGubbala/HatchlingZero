@@ -1,0 +1,101 @@
+{
+  "device": "cuda",
+  "dtype": "bfloat16",
+  "bdh_parameter_count": 300318720,
+  "compound_parameter_count": 206469120,
+  "transformer_parameter_count": 187624320,
+  "trained_weights": false,
+  "note": "untrained execution-speed diagnostic -- decode tok/s only, not a quality claim (quality already established separately). Real head-to-head this project's central thesis needed: compound BDH (state-compressed + subspace-decoder) vs the SAME fair static-KV Transformer baseline used for Tier 0's original exact-BDH-vs-Transformer comparison.",
+  "decode_tokens": 64,
+  "seed": 7,
+  "by_context_length": {
+    "128": {
+      "bdh_decode_streaming": {
+        "tokens_per_second": 69.28832305933878,
+        "elapsed_seconds": 0.9236765615642071,
+        "mean_watts": 109.64454545454545,
+        "peak_memory_bytes": 6471793664
+      },
+      "compound_decode_streaming": {
+        "tokens_per_second": 154.98338371519452,
+        "elapsed_seconds": 0.41294749453663826,
+        "mean_watts": 236.046,
+        "peak_memory_bytes": 6471793664
+      },
+      "transformer_decode_static_kv": {
+        "tokens_per_second": 336.32723330667295,
+        "elapsed_seconds": 0.19029086455702782,
+        "mean_watts": 246.3,
+        "peak_memory_bytes": 6471793664
+      },
+      "bdh_over_transformer_speedup": 0.20601460779169098,
+      "compound_over_transformer_speedup": 0.4608112824865305
+    },
+    "2048": {
+      "bdh_decode_streaming": {
+        "tokens_per_second": 69.18397740683768,
+        "elapsed_seconds": 0.9250696823000908,
+        "mean_watts": 247.09272727272727,
+        "peak_memory_bytes": 8398378496
+      },
+      "compound_decode_streaming": {
+        "tokens_per_second": 154.87046005125276,
+        "elapsed_seconds": 0.41324859485030174,
+        "mean_watts": 291.392,
+        "peak_memory_bytes": 8398378496
+      },
+      "transformer_decode_static_kv": {
+        "tokens_per_second": 337.4275877239845,
+        "elapsed_seconds": 0.18967032432556152,
+        "mean_watts": 287.4433333333333,
+        "peak_memory_bytes": 8398378496
+      },
+      "bdh_over_transformer_speedup": 0.20503355363886286,
+      "compound_over_transformer_speedup": 0.4589739122870317
+    },
+    "16384": {
+      "bdh_decode_streaming": {
+        "tokens_per_second": 68.97974199316266,
+        "elapsed_seconds": 0.9278086312115192,
+        "mean_watts": 390.38454545454545,
+        "peak_memory_bytes": 10000193024
+      },
+      "compound_decode_streaming": {
+        "tokens_per_second": 156.11399949047203,
+        "elapsed_seconds": 0.40995682775974274,
+        "mean_watts": 394.52,
+        "peak_memory_bytes": 10000193024
+      },
+      "transformer_decode_static_kv": {
+        "tokens_per_second": 234.0262572648985,
+        "elapsed_seconds": 0.2734735868871212,
+        "mean_watts": 346.42,
+        "peak_memory_bytes": 10000193024
+      },
+      "bdh_over_transformer_speedup": 0.2947521478971621,
+      "compound_over_transformer_speedup": 0.6670789906867749
+    },
+    "65536": {
+      "bdh_decode_streaming": {
+        "tokens_per_second": 69.01387834669544,
+        "elapsed_seconds": 0.9273497089743614,
+        "mean_watts": 387.6027272727273,
+        "peak_memory_bytes": 10024703488
+      },
+      "compound_decode_streaming": {
+        "tokens_per_second": 156.40729154859784,
+        "elapsed_seconds": 0.40918808430433273,
+        "mean_watts": 404.27,
+        "peak_memory_bytes": 10024703488
+      },
+      "transformer_decode_static_kv": {
+        "tokens_per_second": 67.66431640869293,
+        "elapsed_seconds": 0.9458456598222256,
+        "mean_watts": 353.5966666666667,
+        "peak_memory_bytes": 10323658240
+      },
+      "bdh_over_transformer_speedup": 1.0199449578393898,
+      "compound_over_transformer_speedup": 2.31151809180923
+    }
+  }
+}
