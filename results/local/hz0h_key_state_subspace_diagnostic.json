@@ -1,0 +1,39 @@
+{
+  "checkpoint": "results/local/hz0h_bdh_checkpoint_for_ablation.pt",
+  "N": 4992,
+  "note": "real downstream-logit sensitivity of substituting QR@KR.mT with (QR@U)@(KR@U).mT at EVERY layer/round, U a shared SVD basis fit on real RoPE-transformed Q=K vectors. Fit and eval use separate samples.",
+  "singular_value_cumulative_energy": {
+    "64": 0.3297978937625885,
+    "128": 0.48537689447402954,
+    "256": 0.6656419634819031,
+    "512": 0.8249384760856628,
+    "1024": 0.9487587809562683,
+    "1536": 0.9994574189186096
+  },
+  "by_rank": {
+    "64": {
+      "mean_kl_divergence": 231.34178161621094,
+      "mean_argmax_agreement": 0.491666704416275
+    },
+    "128": {
+      "mean_kl_divergence": 39.38080596923828,
+      "mean_argmax_agreement": 0.790686309337616
+    },
+    "256": {
+      "mean_kl_divergence": 10.649519920349121,
+      "mean_argmax_agreement": 0.9009804725646973
+    },
+    "512": {
+      "mean_kl_divergence": 3.950737714767456,
+      "mean_argmax_agreement": 0.9377451539039612
+    },
+    "1024": {
+      "mean_kl_divergence": 0.7633528113365173,
+      "mean_argmax_agreement": 0.9715687036514282
+    },
+    "1536": {
+      "mean_kl_divergence": 0.1699317991733551,
+      "mean_argmax_agreement": 0.9867647886276245
+    }
+  }
+}
