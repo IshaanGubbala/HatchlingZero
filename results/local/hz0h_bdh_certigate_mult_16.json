@@ -1,0 +1,58 @@
+{
+  "checkpoint": "results/local/hz0h_bdh_checkpoint_geometry_mult_16.pt",
+  "scope_note": "last recurrent round only, real trained encoder weight, real activation inputs from held-out validation data.",
+  "n_head": 4,
+  "n_embd": 256,
+  "N_per_head": 1024,
+  "total_tokens": 16320,
+  "results_by_block_size": [
+    {
+      "block_size": 16,
+      "n_blocks_per_head": 64,
+      "fraction_certified_off": 0.0,
+      "candidate_fraction": 1.0,
+      "false_negative_count": 0,
+      "false_negative_rate": 0.0,
+      "total_block_evaluations": 4177920
+    },
+    {
+      "block_size": 32,
+      "n_blocks_per_head": 32,
+      "fraction_certified_off": 0.0,
+      "candidate_fraction": 1.0,
+      "false_negative_count": 0,
+      "false_negative_rate": 0.0,
+      "total_block_evaluations": 2088960
+    },
+    {
+      "block_size": 64,
+      "n_blocks_per_head": 16,
+      "fraction_certified_off": 0.0,
+      "candidate_fraction": 1.0,
+      "false_negative_count": 0,
+      "false_negative_rate": 0.0,
+      "total_block_evaluations": 1044480
+    },
+    {
+      "block_size": 128,
+      "n_blocks_per_head": 8,
+      "fraction_certified_off": 0.0,
+      "candidate_fraction": 1.0,
+      "false_negative_count": 0,
+      "false_negative_rate": 0.0,
+      "total_block_evaluations": 522240
+    },
+    {
+      "block_size": 256,
+      "n_blocks_per_head": 4,
+      "fraction_certified_off": 0.0,
+      "candidate_fraction": 1.0,
+      "false_negative_count": 0,
+      "false_negative_rate": 0.0,
+      "total_block_evaluations": 261120
+    }
+  ],
+  "total_false_negatives_across_all_block_sizes": 0,
+  "correctness_note": "false_negative_count MUST be exactly 0 for every block size if the certificate math/implementation is correct -- a real bug, not just a bad rate, if nonzero.",
+  "gate": ">=50% of blocks certified dead OR <=25-30% candidate neuron fraction, at block sizes large enough for efficient dense GEMMs, is the target per the plan's own Phase C-A gate."
+}

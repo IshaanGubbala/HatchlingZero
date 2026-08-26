@@ -1,0 +1,32 @@
+{
+  "checkpoint": "results/local/hz0h_bdh_checkpoint_paper_geometry.pt",
+  "block_size": 64,
+  "n_blocks": 512,
+  "fit_tokens": 16320,
+  "eval_tokens": 16320,
+  "gate": "user's proposed gate: <=20-30% candidate fraction at >99.9% recall, else not worth pursuing",
+  "results_by_num_templates": {
+    "32": {
+      "num_templates": 32,
+      "template_candidate_fraction_mean": 0.997314453125,
+      "template_candidate_fraction_max": 1.0,
+      "template_candidate_fraction_min": 0.962890625,
+      "eval_candidate_fraction_mean": 0.9976686835289001,
+      "eval_tokens_with_at_least_one_miss": 103,
+      "eval_tokens_with_at_least_one_miss_fraction": 0.006311274509803922,
+      "eval_mean_recall": 0.9999851584434509,
+      "eval_min_recall": 0.995555579662323
+    },
+    "64": {
+      "num_templates": 64,
+      "template_candidate_fraction_mean": 0.96588134765625,
+      "template_candidate_fraction_max": 1.0,
+      "template_candidate_fraction_min": 0.0,
+      "eval_candidate_fraction_mean": 0.9849403500556946,
+      "eval_tokens_with_at_least_one_miss": 319,
+      "eval_tokens_with_at_least_one_miss_fraction": 0.01954656862745098,
+      "eval_mean_recall": 0.987360954284668,
+      "eval_min_recall": 0.0
+    }
+  }
+}

@@ -1,0 +1,79 @@
+{
+  "checkpoint": "results/local/hz0h_bdh_checkpoint_paper_geometry.pt",
+  "scope_note": "computed on the LAST recurrent round only (steady-state activity), on the x-activation mask (controls E_v/decoder exact skip -- see plan's x_density note). CertiGate 'certifiable-off fraction' is NOT computed here -- that needs encoder-weight radius/centroid structure, a separate later phase (plan section 10, Phase C-A).",
+  "n_embd": 256,
+  "n_head": 4,
+  "N_per_head": 8192,
+  "n_total_neurons": 32768,
+  "n_over_d_ratio": 128.0,
+  "last_round_index": 7,
+  "x_density_last_round": 0.200786754488945,
+  "block_occupancy": [
+    {
+      "block_size": 16,
+      "n_blocks": 2048,
+      "occupancy_fraction": 0.8218439817428589,
+      "active_blocks_per_token_mean": 1683.1365966796875,
+      "active_blocks_per_token_std": 187.65879821777344
+    },
+    {
+      "block_size": 32,
+      "n_blocks": 1024,
+      "occupancy_fraction": 0.9219056367874146,
+      "active_blocks_per_token_mean": 944.0313720703125,
+      "active_blocks_per_token_std": 65.08624267578125
+    },
+    {
+      "block_size": 64,
+      "n_blocks": 512,
+      "occupancy_fraction": 0.9755752682685852,
+      "active_blocks_per_token_mean": 499.4945373535156,
+      "active_blocks_per_token_std": 16.817317962646484
+    },
+    {
+      "block_size": 128,
+      "n_blocks": 256,
+      "occupancy_fraction": 0.9949378967285156,
+      "active_blocks_per_token_mean": 254.7041015625,
+      "active_blocks_per_token_std": 3.3968489170074463
+    },
+    {
+      "block_size": 256,
+      "n_blocks": 128,
+      "occupancy_fraction": 0.9995308518409729,
+      "active_blocks_per_token_mean": 127.93994903564453,
+      "active_blocks_per_token_std": 0.4138623774051666
+    }
+  ],
+  "run_length_stats": {
+    "mean": 1.4558794498443604,
+    "median": 1.0,
+    "max": 30,
+    "count": 73753009
+  },
+  "mask_entropy_bits_per_neuron": 0.49914753437042236,
+  "nearby_token_jaccard_by_distance": {
+    "1": 0.3803037325851619,
+    "2": 0.3472434738650918,
+    "4": 0.3309846557676792,
+    "8": 0.32046966440975666,
+    "16": 0.3105559425894171,
+    "32": 0.3137220344506204
+  },
+  "template_coverage": {
+    "block_size": 64,
+    "total_tokens": 16320,
+    "unique_templates": 10359,
+    "templates_for_90pct": 8727,
+    "templates_for_95pct": 9543,
+    "templates_for_99pct": 10196
+  },
+  "static_topk_candidate_recall": {
+    "top_10pct_blocks_recall": 0.10222812741994858,
+    "top_20pct_blocks_recall": 0.20445625483989716,
+    "top_30pct_blocks_recall": 0.3086888790130615,
+    "top_40pct_blocks_recall": 0.4109169840812683,
+    "top_50pct_blocks_recall": 0.5130121111869812
+  },
+  "total_tokens_sampled": 16320
+}

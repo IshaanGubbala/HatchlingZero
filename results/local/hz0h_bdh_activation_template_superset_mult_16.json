@@ -1,0 +1,83 @@
+{
+  "checkpoint": "results/local/hz0h_bdh_checkpoint_geometry_mult_16.pt",
+  "n_total_neurons": 4096,
+  "fit_tokens": 16320,
+  "eval_tokens": 16320,
+  "results_by_block_size": [
+    {
+      "block_size": 16,
+      "n_blocks": 256,
+      "candidate_fraction": 1.0,
+      "saturation_by_fit_sample_size": {
+        "10pct_fit_tokens": 1.0,
+        "25pct_fit_tokens": 1.0,
+        "50pct_fit_tokens": 1.0,
+        "75pct_fit_tokens": 1.0,
+        "100pct_fit_tokens": 1.0
+      },
+      "eval_tokens_with_at_least_one_miss": 0,
+      "eval_tokens_with_at_least_one_miss_fraction": 0.0,
+      "total_eval_tokens": 16320
+    },
+    {
+      "block_size": 32,
+      "n_blocks": 128,
+      "candidate_fraction": 1.0,
+      "saturation_by_fit_sample_size": {
+        "10pct_fit_tokens": 1.0,
+        "25pct_fit_tokens": 1.0,
+        "50pct_fit_tokens": 1.0,
+        "75pct_fit_tokens": 1.0,
+        "100pct_fit_tokens": 1.0
+      },
+      "eval_tokens_with_at_least_one_miss": 0,
+      "eval_tokens_with_at_least_one_miss_fraction": 0.0,
+      "total_eval_tokens": 16320
+    },
+    {
+      "block_size": 64,
+      "n_blocks": 64,
+      "candidate_fraction": 1.0,
+      "saturation_by_fit_sample_size": {
+        "10pct_fit_tokens": 1.0,
+        "25pct_fit_tokens": 1.0,
+        "50pct_fit_tokens": 1.0,
+        "75pct_fit_tokens": 1.0,
+        "100pct_fit_tokens": 1.0
+      },
+      "eval_tokens_with_at_least_one_miss": 0,
+      "eval_tokens_with_at_least_one_miss_fraction": 0.0,
+      "total_eval_tokens": 16320
+    },
+    {
+      "block_size": 128,
+      "n_blocks": 32,
+      "candidate_fraction": 1.0,
+      "saturation_by_fit_sample_size": {
+        "10pct_fit_tokens": 1.0,
+        "25pct_fit_tokens": 1.0,
+        "50pct_fit_tokens": 1.0,
+        "75pct_fit_tokens": 1.0,
+        "100pct_fit_tokens": 1.0
+      },
+      "eval_tokens_with_at_least_one_miss": 0,
+      "eval_tokens_with_at_least_one_miss_fraction": 0.0,
+      "total_eval_tokens": 16320
+    },
+    {
+      "block_size": 256,
+      "n_blocks": 16,
+      "candidate_fraction": 1.0,
+      "saturation_by_fit_sample_size": {
+        "10pct_fit_tokens": 1.0,
+        "25pct_fit_tokens": 1.0,
+        "50pct_fit_tokens": 1.0,
+        "75pct_fit_tokens": 1.0,
+        "100pct_fit_tokens": 1.0
+      },
+      "eval_tokens_with_at_least_one_miss": 0,
+      "eval_tokens_with_at_least_one_miss_fraction": 0.0,
+      "total_eval_tokens": 16320
+    }
+  ]
+}
