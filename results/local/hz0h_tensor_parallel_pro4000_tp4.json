@@ -1,0 +1,19 @@
+{
+  "world_size": 4,
+  "tokens_per_second": 151.44658893448218,
+  "elapsed_seconds": 0.2112956140190363,
+  "correctness_max_diff": 0.03125,
+  "config": {
+    "out": "results/local/hz0h_tensor_parallel_pro4000_tp4.json",
+    "n_embd": 2496,
+    "mult": 16,
+    "n_layer": 8,
+    "n_head": 8,
+    "d_state": 624,
+    "subspace_rank": 64,
+    "context_length": 2048,
+    "decode_tokens": 32,
+    "prefill_chunk_length": 2048,
+    "seed": 7
+  }
+}
