@@ -1,0 +1,78 @@
+{
+  "device": "cuda",
+  "dtype": "bfloat16",
+  "note": "untrained execution-speed diagnostic. batch>1 real streaming decode + batch-size-frontier sweep (doubling until OOM), fixed context, for exact BDH vs the compound (VB d_state=624 + subspace r=64) architecture.",
+  "config": {
+    "n_embd": 2496,
+    "mult": 16,
+    "n_layer": 8,
+    "n_head": 8,
+    "d_state": 624,
+    "subspace_rank": 64,
+    "context_length": 2048,
+    "decode_tokens": 32,
+    "seed": 7
+  },
+  "by_batch_size": {
+    "1": {
+      "bdh": {
+        "aggregate_tokens_per_second": 68.86944021755149,
+        "per_sequence_tokens_per_second": 68.86944021755149,
+        "elapsed_seconds": 0.4646473079919815,
+        "mean_watts": 185.34166666666667,
+        "batch_size": 1,
+        "peak_memory_bytes": 7792759296
+      },
+      "compound": {
+        "aggregate_tokens_per_second": 156.22933841263819,
+        "per_sequence_tokens_per_second": 156.22933841263819,
+        "elapsed_seconds": 0.20482708513736725,
+        "mean_watts": 278.43666666666667,
+        "batch_size": 1,
+        "peak_memory_bytes": 7792759296
+      },
+      "compound_over_bdh_speedup": 2.2684856725875187
+    },
+    "2": {
+      "bdh": {
+        "aggregate_tokens_per_second": 48.77765816560726,
+        "per_sequence_tokens_per_second": 24.38882908280363,
+        "elapsed_seconds": 1.312076110392809,
+        "mean_watts": 350.78352941176473,
+        "batch_size": 2,
+        "peak_memory_bytes": 14499992064
+      },
+      "compound": {
+        "aggregate_tokens_per_second": 75.2749419964474,
+        "per_sequence_tokens_per_second": 37.6374709982237,
+        "elapsed_seconds": 0.8502165302634239,
+        "mean_watts": 342.39,
+        "batch_size": 2,
+        "peak_memory_bytes": 14499992064
+      },
+      "compound_over_bdh_speedup": 1.5432258297616093
+    },
+    "4": {
+      "bdh": {
+        "status": "OOM",
+        "detail": "CUDA out of memory. Tried to allocate 624.00 MiB. GPU 0 has a total capacity of 23.53 GiB of which 171.69 MiB is free. Including non-PyTorch memory, this process has 23.35 GiB memory in use. Of the al"
+      },
+      "compound": {
+        "aggregate_tokens_per_second": 77.5600844739587,
+        "per_sequence_tokens_per_second": 19.390021118489674,
+        "elapsed_seconds": 1.6503334268927574,
+        "mean_watts": 348.35636363636365,
+        "batch_size": 4,
+        "peak_memory_bytes": 23270838784
+      }
+    },
+    "8": {
+      "compound": {
+        "status": "OOM",
+        "detail": "CUDA out of memory. Tried to allocate 1.22 GiB. GPU 0 has a total capacity of 23.53 GiB of which 729.69 MiB is free. Including non-PyTorch memory, this process has 22.80 GiB memory in use. Of the allo"
+      }
+    }
+  },
+  "bdh_max_working_batch_size": 2,
+  "compound_max_working_batch_size": 4
+}

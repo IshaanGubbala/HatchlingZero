@@ -1,0 +1,27 @@
+{
+  "device": "cuda",
+  "dtype": "bfloat16",
+  "note": "real peak allocated/reserved GPU memory across a handful of real training steps (forward+backward+AdamW optimizer.step, gradient checkpointing), full n_layer depth. Not a quality or throughput claim.",
+  "config": {
+    "n_embd": 2496,
+    "mult": 16,
+    "n_layer": 8,
+    "n_head": 8,
+    "d_state": 624,
+    "subspace_rank": 64,
+    "batch_size": 8,
+    "sequence_length": 256,
+    "steps": 6
+  },
+  "bdh_baseline": {
+    "peak_allocated_bytes": 10434596864,
+    "peak_reserved_bytes": 11884560384,
+    "parameter_count": 300318720
+  },
+  "compound": {
+    "peak_allocated_bytes": 8957204480,
+    "peak_reserved_bytes": 9831448576,
+    "parameter_count": 206469120
+  },
+  "compound_peak_allocated_reduction_factor": 1.1649390038263367
+}

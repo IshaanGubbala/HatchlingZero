@@ -1,0 +1,81 @@
+{
+  "device": "cuda",
+  "dtype": "bfloat16",
+  "note": "untrained execution-speed diagnostic -- decode tok/s and memory only, not a quality claim (quality already established separately: results/local/hz0h_subspace_decoder_warmstart_r64*.json). Real O(1)-state streaming decode path for both models (bdh_stream_chunk / bdh_subspace_decoder_stream_chunk), not naive full-replay.",
+  "config": {
+    "n_embd": 2496,
+    "mult": 16,
+    "n_layer": 8,
+    "n_head": 8,
+    "subspace_rank": 64,
+    "decode_tokens": 64,
+    "seed": 7
+  },
+  "decoder_weight_bytes": {
+    "dense": 199360512,
+    "subspace": 5431296,
+    "reduction_factor": 36.705882352941174
+  },
+  "by_context_length": {
+    "128": {
+      "bdh_decode_streaming": {
+        "tokens_per_second": 56.633058985395955,
+        "elapsed_seconds": 1.1300819900352508,
+        "mean_watts": 103.64200000000001,
+        "peak_memory_bytes": 6084179968
+      },
+      "subspace_decode_streaming": {
+        "tokens_per_second": 63.076663181701534,
+        "elapsed_seconds": 1.0146383269457147,
+        "mean_watts": 198.1123076923077,
+        "peak_memory_bytes": 6094419968
+      },
+      "subspace_over_bdh_decode_speedup": 1.113778141455633
+    },
+    "2048": {
+      "bdh_decode_streaming": {
+        "tokens_per_second": 56.55401532384561,
+        "elapsed_seconds": 1.1316614679526538,
+        "mean_watts": 200.92,
+        "peak_memory_bytes": 7786004992
+      },
+      "subspace_decode_streaming": {
+        "tokens_per_second": 63.0415200647799,
+        "elapsed_seconds": 1.0152039470849559,
+        "mean_watts": 199.40153846153845,
+        "peak_memory_bytes": 7949844992
+      },
+      "subspace_over_bdh_decode_speedup": 1.1147134240386798
+    },
+    "16384": {
+      "bdh_decode_streaming": {
+        "tokens_per_second": 56.494543618402005,
+        "elapsed_seconds": 1.1328527659643441,
+        "mean_watts": 199.5,
+        "peak_memory_bytes": 9388343808
+      },
+      "subspace_decode_streaming": {
+        "tokens_per_second": 62.953151727214724,
+        "elapsed_seconds": 1.016629004967399,
+        "mean_watts": 199.03,
+        "peak_memory_bytes": 9552183808
+      },
+      "subspace_over_bdh_decode_speedup": 1.1143226884429411
+    },
+    "65536": {
+      "bdh_decode_streaming": {
+        "tokens_per_second": 56.330892990880066,
+        "elapsed_seconds": 1.1361438919557258,
+        "mean_watts": 199.52133333333333,
+        "peak_memory_bytes": 9552183808
+      },
+      "subspace_decode_streaming": {
+        "tokens_per_second": 62.739369011741985,
+        "elapsed_seconds": 1.0200931410072371,
+        "mean_watts": 199.44692307692307,
+        "peak_memory_bytes": 9577742848
+      },
+      "subspace_over_bdh_decode_speedup": 1.1137648576226093
+    }
+  }
+}

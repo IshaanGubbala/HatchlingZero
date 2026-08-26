@@ -1,0 +1,119 @@
+{
+  "device": "cuda",
+  "dtype": "bfloat16",
+  "note": "untrained execution-speed diagnostic -- decode tok/s and memory only, not a quality claim (quality already established: results/local/hz0h_vb_subspace_decoder_d624_r64.json, val_loss=1.7907, beats both individual components). Real O(1)-state streaming decode path for all three models.",
+  "config": {
+    "n_embd": 2496,
+    "mult": 16,
+    "n_layer": 8,
+    "n_head": 8,
+    "d_state": 624,
+    "subspace_rank": 64,
+    "decode_tokens": 64,
+    "seed": 7
+  },
+  "per_layer_state_elems": {
+    "dense_bdh": 99680256,
+    "vb_and_compound": 24920064,
+    "reduction_factor": 4.0
+  },
+  "decoder_weight_bytes": {
+    "dense": 199360512,
+    "subspace_and_compound": 5431296,
+    "reduction_factor": 36.705882352941174
+  },
+  "by_context_length": {
+    "128": {
+      "bdh_decode_streaming": {
+        "tokens_per_second": 69.44380057577352,
+        "elapsed_seconds": 0.9216085448861122,
+        "mean_watts": 124.06,
+        "peak_memory_bytes": 6699286528
+      },
+      "vb_decode_streaming": {
+        "tokens_per_second": 125.22851140194233,
+        "elapsed_seconds": 0.5110657252371311,
+        "mean_watts": 247.20857142857145,
+        "peak_memory_bytes": 6699286528
+      },
+      "compound_decode_streaming": {
+        "tokens_per_second": 158.33248253398781,
+        "elapsed_seconds": 0.40421269834041595,
+        "mean_watts": 277.985,
+        "peak_memory_bytes": 6699286528
+      },
+      "vb_over_bdh_speedup": 1.8033072839280935,
+      "compound_over_bdh_speedup": 2.280008888068036,
+      "compound_over_vb_speedup": 1.2643485158566856
+    },
+    "2048": {
+      "bdh_decode_streaming": {
+        "tokens_per_second": 69.40366360410233,
+        "elapsed_seconds": 0.9221415221691132,
+        "mean_watts": 308.9916666666667,
+        "peak_memory_bytes": 8400488960
+      },
+      "vb_decode_streaming": {
+        "tokens_per_second": 125.08975829343767,
+        "elapsed_seconds": 0.511632613837719,
+        "mean_watts": 312.51142857142855,
+        "peak_memory_bytes": 8400488960
+      },
+      "compound_decode_streaming": {
+        "tokens_per_second": 156.46186915526113,
+        "elapsed_seconds": 0.40904534980654716,
+        "mean_watts": 317.06,
+        "peak_memory_bytes": 8400488960
+      },
+      "vb_over_bdh_speedup": 1.802350939382454,
+      "compound_over_bdh_speedup": 2.254374784129017,
+      "compound_over_vb_speedup": 1.2507967981537724
+    },
+    "16384": {
+      "bdh_decode_streaming": {
+        "tokens_per_second": 69.34143445497818,
+        "elapsed_seconds": 0.9229690805077553,
+        "mean_watts": 395.75333333333333,
+        "peak_memory_bytes": 10002827776
+      },
+      "vb_decode_streaming": {
+        "tokens_per_second": 125.2046958152803,
+        "elapsed_seconds": 0.5111629366874695,
+        "mean_watts": 429.01,
+        "peak_memory_bytes": 10002827776
+      },
+      "compound_decode_streaming": {
+        "tokens_per_second": 157.9312160742917,
+        "elapsed_seconds": 0.4052397087216377,
+        "mean_watts": 406.6066666666666,
+        "peak_memory_bytes": 10002827776
+      },
+      "vb_over_bdh_speedup": 1.8056259839356634,
+      "compound_over_bdh_speedup": 2.2775879575556353,
+      "compound_over_vb_speedup": 1.2613841281743474
+    },
+    "65536": {
+      "bdh_decode_streaming": {
+        "tokens_per_second": 69.29072862704244,
+        "elapsed_seconds": 0.9236444942653179,
+        "mean_watts": 388.77750000000003,
+        "peak_memory_bytes": 10028386816
+      },
+      "vb_decode_streaming": {
+        "tokens_per_second": 125.45509444193407,
+        "elapsed_seconds": 0.51014269515872,
+        "mean_watts": 428.7842857142857,
+        "peak_memory_bytes": 10028386816
+      },
+      "compound_decode_streaming": {
+        "tokens_per_second": 158.31575582563107,
+        "elapsed_seconds": 0.4042554050683975,
+        "mean_watts": 409.6016666666667,
+        "peak_memory_bytes": 10028386816
+      },
+      "vb_over_bdh_speedup": 1.8105610509191856,
+      "compound_over_bdh_speedup": 2.2848043159968214,
+      "compound_over_vb_speedup": 1.2619316619215197
+    }
+  }
+}

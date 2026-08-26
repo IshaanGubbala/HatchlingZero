@@ -1,0 +1,5 @@
+{
+  "checkpoint": "results/local/hz0h_bdh_checkpoint_seed13.pt",
+  "seed": 13,
+  "validation_loss": 1.8788891434669495
+}

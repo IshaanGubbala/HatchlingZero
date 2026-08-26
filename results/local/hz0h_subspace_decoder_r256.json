@@ -1,0 +1,32 @@
+{
+  "config": {
+    "data": "data/packed/hz0h_bytes_25m_train.jsonl",
+    "validation_data": "data/packed/hz0h_bytes_25m_val.jsonl",
+    "out": "results/local/hz0h_subspace_decoder_r256.json",
+    "device": "auto",
+    "target_tokens": 5000000,
+    "batch_size": 8,
+    "sequence_length": 256,
+    "warmup_steps": 100,
+    "learning_rate": 0.001,
+    "grad_clip": 1.0,
+    "eval_batches": 8,
+    "log_every": 50,
+    "optimizer": "adamw",
+    "dtype": "bfloat16",
+    "seed": 7,
+    "n_embd": 2496,
+    "mult": 16,
+    "n_layer": 8,
+    "n_head": 8,
+    "subspace_rank": 256
+  },
+  "subspace_rank": 256,
+  "results": {
+    "subspace_decoder": {
+      "validation_loss": 1.9540148228406906,
+      "parameter_count": 211501056,
+      "training_seconds": 977.0092554036528
+    }
+  }
+}

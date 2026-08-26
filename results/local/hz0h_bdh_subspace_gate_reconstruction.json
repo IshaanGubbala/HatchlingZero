@@ -1,0 +1,46 @@
+{
+  "checkpoint": "results/local/hz0h_bdh_checkpoint_for_ablation.pt",
+  "n_total_neurons": 39936,
+  "fit_tokens": 16320,
+  "eval_tokens": 8160,
+  "results_by_rank": [
+    {
+      "rank": 16,
+      "relative_reconstruction_error": 0.10299170017242432,
+      "mean_kl_divergence": 0.008603637106716633,
+      "mean_argmax_agreement": 0.9878676384687424
+    },
+    {
+      "rank": 32,
+      "relative_reconstruction_error": 0.07678620517253876,
+      "mean_kl_divergence": 0.0122171884868294,
+      "mean_argmax_agreement": 0.9927695989608765
+    },
+    {
+      "rank": 64,
+      "relative_reconstruction_error": 0.05408979579806328,
+      "mean_kl_divergence": 0.02720477757975459,
+      "mean_argmax_agreement": 0.9941176474094391
+    },
+    {
+      "rank": 128,
+      "relative_reconstruction_error": 0.04067103564739227,
+      "mean_kl_divergence": 0.019347110530361533,
+      "mean_argmax_agreement": 0.9947303980588913
+    },
+    {
+      "rank": 256,
+      "relative_reconstruction_error": 0.033827029168605804,
+      "mean_kl_divergence": 0.022818725556135178,
+      "mean_argmax_agreement": 0.9949755072593689
+    }
+  ],
+  "singular_value_cumulative_energy_at_ranks": {
+    "16": 0.9003196954727173,
+    "32": 0.9542073607444763,
+    "64": 0.9843098521232605,
+    "128": 0.9957886934280396,
+    "256": 0.9998779892921448
+  },
+  "note": "explicitly reports BOTH raw reconstruction error AND downstream logit sensitivity (KL, argmax agreement) per the plan's own warning not to rely on SVD participation ratio alone. Basis computed via randomized truncated SVD (torch.svd_lowrank, q=max_rank+10) for tractability at production scale -- singular_value_cumulative_energy is normalized against the truncated spectrum's own total, not the true full-rank total, so it may read slightly optimistic; reconstruction_error and the logit-sensitivity metrics are unaffected by this and are the load-bearing numbers."
+}
