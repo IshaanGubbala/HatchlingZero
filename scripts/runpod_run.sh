@@ -30,6 +30,7 @@ GPU_ID="NVIDIA A40"
 IMAGE="runpod/pytorch:1.0.2-cu1281-torch280-ubuntu2404"
 DISK_GB=20
 TTL_MINUTES=180
+NETWORK_VOLUME_ID=""
 POD_NAME=""
 SYNC_MODE="local"
 REMOTE_DIR=""
@@ -52,6 +53,7 @@ while [[ $# -gt 0 ]]; do
         --gpu-id) GPU_ID="$2"; shift 2 ;;
         --image) IMAGE="$2"; shift 2 ;;
         --disk-gb) DISK_GB="$2"; shift 2 ;;
+        --network-volume-id) NETWORK_VOLUME_ID="$2"; shift 2 ;;
         --ttl-minutes) TTL_MINUTES="$2"; shift 2 ;;
         --name) POD_NAME="$2"; shift 2 ;;
         --sync) SYNC_MODE="$2"; shift 2 ;;
@@ -112,7 +114,9 @@ fi
 
 if [[ -z "$POD_ID" ]]; then
     TERMINATE_AT="$(date -u -v+"${TTL_MINUTES}"M +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d "+${TTL_MINUTES} minutes" +%Y-%m-%dT%H:%M:%SZ)"
-    log "no running pod found, creating one: gpu='$GPU_ID' image=$IMAGE disk=${DISK_GB}GB ttl=${TTL_MINUTES}m (auto-terminate at $TERMINATE_AT as a hard safety net)"
+    VOLUME_ARGS=()
+    [[ -n "$NETWORK_VOLUME_ID" ]] && VOLUME_ARGS=(--network-volume-id "$NETWORK_VOLUME_ID")
+    log "no running pod found, creating one: gpu='$GPU_ID' image=$IMAGE disk=${DISK_GB}GB ttl=${TTL_MINUTES}m network_volume='${NETWORK_VOLUME_ID:-none}' (auto-terminate at $TERMINATE_AT as a hard safety net)"
     CREATE_JSON="$(runpodctl pod create \
         --image "$IMAGE" \
         --gpu-id "$GPU_ID" \
@@ -120,6 +124,7 @@ if [[ -z "$POD_ID" ]]; then
         --ports "22/tcp" \
         --name "$POD_NAME" \
         --terminate-after "$TERMINATE_AT" \
+        "${VOLUME_ARGS[@]}" \
         --wait --wait-timeout "$WAIT_TIMEOUT")"
     POD_ID="$(jq -r '.id' <<<"$CREATE_JSON")"
     POD_IP="$(jq -r '.ssh.ip' <<<"$CREATE_JSON")"
@@ -163,15 +168,26 @@ ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "mkdir -p '$REMOTE_DIR'"
 
 case "$SYNC_MODE" in
     local)
-        RSYNC_EXCLUDES=(--exclude .git --exclude __pycache__ --exclude '*.pyc' --exclude .DS_Store)
+        RSYNC_EXCLUDES=(--exclude .git --exclude __pycache__ --exclude '*.pyc' --exclude .DS_Store --exclude target)
         if [[ $NO_DEFAULT_EXCLUDES -eq 0 ]]; then
             RSYNC_EXCLUDES+=(--exclude data --exclude results --exclude archive --exclude archive2 --exclude outputs)
         fi
         for pat in "${EXTRA_EXCLUDES[@]:-}"; do
             [[ -n "$pat" ]] && RSYNC_EXCLUDES+=(--exclude "$pat")
         done
-        log "syncing working tree to $SSH_TARGET:$REMOTE_DIR (rsync, default excludes: data/ results/ archive*/ outputs/ -- use --sync-all to disable)"
-        rsync -az --delete -e "ssh ${SSH_OPTS[*]}" "${RSYNC_EXCLUDES[@]}" "$REPO_ROOT/" "$SSH_TARGET:$REMOTE_DIR/"
+        log "syncing working tree to $SSH_TARGET:$REMOTE_DIR (rsync, default excludes: data/ results/ archive*/ outputs/ target/ -- use --sync-all to disable)"
+        # --delete is unsafe when a network volume is attached: multiple
+        # concurrent pods mounting the SAME volume at the SAME REMOTE_DIR
+        # (see --network-volume-id) share one directory tree, so one pod's
+        # sync deleting files "not present locally" can wipe another
+        # still-running pod's runtime logs/output out from under it (real,
+        # observed 2026-08-24 -- training processes survived since they
+        # already had the file open, but `tail`/`ls` on the log path broke
+        # mid-run on 3 concurrent pods). Safe to keep --delete for the
+        # normal ephemeral-disk case (each pod gets its own untouched tree).
+        DELETE_FLAG=(--delete)
+        [[ -n "$NETWORK_VOLUME_ID" ]] && DELETE_FLAG=()
+        rsync -az "${DELETE_FLAG[@]:-}" -e "ssh ${SSH_OPTS[*]}" "${RSYNC_EXCLUDES[@]}" "$REPO_ROOT/" "$SSH_TARGET:$REMOTE_DIR/"
         ;;
     git)
         ORIGIN_URL="$(git -C "$REPO_ROOT" remote get-url origin)"
