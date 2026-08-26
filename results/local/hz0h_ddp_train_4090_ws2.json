@@ -1,0 +1,30 @@
+{
+  "world_size": 2,
+  "per_gpu_batch_size": 8,
+  "depth": 8,
+  "per_gpu_tokens_per_second": 3111.720968382195,
+  "global_tokens_per_second": 6223.44193676439,
+  "elapsed_seconds": 39.489401925355196,
+  "measure_steps": 60,
+  "last_loss": 3.2309727668762207,
+  "config": {
+    "out": "results/local/hz0h_ddp_train_4090_ws2.json",
+    "data": "data/packed/hz0h_bytes_25m_train.jsonl",
+    "n_embd": 2496,
+    "mult": 16,
+    "n_layer": 8,
+    "n_head": 8,
+    "d_state": 624,
+    "subspace_rank": 64,
+    "batch_size": 8,
+    "sequence_length": 256,
+    "learning_rate": 0.001,
+    "grad_clip": 1.0,
+    "warmup_steps": 10,
+    "measure_steps": 60,
+    "depth": 8,
+    "seed": 7,
+    "optimizer": "adamw",
+    "dtype": "bfloat16"
+  }
+}
