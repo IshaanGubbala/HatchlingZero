@@ -24,6 +24,7 @@ from reference.hz0h_bdh_vb_checkpointed_torch import bdh_vb_variable_depth_forwa
 from reference.hz0h_bdh_vb_frozen_identity_torch import BDHVBFrozenIdentity
 from reference.hz0h_bdh_vb_identity_init_torch import BDHVBIdentityInit
 from reference.hz0h_bdh_vb_torch import BDHVB, BDHVBConfig
+from reference.hz0h_bdh_vb_warmstart_torch import BDHVBWarmStart
 from scripts.hz0h_bdh_combined_best_comparison import autocast_context, curriculum_stages, make_optimizer
 from scripts.hz0h_bdh_width_flop_frontier_local import pick_device, synchronize
 from scripts.hz0h_factorized_curriculum_full_comparison import depth_at, lr_at, read_batch
@@ -31,13 +32,14 @@ from scripts.hz0h_factorized_curriculum_full_comparison import depth_at, lr_at, 
 
 def train_vb(config, args, device):
     torch.manual_seed(args.seed)
-    if getattr(args, "frozen_identity", False):
-        model_cls = BDHVBFrozenIdentity
+    if getattr(args, "warm_start_freeze_steps", 0):
+        model = BDHVBWarmStart(config, freeze_steps=args.warm_start_freeze_steps).to(device=device, dtype=torch.float32)
+    elif getattr(args, "frozen_identity", False):
+        model = BDHVBFrozenIdentity(config).to(device=device, dtype=torch.float32)
     elif getattr(args, "identity_init", False):
-        model_cls = BDHVBIdentityInit
+        model = BDHVBIdentityInit(config).to(device=device, dtype=torch.float32)
     else:
-        model_cls = BDHVB
-    model = model_cls(config).to(device=device, dtype=torch.float32)
+        model = BDHVB(config).to(device=device, dtype=torch.float32)
     optimizer = make_optimizer(model.parameters(), args, device)
     steps = math.ceil(args.target_tokens / (args.batch_size * args.sequence_length))
     stages = curriculum_stages(args.target_tokens, config.n_layer)
@@ -46,6 +48,8 @@ def train_vb(config, args, device):
     started = time.perf_counter()
     with args.data.open() as handle:
         for step in range(steps):
+            if hasattr(model, "maybe_unfreeze") and model.maybe_unfreeze(step):
+                print(f"[train_vb] step {step+1}/{steps} unfroze P/O", flush=True)
             for group in optimizer.param_groups:
                 group["lr"] = lr_at(step, steps, args.warmup_steps, args.learning_rate)
             data = read_batch(handle, args.batch_size, args.sequence_length, device, epochs)
@@ -115,6 +119,11 @@ def main():
     parser.add_argument("--frozen-identity", action="store_true",
                          help="P/O fixed at exact identity, never trained (BDHVBFrozenIdentity) -- "
                               "the crux bug-vs-optimization test. Requires d_state == n_embd.")
+    parser.add_argument("--warm-start-freeze-steps", type=int, default=0,
+                         help="P/O start at (truncated) identity init and stay frozen for this many "
+                              "steps, then unfreeze and train normally (BDHVBWarmStart). Separates "
+                              "'bad init' from 'gradient dynamics destabilize a good init'. Overrides "
+                              "--frozen-identity/--identity-init when > 0.")
     args = parser.parse_args()
 
     device = pick_device(args.device)

@@ -1,0 +1,35 @@
+{
+  "config": {
+    "data": "data/packed/hz0h_bytes_25m_train.jsonl",
+    "validation_data": "data/packed/hz0h_bytes_25m_val.jsonl",
+    "out": "results/local/hz0h_vb_frozen_identity_dstate2496.json",
+    "device": "auto",
+    "target_tokens": 5000000,
+    "batch_size": 8,
+    "sequence_length": 256,
+    "warmup_steps": 100,
+    "learning_rate": 0.001,
+    "grad_clip": 1.0,
+    "eval_batches": 8,
+    "log_every": 50,
+    "optimizer": "adamw",
+    "dtype": "bfloat16",
+    "seed": 7,
+    "n_embd": 2496,
+    "mult": 16,
+    "n_layer": 8,
+    "n_head": 8,
+    "d_state_divisor": 4,
+    "d_state": 2496,
+    "identity_init": false,
+    "frozen_identity": true
+  },
+  "d_state": 2496,
+  "results": {
+    "vb": {
+      "validation_loss": 1.8411831706762314,
+      "parameter_count": 312778752,
+      "training_seconds": 1205.5413961010054
+    }
+  }
+}
