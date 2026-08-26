@@ -1,0 +1,18 @@
+{
+  "device": "cuda (RTX 4090)",
+  "dtype": "bfloat16",
+  "note": "untrained execution-speed diagnostic -- decode tok/s and memory only, not a quality claim. Tier 0 of plans/HatchlingZero_BDH_Efficiency_Architecture_Plan_2026-08-24.md: fair, production-style (preallocated static KV cache, no per-token torch.cat, flash-attention-eligible SDPA path for the initial prefill) Transformer decode baseline, replacing the earlier provisional benchmark whose cat-based KV cache reallocated+copied the entire growing K/V tensor on every decode step.",
+  "config": {
+    "n_embd": 2496, "n_layer": 8, "n_head": 8, "mlp_internal_dim_multiplier": 16,
+    "transformer_layers": 3, "decode_tokens": 64, "seed": 7
+  },
+  "result_recovery_note": "The benchmark script's own JSON write only happens once after the full context sweep; this run crashed with a genuine CUDA OOM at context=131072 (both BDH and Transformer models resident in the same process at that point -- a real 24GB VRAM ceiling, not a bug) before reaching that write. The four completed context points below were captured directly from the run's stdout log, not from the script's own (never-written) output file.",
+  "by_context_length": {
+    "128": {"bdh_decode_tokens_per_second": 69.5, "transformer_decode_static_kv_tokens_per_second": 327.1, "bdh_over_transformer_speedup": 0.213},
+    "2048": {"bdh_decode_tokens_per_second": 69.5, "transformer_decode_static_kv_tokens_per_second": 335.6, "bdh_over_transformer_speedup": 0.207},
+    "16384": {"bdh_decode_tokens_per_second": 69.5, "transformer_decode_static_kv_tokens_per_second": 233.2, "bdh_over_transformer_speedup": 0.298},
+    "65536": {"bdh_decode_tokens_per_second": 69.4, "transformer_decode_static_kv_tokens_per_second": 67.5, "bdh_over_transformer_speedup": 1.029},
+    "131072": {"status": "OOM", "detail": "torch.OutOfMemoryError during Transformer FFN down-projection: tried to allocate 1.22 GiB, 23.75 MiB free of 23.52 GiB total. Genuine VRAM ceiling on RTX 4090 with both models resident, not a code bug (the prefill-mask OOM at this same context in an earlier run WAS a real bug, fixed by using is_causal=True for the zero-past-length prefill case instead of an explicit boolean mask; this second OOM is a real hardware limit)."}
+  },
+  "headline_finding": "The fair static-KV Transformer decode baseline decisively beats BDH decode at every context up to 16384 (3.36x-4.83x faster), reversing the impression left by the earlier provisional benchmark (which used an unfair per-token torch.cat KV-cache growth path that penalized the Transformer). A real crossover does still exist near context=65536, consistent with the original claim's threshold, but the margin there is razor-thin (BDH 1.03x faster, essentially a tie) rather than the large multi-x advantage implied before. Context=131072 hit a genuine VRAM ceiling before either architecture's real behavior could be measured there."
+}

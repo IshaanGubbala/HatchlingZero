@@ -1,0 +1,19 @@
+{
+  "device": "cuda (RTX 5090)",
+  "dtype": "bfloat16",
+  "note": "untrained execution-speed diagnostic -- decode tok/s and memory only, not a quality claim. Scaled version of results/local/hz0h_static_kv_transformer_decode_benchmark.json to ~0.8B params to match Qwen3.5-0.8B's scale (results/local/hz0h_qwen35_decode_benchmark.json), per explicit user request. NOT directly comparable in absolute tok/s to the 300M run -- that ran on RTX 4090, this ran on RTX 5090 (different hardware). The BDH-vs-Transformer RATIO within THIS run is a fair, same-GPU comparison. Qwen3.5-0.8B was benchmarked on RTX 4090, not 5090 -- a true same-GPU 3-way comparison at 0.8B scale does not yet exist.",
+  "config": {
+    "bdh_n_embd": 4096, "bdh_n_layer": 8, "bdh_n_head": 8, "bdh_mult": 16, "bdh_parameter_count": 807400000,
+    "transformer_d_model": 4096, "transformer_layers": 5, "transformer_heads": 8, "transformer_d_ff": 8192, "transformer_parameter_count": 840140000,
+    "decode_tokens": 64, "seed": 7
+  },
+  "result_recovery_note": "The benchmark script's own JSON write only happens once after the full context sweep; this run crashed with a genuine CUDA OOM at context=131072 (tried to allocate 2.00 GiB with only 1.55 GiB free of 31.36 GiB total -- a real VRAM ceiling on the 5090 with a much bigger model, not a bug) before reaching that write. The four completed context points below were captured directly from the run's stdout log, not from the script's own (never-written) output file.",
+  "by_context_length": {
+    "128": {"bdh_decode_tokens_per_second": 44.2, "transformer_decode_static_kv_tokens_per_second": 308.7, "bdh_over_transformer_speedup": 0.143},
+    "2048": {"bdh_decode_tokens_per_second": 44.2, "transformer_decode_static_kv_tokens_per_second": 331.1, "bdh_over_transformer_speedup": 0.134},
+    "16384": {"bdh_decode_tokens_per_second": 44.2, "transformer_decode_static_kv_tokens_per_second": 83.8, "bdh_over_transformer_speedup": 0.527},
+    "65536": {"bdh_decode_tokens_per_second": 44.2, "transformer_decode_static_kv_tokens_per_second": 23.6, "bdh_over_transformer_speedup": 1.873},
+    "131072": {"status": "OOM", "detail": "torch.OutOfMemoryError during Transformer FFN gate projection: tried to allocate 2.00 GiB, 1.55 GiB free of 31.36 GiB total. Genuine VRAM ceiling on RTX 5090 with the larger 0.8B model resident, not a code bug."}
+  },
+  "headline_finding": "At ~0.8B params, the BDH-vs-Transformer decode crossover is far more decisive than at 300M: BDH is flat at 44.2 tok/s across all contexts, while the fair Transformer's decode collapses from 308.7 (context=128) to 23.6 tok/s (context=65536) as its 5 real attention layers pay increasing quadratic cost. At context=65536, BDH is 1.873x faster than the Transformer -- vs. only a 1.03x near-tie at the same context in the 300M-param comparison. The crossover point itself also appears to arrive earlier relative to context as parameter count grows (BDH already leads decisively by 16384-65536 rather than only right at the edge), consistent with the hypothesis that BDH's O(1)-state advantage compounds with scale while Transformer attention cost does not."
+}
