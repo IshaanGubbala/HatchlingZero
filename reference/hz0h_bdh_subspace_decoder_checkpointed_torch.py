@@ -22,8 +22,11 @@ def _subspace_decoder_checkpoint_iteration(x: torch.Tensor, model: BDHSubspaceDe
     xy_sparse = x_sparse * y_sparse
     xy_sparse = model.drop(xy_sparse)
 
-    xy_flat = xy_sparse.transpose(1, 2).reshape(B, 1, T, N * nh)
-    alpha = xy_flat @ model._w(model.decoder_up)
+    # Real Phase B fix, 2026-08-26: see
+    # reference/hz0h_bdh_vb_subspace_decoder_stream_torch.py's matching
+    # comment -- avoids a non-contiguous-tensor materialization that
+    # dominates cost at batch>1 (verified mathematically identical).
+    alpha = torch.matmul(xy_sparse, model._w(model.decoder_up).view(nh, N, -1)).sum(dim=1, keepdim=True)
     yMLP = alpha @ model._w(model.decoder_down)
     y = model.ln(yMLP)
     x = model.ln(x + y)

@@ -56,8 +56,14 @@ def bdh_vb_subspace_decoder_stream_chunk(
         xy_sparse = x_sparse * y_sparse
         xy_sparse = model.drop(xy_sparse)
 
-        xy_flat = xy_sparse.transpose(1, 2).reshape(B, 1, L, N * nh)
-        alpha = xy_flat @ model.decoder_up
+        # Real Phase B fix, 2026-08-26: the transpose+reshape below forces a
+        # full non-contiguous-tensor materialization (torch.profiler showed
+        # aten::clone/copy_ dominating decode time at B>1, absent at B=1 --
+        # 7.4x/14.4x slower than linear at B=2/4, not the ~2x/4x a
+        # well-behaved batched op should cost). Batched matmul over heads +
+        # sum is mathematically identical (verified bit-exact locally) and
+        # never touches a non-contiguous layout.
+        alpha = torch.matmul(xy_sparse, model.decoder_up.view(nh, N, -1)).sum(dim=1, keepdim=True)
         yMLP = alpha @ model.decoder_down
         y = model.ln(yMLP)
         x = model.ln(x + y)

@@ -90,8 +90,10 @@ class BDHVBSubspaceDecoder(BDHVB):
             xy_sparse = x_sparse * y_sparse
             xy_sparse = self.drop(xy_sparse)
 
-            xy_flat = xy_sparse.transpose(1, 2).reshape(B, 1, T, N * nh)
-            alpha = xy_flat @ self.decoder_up
+            # Real Phase B fix, 2026-08-26: see hz0h_bdh_vb_subspace_decoder_stream_torch.py's
+            # matching comment -- avoids a non-contiguous-tensor materialization
+            # that dominates cost at batch>1 (verified mathematically identical).
+            alpha = torch.matmul(xy_sparse, self.decoder_up.view(nh, N, -1)).sum(dim=1, keepdim=True)
             yMLP = alpha @ self.decoder_down
             y = self.ln(yMLP)
             x = self.ln(x + y)
