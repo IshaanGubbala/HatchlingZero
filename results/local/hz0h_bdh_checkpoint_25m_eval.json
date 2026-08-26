@@ -1,0 +1,5 @@
+{
+  "checkpoint": "results/local/hz0h_bdh_checkpoint_25m.pt",
+  "seed": 7,
+  "validation_loss": 1.438329041004181
+}
