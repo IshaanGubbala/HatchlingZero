@@ -1,0 +1,19 @@
+{
+  "world_size": 1,
+  "tokens_per_second": 252.85005329429444,
+  "elapsed_seconds": 0.12655722070485353,
+  "correctness_max_diff": 0.0,
+  "config": {
+    "out": "results/local/hz0h_tensor_parallel_5090_tp1.json",
+    "n_embd": 2496,
+    "mult": 16,
+    "n_layer": 8,
+    "n_head": 8,
+    "d_state": 624,
+    "subspace_rank": 64,
+    "context_length": 2048,
+    "decode_tokens": 32,
+    "prefill_chunk_length": 2048,
+    "seed": 7
+  }
+}
