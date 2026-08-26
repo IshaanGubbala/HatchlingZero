@@ -1,0 +1,84 @@
+{
+  "experiment_id": "exact_sparse_decoder_vendor_spmm_v1",
+  "scope": "decoder operator forward+backward microbenchmark; not an end-to-end training claim",
+  "novelty_vs_closed_sparse_lanes": "skips only realized exact ReLU-product zeros via vendor CUDA COO/CSR SpMM; no router, top-k, pruning, threshold, gather_mm, or changed model math",
+  "stop_condition": "close vendor-SpMM lane if neither parity-passing COO nor CSR beats dense at the production shape; do not repeat with cosmetic tuning",
+  "methodological_guards": {
+    "fresh_subprocess_per_timed_arm": true,
+    "same_seed_and_tensors": true,
+    "cuda_synchronized_timing": true,
+    "forward_and_backward_in_scope": true,
+    "optimizer_step_in_scope": false,
+    "full_model_training_in_scope": false
+  },
+  "device": "NVIDIA A40",
+  "torch_version": "2.8.0+cu128",
+  "dtype": "bfloat16",
+  "shape": {
+    "batch_size": 1,
+    "sequence_length": 256,
+    "rows": 256,
+    "n_embd": 2496,
+    "decoder_input_width": 39936,
+    "active_fraction_requested": 0.12
+  },
+  "parity": {
+    "coo": {
+      "supported": true,
+      "output_max_abs_error": 0.03125,
+      "active_input_gradient_max_abs_error": 0.015625,
+      "omitted_input_gradients_are_zero": true,
+      "weight_gradient_max_abs_error": 0.0625,
+      "finite": true
+    },
+    "csr": {
+      "supported": true,
+      "output_max_abs_error": 0.03125,
+      "active_input_gradient_max_abs_error": 0.015625,
+      "omitted_input_gradients_are_zero": true,
+      "weight_gradient_max_abs_error": 0.0625,
+      "finite": true
+    }
+  },
+  "arms": {
+    "dense": {
+      "arm": "dense",
+      "seconds": 0.010453560389578342,
+      "seconds_per_step": 0.0020907120779156685,
+      "tokens_per_second": 122446.31994244693,
+      "peak_memory_allocated_bytes": 462323712,
+      "peak_memory_reserved_bytes": 467664896,
+      "finite": true,
+      "nonzero_fraction": 0.060010274251302086,
+      "theoretical_decoder_multiply_fraction": 0.060010274251302086,
+      "throughput_over_dense": 1.0,
+      "allocated_memory_over_dense": 1.0
+    },
+    "coo": {
+      "arm": "coo",
+      "seconds": 0.25455467123538256,
+      "seconds_per_step": 0.05091093424707651,
+      "tokens_per_second": 5028.389358513892,
+      "peak_memory_allocated_bytes": 1883217920,
+      "peak_memory_reserved_bytes": 1910505472,
+      "finite": true,
+      "nonzero_fraction": 0.060010274251302086,
+      "theoretical_decoder_multiply_fraction": 0.060010274251302086,
+      "throughput_over_dense": 0.04106607173557662,
+      "allocated_memory_over_dense": 4.073375150613084
+    },
+    "csr": {
+      "arm": "csr",
+      "seconds": 0.1325915427878499,
+      "seconds_per_step": 0.02651830855756998,
+      "tokens_per_second": 9653.707718357535,
+      "peak_memory_allocated_bytes": 1456624640,
+      "peak_memory_reserved_bytes": 1509949440,
+      "finite": true,
+      "nonzero_fraction": 0.060010274251302086,
+      "theoretical_decoder_multiply_fraction": 0.060010274251302086,
+      "throughput_over_dense": 0.07884032548217894,
+      "allocated_memory_over_dense": 3.150659596711319
+    }
+  }
+}
