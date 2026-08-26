@@ -60,6 +60,15 @@ def train(config, args, device):
     tokens = 0
     started = time.perf_counter()
     epochs = [0]
+    # Real prior-session win (docs/restart/hz0h_rope_hoist_and_compile_mode_results.md,
+    # scripts/hz0h_bdh_combined_best_comparison.py): 1.82x CUDA speedup alone, 2.61x
+    # compounded with the depth curriculum, lower peak memory too -- never previously
+    # applied to any checkpointed+VB+subspace training path. Real, disclosed, UNTESTED
+    # combination per combined_best_comparison.py's own --compile-training flag: compile
+    # + gradient checkpointing together had not been validated anywhere in this project's
+    # history before this flag existed here. torch.compile's own guard system handles
+    # recompiling automatically when `depth` changes across curriculum stages.
+    forward_fn = torch.compile(bdh_vb_subspace_decoder_forward_checkpointed, mode=args.compile_mode) if args.compile_training else bdh_vb_subspace_decoder_forward_checkpointed
     with args.data.open() as handle:
         for step in range(steps):
             for group in optimizer.param_groups:
@@ -69,7 +78,7 @@ def train(config, args, device):
             depth = depth_at(tokens, stages)
             optimizer.zero_grad(set_to_none=True)
             with autocast_context(args, device):
-                _, loss = bdh_vb_subspace_decoder_forward_checkpointed(model, idx, depth, target)
+                _, loss = forward_fn(model, idx, depth, target)
             loss.backward()
             if args.grad_clip > 0:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
@@ -124,6 +133,15 @@ def main() -> None:
     parser.add_argument("--n-head", type=int, default=8)
     parser.add_argument("--d-state", type=int, default=624)
     parser.add_argument("--subspace-rank", type=int, default=64)
+    parser.add_argument("--compile-training", action="store_true",
+                         help="torch.compile the training forward pass. Real, measured 1.82x-2.61x "
+                              "win elsewhere in this project, never applied to this checkpointed VB+subspace "
+                              "path -- combine + gradient checkpointing together is a real, disclosed, "
+                              "previously-untested combination on THIS model.")
+    parser.add_argument("--compile-mode", choices=["default", "reduce-overhead", "max-autotune"], default="max-autotune",
+                         help="torch.compile mode. Defaults to max-autotune per this project's own prior "
+                              "CUDA finding (default mode OOM'd on the same card family; max-autotune was "
+                              "independently faster AND far lower peak memory).")
     args = parser.parse_args()
 
     device = pick_device(args.device)
