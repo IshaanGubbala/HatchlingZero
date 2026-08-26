@@ -1,0 +1,33 @@
+{
+  "config": {
+    "data": "data/packed/hz0h_bytes_25m_train.jsonl",
+    "validation_data": "data/packed/hz0h_bytes_25m_val.jsonl",
+    "out": "results/local/hz0h_region_gated_trainable.json",
+    "device": "auto",
+    "target_tokens": 5000000,
+    "batch_size": 8,
+    "sequence_length": 256,
+    "warmup_steps": 100,
+    "learning_rate": 0.001,
+    "grad_clip": 1.0,
+    "eval_batches": 8,
+    "log_every": 50,
+    "optimizer": "adamw",
+    "dtype": "bfloat16",
+    "seed": 7,
+    "n_embd": 2496,
+    "mult": 16,
+    "n_layer": 8,
+    "n_head": 8,
+    "num_regions": 64,
+    "frozen_gate": false
+  },
+  "num_regions": 64,
+  "results": {
+    "region_gated": {
+      "validation_loss": 1.88348026573658,
+      "parameter_count": 300478464,
+      "training_seconds": 1169.08032636391
+    }
+  }
+}
