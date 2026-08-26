@@ -142,6 +142,10 @@ def main() -> None:
                          help="torch.compile mode. Defaults to max-autotune per this project's own prior "
                               "CUDA finding (default mode OOM'd on the same card family; max-autotune was "
                               "independently faster AND far lower peak memory).")
+    parser.add_argument("--save-checkpoint", type=Path, default=None,
+                         help="Real gap this script had every run before: it only ever wrote JSON metrics, "
+                              "never the trained model itself -- nothing to load afterward for real "
+                              "generation/inference. Saves model.state_dict() + config here if set.")
     args = parser.parse_args()
 
     device = pick_device(args.device)
@@ -164,6 +168,18 @@ def main() -> None:
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(f"[done] wrote {args.out}", flush=True)
+
+    if args.save_checkpoint is not None:
+        args.save_checkpoint.parent.mkdir(parents=True, exist_ok=True)
+        torch.save({
+            "state_dict": model.state_dict(),
+            "config": {"n_layer": config.n_layer, "n_embd": config.n_embd, "n_head": config.n_head,
+                       "mlp_internal_dim_multiplier": config.mlp_internal_dim_multiplier, "vocab_size": config.vocab_size,
+                       "dropout": config.dropout, "d_state": config.d_state, "subspace_rank": config.subspace_rank},
+            "seed": args.seed, "target_tokens": args.target_tokens,
+            "elapsed_seconds": elapsed, "validation_loss": val_loss,
+        }, args.save_checkpoint)
+        print(f"[done] wrote real checkpoint to {args.save_checkpoint}", flush=True)
 
 
 if __name__ == "__main__":
