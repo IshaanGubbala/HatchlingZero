@@ -1398,3 +1398,31 @@ The latest evidence supports that framing:
 - dense blocks and stable representations are the promising bridge.
 
 That is the current HatchlingZero roadmap.
+
+## 20.1 Addendum, 2026-08-26 — a real architectural principle, not a collection of hacks
+
+Stated by the user after the full Tier 0-4 sweep plus the Phase A-F concurrency
+investigation, and worth recording verbatim because the evidence trail actually
+supports it cleanly, not just plausibly:
+
+> **BDH likes width and specialization for addressing, but likes compression on
+> value/output representations.** Every attempt to compress or coarsely route
+> the addressing side — filters, templates, CertiGate, Q/K subspace — has
+> struggled. The successful tricks all compress the things being carried or
+> written: value state and decoder/output space.
+
+Checking this against the actual real results in this document, not just
+accepting it on rhetorical strength:
+
+**Addressing-side attempts, all real, all negative:**
+- Coactivation-based neuron reordering (item 13) — improves block occupancy, destroys template sharing.
+- CertiGate certificates (item 14) — `fraction_certified_off = 0.0` at every block size, never fires once.
+- Fixed and K-means-clustered activation-template supersets (items 15, follow-up) — `candidate_fraction` stuck at 98.5-100% at every geometry/clustering setting tried.
+- Key-State Subspace BDH diagnostic (Phase D) — even at rank=1536/4992 (31% of full width), argmax agreement only 98.7%, KL orders of magnitude worse than the decoder-subspace case at comparable agreement.
+
+**Output/value-side attempts, all real, all positive:**
+- VB frozen-identity state-value compression (items 4/9/10) — beats exact BDH's own uncompressed baseline at every tested width.
+- Subspace decoder (item 23) — SVD-warmstarted rank-64 decoder beats baseline, confirmed 2 seeds.
+- Compound (VB + subspace stacked) — beats baseline by an even wider margin, confirmed 2 seeds.
+
+The pattern holds without exception across every real result in this document. A plausible mechanistic reason, consistent with the diagnostic evidence: addressing (which tokens attend to which, which blocks/templates a given input needs) is fundamentally a *discrimination* problem — it needs enough effective rank to tell many different things apart — while writing/output (how neuron activity combines to update the residual stream) tolerates real redundancy, because many different internal combinations can produce a similar useful external effect. Real design implication going forward: don't spend more effort trying to filter, route, or compress the addressing/selection machinery (encoder, Q/K, block routers) — that lane is closed on the evidence here. Do keep looking for compressible axes on the value/output side (this session found two — state width, decoder rank — and there could be others, e.g. `encoder_v`'s own output space, not yet tried).
