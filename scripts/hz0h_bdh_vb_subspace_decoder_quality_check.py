@@ -29,6 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from reference.hz0h_bdh_vb_subspace_decoder_checkpointed_torch import bdh_vb_subspace_decoder_forward_checkpointed
 from reference.hz0h_bdh_vb_subspace_decoder_torch import BDHVBSubspaceDecoder, BDHVBSubspaceDecoderConfig
+from reference.hz0h_muon_optimizer import HybridOptimizer, make_muon_hybrid_optimizer
 from scripts.hz0h_bdh_combined_best_comparison import autocast_context, curriculum_stages, make_optimizer
 from scripts.hz0h_bdh_width_flop_frontier_local import pick_device, synchronize
 from scripts.hz0h_factorized_curriculum_full_comparison import depth_at, lr_at, read_batch
@@ -54,7 +55,10 @@ def train(config, args, device):
     model = BDHVBSubspaceDecoder(config).to(device=device, dtype=torch.float32)
     if args.init_checkpoint is not None:
         svd_warmstart_decoder(model, args.init_checkpoint, config.subspace_rank, device)
-    optimizer = make_optimizer(model.parameters(), args, device)
+    if args.optimizer == "muon_hybrid":
+        optimizer = make_muon_hybrid_optimizer(model, muon_lr=args.muon_lr, adamw_lr=args.learning_rate)
+    else:
+        optimizer = make_optimizer(model.parameters(), args, device)
     steps = math.ceil(args.target_tokens / (args.batch_size * args.sequence_length))
     stages = curriculum_stages(args.target_tokens, config.n_layer)
     tokens = 0
@@ -71,8 +75,11 @@ def train(config, args, device):
     forward_fn = torch.compile(bdh_vb_subspace_decoder_forward_checkpointed, mode=args.compile_mode) if args.compile_training else bdh_vb_subspace_decoder_forward_checkpointed
     with args.data.open() as handle:
         for step in range(steps):
-            for group in optimizer.param_groups:
-                group["lr"] = lr_at(step, steps, args.warmup_steps, args.learning_rate)
+            if isinstance(optimizer, HybridOptimizer):
+                optimizer.set_lr_scale(lr_at(step, steps, args.warmup_steps, 1.0))
+            else:
+                for group in optimizer.param_groups:
+                    group["lr"] = lr_at(step, steps, args.warmup_steps, args.learning_rate)
             data = read_batch(handle, args.batch_size, args.sequence_length, device, epochs)
             idx, target = data[:, :-1].contiguous(), data[:, 1:].contiguous()
             depth = depth_at(tokens, stages)
@@ -124,7 +131,13 @@ def main() -> None:
     parser.add_argument("--grad-clip", type=float, default=1.0)
     parser.add_argument("--eval-batches", type=int, default=8)
     parser.add_argument("--log-every", type=int, default=50)
-    parser.add_argument("--optimizer", choices=["adamw", "adam8bit"], default="adamw")
+    parser.add_argument("--optimizer", choices=["adamw", "adam8bit", "muon_hybrid"], default="adamw")
+    parser.add_argument("--muon-lr", type=float, default=0.02,
+                         help="LR for Muon's hidden-matrix group (encoder/encoder_v/decoder_up/decoder_down) "
+                              "when --optimizer muon_hybrid. Real Muon reference recipes use lr~0.02, roughly "
+                              "20-60x --learning-rate's typical AdamW scale -- deliberately NOT tied to "
+                              "--learning-rate, since the two optimizers want different absolute magnitudes; "
+                              "only the warmup/decay SHAPE (lr_at's 0..1 curriculum) is shared between them.")
     parser.add_argument("--dtype", choices=["float32", "bfloat16"], default="bfloat16")
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--n-embd", type=int, default=2496)

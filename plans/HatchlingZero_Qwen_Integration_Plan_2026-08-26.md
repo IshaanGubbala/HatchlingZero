@@ -1,0 +1,526 @@
+# HatchlingZero × Modern-Qwen Integration Plan
+**Date:** 2026-08-26
+
+## 0. Executive decision
+
+The next HatchlingZero version should **not** become a generic Transformer/Qwen clone.
+
+Working thesis:
+
+> **Keep BDH's wide, high-rank addressing/recurrent mechanism intact; compress and specialize value/output pathways; add precise retrieval and cheap external capacity only where they complement BDH rather than replace it.**
+
+This follows the strongest empirical pattern in the repo:
+
+- Addressing-side compression/routing has repeatedly failed: neuron reordering, CertiGate, fixed/template routing, K-means routing, and Q/K subspace compression.
+- Value/output-side compression has repeatedly worked: VB state compression, rank-64 subspace decoder, and the compound VB + subspace-decoder model.
+- The current compound model is therefore the **base architecture**, not a temporary experiment.
+- Any Qwen-derived idea must improve at least one of: quality at fixed active compute, training throughput, decode throughput, memory/energy efficiency, or effective knowledge capacity.
+
+## 1. Locked baseline
+
+Use current compound BDH as the reference:
+
+- BDH recurrent core
+- VB with default `d_state=624`
+- SVD-warmstarted subspace decoder with rank `r=64`
+- 8 recurrent re-query rounds
+- no neuron/block router
+- no Q/K compression
+- no context-refresh skipping
+- BF16 state
+- static/preallocated streaming decode
+- RTX 4090 as default single-GPU hardware
+- DDP for multi-GPU training
+
+At 25M tokens, current controlled result:
+
+- exact BDH: `1.4383`
+- compound: `1.4326`
+- delta: `-0.0057`
+
+That gap is smaller than previously observed seed noise, so long-budget validation is now mandatory before strong quality claims.
+
+## 2. Architecture principle
+
+Preserve:
+
+\[
+\boxed{\text{wide / high-rank addressing} + \text{compressed value/output}}
+\]
+
+Strongly deprioritize:
+
+- per-token neuron MoE routing
+- coarse neuron block routing
+- CertiGate
+- fixed activation templates
+- K-means activation-template routing
+- Q/K low-rank compression
+- static neuron masks
+- context-refresh reduction
+- token-specific sparse gather/scatter in the hot path
+
+Focus on:
+
+- recurrent values
+- recurrent state representation
+- decoder/output representation
+- external lexical/factual lookup capacity
+- optimizer/training dynamics
+- precise context retrieval
+- expert capacity **after** addressing
+
+## 3. Priority order
+
+| Priority | Track | Cost | Why now |
+|---|---|---:|---|
+| P0 | 500M-token baseline validation | High but necessary | Establish real long-budget reference |
+| P1 | Muon/AdamW optimizer hybrid | Low | Directly targets observed optimization sensitivity |
+| P2 | Multi-Token Prediction | Low | Training-only, low architecture risk |
+| P3 | N-gram / hashed lexical memory | Medium | Adds capacity with little active compute |
+| P4 | Two-stream gated residual | Medium | Could stabilize recurrent learning |
+| P5 | Occasional precise retrieval | Medium-high | Lets BDH state stop carrying every exact detail |
+| P6 | QSA-like sparse context retrieval | High | Only after dense retrieval proves useful |
+| P7 | Value/output MoE | High | Major parameter-per-FLOP scaling lever |
+| P8 | Combined candidate model | Very high | Only after individual effects are isolated |
+
+## 4. Phase 0 — long-budget control
+
+Train the current compound model on the new diverse corpus.
+
+Recommended sequence:
+
+1. 25M tokens — smoke/regression
+2. 100M tokens — intermediate scaling check
+3. 500M tokens — primary reference
+
+Hardware:
+- primary: `2× RTX 4090 DDP`
+- BF16
+- gradient checkpointing as needed
+- `torch.compile(mode="default")` only if matched quality remains within noise
+
+Record:
+- validation loss vs tokens
+- tok/s and wall-clock
+- peak VRAM
+- joules/token if available
+- decode at 2K / 16K / 64K / 128K
+- recurrent-state size
+- max resident requests
+- generation samples from the chat script
+
+Gate:
+- no new architecture reaches 500M until it beats or matches baseline at 25M/100M.
+
+## 5. Phase 1 — Muon / AdamW hybrid
+
+### Hypothesis
+
+Many failures have been optimization failures rather than capacity failures:
+- VB was rescued by freeze-then-unfreeze.
+- SVD warm-start rescued the low-rank decoder.
+- random-init low-rank decoder failed despite sufficient capacity.
+
+### Arms
+
+A. Current AdamW control.
+
+B. Muon for large 2D matrices:
+- encoder
+- encoder_v
+- decoder factors
+- VB P/O
+
+Keep AdamW for:
+- embeddings
+- LayerNorm/scales
+- biases/scalars
+- lookup tables
+
+C. Muon + protected VB:
+- freeze P/O for first 500 steps
+- then reduced LR multiplier
+
+Diagnostics:
+- validation loss
+- gradient norm by family
+- P/O norm and subspace drift
+- throughput overhead
+
+Promotion:
+- `>=0.01` lower loss at 25M with <=5% throughput penalty, or
+- same quality with >=10% fewer tokens to a fixed loss threshold.
+
+Kill:
+- no repeatable benefit across two seeds.
+
+## 6. Phase 2 — Multi-Token Prediction
+
+Add auxiliary prediction targets for:
+
+\[
+t+1, t+2, t+3, t+4
+\]
+
+Initial loss weights:
+- 1.0
+- 0.5
+- 0.25
+- 0.125
+
+Arms:
+- baseline
+- MTP-2
+- MTP-4
+
+Measure:
+- final validation loss
+- convergence speed
+- recurrent-state predictiveness
+- training overhead
+- generation quality
+- long-context memory tasks
+
+Promotion:
+- same final quality with >=10% fewer tokens, or
+- >=0.01 lower loss at matched budget,
+- with <15% training-throughput overhead.
+
+## 7. Phase 3 — N-gram / hashed lexical memory
+
+### Goal
+
+Increase knowledge/lexical capacity without proportional recurrent compute.
+
+Core form:
+
+\[
+h_t = \text{hash}(x_{t-k:t})
+\]
+
+Lookup an embedding and inject conservatively:
+
+\[
+x'_t = x_t + \alpha e_{\text{ngram}}
+\]
+
+Start with gate `alpha` near zero.
+
+Test table sizes:
+- +25M params
+- +100M params
+- +500M only if smaller arms scale cleanly
+
+Test n-gram orders:
+- 2
+- 3
+- 4
+- mixed 2/3/4
+
+Later:
+- CPU-resident / pinned-memory table
+- async prefetch
+- hot-row GPU cache
+
+Controls:
+- equal-parameter ordinary neural expansion
+- equal-VRAM random lookup table
+
+Promotion:
+- better quality per active FLOP than adding ordinary BDH weights
+- <5% active-compute increase
+- no >5% decode regression
+
+## 8. Phase 4 — two-stream gated residual
+
+Do not jump directly to four streams.
+
+Maintain:
+- stable carrier `R_s`
+- plastic stream `R_p`
+
+Conservative form:
+
+\[
+R_{t+1} = R_s + g_t \odot R_p
+\]
+
+Initialization must reproduce current compound behavior:
+- stable branch = current residual
+- plastic branch = zero
+- gate contribution near zero
+
+Training:
+1. plastic path suppressed for first 10–20%
+2. gradual gate release
+3. optional lower LR for gate/plastic branch
+
+Promotion:
+- replicated improvement
+- <10% training slowdown
+- persists at 25M+ tokens
+
+## 9. Phase 5 — occasional precise retrieval
+
+### Hypothesis
+
+Compressed BDH state should not have to preserve every exact historical detail.
+
+Split responsibilities:
+
+\[
+\text{BDH state} \rightarrow \text{compressed associative/reasoning memory}
+\]
+
+\[
+\text{retrieval module} \rightarrow \text{exact historical lookup}
+\]
+
+First version uses **dense attention**, not sparse attention.
+
+Test:
+- no retrieval
+- retrieval every 8 macro steps
+- every 4
+- every 2
+
+Key tests:
+- passkey / exact recall
+- BABILong
+- overwrite/reassignment
+- ordinary val loss
+- long-context generation
+
+Crucial follow-up:
+- sweep `d_state = 624 / 312 / 156`
+
+Promotion:
+- smaller BDH state + retrieval must beat larger BDH state without retrieval on the joint quality + decode-memory + wall-clock frontier.
+
+## 10. Phase 6 — QSA-like sparse context retrieval
+
+Only after dense precise retrieval proves useful.
+
+Allowed:
+- sparse **context retrieval**
+
+Still closed:
+- sparse **neuron-address routing**
+
+Design:
+1. split historical sequence into micro-blocks
+2. maintain cheap block summaries
+3. score blocks with tiny indexer
+4. select a candidate superset
+5. run exact attention only inside selected blocks
+
+Test retrieval budgets:
+- 1%
+- 2%
+- 5%
+- 10% of full context
+
+Promotion vs dense retrieval:
+- >2× retrieval-kernel speedup at long context
+- <0.005 loss degradation
+- exact-recall within 1–2 points
+- no routing collapse
+
+## 11. Phase 7 — Value / Output MoE
+
+Do **not** MoE:
+- encoder
+- Q/K
+- neuron activation blocks
+- recurrent addressing state
+
+Candidate placement:
+
+\[
+g_t
+\rightarrow \text{compressed representation}
+\rightarrow \text{top-k output experts}
+\rightarrow \Delta x
+\]
+
+Start:
+- 8 experts
+- top-2 active
+- one shared expert
+- expert rank 32–64
+
+Then test:
+- 16 experts
+- 32 experts
+
+Training:
+- shared/dense warmup
+- gradual routing activation
+- explicit load-balancing loss
+- expert dropout
+- no token dropping in first tests
+
+Controls:
+- same active params dense
+- same total params dense
+- ordinary subspace decoder
+
+Promotion:
+- >=0.02 lower loss at matched active FLOPs, or
+- match a much larger dense model with <=50% active compute.
+
+## 12. Phase 8 — combined HZ-Q candidate
+
+Plausible target:
+
+```text
+token
+  │
+  ├── normal embedding
+  └── hashed / n-gram memory
+          │
+          ▼
+  stable + plastic gated residual
+          │
+          ▼
+      BDH recurrent core
+          │
+          ▼
+      compressed VB state
+          │
+          ├──── occasional exact / sparse context retrieval
+          │
+          ▼
+      value/output MoE
+          │
+          ▼
+   low-rank subspace decoder
+          │
+          ▼
+        logits
+```
+
+Training stack:
+- Muon on large matrices
+- AdamW on embeddings/norms/small params
+- MTP auxiliary objective
+- warm-start/freeze schedules for new pathways
+
+## 13. Experiment ladder
+
+Every new mechanism follows the same ladder:
+
+### Tier A — diagnostic
+Establish headroom before training.
+
+### Tier B — 5M quick probe
+Catch catastrophic failures; do not claim victory.
+
+### Tier C — 25M controlled run
+Matched seed/data/token budget/hardware.
+
+### Tier D — 100M validation
+Only promoted ideas.
+
+### Tier E — 500M confirmation
+Only candidate-stack components that survived Tier D.
+
+## 14. Mandatory metrics
+
+Quality:
+- validation loss
+- per-domain validation
+- long-context exact recall
+- generation samples
+
+Training:
+- tok/s
+- wall-clock to target loss
+- peak VRAM
+- energy/token
+- optimizer-state memory
+
+Inference:
+- prefill tok/s
+- B=1 decode
+- virtual-batched aggregate decode
+- 2K / 16K / 64K / 128K
+- state/KV memory
+- max resident sessions
+
+Capacity efficiency:
+- total params
+- active params/token
+- persistent bytes/token
+- quality per active FLOP
+
+## 15. Hard kill rules
+
+Stop when:
+1. FLOP savings do not become wall-clock savings.
+2. candidate filtering requires >50% of the supposedly skippable space.
+3. quality loss outweighs systems benefit.
+4. effect disappears at 25M tokens.
+5. effect is below seed noise and cannot replicate.
+6. hot path requires token-specific gather/scatter without a measured oracle upper bound.
+7. a mechanism attacks addressing without new evidence overturning the existing negative results.
+
+## 16. Concrete next 10 experiments
+
+1. 500M compound baseline on 2×4090 DDP; save checkpoint.
+2. AdamW vs Muon hybrid, 25M.
+3. Muon + VB protected-LR/freeze schedule, 25M.
+4. MTP-2 vs baseline, 25M.
+5. MTP-4 vs MTP-2, 25M.
+6. +25M n-gram table, 25M.
+7. +100M n-gram table, 25M.
+8. 2-stream gated residual, conservative warm start, 25M.
+9. Dense occasional retrieval, every 4 macro steps/round group.
+10. If #9 wins, `d_state` × retrieval sweep: 624 / 312 / 156.
+
+Only after those:
+- sparse retrieval kernels
+- value/output MoE
+- larger combined stacks
+
+## 17. Success definition
+
+The next HatchlingZero architecture should simultaneously achieve, at matched or better quality:
+
+- lower active FLOPs than exact BDH
+- smaller persistent state
+- faster long-context decode
+- better quality per parameter
+- more knowledge capacity without proportional GPU compute
+- stable training at 100M–500M token budgets
+
+Long-term identity:
+
+\[
+\boxed{
+\text{BDH recurrent reasoning}
++
+\text{compressed value memory}
++
+\text{cheap external knowledge capacity}
++
+\text{occasional precise retrieval}
++
+\text{sparse output capacity}
+}
+\]
+
+—not a Transformer with BDH terminology and not a neuron-routed MoE.
+
+## 18. Immediate recommendation
+
+The next three implementation tasks:
+
+1. **Muon hybrid optimizer experiment**
+2. **MTP auxiliary loss experiment**
+3. **N-gram memory prototype**
+
+In parallel, continue the 500M baseline so subsequent results have a trustworthy long-budget reference.
+
+The first major architecture experiment after these should be **occasional precise retrieval**, because it can let recurrent state specialize in compressed reasoning/memory while a separate mechanism handles exact recall.
