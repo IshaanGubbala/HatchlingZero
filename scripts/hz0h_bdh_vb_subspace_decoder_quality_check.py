@@ -28,6 +28,7 @@ import torch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from reference.hz0h_bdh_vb_subspace_decoder_checkpointed_torch import bdh_vb_subspace_decoder_forward_checkpointed
+from reference.hz0h_bdh_vb_subspace_decoder_mtp_torch import add_mtp_heads, bdh_vb_subspace_decoder_forward_mtp_checkpointed
 from reference.hz0h_bdh_vb_subspace_decoder_torch import BDHVBSubspaceDecoder, BDHVBSubspaceDecoderConfig
 from reference.hz0h_muon_optimizer import HybridOptimizer, make_muon_hybrid_optimizer
 from scripts.hz0h_bdh_combined_best_comparison import autocast_context, curriculum_stages, make_optimizer
@@ -55,6 +56,8 @@ def train(config, args, device):
     model = BDHVBSubspaceDecoder(config).to(device=device, dtype=torch.float32)
     if args.init_checkpoint is not None:
         svd_warmstart_decoder(model, args.init_checkpoint, config.subspace_rank, device)
+    if args.mtp_order > 0:
+        add_mtp_heads(model, list(range(2, args.mtp_order + 1)))
     if args.optimizer == "muon_hybrid":
         optimizer = make_muon_hybrid_optimizer(model, muon_lr=args.muon_lr, adamw_lr=args.learning_rate)
     else:
@@ -85,7 +88,11 @@ def train(config, args, device):
             depth = depth_at(tokens, stages)
             optimizer.zero_grad(set_to_none=True)
             with autocast_context(args, device):
-                _, loss = forward_fn(model, idx, depth, target)
+                if args.mtp_order > 0:
+                    extra_targets = {k: data[:, k:].contiguous() for k in range(2, args.mtp_order + 1)}
+                    _, loss = bdh_vb_subspace_decoder_forward_mtp_checkpointed(model, idx, depth, target, extra_targets)
+                else:
+                    _, loss = forward_fn(model, idx, depth, target)
             loss.backward()
             if args.grad_clip > 0:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
@@ -138,6 +145,13 @@ def main() -> None:
                               "20-60x --learning-rate's typical AdamW scale -- deliberately NOT tied to "
                               "--learning-rate, since the two optimizers want different absolute magnitudes; "
                               "only the warmup/decay SHAPE (lr_at's 0..1 curriculum) is shared between them.")
+    parser.add_argument("--mtp-order", type=int, choices=[0, 2, 3, 4], default=0,
+                         help="0 = baseline (no auxiliary loss, unchanged behavior). N>=2 adds auxiliary "
+                              "t+2..t+N prediction heads (real, separate small linear heads on the SAME "
+                              "final hidden state -- no extra recurrent-round compute) with the plan's "
+                              "1.0/0.5/0.25/0.125 weight schedule. Validation loss is still measured on "
+                              "plain next-token prediction only (evaluate_loss never touches the aux heads), "
+                              "so val_loss stays directly comparable across mtp_order arms.")
     parser.add_argument("--dtype", choices=["float32", "bfloat16"], default="bfloat16")
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--n-embd", type=int, default=2496)
