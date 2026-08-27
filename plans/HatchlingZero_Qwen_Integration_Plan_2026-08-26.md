@@ -155,6 +155,20 @@ Promotion:
 Kill:
 - no repeatable benefit across two seeds.
 
+### Real result, 2026-08-27 — Arm B (Muon default LR) killed, decisive on first test
+
+Ran arm B (Muon on `encoder`/`encoder_v`/`decoder_up`/`decoder_down`, AdamW on `embed`/`lm_head`, `--muon-lr 0.02`) against the existing arm-A control, both at the exact matched config (n_embd=2496, mult=16, n_layer=8, n_head=8, d_state=624, r=64, seed=7, 25M tokens, same SVD-warmstart source). Implementation: `reference/hz0h_muon_optimizer.py` (real Newton-Schulz orthogonalized-momentum Muon, Keller Jordan's formulation; `HybridOptimizer` applies the LR curriculum as a 0..1 scale on each optimizer's own base LR rather than an absolute overwrite, since Muon and AdamW want very different absolute magnitudes). Verified locally on CPU at tiny scale before any GPU spend (correct 4-tensor/2-tensor param split, loss descends, AdamW path unaffected).
+
+| | AdamW (control) | Muon hybrid (arm B, muon_lr=0.02) |
+|---|---:|---:|
+| validation_loss | **1.4326** | 1.4869 |
+| training_seconds | 4837.7 | 5928.6 |
+| parameter_count | 206,469,120 (identical) | 206,469,120 (identical) |
+
+**Muon lost on both quality and speed.** Val loss 0.0542 worse than AdamW — larger than the ENTIRE compound-vs-baseline margin measured in [[20.3]] (0.0057) — and 22.5% slower wall-clock (the 5-step Newton-Schulz iteration per Muon-updated tensor per training step is real, added compute, not free). Training loss was also visibly noisier throughout the run (repeated spikes to 2.4-4.7 at steps well past warmup, e.g. step 3900 loss=4.68, step 11750 loss=2.44) rather than smoothing out — consistent with `--muon-lr 0.02` (Keller Jordan's reference default, tuned for very different model shapes/scales) being poorly matched to this architecture, not necessarily evidence Muon can't work here at all.
+
+**Honest scope of this result**: single seed, single hyperparameter point (`muon_lr=0.02`), no sweep. Per this plan's own kill rule ("no repeatable benefit across two seeds"), this is enough to kill the default-hyperparameter arm without a second seed — there's no benefit to replicate. It is NOT enough to close the door on Muon entirely; a real LR sweep (e.g. 0.002-0.01, an order of magnitude below the reference default) would be the correctly-scoped next step if this optimizer track is revisited, given the current point is a clear loss on both axes tested. Not pursuing that sweep now — deprioritizing Phase 1 in favor of Phase 2 (MTP) and Phase 3 (n-gram memory), both cheap, orthogonal, and untested, rather than sinking more GPU time into tuning an optimizer that lost decisively at its reference setting.
+
 ## 6. Phase 2 — Multi-Token Prediction
 
 Add auxiliary prediction targets for:

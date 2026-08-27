@@ -1,0 +1,39 @@
+{
+  "config": {
+    "data": "data/packed/hz0h_bytes_25m_train.jsonl",
+    "validation_data": "data/packed/hz0h_bytes_25m_val.jsonl",
+    "init_checkpoint": "results/local/hz0h_bdh_checkpoint_for_ablation.pt",
+    "out": "results/local/hz0h_vb_subspace_decoder_25m_muon.json",
+    "device": "auto",
+    "target_tokens": 25000000,
+    "batch_size": 8,
+    "sequence_length": 256,
+    "warmup_steps": 100,
+    "learning_rate": 0.001,
+    "grad_clip": 1.0,
+    "eval_batches": 8,
+    "log_every": 50,
+    "optimizer": "muon_hybrid",
+    "muon_lr": 0.02,
+    "dtype": "bfloat16",
+    "seed": 7,
+    "n_embd": 2496,
+    "mult": 16,
+    "n_layer": 8,
+    "n_head": 8,
+    "d_state": 624,
+    "subspace_rank": 64,
+    "compile_training": false,
+    "compile_mode": "max-autotune",
+    "save_checkpoint": null
+  },
+  "d_state": 624,
+  "subspace_rank": 64,
+  "results": {
+    "vb_subspace_decoder": {
+      "validation_loss": 1.4868842512369156,
+      "parameter_count": 206469120,
+      "training_seconds": 5928.577209156007
+    }
+  }
+}
