@@ -100,6 +100,33 @@ find_running_pod() {
     runpodctl pod list -o json 2>/dev/null | jq -r '.[0].id // empty'
 }
 
+# Installed BEFORE any pod is created/looked up (real, observed bug
+# 2026-08-27: a `runpodctl pod create --wait` timeout -- the pod DOES
+# get created, it just isn't reachable yet -- tripped `set -e` on the
+# CREATE_JSON assignment before POD_ID/CREATED_BY_SCRIPT were set and
+# before this trap used to be installed further down, leaking a
+# billing pod with no cleanup at all). Cleanup is a no-op while POD_ID
+# is still empty, so installing it this early is always safe.
+cleanup() {
+    local exit_code=$?
+    if [[ -z "$POD_ID" ]]; then
+        exit "$exit_code"
+    fi
+    if [[ $CREATED_BY_SCRIPT -eq 1 && $KEEP -eq 0 ]]; then
+        log "terminating pod $POD_ID (created by this run)"
+        runpodctl pod remove "$POD_ID" >/dev/null 2>&1 || log "warning: failed to remove pod $POD_ID -- check runpodctl pod list"
+    elif [[ $CREATED_BY_SCRIPT -eq 0 && $KILL_REUSED -eq 1 && $KEEP -eq 0 ]]; then
+        log "terminating reused pod $POD_ID (--kill-reused was set)"
+        runpodctl pod remove "$POD_ID" >/dev/null 2>&1 || log "warning: failed to remove pod $POD_ID -- check runpodctl pod list"
+    elif [[ $KEEP -eq 1 ]]; then
+        log "leaving pod $POD_ID running (--keep). Remember to remove it later: runpodctl pod remove $POD_ID"
+    else
+        log "leaving reused pod $POD_ID running (not created by this invocation, --kill-reused not set)"
+    fi
+    exit "$exit_code"
+}
+trap cleanup EXIT INT TERM
+
 if [[ $NO_REUSE -eq 0 ]]; then
     EXISTING_ID="$(find_running_pod || true)"
     if [[ -n "$EXISTING_ID" ]]; then
@@ -117,6 +144,7 @@ if [[ -z "$POD_ID" ]]; then
     VOLUME_ARGS=()
     [[ -n "$NETWORK_VOLUME_ID" ]] && VOLUME_ARGS=(--network-volume-id "$NETWORK_VOLUME_ID")
     log "no running pod found, creating one: gpu='$GPU_ID' image=$IMAGE disk=${DISK_GB}GB ttl=${TTL_MINUTES}m network_volume='${NETWORK_VOLUME_ID:-none}' (auto-terminate at $TERMINATE_AT as a hard safety net)"
+    set +e
     CREATE_JSON="$(runpodctl pod create \
         --image "$IMAGE" \
         --gpu-id "$GPU_ID" \
@@ -126,33 +154,29 @@ if [[ -z "$POD_ID" ]]; then
         --terminate-after "$TERMINATE_AT" \
         "${VOLUME_ARGS[@]}" \
         --wait --wait-timeout "$WAIT_TIMEOUT")"
-    POD_ID="$(jq -r '.id' <<<"$CREATE_JSON")"
+    CREATE_EXIT=$?
+    set -e
+    # Even on a --wait timeout the pod itself was really created (it's just
+    # not reachable yet) -- pull the id out regardless of CREATE_EXIT so the
+    # trap above can clean it up instead of leaking a billing pod.
+    MAYBE_ID="$(jq -r '.id // empty' <<<"$CREATE_JSON" 2>/dev/null || true)"
+    if [[ -n "$MAYBE_ID" ]]; then
+        POD_ID="$MAYBE_ID"
+        CREATED_BY_SCRIPT=1
+    fi
+    if [[ $CREATE_EXIT -ne 0 ]]; then
+        log "pod create failed/timed out (exit $CREATE_EXIT): $CREATE_JSON"
+        [[ -n "$POD_ID" ]] && log "pod $POD_ID was created but never became reachable -- it will be terminated on exit"
+        exit 1
+    fi
     POD_IP="$(jq -r '.ssh.ip' <<<"$CREATE_JSON")"
     POD_PORT="$(jq -r '.ssh.port' <<<"$CREATE_JSON")"
-    CREATED_BY_SCRIPT=1
     COST_HR="$(jq -r '.costPerHr' <<<"$CREATE_JSON")"
     log "pod $POD_ID ready at $POD_IP:$POD_PORT (\$$COST_HR/hr)"
 fi
 
 SSH_OPTS=(-p "$POD_PORT" -i "$SSH_KEY" -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20)
 SSH_TARGET="root@$POD_IP"
-
-cleanup() {
-    local exit_code=$?
-    if [[ $CREATED_BY_SCRIPT -eq 1 && $KEEP -eq 0 ]]; then
-        log "terminating pod $POD_ID (created by this run)"
-        runpodctl pod remove "$POD_ID" >/dev/null 2>&1 || log "warning: failed to remove pod $POD_ID -- check runpodctl pod list"
-    elif [[ $CREATED_BY_SCRIPT -eq 0 && $KILL_REUSED -eq 1 && $KEEP -eq 0 ]]; then
-        log "terminating reused pod $POD_ID (--kill-reused was set)"
-        runpodctl pod remove "$POD_ID" >/dev/null 2>&1 || log "warning: failed to remove pod $POD_ID -- check runpodctl pod list"
-    elif [[ $KEEP -eq 1 ]]; then
-        log "leaving pod $POD_ID running (--keep). Remember to remove it later: runpodctl pod remove $POD_ID"
-    else
-        log "leaving reused pod $POD_ID running (not created by this invocation, --kill-reused not set)"
-    fi
-    exit "$exit_code"
-}
-trap cleanup EXIT INT TERM
 
 # Wait for the ssh daemon itself to accept a real login, not just the TCP
 # port -- `pod create --wait` only confirms the TCP banner answers.
@@ -187,7 +211,15 @@ case "$SYNC_MODE" in
         # normal ephemeral-disk case (each pod gets its own untouched tree).
         DELETE_FLAG=(--delete)
         [[ -n "$NETWORK_VOLUME_ID" ]] && DELETE_FLAG=()
-        rsync -az "${DELETE_FLAG[@]:-}" -e "ssh ${SSH_OPTS[*]}" "${RSYNC_EXCLUDES[@]}" "$REPO_ROOT/" "$SSH_TARGET:$REMOTE_DIR/"
+        # -rlt (not -a): real, observed failure on RunPod containers --
+        # -a implies -o/-g (preserve owner/group), which needs chown()
+        # privileges the container doesn't have even as root (2026-08-27,
+        # every file in the sync failing with "Operation not permitted"
+        # and the whole rsync exiting nonzero, killing the sync before any
+        # training ran). -rlt keeps recursion/symlinks/timestamps, drops
+        # the owner/group preservation that was never needed here anyway
+        # (single-user pods, no multi-owner file tree).
+        rsync -rltz "${DELETE_FLAG[@]:-}" -e "ssh ${SSH_OPTS[*]}" "${RSYNC_EXCLUDES[@]}" "$REPO_ROOT/" "$SSH_TARGET:$REMOTE_DIR/"
         ;;
     git)
         ORIGIN_URL="$(git -C "$REPO_ROOT" remote get-url origin)"
