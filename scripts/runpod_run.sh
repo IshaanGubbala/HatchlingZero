@@ -175,7 +175,7 @@ if [[ -z "$POD_ID" ]]; then
     log "pod $POD_ID ready at $POD_IP:$POD_PORT (\$$COST_HR/hr)"
 fi
 
-SSH_OPTS=(-p "$POD_PORT" -i "$SSH_KEY" -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20)
+SSH_OPTS=(-p "$POD_PORT" -i "$SSH_KEY" -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20 -o ServerAliveInterval=30 -o ServerAliveCountMax=20)
 SSH_TARGET="root@$POD_IP"
 
 # Wait for the ssh daemon itself to accept a real login, not just the TCP
@@ -242,10 +242,25 @@ case "$SYNC_MODE" in
 esac
 
 log "running: ${COMMAND[*]}"
-set +e
-ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "cd '$REMOTE_DIR' && ${COMMAND[*]}"
-CMD_EXIT=$?
-set -e
+# Real, observed bug 2026-08-27: a single long-lived foreground SSH session
+# held open for a multi-hour command dropped silently mid-run (network
+# blip / laptop sleep, exact cause unconfirmed) and killed the remote
+# process with it, since it was attached directly to that session's pty
+# with no nohup. Decoupled here: launch via nohup+disown on the remote
+# side (same pattern this repo's own manual dispatches use throughout),
+# then poll for a completion marker via SEPARATE short-lived SSH calls --
+# one dropped poll just retries, it can't kill a job it was never attached
+# to.
+REMOTE_MARKER=".runpod_run_$(date +%s)_$$"
+ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "cd '$REMOTE_DIR' && nohup bash -c '${COMMAND[*]}; echo \$? > $REMOTE_MARKER.exit' > $REMOTE_MARKER.log 2>&1 < /dev/null & disown; sleep 1; true"
+log "launched (marker $REMOTE_MARKER), polling for completion every 15s -- tolerant of transient SSH drops"
+CMD_EXIT=""
+while [[ -z "$CMD_EXIT" ]]; do
+    sleep 15
+    CMD_EXIT="$(ssh "${SSH_OPTS[@]}" -o ConnectTimeout=10 "$SSH_TARGET" "cat '$REMOTE_DIR/$REMOTE_MARKER.exit' 2>/dev/null" 2>/dev/null || true)"
+done
+log "remote command finished with exit code $CMD_EXIT"
+ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "cat '$REMOTE_DIR/$REMOTE_MARKER.log'" >&2 || true
 
 for path in "${PULL_PATHS[@]:-}"; do
     [[ -n "$path" ]] || continue
