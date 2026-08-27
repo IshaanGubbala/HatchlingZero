@@ -29,6 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from reference.hz0h_bdh_vb_subspace_decoder_checkpointed_torch import bdh_vb_subspace_decoder_forward_checkpointed
 from reference.hz0h_bdh_vb_subspace_decoder_mtp_torch import add_mtp_heads, bdh_vb_subspace_decoder_forward_mtp_checkpointed
+from reference.hz0h_bdh_vb_subspace_decoder_ngram_torch import add_ngram_memory, bdh_vb_subspace_decoder_forward_ngram_checkpointed
 from reference.hz0h_bdh_vb_subspace_decoder_torch import BDHVBSubspaceDecoder, BDHVBSubspaceDecoderConfig
 from reference.hz0h_muon_optimizer import HybridOptimizer, make_muon_hybrid_optimizer
 from scripts.hz0h_bdh_combined_best_comparison import autocast_context, curriculum_stages, make_optimizer
@@ -58,6 +59,8 @@ def train(config, args, device):
         svd_warmstart_decoder(model, args.init_checkpoint, config.subspace_rank, device)
     if args.mtp_order > 0:
         add_mtp_heads(model, list(range(2, args.mtp_order + 1)))
+    if args.ngram_order > 0:
+        add_ngram_memory(model, args.ngram_table_params, args.ngram_order)
     if args.optimizer == "muon_hybrid":
         optimizer = make_muon_hybrid_optimizer(model, muon_lr=args.muon_lr, adamw_lr=args.learning_rate)
     else:
@@ -91,6 +94,8 @@ def train(config, args, device):
                 if args.mtp_order > 0:
                     extra_targets = {k: data[:, k:].contiguous() for k in range(2, args.mtp_order + 1)}
                     _, loss = bdh_vb_subspace_decoder_forward_mtp_checkpointed(model, idx, depth, target, extra_targets)
+                elif args.ngram_order > 0:
+                    _, loss = bdh_vb_subspace_decoder_forward_ngram_checkpointed(model, idx, depth, target)
                 else:
                     _, loss = forward_fn(model, idx, depth, target)
             loss.backward()
@@ -118,7 +123,14 @@ def evaluate_loss(model, args, device):
         for _ in range(args.eval_batches):
             data = read_batch(handle, args.batch_size, args.sequence_length, device, epochs)
             idx, target = data[:, :-1].contiguous(), data[:, 1:].contiguous()
-            _, loss = bdh_vb_subspace_decoder_forward_checkpointed(model, idx, model.config.n_layer, target)
+            if args.ngram_order > 0:
+                # Real architectural component (not a train-only auxiliary
+                # loss like MTP) -- must be present at eval time too, or
+                # val_loss would measure a different forward path than the
+                # one actually being tested.
+                _, loss = bdh_vb_subspace_decoder_forward_ngram_checkpointed(model, idx, model.config.n_layer, target)
+            else:
+                _, loss = bdh_vb_subspace_decoder_forward_checkpointed(model, idx, model.config.n_layer, target)
             losses.append(float(loss))
     return sum(losses) / len(losses)
 
@@ -152,6 +164,16 @@ def main() -> None:
                               "1.0/0.5/0.25/0.125 weight schedule. Validation loss is still measured on "
                               "plain next-token prediction only (evaluate_loss never touches the aux heads), "
                               "so val_loss stays directly comparable across mtp_order arms.")
+    parser.add_argument("--ngram-order", type=int, choices=[0, 2, 3, 4], default=0,
+                         help="0 = disabled. N>=2 adds a real hashed n-gram embedding table "
+                              "(Qwen3.8-Flash-Next-inspired, Phase 3 of the integration plan): "
+                              "table[hash(x_{t-N+1:t})] injected additively into the input embedding "
+                              "before the recurrent round loop, gated by one learnable scalar starting "
+                              "near zero. Unlike --mtp-order, this IS present at eval/inference time "
+                              "(it's a real architectural component, not a train-only auxiliary loss).")
+    parser.add_argument("--ngram-table-params", type=int, default=25_000_000,
+                         help="Target real parameter count for the n-gram table (table_size = "
+                              "this // n_embd). Only used when --ngram-order > 0.")
     parser.add_argument("--dtype", choices=["float32", "bfloat16"], default="bfloat16")
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--n-embd", type=int, default=2496)
