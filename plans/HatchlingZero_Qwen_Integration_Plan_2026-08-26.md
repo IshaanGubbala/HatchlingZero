@@ -201,6 +201,20 @@ Promotion:
 - >=0.01 lower loss at matched budget,
 - with <15% training-throughput overhead.
 
+### Real result, 2026-08-27 — both arms killed, decisive and monotonic negative
+
+Ran both arms at the exact matched 25M-token config used for every other arm this phase (n_embd=2496, mult=16, n_layer=8, n_head=8, d_state=624, r=64, seed=7, same SVD-warmstart source), against the existing baseline (no MTP, same config). Implementation: `reference/hz0h_bdh_vb_subspace_decoder_mtp_torch.py` -- real, deliberately simplified MTP (separate small linear heads on the SAME final hidden state, not Qwen's own sequential-chain module), 1.0/0.5/0.25/0.125 weight schedule, offset-k targets reusing the tail of the same fixed-256-token packed window. Validation loss measured identically to every other arm (plain next-token only, aux heads never touched during eval), so directly comparable. Verified locally on CPU before dispatch: all three arms train, baseline path byte-identical to pre-change behavior.
+
+| | validation_loss | delta vs baseline | parameter_count | training_seconds |
+|---|---:|---:|---:|---:|
+| baseline (mtp_order=0) | **1.4326** | -- | 206,469,120 | 4837.7 |
+| MTP-2 | 1.4364 | +0.0038 worse | 207,108,096 | 4869.2 |
+| MTP-4 | 1.4562 | +0.0236 worse | 208,386,048 | 4877.9 |
+
+**Both arms lost, and the loss grows monotonically with more auxiliary offsets** -- MTP-4 is worse than MTP-2, which is worse than plain baseline. Neither arm comes close to the promotion bar (>=0.01 LOWER loss at matched budget); MTP-4's regression alone is larger than that entire threshold, just in the wrong direction. Per-step training loss (which includes the weighted aux terms, not directly comparable to the table above) stayed visibly noisier and less coherent than the AdamW-only baseline runs throughout, especially for MTP-4 (final training-loss print of 4.18, vs MTP-2's 3.05 and baseline's ~1.0-1.4 range at comparable late steps).
+
+**Honest read, no overclaiming**: this is a real, disclosed negative for the simplified auxiliary-head variant tested, on this architecture, at this token budget. Plausible reasons the auxiliary signal hurt rather than helped: (1) the single last-round hidden state may not carry enough information to predict 2-4 tokens ahead reliably, so the aux heads mostly inject noisy gradient rather than a useful shaping signal; (2) 25M tokens may simply be too small a budget for MTP's regularization benefit (documented in the wild at much larger scale/token counts) to net out positive before it starts competing with the primary objective for capacity; (3) the flat 1.0/0.5/0.25/0.125 weight schedule was used as-specified with no tuning -- a much smaller aux weight might behave differently, untested. Not chasing a weight sweep or a real sequential-chain MTP module now given the decisive, monotonic direction of this first result -- killing this track per the plan's own promotion rule and moving to Phase 3 (n-gram memory), which is architecturally unrelated and doesn't inherit this risk.
+
 ## 7. Phase 3 — N-gram / hashed lexical memory
 
 ### Goal
