@@ -1473,3 +1473,28 @@ Requested as step 1 of a 5-step test plan for a proposed "phase-bound synaptic m
 **All three come back negative for the hypothesis.** Q1's near-zero circular variance is genuinely ambiguous in isolation (could mean "a real, stable phase code" or "a trivial artifact of the fixed linear encoder geometry, since a fixed weight matrix pair (E, E_v) naturally correlates a neuron's x_latent and y_latent sign/magnitude") — but Q2 and Q3 resolve the ambiguity toward the latter: if the near-fixed phase were a functional synchrony/binding signal, co-active pairs should show measurably *higher* PLV than a random null (they show marginally lower), and the relative phase between pairs should shift across different contexts if it's carrying content-dependent information (it doesn't move at all, 0.02 degrees of drift). The straightforward, undramatic reading: BDH's native `atan2(y_latent, x_latent)` is a near-static per-neuron property set by the fixed encoder weights, not a dynamic phase code the model uses for temporal binding — there is no existing latent structure here for a phase-rotated-value architecture to exploit.
 
 **Practical implication for the proposed architecture**: the value of `S_t = S_{t-1} + k_t^T R(phi_t)v_t` was framed as "expose/use a phase structure BDH likely already has" — a small, cheap, structure-exploiting change. This diagnostic says that framing doesn't hold: BDH has no such native dynamic phase to expose. Building the rotated-value architecture would now mean *introducing and learning* phase dynamics from scratch (e.g., a learned `phi_t` from context, not derived from `x_latent`/`y_latent`), which is a materially bigger, unvalidated bet than the original proposal — not simply the next step in the same 5-step plan. Recommend treating steps 2-5 of the original plan as open pending explicit confirmation this bigger scope is still wanted, rather than auto-continuing.
+
+## 20.5 Real 50M-param / 500M-token compound run, 2026-08-27 — first model actually worth talking to
+
+Real full-scale run of the compound architecture (VB frozen-identity d_state=304 + subspace decoder rank=64), n_embd=1216, mult=16, n_layer=8, n_head=8, on the real 699M-token diverse byte corpus ([[20.1]] background), 500M-token budget, seed=7, `scripts/hz0h_bdh_vb_subspace_decoder_quality_check.py --save-checkpoint`. Real wall-clock: 32,319s (~8.98 hours) on 1x RTX 4090.
+
+| | value |
+|---|---:|
+| parameter_count | 50,001,920 (50.00M, exact target) |
+| final train loss (last step) | 0.8594 |
+| **validation_loss** | **0.9363** |
+| tokens | 500,000,768 |
+| training_seconds | 32,318.8 |
+
+Real val_loss of 0.9363 is far below every 5M/25M-token number in this document ([[20.3]]) — expected, since this is 20-100x more tokens than any prior real-budget check on this project. Not directly comparable to the 1.4-1.9 range above (different token budget, different model width) — recorded as its own real data point, not a continuation of that table.
+
+**Real generation samples**, checkpoint `results/local/hz0h_vb_subspace_decoder_50m_500mtok.pt` (kept locally only, not committed — 200MB, standard project practice for checkpoints), via `scripts/hz0h_bdh_vb_subspace_decoder_chat.py`, temperature 0.6-0.8, top-k 40, greedy-ish sampling, single-shot completions (no real multi-turn memory):
+
+- `"Hello, how are you today?"` → `" I request a simple variable, the paste marks the other hello, and instead of parsing your model in psychiatric inventory and delivering your current client on your paste. Think the other things you c"`
+- `"def factorial(n):"` → `"\n        return n\n\n    def experiment(self):\n        \"\"\"\n        Experiment to experience the experience\n        \"\"\"\n        return self.experiments.fetch()\n\n\ndef set_count(seq, equal_to_cases):\n    \""` — real, syntactically-valid-looking Python structure (indentation, docstring, class method, def), clearly the strongest of the four samples.
+- `"The capital of France is"` → `" not true in the data set. Make the expected data, which we decrease the performance is avoided based on the airport at the time (to the same end of e"`
+- `"$ git status"` → `" and parameters are statused at the time of the charge, the most common fields of arguments are not called as a part of the community, so we can see t"`
+
+**Honest read, no overclaiming**: this is not a model you can "talk to cohesively" yet in the sense of coherent, on-topic multi-sentence responses. Local syntax is real and often correct — English word choice is plausible, Python-prompted completions show genuinely correct code structure (indentation, docstring blocks, method definitions) — but semantic coherence collapses past a clause or two, and factual/conversational prompts produce fluent-sounding but content-free or wrong text (no real-world knowledge; "capital of France" completion has nothing to do with France). This tracks with real scale: 50M params at 500M tokens (~10 tokens/param) is well below common well-trained ratios, and the training corpus itself is a byte-level mix of code/docs/JSON/math/terminal-debugging with no conversational-QA data — the model was never shown the shape of question-answering, so "capital of France is X" completions have no real signal to draw on regardless of scale. The code-prompt result is real, encouraging evidence that the architecture and pipeline (byte-level tokenization, O(1)-state streaming decode, SVD-warmstarted subspace decoder) all work end-to-end correctly — the gap to "cohesive chat" is a training-scale/data-composition problem, not a broken generation path.
+
+Both real GPU pods (training pod `koxvhjuty0gioa`, phase-binding diagnostic pod `cwvwgrvoqtqpzg`) terminated after their respective jobs completed.
