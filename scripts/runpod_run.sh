@@ -26,7 +26,14 @@
 
 set -euo pipefail
 
-GPU_ID="NVIDIA A40"
+# User preference 2026-08-28: prefer RTX 5090 -- faster, and net cheaper
+# in practice despite the higher $/hr sticker price, since it finishes
+# real training runs in less wall-clock time. Real, observed Phase E
+# caveat: 5090 has the FASTEST raw compute but the WORST multi-GPU
+# tensor-parallel scaling of every card tested (communication-latency-
+# bound) -- this preference is for the common single-GPU dispatch case,
+# not necessarily multi-GPU jobs.
+GPU_ID="NVIDIA GeForce RTX 5090"
 IMAGE="runpod/pytorch:1.0.2-cu1281-torch280-ubuntu2404"
 DISK_GB=20
 TTL_MINUTES=180
