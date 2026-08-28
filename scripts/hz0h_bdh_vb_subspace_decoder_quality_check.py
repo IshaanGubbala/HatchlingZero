@@ -63,7 +63,7 @@ def train(config, args, device):
     if args.ngram_order > 0:
         add_ngram_memory(model, args.ngram_table_params, args.ngram_order)
     if args.gated_residual:
-        add_gated_residual_stream(model)
+        add_gated_residual_stream(model, single_stream=args.gated_residual_single_stream)
     if args.optimizer == "muon_hybrid":
         optimizer = make_muon_hybrid_optimizer(model, muon_lr=args.muon_lr, adamw_lr=args.learning_rate)
     else:
@@ -189,6 +189,11 @@ def main() -> None:
                               "exactly, unlike --optimizer muon_hybrid/--mtp-order/--ngram-order which all "
                               "perturb the model from step 0. Real architectural component, present at "
                               "both train and eval time.")
+    parser.add_argument("--gated-residual-single-stream", action="store_true",
+                         help="Isolating ablation for the real 2026-08-28 result (g2 ended at ~0.0002, "
+                              "unchanged from init, while g1 dropped 1.0->0.583): builds ONLY g1 gating "
+                              "the existing decoder stream, no decoder2/g2 at all. Only used when "
+                              "--gated-residual is also set.")
     parser.add_argument("--dtype", choices=["float32", "bfloat16"], default="bfloat16")
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--n-embd", type=int, default=2496)
@@ -224,8 +229,10 @@ def main() -> None:
     print(f"[vb_subspace] validation_loss={val_loss} params={params/1e6:.2f}M", flush=True)
     gate_values = None
     if args.gated_residual:
-        gate_values = {"g1": float(model.g1), "g2": float(model.g2)}
-        print(f"[gated_residual] final g1={gate_values['g1']:.4f} g2={gate_values['g2']:.4f}", flush=True)
+        gate_values = {"g1": float(model.g1)}
+        if not args.gated_residual_single_stream:
+            gate_values["g2"] = float(model.g2)
+        print(f"[gated_residual] final gate_values={gate_values}", flush=True)
 
     report = {
         "config": {k: (str(v) if isinstance(v, Path) else v) for k, v in vars(args).items()},

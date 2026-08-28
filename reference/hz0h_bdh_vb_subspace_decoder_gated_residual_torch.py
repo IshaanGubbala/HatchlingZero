@@ -29,16 +29,27 @@ import torch.utils.checkpoint
 from reference.hz0h_bdh_vb_subspace_decoder_torch import BDHVBSubspaceDecoder
 
 
-def add_gated_residual_stream(model: BDHVBSubspaceDecoder, rank: int | None = None, g2_init: float = 0.01) -> None:
+def add_gated_residual_stream(model: BDHVBSubspaceDecoder, rank: int | None = None, g2_init: float = 0.01,
+                               single_stream: bool = False) -> None:
+    """single_stream=True builds ONLY g1 (no decoder2/g2 at all) -- the
+    isolating ablation for the real 2026-08-28 two-stream result, whose
+    g2 ended at 0.0002 (~unchanged from init) while g1 dropped from 1.0
+    to 0.583. If that drop alone explains the win, this cheaper
+    single-parameter variant should reproduce it without the extra
+    decoder_up2/decoder_down2 parameters."""
     C = model.config
     device = next(model.parameters()).device
     dtype = next(model.parameters()).dtype
+    model.g1 = nn.Parameter(torch.tensor(1.0, device=device, dtype=torch.float32))
+    model._gated_residual_single_stream = single_stream
+    if single_stream:
+        print("[gated_residual] single-stream ablation: g1 only, no decoder2/g2", flush=True)
+        return
     r = rank if rank is not None else C.subspace_rank
     nh = C.n_head
     N = C.n_embd * C.mlp_internal_dim_multiplier // nh
     model.decoder_up2 = nn.Parameter(torch.zeros((nh * N, r), device=device, dtype=dtype).normal_(std=0.02))
     model.decoder_down2 = nn.Parameter(torch.zeros((r, C.n_embd), device=device, dtype=dtype).normal_(std=0.02))
-    model.g1 = nn.Parameter(torch.tensor(1.0, device=device, dtype=torch.float32))
     model.g2 = nn.Parameter(torch.tensor(g2_init, device=device, dtype=torch.float32))
     print(f"[gated_residual] rank={r} g1_init=1.0 g2_init={g2_init}", flush=True)
 
@@ -60,10 +71,12 @@ def _gated_residual_checkpoint_iteration(x: torch.Tensor, model: BDHVBSubspaceDe
     alpha1 = torch.matmul(xy_sparse, model.decoder_up.view(nh, N, -1)).sum(dim=1, keepdim=True)
     y1 = model.ln(alpha1 @ model.decoder_down)
 
-    alpha2 = torch.matmul(xy_sparse, model.decoder_up2.view(nh, N, -1)).sum(dim=1, keepdim=True)
-    y2 = model.ln(alpha2 @ model.decoder_down2)
-
-    y = model.g1 * y1 + model.g2 * y2
+    if model._gated_residual_single_stream:
+        y = model.g1 * y1
+    else:
+        alpha2 = torch.matmul(xy_sparse, model.decoder_up2.view(nh, N, -1)).sum(dim=1, keepdim=True)
+        y2 = model.ln(alpha2 @ model.decoder_down2)
+        y = model.g1 * y1 + model.g2 * y2
     x = model.ln(x + y)
     return x
 
