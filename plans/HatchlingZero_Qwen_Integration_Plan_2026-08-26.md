@@ -303,6 +303,21 @@ Promotion:
 - <10% training slowdown
 - persists at 25M+ tokens
 
+### Real result, 2026-08-28 — a real win, but the honest mechanism looks different than hypothesized
+
+Ran the conservative construction exactly per spec (`reference/hz0h_bdh_vb_subspace_decoder_gated_residual_torch.py`): `y = g1*LN(decoder(alpha1)) + g2*LN(decoder2(alpha2))`, `x = LN(x+y)`, stream 1 = the existing compound decoder with `g1` starting at exactly 1.0, stream 2 = a new, separate, randomly-initialized factored decoder (same rank) with `g2` starting at 0.01. At the matched 25M-token config used for every other arm this phase:
+
+| | validation_loss | delta vs baseline | g1 (init 1.0) | g2 (init 0.01) |
+|---|---:|---:|---:|---:|
+| baseline | 1.4326 | -- | -- | -- |
+| gated residual | **1.4190** | **-0.0136 (better)** | 0.5831 | 0.0002 |
+
+**This is a real win -- the first one in the whole Qwen-integration phase.** Muon, MTP, and n-gram memory all lost their first real test; this beats the promotion bar (real improvement, and training_seconds 5006.8 vs baseline's 4837.7 is a real but modest ~3.5% slowdown, comfortably under the plan's own <10% bar).
+
+**Honest mechanism check, not glossed over**: `g2` ended at 0.0002 -- essentially unchanged from its 0.01 init, meaning the "plastic" second stream contributed almost nothing to the final model (`g2 * y2` is ~50x smaller than its already-small init). Meanwhile `g1` moved substantially, from 1.0 down to 0.583. The straightforward reading: **this result is NOT evidence that a second, specialized decoder pathway helps** -- `decoder_up2`/`decoder_down2` were free to learn a useful transformation and the model chose not to use them. What actually happened looks much simpler: the model learned to *down-weight* the primary decoder's contribution to the residual stream by roughly 42%, i.e. a smaller effective step size on that update, and that alone accounts for the win. This is a real, useful finding, just a different and much cheaper one than "two specialized residual streams help" -- it suggests the existing compound architecture's decoder update was slightly too large/aggressive at this training budget, not that it needs new capacity.
+
+**Obvious, cheap, well-scoped follow-up, not yet run**: isolate the two effects with a single-stream ablation -- just `y = g1*LN(decoder(alpha))`, `g1` learnable starting at 1.0, no second stream/decoder2/g2 at all. If that alone reproduces most of the -0.0136 gap, the real lesson is "add a learnable residual-scale gate," a one-parameter change, not "add a second decoder pathway" (which is what's currently implemented and costs real extra parameters -- 209.18M vs baseline's 206.47M). This ablation should run before treating the two-stream construction as the thing to keep.
+
 ## 9. Phase 5 — occasional precise retrieval
 
 ### Real Tier-A diagnostic, 2026-08-28 — the hypothesis is real, not borrowed: recall collapses by ~128-256 tokens of distance
