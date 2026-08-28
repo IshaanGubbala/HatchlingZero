@@ -318,6 +318,22 @@ Ran the conservative construction exactly per spec (`reference/hz0h_bdh_vb_subsp
 
 **Obvious, cheap, well-scoped follow-up, not yet run**: isolate the two effects with a single-stream ablation -- just `y = g1*LN(decoder(alpha))`, `g1` learnable starting at 1.0, no second stream/decoder2/g2 at all. If that alone reproduces most of the -0.0136 gap, the real lesson is "add a learnable residual-scale gate," a one-parameter change, not "add a second decoder pathway" (which is what's currently implemented and costs real extra parameters -- 209.18M vs baseline's 206.47M). This ablation should run before treating the two-stream construction as the thing to keep.
 
+### Real ablation result, 2026-08-28 -- confirmed: it's the gate, not the second stream, and the single-gate version is even better
+
+Ran the isolating ablation (`--gated-residual --gated-residual-single-stream`, `reference/hz0h_bdh_vb_subspace_decoder_gated_residual_torch.py`'s `single_stream=True` path: only `g1` gating the existing decoder stream, no `decoder_up2`/`decoder_down2`/`g2` at all), same matched 25M-token config:
+
+| | validation_loss | parameter_count | g1 final |
+|---|---:|---:|---:|
+| baseline | 1.4326 | 206,469,120 | -- |
+| two-stream gated residual | 1.4190 | 209,184,770 | 0.5831 |
+| **single-stream (g1 only)** | **1.4114** | **206,469,121** | **0.5858** |
+
+**Clean confirmation.** `g1` landed at 0.5858, essentially identical to the two-stream run's 0.5831 -- both runs independently found the same effective residual scale. And the single-gate version isn't just "almost as good without the extra params," it's **better** (1.4114 < 1.4190), with the exact same parameter count as baseline (one extra scalar is negligible). The real, honest lesson: this architecture's decoder update was too large/aggressive at this training budget, and a single learnable residual-scale gate fixes it -- the "plastic second stream" framing (and the neuroscience-adjacent stable/plastic language it borrowed) doesn't hold up; there's no evidence of two functionally distinct pathways here, just one dial that needed turning down.
+
+(Real caveat on wall-clock, not on quality: this ablation ran on a real RTX 5090 (`training_seconds=3775.9`) while baseline and the two-stream run both used RTX 4090 (`4837.7`/`5006.8`) -- the ~5090-vs-4090 hardware difference is a real confound in the timing numbers, not in the validation_loss comparison, which is hardware-independent.)
+
+**Recommendation: adopt the single-gate version, not the two-stream one**, as this phase's real Phase-4 result. Closing the two-stream / decoder2 track -- it added real parameters and complexity for a worse result than the version without it. This is a genuinely useful, cheap, one-parameter architectural change: `g1` learnable, initialized at 1.0, gating the existing decoder's contribution to the residual stream.
+
 ## 9. Phase 5 — occasional precise retrieval
 
 ### Real Tier-A diagnostic, 2026-08-28 — the hypothesis is real, not borrowed: recall collapses by ~128-256 tokens of distance
