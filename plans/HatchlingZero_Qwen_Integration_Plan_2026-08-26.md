@@ -260,6 +260,20 @@ Promotion:
 - <5% active-compute increase
 - no >5% decode regression
 
+### Real result, 2026-08-27/28 — both table sizes lose, and table size barely matters
+
+Ran order=3 at the plan's two listed table sizes (+25M, +100M real params), matched 25M-token config (n_embd=2496, mult=16, n_layer=8, n_head=8, d_state=624, r=64, seed=7, same SVD-warmstart source), against the existing baseline. Implementation: `reference/hz0h_bdh_vb_subspace_decoder_ngram_torch.py` -- real vectorized polynomial rolling hash over the last 3 bytes, single GPU-resident hashed embedding table, injected additively into the input embedding before the recurrent round loop, gated by one learnable scalar starting near zero (0.01). Unlike MTP, this is a real architectural component present at both train and eval time (`evaluate_loss` branches on it too). Verified locally on CPU before dispatch: near-identical loss trajectory to baseline as expected from the near-zero gate init.
+
+| | validation_loss | delta vs baseline | parameter_count |
+|---|---:|---:|---:|
+| baseline (no n-gram) | **1.4326** | -- | 206,469,120 |
+| order=3, +25M table | 1.4401 | +0.0075 worse | 231,468,801 |
+| order=3, +100M table | 1.4402 | +0.0076 worse | 306,468,865 |
+
+**Both lose, and a real 4x increase in table capacity (25M -> 100M params) changed the result by 0.0001** -- essentially nothing. That pattern is itself the useful finding: this isn't a capacity-starved mechanism that needs a bigger table, the injection just isn't helping at all at this scale, full stop. Three plausible, undistinguished-by-this-test explanations: (1) 25M tokens may be too few unique 3-grams for the hashed lookups to receive enough repeated signal to become useful (a real byte-level 3-gram space is up to 16.7M distinct entries, and the table hash-collides many of those into far fewer real slots -- collision noise could dominate at this data volume); (2) the injection point (once, at input, before ANY recurrent round) may be architecturally the wrong place for a model whose own [[20.1]] finding says addressing benefits from width/specialization -- adding lexical noise right before the addressing computation could be actively unhelpful rather than neutral; (3) the gate `alpha` may simply have learned to stay near zero (not verified -- alpha's final value was not logged this run, a real gap in the experiment, worth checking before any follow-up).
+
+**Third real negative in a row for this Qwen-integration phase** (Muon, MTP, n-gram memory all lost their first real test at 25M-token budget, see sections 5 and 6 above). Killing this arm too per the plan's own promotion rule (no quality win at all, let alone the required margin). Not building the CPU-resident/async-prefetch machinery or the "mixed 2/3/4 order" variant given the core single-order mechanism already lost decisively -- that infrastructure is only worth building on top of a mechanism that shows a real win first, which this didn't.
+
 ## 8. Phase 4 — two-stream gated residual
 
 Do not jump directly to four streams.
