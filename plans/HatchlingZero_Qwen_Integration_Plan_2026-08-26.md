@@ -485,6 +485,19 @@ Promotion:
 - >=0.02 lower loss at matched active FLOPs, or
 - match a much larger dense model with <=50% active compute.
 
+### Real result, 2026-08-28 -- below the promotion bar, and the gate pattern echoes the Phase-4 finding
+
+Ran the real 8-expert/top-2 arm (`reference/hz0h_bdh_vb_subspace_decoder_moe_torch.py`, shared expert = existing warmstart-compatible decoder, routed experts gated by `g_moe` starting at 0.01) at the matched 25M-token config. Real GPU-only bug found and fixed en route: under bf16 autocast, `F.softmax` upcasts to float32 internally, so the top-k `scatter()` call raised a dtype-mismatch error that a CPU-only smoke test never exercised (fixed via `.to(router_logits.dtype)`, then re-verified with a CPU test that explicitly forces real bf16 autocast before redispatching).
+
+| | validation_loss | delta vs baseline | parameter_count | g_moe final |
+|---|---:|---:|---:|---:|
+| baseline | 1.4326 | -- | 206,469,120 | -- |
+| MoE (8 experts, top-2) | 1.4263 | -0.0063 (better) | 207,747,585 | -0.0127 |
+
+**A real but small improvement that does NOT clear the plan's own promotion bar** (`>=0.02 lower loss`) -- 0.0063 is under a third of that threshold. More importantly, the gate pattern echoes [[Phase 4]] exactly: `g_moe` ended at -0.0127, near its 0.01 init and near zero either way -- the routed experts' net contribution to the residual is close to nothing, the same signature the two-stream gated-residual's `g2` showed (0.0002, also collapsed near its init) right before that ablation revealed the "plastic" pathway wasn't doing the real work. The honest reading here: this result is NOT clear evidence that expert ROUTING is earning its keep -- a small win with a near-zero effective gate is consistent with noise, a minor regularization effect from the extra (mostly unused) capacity, or the load-balancing aux loss shaping training slightly, rather than genuine per-token specialization across 8 experts.
+
+**Not promoting.** Below the stated bar, and unlike Phase 4 there's no cheap single-parameter ablation that would obviously improve on it (removing the routed experts entirely just reduces to baseline, which is worse than the already-adopted gated-residual result at 1.4114). Real, disclosed limitation: only one arm tested (8 experts, top-2, single seed) -- no sweep to 16/32 experts or different top-k, since the first result didn't clear the bar that would justify the extra GPU spend. Given the plan's own stack-combination step (section 12) would want to combine the winning tracks, the current standing is: adopt the Phase-4 single-gate result, do not adopt MoE.
+
 ## 12. Phase 8 — combined HZ-Q candidate
 
 Plausible target:
