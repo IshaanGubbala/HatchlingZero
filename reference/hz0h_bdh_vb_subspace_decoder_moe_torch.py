@@ -81,7 +81,12 @@ def _moe_checkpoint_iteration(x: torch.Tensor, model: BDHVBSubspaceDecoder, B: i
     E, k = model._moe_n_experts, model._moe_top_k
     topk_vals, topk_idx = router_logits.topk(k, dim=-1)  # (B,1,T,k)
     topk_weights = F.softmax(topk_vals, dim=-1)
-    dense_weights = torch.zeros_like(router_logits).scatter(-1, topk_idx, topk_weights)  # (B,1,T,E), mostly zero
+    # Real bug, found 2026-08-28 on GPU only: under bf16 autocast, softmax
+    # upcasts to float32 for numerical stability (standard autocast policy)
+    # while router_logits stays bf16 -- scatter() requires matching dtypes.
+    # CPU smoke tests never caught this since autocast_context() only
+    # actually engages autocast on CUDA in this codebase.
+    dense_weights = torch.zeros_like(router_logits).scatter(-1, topk_idx, topk_weights.to(router_logits.dtype))
     y_routed = torch.einsum("bhte,erd->bhtd", dense_weights, model.decoder_down_experts)
     y_routed = model.ln(y_routed)
 
