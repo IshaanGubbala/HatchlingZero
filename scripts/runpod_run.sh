@@ -252,7 +252,20 @@ log "running: ${COMMAND[*]}"
 # one dropped poll just retries, it can't kill a job it was never attached
 # to.
 REMOTE_MARKER=".runpod_run_$(date +%s)_$$"
-ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "cd '$REMOTE_DIR' && nohup bash -c '${COMMAND[*]}; echo \$? > $REMOTE_MARKER.exit' > $REMOTE_MARKER.log 2>&1 < /dev/null & disown; sleep 1; true"
+# Real bug, found 2026-08-27/28: ${COMMAND[*]} space-joins the array and
+# loses any quoting a caller embedded in a single element (e.g. passing
+# `bash -c 'cmd1 && cmd2'` as one COMMAND element) -- the remote shell then
+# re-tokenizes that flattened string from scratch, so `bash -c cmd1 && cmd2`
+# gets parsed as bash -c consuming only the single word right after -c as
+# its command-string, with everything else becoming inert positional
+# params. Concretely: the FIRST of two &&-chained commands silently
+# no-ops (bash -c <word> with stdin=/dev/null exits ~instantly), and only
+# the SECOND command actually runs -- discovered when a real two-arm n-gram
+# dispatch only produced results for its second arm. printf %q re-quotes
+# each array element so the remote bash -c reconstructs the exact same
+# argument boundaries the caller passed in.
+REMOTE_CMD="$(printf '%q ' "${COMMAND[@]}")"
+ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "cd '$REMOTE_DIR' && nohup bash -c '$REMOTE_CMD; echo \$? > $REMOTE_MARKER.exit' > $REMOTE_MARKER.log 2>&1 < /dev/null & disown; sleep 1; true"
 log "launched (marker $REMOTE_MARKER), polling for completion every 15s -- tolerant of transient SSH drops"
 CMD_EXIT=""
 while [[ -z "$CMD_EXIT" ]]; do
