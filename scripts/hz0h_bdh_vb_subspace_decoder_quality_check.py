@@ -29,6 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from reference.hz0h_bdh_vb_subspace_decoder_checkpointed_torch import bdh_vb_subspace_decoder_forward_checkpointed
 from reference.hz0h_bdh_vb_subspace_decoder_gated_residual_torch import add_gated_residual_stream, bdh_vb_subspace_decoder_forward_gated_residual_checkpointed
+from reference.hz0h_bdh_vb_subspace_decoder_moe_torch import add_moe_decoder, bdh_vb_subspace_decoder_forward_moe_checkpointed
 from reference.hz0h_bdh_vb_subspace_decoder_mtp_torch import add_mtp_heads, bdh_vb_subspace_decoder_forward_mtp_checkpointed
 from reference.hz0h_bdh_vb_subspace_decoder_ngram_torch import add_ngram_memory, bdh_vb_subspace_decoder_forward_ngram_checkpointed
 from reference.hz0h_bdh_vb_subspace_decoder_torch import BDHVBSubspaceDecoder, BDHVBSubspaceDecoderConfig
@@ -64,6 +65,8 @@ def train(config, args, device):
         add_ngram_memory(model, args.ngram_table_params, args.ngram_order)
     if args.gated_residual:
         add_gated_residual_stream(model, single_stream=args.gated_residual_single_stream)
+    if args.moe_experts > 0:
+        add_moe_decoder(model, n_experts=args.moe_experts, top_k=args.moe_top_k)
     if args.optimizer == "muon_hybrid":
         optimizer = make_muon_hybrid_optimizer(model, muon_lr=args.muon_lr, adamw_lr=args.learning_rate)
     else:
@@ -101,6 +104,8 @@ def train(config, args, device):
                     _, loss = bdh_vb_subspace_decoder_forward_ngram_checkpointed(model, idx, depth, target)
                 elif args.gated_residual:
                     _, loss = bdh_vb_subspace_decoder_forward_gated_residual_checkpointed(model, idx, depth, target)
+                elif args.moe_experts > 0:
+                    _, loss = bdh_vb_subspace_decoder_forward_moe_checkpointed(model, idx, depth, target)
                 else:
                     _, loss = forward_fn(model, idx, depth, target)
             loss.backward()
@@ -136,6 +141,11 @@ def evaluate_loss(model, args, device):
                 _, loss = bdh_vb_subspace_decoder_forward_ngram_checkpointed(model, idx, model.config.n_layer, target)
             elif args.gated_residual:
                 _, loss = bdh_vb_subspace_decoder_forward_gated_residual_checkpointed(model, idx, model.config.n_layer, target)
+            elif args.moe_experts > 0:
+                # aux_loss_coef=0.0: val_loss should be the plain next-token
+                # loss only, comparable across every arm -- the load-balancing
+                # term is a training-only regularizer, not part of the metric.
+                _, loss = bdh_vb_subspace_decoder_forward_moe_checkpointed(model, idx, model.config.n_layer, target, aux_loss_coef=0.0)
             else:
                 _, loss = bdh_vb_subspace_decoder_forward_checkpointed(model, idx, model.config.n_layer, target)
             losses.append(float(loss))
@@ -194,6 +204,17 @@ def main() -> None:
                               "unchanged from init, while g1 dropped 1.0->0.583): builds ONLY g1 gating "
                               "the existing decoder stream, no decoder2/g2 at all. Only used when "
                               "--gated-residual is also set.")
+    parser.add_argument("--moe-experts", type=int, default=0,
+                         help="Phase 7 of the integration plan: 0 = disabled. N>=1 adds N routed "
+                              "output experts (real value/output MoE, NOT addressing -- encoder/Q/K "
+                              "stay dense per this project's own addressing-resists-compression finding). "
+                              "Shared expert IS the existing decoder_up/decoder_down (unchanged, "
+                              "warmstart-compatible); routed experts are new decoder_down_experts, gated "
+                              "by a single scalar g_moe starting near zero (same conservative-init lesson "
+                              "as --gated-residual). Real architectural component, present at both train "
+                              "and eval time (eval uses aux_loss_coef=0.0 so val_loss stays comparable).")
+    parser.add_argument("--moe-top-k", type=int, default=2,
+                         help="Experts activated per token when --moe-experts > 0.")
     parser.add_argument("--dtype", choices=["float32", "bfloat16"], default="bfloat16")
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--n-embd", type=int, default=2496)
@@ -233,6 +254,9 @@ def main() -> None:
         if not args.gated_residual_single_stream:
             gate_values["g2"] = float(model.g2)
         print(f"[gated_residual] final gate_values={gate_values}", flush=True)
+    if args.moe_experts > 0:
+        gate_values = {"g_moe": float(model.g_moe)}
+        print(f"[moe] final gate_values={gate_values}", flush=True)
 
     report = {
         "config": {k: (str(v) if isinstance(v, Path) else v) for k, v in vars(args).items()},
