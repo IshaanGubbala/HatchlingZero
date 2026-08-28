@@ -357,6 +357,27 @@ Before building anything, tested whether the thing retrieval is supposed to fix 
 
 **Why this justifies building the architecture, unlike the three killed tracks**: this isn't borrowed motivation from Qwen's blog post -- it's a real, measured property of THIS model, with a concrete number (recall is gone by ~128-256 tokens) to design the retrieval refresh interval around. Directly informs the "retrieval every 8/4/2 macro steps" sweep below: whatever a "macro step" ends up meaning in tokens, it should be well under this ~128-256 token collapse point for retrieval to plausibly recover anything the compressed state has already lost.
 
+### CORRECTION, 2026-08-28, same day -- the above attributed the collapse to the wrong mechanism; kept here uncorrected-in-place per this project's standing practice of not silently editing away a superseded finding
+
+Before building the retrieval architecture, re-ran the exact same diagnostic with `--chunk-length 8192` -- larger than every tested distance, so EVERY lookup in this rerun used real, exact, uncompressed intra-chunk attention (`(QR @ KR.mT).tril(diagonal=-1) @ v_bottleneck` in `hz0h_bdh_vb_subspace_decoder_stream_torch.py`), with the compressed cross-chunk `prefix_state` term never engaged at all for any distance tested (all <=512, the intra-chunk window was 8192).
+
+| distance | byte_accuracy (chunk_length=512, original) | byte_accuracy (chunk_length=8192, exact attention only) |
+|---:|---:|---:|
+| 0 | 0.244 | 0.244 |
+| 8 | 0.278 | 0.211 |
+| 16 | 0.156 | 0.217 |
+| 32 | 0.133 | 0.139 |
+| 64 | 0.083 | 0.072 |
+| 128 | 0.022 | 0.000 |
+| 256 | 0.000 | 0.006 |
+| 512 | 0.017 | 0.000 |
+
+**The collapse curve is essentially identical whether or not state compression is even possible.** This overturns the framing above: the recall failure is NOT primarily the compressed streaming state losing fidelity over distance -- it's that the model, given REAL exact attention access the entire time, still cannot use it to recall a value from ~128 tokens back. This is a learned-capability gap (weak/undertrained induction-head-style behavior at 50M params / 500M tokens, no explicit copying-task data), not an architectural access gap.
+
+**Practical consequence: this materially weakens the case for building "occasional dense retrieval" as originally scoped.** Retrieval's entire value proposition is "give the model exact access it currently lacks" -- but this diagnostic shows the model already HAS exact access (within any window up to at least 512 tokens, since training itself uses full non-streaming self-attention over the whole sequence) and doesn't use it. Adding another attention mechanism doesn't obviously fix a capability the model failed to develop with the attention mechanism it already has. This also weakens the premise for Phase 6 (QSA-like sparse retrieval), which was explicitly gated on Phase 5 succeeding for the same underlying reason.
+
+**Not resolved by this diagnostic, real open question**: whether the gap is (a) pure undertraining (this model is 50M params/500M tokens, ~10 tokens/param, thin by any standard) and would close with more scale/tokens/an explicit copying objective, or (b) something more structural about how BDH's sparse ReLU-gated addressing learns to use attention for exact copying specifically (as opposed to the soft, statistical token-prediction task it was actually trained on). Distinguishing these needs either a real training-scale sweep with this same recall diagnostic as the eval metric, or a small controlled experiment training on data that includes explicit copying tasks -- neither attempted here. Flagging to the user rather than proceeding to build the retrieval architecture, since the evidence now argues against it being the right next spend.
+
 ### Hypothesis
 
 Compressed BDH state should not have to preserve every exact historical detail.
