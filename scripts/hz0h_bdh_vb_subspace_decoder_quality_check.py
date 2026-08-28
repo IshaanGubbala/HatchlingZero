@@ -28,6 +28,7 @@ import torch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from reference.hz0h_bdh_vb_subspace_decoder_checkpointed_torch import bdh_vb_subspace_decoder_forward_checkpointed
+from reference.hz0h_bdh_vb_subspace_decoder_gated_residual_torch import add_gated_residual_stream, bdh_vb_subspace_decoder_forward_gated_residual_checkpointed
 from reference.hz0h_bdh_vb_subspace_decoder_mtp_torch import add_mtp_heads, bdh_vb_subspace_decoder_forward_mtp_checkpointed
 from reference.hz0h_bdh_vb_subspace_decoder_ngram_torch import add_ngram_memory, bdh_vb_subspace_decoder_forward_ngram_checkpointed
 from reference.hz0h_bdh_vb_subspace_decoder_torch import BDHVBSubspaceDecoder, BDHVBSubspaceDecoderConfig
@@ -61,6 +62,8 @@ def train(config, args, device):
         add_mtp_heads(model, list(range(2, args.mtp_order + 1)))
     if args.ngram_order > 0:
         add_ngram_memory(model, args.ngram_table_params, args.ngram_order)
+    if args.gated_residual:
+        add_gated_residual_stream(model)
     if args.optimizer == "muon_hybrid":
         optimizer = make_muon_hybrid_optimizer(model, muon_lr=args.muon_lr, adamw_lr=args.learning_rate)
     else:
@@ -96,6 +99,8 @@ def train(config, args, device):
                     _, loss = bdh_vb_subspace_decoder_forward_mtp_checkpointed(model, idx, depth, target, extra_targets)
                 elif args.ngram_order > 0:
                     _, loss = bdh_vb_subspace_decoder_forward_ngram_checkpointed(model, idx, depth, target)
+                elif args.gated_residual:
+                    _, loss = bdh_vb_subspace_decoder_forward_gated_residual_checkpointed(model, idx, depth, target)
                 else:
                     _, loss = forward_fn(model, idx, depth, target)
             loss.backward()
@@ -129,6 +134,8 @@ def evaluate_loss(model, args, device):
                 # val_loss would measure a different forward path than the
                 # one actually being tested.
                 _, loss = bdh_vb_subspace_decoder_forward_ngram_checkpointed(model, idx, model.config.n_layer, target)
+            elif args.gated_residual:
+                _, loss = bdh_vb_subspace_decoder_forward_gated_residual_checkpointed(model, idx, model.config.n_layer, target)
             else:
                 _, loss = bdh_vb_subspace_decoder_forward_checkpointed(model, idx, model.config.n_layer, target)
             losses.append(float(loss))
@@ -174,6 +181,14 @@ def main() -> None:
     parser.add_argument("--ngram-table-params", type=int, default=25_000_000,
                          help="Target real parameter count for the n-gram table (table_size = "
                               "this // n_embd). Only used when --ngram-order > 0.")
+    parser.add_argument("--gated-residual", action="store_true",
+                         help="Phase 4 of the integration plan: adds a second, small, randomly-initialized "
+                              "factored-decoder stream gated by a learnable scalar g2 (starts at 0.01), "
+                              "alongside the existing decoder stream now gated by g1 (starts at exactly "
+                              "1.0) -- at initialization this reproduces the plain compound model almost "
+                              "exactly, unlike --optimizer muon_hybrid/--mtp-order/--ngram-order which all "
+                              "perturb the model from step 0. Real architectural component, present at "
+                              "both train and eval time.")
     parser.add_argument("--dtype", choices=["float32", "bfloat16"], default="bfloat16")
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--n-embd", type=int, default=2496)
@@ -207,12 +222,16 @@ def main() -> None:
     val_loss = evaluate_loss(model, args, device)
     params = sum(p.numel() for p in model.parameters())
     print(f"[vb_subspace] validation_loss={val_loss} params={params/1e6:.2f}M", flush=True)
+    gate_values = None
+    if args.gated_residual:
+        gate_values = {"g1": float(model.g1), "g2": float(model.g2)}
+        print(f"[gated_residual] final g1={gate_values['g1']:.4f} g2={gate_values['g2']:.4f}", flush=True)
 
     report = {
         "config": {k: (str(v) if isinstance(v, Path) else v) for k, v in vars(args).items()},
         "d_state": config.d_state,
         "subspace_rank": config.subspace_rank,
-        "results": {"vb_subspace_decoder": {"validation_loss": val_loss, "parameter_count": params, "training_seconds": elapsed}},
+        "results": {"vb_subspace_decoder": {"validation_loss": val_loss, "parameter_count": params, "training_seconds": elapsed, "gate_values": gate_values}},
     }
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(report, indent=2), encoding="utf-8")
