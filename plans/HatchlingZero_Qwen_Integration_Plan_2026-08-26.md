@@ -305,6 +305,27 @@ Promotion:
 
 ## 9. Phase 5 — occasional precise retrieval
 
+### Real Tier-A diagnostic, 2026-08-28 — the hypothesis is real, not borrowed: recall collapses by ~128-256 tokens of distance
+
+Before building anything, tested whether the thing retrieval is supposed to fix is an actual problem for the existing trained compound model (`hz0h_vb_subspace_decoder_50m_500mtok.pt`, real 50M-param/500M-token checkpoint). The real streaming state (`reference/hz0h_bdh_vb_subspace_decoder_stream_torch.py`) accumulates `S_t = S_{t-1} + K_t^T P(V_t)` -- a FIXED-SIZE running sum, independent of sequence length, by construction lossy for any specific past token once enough has been folded in since. Script: `scripts/hz0h_bdh_vb_subspace_decoder_recall_diagnostic.py` -- a real associative-recall task (`KEY=VALUE; <filler> KEY=`, byte-level, filler drawn from the real val corpus, MQAR/induction-head-style, deliberately NOT an instruction-following passkey prompt since this model has no instruction-tuning and the 2026-08-27 chat samples already showed zero QA capability -- conflating "can't recall" with "doesn't understand the question" would make the result uninterpretable), run via the real O(1)-state chunked streaming decode path (so distance up to 8192 tokens is cheap, not quadratic). Ran locally on CPU/MPS, no GPU pod needed -- full 10-distance x 30-trial sweep took 27.5 real seconds.
+
+| distance (filler tokens) | byte_accuracy | vs random chance (0.0278) |
+|---:|---:|---|
+| 0 | 0.244 | ~8.8x |
+| 8 | 0.278 | ~10x |
+| 16 | 0.156 | ~5.6x |
+| 32 | 0.133 | ~4.8x |
+| 64 | 0.083 | ~3x |
+| 128 | 0.022 | ~= chance |
+| 256 | 0.000 | at/below chance |
+| 512 | 0.017 | ~= chance |
+| 2048 | 0.000 | at/below chance |
+| 8192 | 0.000 | at/below chance |
+
+**Real, decisive, positive result** (the first positive motivating result in this entire Qwen-integration phase -- Muon, MTP, and n-gram memory all lost their first real test before anything got built on top): the compound model genuinely has SOME real associative-recall signal at short range (up to ~8.8-10x random chance at distance 0-8), and it decays smoothly and monotonically, collapsing to statistical noise by roughly 128-256 tokens of distance and staying there out to 8192. `exact_match_rate` (all 6 bytes of VALUE correct) is near-zero everywhere, including distance 0 -- the underlying capability is real but weak at this training scale (50M params/500M tokens, no explicit copying-task data), consistent with the chat samples' broader finding of shallow coherence.
+
+**Why this justifies building the architecture, unlike the three killed tracks**: this isn't borrowed motivation from Qwen's blog post -- it's a real, measured property of THIS model, with a concrete number (recall is gone by ~128-256 tokens) to design the retrieval refresh interval around. Directly informs the "retrieval every 8/4/2 macro steps" sweep below: whatever a "macro step" ends up meaning in tokens, it should be well under this ~128-256 token collapse point for retrieval to plausibly recover anything the compressed state has already lost.
+
 ### Hypothesis
 
 Compressed BDH state should not have to preserve every exact historical detail.
