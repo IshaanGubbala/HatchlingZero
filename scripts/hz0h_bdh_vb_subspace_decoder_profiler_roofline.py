@@ -47,6 +47,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from reference.hz0h_bdh_vb_subspace_decoder_checkpointed_torch import bdh_vb_subspace_decoder_forward_checkpointed
 from reference.hz0h_bdh_vb_subspace_decoder_torch import BDHVBSubspaceDecoder, BDHVBSubspaceDecoderConfig
+from scripts.hz0h_bdh_combined_best_comparison import autocast_context
 from scripts.hz0h_bdh_vb_subspace_decoder_byte_ledger import build_ledger, GPU_SPECS
 
 ELEMENTWISE_MARKERS = ["relu", "add", "mul", "layer_norm", "copy", "clamp", "fill", "native_layer_norm"]
@@ -62,24 +63,27 @@ def classify(name: str) -> str:
     return "other"
 
 
-def run_profiled_step(model, idx, target, n_layer: int, device, compiled_fn, n_warmup: int, n_measure: int):
+def run_profiled_step(model, idx, target, n_layer: int, device, compiled_fn, n_warmup: int, n_measure: int, args):
     torch.cuda.synchronize()
     for _ in range(n_warmup):
-        _, loss = compiled_fn(model, idx, n_layer, target)
+        with autocast_context(args, device):
+            _, loss = compiled_fn(model, idx, n_layer, target)
         loss.backward()
         model.zero_grad(set_to_none=True)
     torch.cuda.synchronize()
 
     started = time.perf_counter()
     for _ in range(n_measure):
-        _, loss = compiled_fn(model, idx, n_layer, target)
+        with autocast_context(args, device):
+            _, loss = compiled_fn(model, idx, n_layer, target)
         loss.backward()
         model.zero_grad(set_to_none=True)
     torch.cuda.synchronize()
     wall_time = (time.perf_counter() - started) / n_measure
 
     with torch.profiler.profile(activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA]) as prof:
-        _, loss = compiled_fn(model, idx, n_layer, target)
+        with autocast_context(args, device):
+            _, loss = compiled_fn(model, idx, n_layer, target)
         loss.backward()
         model.zero_grad(set_to_none=True)
         torch.cuda.synchronize()
@@ -120,6 +124,7 @@ def main() -> None:
     parser.add_argument("--n-warmup", type=int, default=5)
     parser.add_argument("--n-measure", type=int, default=10)
     parser.add_argument("--test-compile", action="store_true")
+    parser.add_argument("--dtype", choices=["float32", "bfloat16"], default="bfloat16")
     args = parser.parse_args()
 
     assert torch.cuda.is_available(), "this diagnostic needs a real CUDA GPU"
@@ -134,7 +139,12 @@ def main() -> None:
     results = {}
     for B in args.batch_sizes:
         torch.manual_seed(7)
-        model = BDHVBSubspaceDecoder(config).to(device=device, dtype=torch.bfloat16)
+        # Real, deliberate: float32 master weights + torch.autocast for compute,
+        # NOT a hard .to(dtype=bfloat16) cast -- BDH's Attention module asserts
+        # its RoPE freqs buffer stays fp32 (see scripts/hz0h_bdh_combined_best_comparison.py's
+        # autocast_context docstring; hit this exact assertion on the first real
+        # GPU run of this script before fixing it).
+        model = BDHVBSubspaceDecoder(config).to(device=device, dtype=torch.float32)
         idx = torch.randint(0, 256, (B, args.sequence_length), device=device)
         target = torch.randint(0, 256, (B, args.sequence_length), device=device)
 
@@ -149,7 +159,7 @@ def main() -> None:
 
         print(f"\n=== B={B} eager ===", flush=True)
         r = run_profiled_step(model, idx, target, args.n_layer, device, bdh_vb_subspace_decoder_forward_checkpointed,
-                               args.n_warmup, args.n_measure)
+                               args.n_warmup, args.n_measure, args)
         achieved_tflops = step_flops / r["wall_time_s"] / 1e12
         gemm_us = r["kernel_stats"]["gemm"]["cuda_time_us"]
         ew_us = r["kernel_stats"]["elementwise"]["cuda_time_us"]
@@ -165,7 +175,7 @@ def main() -> None:
         if args.test_compile:
             print(f"=== B={B} torch.compile ===", flush=True)
             compiled_fn = torch.compile(bdh_vb_subspace_decoder_forward_checkpointed, mode="max-autotune")
-            r2 = run_profiled_step(model, idx, target, args.n_layer, device, compiled_fn, args.n_warmup, args.n_measure)
+            r2 = run_profiled_step(model, idx, target, args.n_layer, device, compiled_fn, args.n_warmup, args.n_measure, args)
             achieved_tflops2 = step_flops / r2["wall_time_s"] / 1e12
             print(f"  wall_time={r2['wall_time_s']*1000:.2f}ms achieved={achieved_tflops2:.1f} TFLOPS "
                   f"elementwise_kernel_count={r2['kernel_stats']['elementwise']['count']} (eager was {r['kernel_stats']['elementwise']['count']})", flush=True)
