@@ -1,0 +1,180 @@
+{
+  "config": {
+    "init_checkpoint": "results/local/hz0h_bdh_checkpoint_for_ablation.pt",
+    "out": "results/local/hz0h_bdh_variable_depth_answer_matrix.json",
+    "save_checkpoint": "results/local/hz0h_bdh_variable_depth_answer_checkpoint.pt",
+    "device": "auto",
+    "n_examples": 20000,
+    "eval_n": 100,
+    "learning_rate": 0.001,
+    "grad_clip": 1.0,
+    "log_every": 200,
+    "dtype": "bfloat16",
+    "seed": 7,
+    "n_embd": 2496,
+    "mult": 16,
+    "n_layer": 8,
+    "n_head": 8,
+    "d_state": 624,
+    "subspace_rank": 64
+  },
+  "training_seconds": 698.1585539486259,
+  "matrix": {
+    "1": {
+      "1": {
+        "accuracy": 0.36,
+        "shortcut_rate": 0.37
+      },
+      "2": {
+        "accuracy": 0.42,
+        "shortcut_rate": 0.34
+      },
+      "4": {
+        "accuracy": 0.35,
+        "shortcut_rate": 0.38
+      },
+      "8": {
+        "accuracy": 0.21,
+        "shortcut_rate": 0.22
+      },
+      "12": {
+        "accuracy": 0.13,
+        "shortcut_rate": 0.1
+      },
+      "16": {
+        "accuracy": 0.07,
+        "shortcut_rate": 0.07
+      }
+    },
+    "2": {
+      "1": {
+        "accuracy": 0.3,
+        "shortcut_rate": 0.45
+      },
+      "2": {
+        "accuracy": 0.35,
+        "shortcut_rate": 0.43
+      },
+      "4": {
+        "accuracy": 0.34,
+        "shortcut_rate": 0.36
+      },
+      "8": {
+        "accuracy": 0.28,
+        "shortcut_rate": 0.24
+      },
+      "12": {
+        "accuracy": 0.18,
+        "shortcut_rate": 0.09
+      },
+      "16": {
+        "accuracy": 0.05,
+        "shortcut_rate": 0.11
+      }
+    },
+    "3": {
+      "1": {
+        "accuracy": 0.37,
+        "shortcut_rate": 0.43
+      },
+      "2": {
+        "accuracy": 0.39,
+        "shortcut_rate": 0.33
+      },
+      "4": {
+        "accuracy": 0.36,
+        "shortcut_rate": 0.38
+      },
+      "8": {
+        "accuracy": 0.27,
+        "shortcut_rate": 0.27
+      },
+      "12": {
+        "accuracy": 0.09,
+        "shortcut_rate": 0.1
+      },
+      "16": {
+        "accuracy": 0.11,
+        "shortcut_rate": 0.08
+      }
+    },
+    "4": {
+      "1": {
+        "accuracy": 0.28,
+        "shortcut_rate": 0.49
+      },
+      "2": {
+        "accuracy": 0.36,
+        "shortcut_rate": 0.42
+      },
+      "4": {
+        "accuracy": 0.37,
+        "shortcut_rate": 0.38
+      },
+      "8": {
+        "accuracy": 0.26,
+        "shortcut_rate": 0.23
+      },
+      "12": {
+        "accuracy": 0.12,
+        "shortcut_rate": 0.06
+      },
+      "16": {
+        "accuracy": 0.04,
+        "shortcut_rate": 0.1
+      }
+    },
+    "6": {
+      "1": {
+        "accuracy": 0.4,
+        "shortcut_rate": 0.36
+      },
+      "2": {
+        "accuracy": 0.33,
+        "shortcut_rate": 0.47
+      },
+      "4": {
+        "accuracy": 0.45,
+        "shortcut_rate": 0.3
+      },
+      "8": {
+        "accuracy": 0.28,
+        "shortcut_rate": 0.23
+      },
+      "12": {
+        "accuracy": 0.09,
+        "shortcut_rate": 0.15
+      },
+      "16": {
+        "accuracy": 0.1,
+        "shortcut_rate": 0.09
+      }
+    },
+    "8": {
+      "1": {
+        "accuracy": 0.43,
+        "shortcut_rate": 0.36
+      },
+      "2": {
+        "accuracy": 0.37,
+        "shortcut_rate": 0.4
+      },
+      "4": {
+        "accuracy": 0.47,
+        "shortcut_rate": 0.37
+      },
+      "8": {
+        "accuracy": 0.34,
+        "shortcut_rate": 0.22
+      },
+      "12": {
+        "accuracy": 0.09,
+        "shortcut_rate": 0.1
+      },
+      "16": {
+        "accuracy": 0.09,
+        "shortcut_rate": 0.09
+      }
+    }
+  }
+}
