@@ -72,3 +72,29 @@ Extended the same script (`--max-round`, real: the weight-tied recurrence can be
 **Real, honest, nuanced result -- not a clean win, not a clean loss.** On hops=1,2,3, the round-4-8 plateau found in the base Phase 1 result continues cleanly all the way to R=16, no meaningful decay (values stay within their established 0.74-0.91 band). On hops=4 -- the hardest task tested, the one where the model has the least margin to begin with -- extrapolation shows a REAL, substantial decline: 0.840 at the trained depth down to 0.660 by R=16, a genuine ~0.18 drop, well beyond anything explainable by probe-training noise at this sample size.
 
 **Why this matters for the ladder, concretely**: naive weight-tied depth extrapolation is not free. It holds up on tasks the model already solves comfortably by round 4, but breaks down on the task at the edge of its real capability. The model has no explicit signal for "which round am I currently in" -- every round applies the identical shared transformation regardless of depth already completed, so running past the trained depth is architecturally valid but not something the model was ever taught to handle gracefully. This is a real, concrete failure case, not a hypothetical one, for Phase 2's round embeddings to address: `e_r` gives the model exactly the missing signal to potentially modulate its computation appropriately at round 12 or 16 differently than at round 4, rather than blindly reapplying round-4-style computation past where it stops helping. **Phase 2's promotion criteria should explicitly include this hops=4 R=16 degradation as a real test case** -- round embeddings should be checked against whether they close this specific gap, not just whether they improve in-distribution (R<=8) quality.
+
+## 5. Phase 2 real result, 2026-08-29 -- clean negative on both metrics tested
+
+Implemented `z_{r+1} = F(z_r, x, e_r)` (`reference/hz0h_bdh_vb_subspace_decoder_round_embed_torch.py`): a small learnable per-round embedding (std=0.02 init, no conservative gate -- round conditioning is a fixed deterministic function of which round the computation is in, not a learned routing decision, so the near-zero-gate rationale from Phase 4/7 of the prior plan didn't apply the same way here). Dispatched a matched pair, real, same pod/hardware: plain baseline and `--round-embed`, both 25M tokens, both with `--save-checkpoint` (a real gap closed here -- no checkpoint had been saved for any prior 25M-token compound arm this project).
+
+**Primary metric (ordinary LM validation loss): round-embed is worse.**
+
+| | validation_loss |
+|---|---:|
+| plain baseline | 1.4142 |
+| round-embed | 1.4242 (+0.0100 worse) |
+
+**Secondary, Phase-2-specific metric (does round conditioning change how the reasoning-task probe scales with R): no consistent win.** Re-ran the round-state probe diagnostic (identical object-location task family) on both fresh checkpoints:
+
+| hops | baseline peak acc | baseline round-8 acc | round-embed peak acc | round-embed round-8 acc |
+|---|---:|---:|---:|---:|
+| 1 | 0.890 | 0.780 | 0.860 | 0.690 |
+| 2 | 0.860 | 0.620 | 0.830 | 0.650 |
+| 3 | 0.910 | 0.700 | 0.840 | 0.670 |
+| 4 | 0.840 | 0.700 | 0.840 | 0.670 |
+
+Round-embed is flat-to-slightly-worse on both peak probe accuracy and round-8 accuracy across every hop-count tested. It does not fix the late-round decline either (mixed pattern, no clean direction). **Decisive enough on both metrics to not promote this specific mechanism.**
+
+**Real, honest confound worth flagging, not glossed over**: this comparison ran at 25M tokens each (this project's standard quick-comparison convention), while Phase 1's original round-progression result used the far more trained 500M-token checkpoint. The 25M-token pair here shows a real LATE-ROUND DECLINE in both arms (accuracy peaks around round 3-4, then falls by round 7-8) that Phase 1's 500M-token checkpoint did NOT show (that one plateaued cleanly through round 8, and even through R=16 on 3 of 4 hop-counts in the R-scaling baseline). This suggests training budget itself materially shapes round-dynamics -- an undertrained model may not have learned to USE its later rounds productively yet, independent of round-embedding's own effect. This experiment didn't hold that variable constant (Phase 1 vs. Phase 2 used different-scale checkpoints), so the decline seen here shouldn't be attributed to round-embedding specifically -- it appears in the baseline too.
+
+**Not proceeding to Phase 3 (state-supervised recurrence) on this mechanism.** Real, disclosed open questions before writing off "round conditioning" as a category, not just this implementation: (1) was std=0.02 too small an init to matter at only 25M tokens of training signal; (2) was residual-stream injection before the round's computation the right site, vs. e.g. conditioning the decoder/write step specifically (matching the addressing-resists-compression / value-tolerates-compression principle that held up everywhere else); (3) a real, longer-budget run (matching Phase 1's 500M-token scale) might behave differently given the training-budget confound just noted. None of these attempted here -- real, disclosed limitation of this experiment's scope, not evidence they'd fail too.
