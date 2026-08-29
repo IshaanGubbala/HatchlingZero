@@ -70,22 +70,28 @@ def load_model(checkpoint_path: Path, device) -> BDHVBSubspaceDecoder:
 
 
 @torch.no_grad()
-def collect_all_round_last_token(model: BDHVBSubspaceDecoder, idx: torch.Tensor) -> list[torch.Tensor]:
+def collect_all_round_last_token(model: BDHVBSubspaceDecoder, idx: torch.Tensor, n_rounds: int | None = None) -> list[torch.Tensor]:
     """Real, exact (non-checkpointed) forward, mirroring
     BDHVBSubspaceDecoder.forward's own round loop bit-for-bit, but
     additionally returning the LAST-TOKEN residual-stream state after
-    EVERY round (not just the final one)."""
+    EVERY round (not just the final one). n_rounds defaults to the
+    model's own trained config.n_layer; passing a LARGER value runs
+    the SAME weight-tied round computation beyond its trained depth --
+    architecturally valid (weights are shared/reused every round by
+    construction, not per-round-specific), the real mechanism the
+    R-scaling baseline is testing."""
     C = model.config
     B, T = idx.size()
     D = C.n_embd
     nh = C.n_head
     N = D * C.mlp_internal_dim_multiplier // nh
+    n_rounds = n_rounds if n_rounds is not None else C.n_layer
 
     x = model.embed(idx).unsqueeze(1)
     x = model.ln(x)
 
     per_round_last_token = []
-    for _level in range(C.n_layer):
+    for _level in range(n_rounds):
         x_latent = x @ model.encoder
         x_sparse = F.relu(x_latent)
         v_bottleneck = x @ model.P
@@ -153,6 +159,11 @@ def main() -> None:
     parser.add_argument("--probe-epochs", type=int, default=300)
     parser.add_argument("--probe-lr", type=float, default=1e-2)
     parser.add_argument("--seed", type=int, default=7)
+    parser.add_argument("--max-round", type=int, default=None,
+                         help="R-scaling baseline: run the weight-tied recurrence for MORE rounds than "
+                              "the model's trained config.n_layer (architecturally valid -- weights are "
+                              "shared/reused every round, not per-round-specific). Defaults to config.n_layer "
+                              "(Phase 1's original in-training-depth-only measurement).")
     args = parser.parse_args()
 
     from scripts.hz0h_bdh_width_flop_frontier_local import pick_device
@@ -163,6 +174,7 @@ def main() -> None:
     # Real sanity check before trusting anything downstream.
     verify_against_real_forward(model, torch.randint(0, 256, (1, 32), device=device))
 
+    max_round = args.max_round if args.max_round is not None else model.config.n_layer
     n_classes = len(LOCATIONS)
     results_by_hops = {}
     for n_hops in args.n_hops:
@@ -171,11 +183,11 @@ def main() -> None:
         test_examples = [generate_example(rng, n_hops) for _ in range(args.n_test)]
 
         def collect(examples):
-            per_round_all = [[] for _ in range(model.config.n_layer)]
+            per_round_all = [[] for _ in range(max_round)]
             labels = []
             for text, answer_idx in examples:
                 idx = torch.tensor([list(text.encode("utf-8"))], dtype=torch.long, device=device)
-                per_round = collect_all_round_last_token(model, idx)
+                per_round = collect_all_round_last_token(model, idx, n_rounds=max_round)
                 for r, z in enumerate(per_round):
                     per_round_all[r].append(z)
                 labels.append(answer_idx)
@@ -186,17 +198,19 @@ def main() -> None:
         test_z_by_round, test_y = collect(test_examples)
 
         round_accs = []
-        for r in range(model.config.n_layer):
+        for r in range(max_round):
             acc = train_and_eval_probe(train_z_by_round[r], train_y, test_z_by_round[r], test_y,
                                         n_classes, args.probe_epochs, args.probe_lr)
             round_accs.append(acc)
-            print(f"  round {r+1}/{model.config.n_layer}: probe test accuracy = {acc:.3f} "
-                  f"(chance = {1/n_classes:.3f})", flush=True)
+            beyond = " (BEYOND trained depth)" if r + 1 > model.config.n_layer else ""
+            print(f"  round {r+1}/{max_round}: probe test accuracy = {acc:.3f} "
+                  f"(chance = {1/n_classes:.3f}){beyond}", flush=True)
         results_by_hops[n_hops] = round_accs
 
     report = {
         "checkpoint": str(args.checkpoint),
         "n_layer": model.config.n_layer,
+        "max_round": max_round,
         "n_classes": n_classes,
         "chance_accuracy": 1 / n_classes,
         "n_train": args.n_train,
