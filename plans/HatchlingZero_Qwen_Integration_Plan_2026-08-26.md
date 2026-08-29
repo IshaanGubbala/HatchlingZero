@@ -717,11 +717,20 @@ Dispatched the canonical baseline (compound + `--gated-residual --gated-residual
 
 **Gate replication: inconclusive, not a clean negative.** seed=13 gated result (1.4348) is worse than both seed=7's plain baseline (1.4326) and seed=7's own gated result (1.4114) -- but there is no seed=13 BASELINE (no-gate) run yet to isolate architecture effect from ordinary seed variance. This project's own 5M-token cross-seed noise band (0.017-0.020, [[20.3]] in the other plan doc) is roughly the same size as this 0.0234 gap, so this single comparison cannot distinguish "the gate doesn't replicate" from "this is within normal seed noise." `g1` landed at 0.5472 at seed=13 vs 0.5858 at seed=7 -- same direction and rough magnitude, real (if noisy) evidence the mechanism is doing something consistent even if the quality outcome varies. A matched seed=13 baseline (no gate, no compile) is dispatched to complete the real apples-to-apples check -- result pending.
 
+**Update, same day -- the seed=13 baseline landed, real apples-to-apples replication check complete:**
+
+| | baseline (no gate) | gated (g1-only) | delta |
+|---|---:|---:|---:|
+| seed=7 | 1.4326 | 1.4114 | -0.0212 |
+| seed=13 | 1.4378 | 1.4348 | **-0.0030** |
+
+**The gate replicates in direction -- it helped at both seeds, never hurt -- but the effect size is ~7x smaller at seed=13 than seed=7.** Honest read: this is real, probably-positive signal, not noise in the sense of "sometimes helps, sometimes hurts" (both seeds point the same way), but the true population effect size is genuinely uncertain and very likely smaller than the original -0.0212 headline suggested -- somewhere between -0.003 and -0.021 is the honest range this data supports, not a confident point estimate. This project's own 5M-token cross-seed noise band (0.017-0.020) is close enough to seed=13's own effect size (0.0030) that a third seed would be needed to pin this down further, not yet run. **Still recommend keeping the gate** (it has never once underperformed baseline across two independent seeds, and it's free -- zero extra parameters, negligible compute) -- just report the win with the honest range, not the single-seed headline number, going forward.
+
 ## 20. Real, current standing recommendation, 2026-08-29
 
 Of eight tracks tested this session (Muon, MTP, n-gram, gated residual, retrieval-diagnostic, MoE, systems/profiler, domain-banks), exactly two are real wins:
 
-1. **Adopt the Phase-4 single-gate result** (`--gated-residual --gated-residual-single-stream`): real, clean win, val_loss 1.4114 vs baseline 1.4326, zero extra parameters. The single best architecture change found this session.
+1. **Adopt the Phase-4 single-gate result** (`--gated-residual --gated-residual-single-stream`): real win, replicated in direction across two seeds (seed=7: -0.0212, seed=13: -0.0030 -- see section 19.1's update), zero extra parameters. Never underperformed baseline. The honest effect size is a range (-0.003 to -0.021), not the single-seed -0.0212 headline -- still the single best architecture change found this session, just report it with the real uncertainty.
 2. ~~Enable `--compile-training` in the next real training run~~ -- **superseded by section 19.1**: the real end-to-end check found NO net win (3766.2s vs 3775.9s uncompiled, both RTX 5090) on a curriculum-trained run, likely because depth-curriculum recompiles under `mode="max-autotune"` eat the steady-state gain the isolated (fixed-depth) profiler measured. Not a recommended default until either `mode="default"` or dynamic-shape handling for the depth argument is tested.
 
 Everything else this session (Muon, MTP, n-gram, MoE, retrieval, domain-banks) is closed or below its own promotion bar. The addressing-resists-compression / value-output-compresses-well principle ([[20.1]] in the other plan doc) held up against every new test this session threw at it, including the freshest one (domain banking backfiring specifically because it touched a component -- the write path -- that's dependent on a still-shifting shared backbone, not because the principle itself was wrong).
