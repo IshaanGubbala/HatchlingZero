@@ -31,6 +31,7 @@ from reference.hz0h_bdh_vb_subspace_decoder_checkpointed_torch import bdh_vb_sub
 from reference.hz0h_bdh_vb_subspace_decoder_gated_residual_torch import add_gated_residual_stream, bdh_vb_subspace_decoder_forward_gated_residual_checkpointed
 from reference.hz0h_bdh_vb_subspace_decoder_moe_torch import add_moe_decoder, bdh_vb_subspace_decoder_forward_moe_checkpointed
 from reference.hz0h_bdh_vb_subspace_decoder_mtp_torch import add_mtp_heads, bdh_vb_subspace_decoder_forward_mtp_checkpointed
+from reference.hz0h_bdh_vb_subspace_decoder_round_embed_torch import add_round_embeddings, bdh_vb_subspace_decoder_forward_round_embed_checkpointed
 from reference.hz0h_bdh_vb_subspace_decoder_ngram_torch import add_ngram_memory, bdh_vb_subspace_decoder_forward_ngram_checkpointed
 from reference.hz0h_bdh_vb_subspace_decoder_torch import BDHVBSubspaceDecoder, BDHVBSubspaceDecoderConfig
 from reference.hz0h_muon_optimizer import HybridOptimizer, make_muon_hybrid_optimizer
@@ -67,6 +68,8 @@ def train(config, args, device):
         add_gated_residual_stream(model, single_stream=args.gated_residual_single_stream)
     if args.moe_experts > 0:
         add_moe_decoder(model, n_experts=args.moe_experts, top_k=args.moe_top_k)
+    if args.round_embed:
+        add_round_embeddings(model)
     if args.optimizer == "muon_hybrid":
         optimizer = make_muon_hybrid_optimizer(model, muon_lr=args.muon_lr, adamw_lr=args.learning_rate)
     else:
@@ -106,6 +109,8 @@ def train(config, args, device):
                     _, loss = bdh_vb_subspace_decoder_forward_gated_residual_checkpointed(model, idx, depth, target)
                 elif args.moe_experts > 0:
                     _, loss = bdh_vb_subspace_decoder_forward_moe_checkpointed(model, idx, depth, target)
+                elif args.round_embed:
+                    _, loss = bdh_vb_subspace_decoder_forward_round_embed_checkpointed(model, idx, depth, target)
                 else:
                     _, loss = forward_fn(model, idx, depth, target)
             loss.backward()
@@ -146,6 +151,8 @@ def evaluate_loss(model, args, device):
                 # loss only, comparable across every arm -- the load-balancing
                 # term is a training-only regularizer, not part of the metric.
                 _, loss = bdh_vb_subspace_decoder_forward_moe_checkpointed(model, idx, model.config.n_layer, target, aux_loss_coef=0.0)
+            elif args.round_embed:
+                _, loss = bdh_vb_subspace_decoder_forward_round_embed_checkpointed(model, idx, model.config.n_layer, target)
             else:
                 _, loss = bdh_vb_subspace_decoder_forward_checkpointed(model, idx, model.config.n_layer, target)
             losses.append(float(loss))
@@ -215,6 +222,11 @@ def main() -> None:
                               "and eval time (eval uses aux_loss_coef=0.0 so val_loss stays comparable).")
     parser.add_argument("--moe-top-k", type=int, default=2,
                          help="Experts activated per token when --moe-experts > 0.")
+    parser.add_argument("--round-embed", action="store_true",
+                         help="Phase 2 of the internal-computation phase: z_{r+1} = F(z_r, x, e_r) instead "
+                              "of z_{r+1} = F(z_r, x) -- a small learnable per-round embedding injected "
+                              "additively into the residual stream before each round's computation. Real "
+                              "architectural component, present at both train and eval time.")
     parser.add_argument("--dtype", choices=["float32", "bfloat16"], default="bfloat16")
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--n-embd", type=int, default=2496)
@@ -277,6 +289,7 @@ def main() -> None:
                        "dropout": config.dropout, "d_state": config.d_state, "subspace_rank": config.subspace_rank},
             "seed": args.seed, "target_tokens": args.target_tokens,
             "elapsed_seconds": elapsed, "validation_loss": val_loss,
+            "has_round_embed": args.round_embed,
         }, args.save_checkpoint)
         print(f"[done] wrote real checkpoint to {args.save_checkpoint}", flush=True)
 

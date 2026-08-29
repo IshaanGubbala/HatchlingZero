@@ -40,6 +40,7 @@ import torch.nn.functional as F
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from reference.hz0h_bdh_vb_subspace_decoder_round_embed_torch import add_round_embeddings
 from reference.hz0h_bdh_vb_subspace_decoder_torch import BDHVBSubspaceDecoder, BDHVBSubspaceDecoderConfig
 
 LOCATIONS = ["the kitchen", "the garage", "the office", "the attic",
@@ -63,9 +64,12 @@ def load_model(checkpoint_path: Path, device) -> BDHVBSubspaceDecoder:
     ckpt = torch.load(checkpoint_path, map_location="cpu")
     config = BDHVBSubspaceDecoderConfig(**ckpt["config"])
     model = BDHVBSubspaceDecoder(config).to(device=device, dtype=torch.float32)
+    if ckpt.get("has_round_embed", False):
+        add_round_embeddings(model)
     model.load_state_dict(ckpt["state_dict"])
     model.eval()
-    print(f"[probe] loaded checkpoint {checkpoint_path} n_layer={config.n_layer}", flush=True)
+    print(f"[probe] loaded checkpoint {checkpoint_path} n_layer={config.n_layer} "
+          f"round_embed={ckpt.get('has_round_embed', False)}", flush=True)
     return model
 
 
@@ -89,9 +93,14 @@ def collect_all_round_last_token(model: BDHVBSubspaceDecoder, idx: torch.Tensor,
 
     x = model.embed(idx).unsqueeze(1)
     x = model.ln(x)
+    has_round_embed = hasattr(model, "round_embed")
 
     per_round_last_token = []
-    for _level in range(n_rounds):
+    for level in range(n_rounds):
+        if has_round_embed:
+            n_rows = model.round_embed.shape[0]
+            e_r = model.round_embed[min(level, n_rows - 1)]
+            x = model.ln(x + e_r)
         x_latent = x @ model.encoder
         x_sparse = F.relu(x_latent)
         v_bottleneck = x @ model.P
@@ -117,7 +126,11 @@ def verify_against_real_forward(model: BDHVBSubspaceDecoder, idx: torch.Tensor) 
     per_round = collect_all_round_last_token(model, idx)
     manual_logits = per_round[-1].to(idx.device) @ model.lm_head
     with torch.no_grad():
-        real_logits, _ = model(idx)
+        if hasattr(model, "round_embed"):
+            from reference.hz0h_bdh_vb_subspace_decoder_round_embed_torch import bdh_vb_subspace_decoder_forward_round_embed_checkpointed
+            real_logits, _ = bdh_vb_subspace_decoder_forward_round_embed_checkpointed(model, idx, model.config.n_layer)
+        else:
+            real_logits, _ = model(idx)
     real_last = real_logits[:, -1, :]
     diff = (manual_logits - real_last).abs().max().item()
     assert diff < 1e-3, f"collection function diverges from real forward: max diff {diff}"
