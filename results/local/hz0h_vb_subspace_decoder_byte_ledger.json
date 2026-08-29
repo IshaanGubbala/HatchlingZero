@@ -1,0 +1,156 @@
+{
+  "ledger": {
+    "shape": {
+      "B": 8,
+      "T": 256,
+      "D": 2496,
+      "mult": 16,
+      "nh": 8,
+      "N": 4992,
+      "d_state": 624,
+      "r": 64
+    },
+    "ops": [
+      {
+        "op": "x_latent = x @ encoder",
+        "flops": 408290328576,
+        "weight_bytes": 199360512,
+        "activation_read_bytes": 10223616,
+        "activation_write_bytes": 163577856,
+        "total_bytes": 373161984
+      },
+      {
+        "op": "x_sparse = relu(x_latent)",
+        "flops": 81788928,
+        "weight_bytes": 0,
+        "activation_read_bytes": 163577856,
+        "activation_write_bytes": 163577856,
+        "total_bytes": 327155712
+      },
+      {
+        "op": "v_bottleneck = x @ P",
+        "flops": 6379536384,
+        "weight_bytes": 3115008,
+        "activation_read_bytes": 10223616,
+        "activation_write_bytes": 2555904,
+        "total_bytes": 15894528
+      },
+      {
+        "op": "attn scores = QR @ KR^T",
+        "flops": 41875931136,
+        "weight_bytes": 0,
+        "activation_read_bytes": 327155712,
+        "activation_write_bytes": 8388608,
+        "total_bytes": 335544320
+      },
+      {
+        "op": "attn out = scores @ V",
+        "flops": 5234491392,
+        "weight_bytes": 0,
+        "activation_read_bytes": 10944512,
+        "activation_write_bytes": 20447232,
+        "total_bytes": 31391744
+      },
+      {
+        "op": "yKV = yKV_bottleneck @ O",
+        "flops": 6379536384,
+        "weight_bytes": 3115008,
+        "activation_read_bytes": 20447232,
+        "activation_write_bytes": 10223616,
+        "total_bytes": 33785856
+      },
+      {
+        "op": "yKV = LN(yKV)",
+        "flops": 5111808,
+        "weight_bytes": 0,
+        "activation_read_bytes": 10223616,
+        "activation_write_bytes": 10223616,
+        "total_bytes": 20447232
+      },
+      {
+        "op": "y_latent = yKV @ encoder_v",
+        "flops": 408290328576,
+        "weight_bytes": 199360512,
+        "activation_read_bytes": 10223616,
+        "activation_write_bytes": 163577856,
+        "total_bytes": 373161984
+      },
+      {
+        "op": "y_sparse = relu(y_latent)",
+        "flops": 81788928,
+        "weight_bytes": 0,
+        "activation_read_bytes": 163577856,
+        "activation_write_bytes": 163577856,
+        "total_bytes": 327155712
+      },
+      {
+        "op": "xy_sparse = x_sparse * y_sparse",
+        "flops": 81788928,
+        "weight_bytes": 0,
+        "activation_read_bytes": 327155712,
+        "activation_write_bytes": 163577856,
+        "total_bytes": 490733568
+      },
+      {
+        "op": "alpha = xy_sparse @ decoder_up (summed over heads)",
+        "flops": 10468982784,
+        "weight_bytes": 5111808,
+        "activation_read_bytes": 163577856,
+        "activation_write_bytes": 262144,
+        "total_bytes": 168951808
+      },
+      {
+        "op": "yMLP = alpha @ decoder_down",
+        "flops": 654311424,
+        "weight_bytes": 319488,
+        "activation_read_bytes": 262144,
+        "activation_write_bytes": 10223616,
+        "total_bytes": 10805248
+      },
+      {
+        "op": "y = LN(yMLP)",
+        "flops": 5111808,
+        "weight_bytes": 0,
+        "activation_read_bytes": 10223616,
+        "activation_write_bytes": 10223616,
+        "total_bytes": 20447232
+      },
+      {
+        "op": "x = LN(x + y)",
+        "flops": 5111808,
+        "weight_bytes": 0,
+        "activation_read_bytes": 20447232,
+        "activation_write_bytes": 10223616,
+        "total_bytes": 30670848
+      }
+    ],
+    "totals": {
+      "flops_per_round": 887834148864,
+      "weight_bytes_per_round": 410382336,
+      "activation_bytes_per_round": 2148925440,
+      "total_bytes_per_round": 2559307776,
+      "arithmetic_intensity_flops_per_byte": 346.9040172462634
+    }
+  },
+  "roofline": {
+    "n_layer": 8,
+    "forward_flops_all_rounds": 7102673190912,
+    "forward_bytes_all_rounds": 20474462208,
+    "total_flops_with_checkpointed_backward_recompute": 21308019572736,
+    "total_bytes_with_checkpointed_backward_recompute": 40948924416,
+    "per_gpu": {
+      "rtx4090": {
+        "roofline_knee_flops_per_byte": 163.6904761904762,
+        "achieved_arithmetic_intensity": 520.3560258693951,
+        "regime": "compute-bound (AI above knee)",
+        "ratio_to_knee": 3.1789022671293954
+      },
+      "rtx5090": {
+        "roofline_knee_flops_per_byte": 116.90848214285714,
+        "achieved_arithmetic_intensity": 520.3560258693951,
+        "regime": "compute-bound (AI above knee)",
+        "ratio_to_knee": 4.450968965909098
+      }
+    }
+  }
+}
