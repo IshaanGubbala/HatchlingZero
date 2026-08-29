@@ -54,18 +54,29 @@ def generate_chain_example(rng: random.Random, n_hops: int) -> tuple[str, int, i
     for i in range(n_hops):
         rel = rng.choice(RELATIONS)
         hop_sentences.append(f"{entities[i]} {rel} {entities[i + 1]}.")
-    rng.shuffle(hop_sentences)  # real in-place shuffle -- forces name-based chain resolution, not positional reading order
 
     move_verb = rng.choice(MOVE_VERBS)
     move_sentence = f"{entities[-1]} {move_verb} {correct_loc}."
 
-    # Adversarial distractor immediately before the question, real different
-    # location -- a model using the naive "nearest location mentioned"
+    # Adversarial distractor: a DIFFERENT location for an unrelated entity --
+    # a model using the naive "nearest/some fixed-position location mentioned"
     # shortcut reports shortcut_loc, not correct_loc.
     distractor_move = rng.choice(MOVE_VERBS)
     distractor_sentence = f"{distractor_entity} {distractor_move} {shortcut_loc}."
 
-    text = " ".join(hop_sentences + [move_sentence, distractor_sentence]) + f" Where is {entities[0]}?"
+    # Real fix (found 2026-08-29): shuffling only the hop sentences while
+    # keeping move_sentence fixed at "second-to-last" and distractor_sentence
+    # fixed at "last" left a pure POSITIONAL shortcut in place -- "answer is
+    # whatever's in the second-to-last sentence," solvable with zero chain-
+    # walking regardless of hop count (confirmed: a real trained run hit
+    # ~0 loss at R=1 on 8-hop examples). ALL informational sentences --
+    # hops, the move sentence, and the distractor -- are shuffled together
+    # here, so there is no fixed position that correlates with correctness;
+    # only genuine name-based chain resolution can locate the answer.
+    all_sentences = hop_sentences + [move_sentence, distractor_sentence]
+    rng.shuffle(all_sentences)
+
+    text = " ".join(all_sentences) + f" Where is {entities[0]}?"
     return text, LOCATIONS.index(correct_loc), LOCATIONS.index(shortcut_loc)
 
 
