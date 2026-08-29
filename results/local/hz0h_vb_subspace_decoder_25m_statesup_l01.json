@@ -1,0 +1,35 @@
+{
+  "config": {
+    "data": "data/packed/hz0h_bytes_25m_train.jsonl",
+    "validation_data": "data/packed/hz0h_bytes_25m_val.jsonl",
+    "init_checkpoint": "results/local/hz0h_bdh_checkpoint_for_ablation.pt",
+    "out": "results/local/hz0h_vb_subspace_decoder_25m_statesup_l01.json",
+    "save_checkpoint": "results/local/hz0h_vb_subspace_decoder_25m_statesup_l01.pt",
+    "device": "auto",
+    "target_tokens": 25000000,
+    "batch_size": 8,
+    "sequence_length": 256,
+    "warmup_steps": 100,
+    "learning_rate": 0.001,
+    "grad_clip": 1.0,
+    "eval_batches": 8,
+    "log_every": 50,
+    "dtype": "bfloat16",
+    "seed": 7,
+    "n_embd": 2496,
+    "mult": 16,
+    "n_layer": 8,
+    "n_head": 8,
+    "d_state": 624,
+    "subspace_rank": 64,
+    "lambda_state": 0.01,
+    "synthetic_every": 10
+  },
+  "results": {
+    "vb_subspace_decoder": {
+      "validation_loss": 1.4646135717630386,
+      "parameter_count": 206628864,
+      "training_seconds": 4218.0019868128
+    }
+  }
+}
