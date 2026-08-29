@@ -159,7 +159,7 @@ if [[ -z "$POD_ID" ]]; then
         --ports "22/tcp" \
         --name "$POD_NAME" \
         --terminate-after "$TERMINATE_AT" \
-        "${VOLUME_ARGS[@]}" \
+        "${VOLUME_ARGS[@]+"${VOLUME_ARGS[@]}"}" \
         --wait --wait-timeout "$WAIT_TIMEOUT")"
     CREATE_EXIT=$?
     set -e
