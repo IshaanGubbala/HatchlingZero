@@ -1,0 +1,80 @@
+{
+  "config": {
+    "domains_dir": "data/packed/domains",
+    "init_checkpoint": "results/local/hz0h_bdh_checkpoint_for_ablation.pt",
+    "out": "results/local/hz0h_vb_subspace_decoder_domain_banks_curriculum.json",
+    "device": "auto",
+    "target_tokens_per_domain": 5000000,
+    "batch_size": 8,
+    "sequence_length": 256,
+    "warmup_steps": 100,
+    "learning_rate": 0.001,
+    "grad_clip": 1.0,
+    "eval_batches": 8,
+    "support_eval_batches": 15,
+    "support_reservoir_per_batch": 256,
+    "log_every": 50,
+    "dtype": "bfloat16",
+    "seed": 7,
+    "n_embd": 2496,
+    "mult": 16,
+    "n_layer": 8,
+    "n_head": 8,
+    "d_state": 624,
+    "subspace_rank": 64,
+    "arm": "both"
+  },
+  "domain_order": [
+    "code",
+    "documentation",
+    "json_and_configuration",
+    "mathematical_and_structured",
+    "terminal_and_debugging"
+  ],
+  "dense": {
+    "val_losses_by_domain": {
+      "code": 1.50186225771904,
+      "documentation": 1.448174700140953,
+      "json_and_configuration": 0.6678218469023705,
+      "mathematical_and_structured": 1.7581308484077454,
+      "terminal_and_debugging": 1.0249361470341682
+    },
+    "jaccard": {
+      "mean_within": 0.08127307295799255,
+      "mean_across": 0.07610859796404838,
+      "ratio": 1.0678566565683383,
+      "per_domain_within": {
+        "code": 0.08756837993860245,
+        "documentation": 0.07242128998041153,
+        "json_and_configuration": 0.09885584563016891,
+        "mathematical_and_structured": 0.07672233134508133,
+        "terminal_and_debugging": 0.07079751789569855
+      }
+    },
+    "training_seconds": 4870.172308314592,
+    "parameter_count": 206469120
+  },
+  "banks": {
+    "val_losses_by_domain": {
+      "code": 5.343367040157318,
+      "documentation": 3.343762129545212,
+      "json_and_configuration": 1.2894222289323807,
+      "mathematical_and_structured": 1.8005214631557465,
+      "terminal_and_debugging": 1.056753784418106
+    },
+    "jaccard": {
+      "mean_within": 0.13890566378831865,
+      "mean_across": 0.09863419011235237,
+      "ratio": 1.4082912185936112,
+      "per_domain_within": {
+        "code": 0.2056020051240921,
+        "documentation": 0.16363680362701416,
+        "json_and_configuration": 0.1315344274044037,
+        "mathematical_and_structured": 0.10590951889753342,
+        "terminal_and_debugging": 0.0878455638885498
+      }
+    },
+    "training_seconds": 4890.10017753765,
+    "parameter_count": 207267840
+  }
+}

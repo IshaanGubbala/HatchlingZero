@@ -334,7 +334,7 @@ Ran the isolating ablation (`--gated-residual --gated-residual-single-stream`, `
 
 **Recommendation: adopt the single-gate version, not the two-stream one**, as this phase's real Phase-4 result. Closing the two-stream / decoder2 track -- it added real parameters and complexity for a worse result than the version without it. This is a genuinely useful, cheap, one-parameter architectural change: `g1` learnable, initialized at 1.0, gating the existing decoder's contribution to the residual stream.
 
-## 13. Systems track, 2026-08-29 -- real analytic byte ledger + real GPU profiler, a genuinely large uncaptured win found
+## 8.1 Systems track, 2026-08-29 -- real analytic byte ledger + real GPU profiler, a genuinely large uncaptured win found
 
 Proposed as a parallel track: before assuming training's remaining ~7.3x gap vs. a matched Transformer needs architecture work (the standing conclusion from earlier in this project), check whether it's actually memory-bandwidth-bound instead -- if so, a FlashBDH-style fused kernel (never materialize intermediates to HBM, analogous to FlashAttention) could matter more than further FLOP reduction. Two real, disclosed-scope diagnostics, in order:
 
@@ -665,6 +665,8 @@ Long-term identity:
 
 ## 18. Immediate recommendation
 
+**Superseded by real results as of 2026-08-29** -- kept visible rather than deleted, per this project's standing practice. All three tasks below ran; Muon and MTP were killed (real negatives, sections 5/6), n-gram memory was also killed (section 7), and "occasional precise retrieval" was NOT pursued after a real Tier-A diagnostic found its premise didn't hold at production scale (section 9's correction). The real, current standing recommendation is section 20 below.
+
 The next three implementation tasks:
 
 1. **Muon hybrid optimizer experiment**
@@ -674,3 +676,44 @@ The next three implementation tasks:
 In parallel, continue the 500M baseline so subsequent results have a trustworthy long-budget reference.
 
 The first major architecture experiment after these should be **occasional precise retrieval**, because it can let recurrent state specialize in compressed reasoning/memory while a separate mechanism handles exact recall.
+
+## 19. Domain-banked write specialization ("Developmental Neuron Specialization"), 2026-08-29 -- real negative on the primary hypothesis, real modest positive on the secondary one
+
+Proposed as a refinement of an earlier neuron-freezing idea: give the compound model domain-specific WRITE banks (never touching addressing, per [[20.1]]/section 2's standing principle), activated via a FIXED domain lookup (not a learned router -- this session's MoE result already showed learned routing barely engages at 25M tokens) during a real SEQUENTIAL 5-domain curriculum (code -> documentation -> json -> math -> terminal, 5M tokens/domain, real per-domain corpora, matches the established 25M-token convention with zero forced repetition). Hard 0/1 bank selection so a non-selected domain's bank gets exactly zero gradient for that batch -- freezing falls out of the forward computation automatically, verified via a direct gradient check before dispatch (only the selected domain's bank showed nonzero grad norm, all others exactly zero).
+
+Reframed mid-design (real, correct pushback) around continual-learning/anti-forgetting rather than "let addressing specialization emerge" -- the archived `hz0h_bdh_domain_specialization_diagnostic.py` result (production scale, CUDA-confirmed) already found ~zero addressing-neuron domain specialization under i.i.d.-mixed domain training (within/across ratio 1.03x-1.12x), making that the low-prior side hypothesis rather than the headline goal.
+
+**Primary result (per-domain val_loss after the full 5-phase curriculum) -- decisive negative, and backwards from the hypothesis:**
+
+| domain (curriculum order) | dense val_loss | banks val_loss |
+|---|---:|---:|
+| code (1st) | 1.502 | **5.343** |
+| documentation (2nd) | 1.448 | **3.344** |
+| json_and_configuration (3rd) | 0.668 | **1.289** |
+| mathematical_and_structured (4th) | 1.758 | 1.801 |
+| terminal_and_debugging (5th, last) | 1.025 | 1.057 |
+
+**Banking made cross-domain forgetting WORSE, not better, than the plain dense model on the identical curriculum** -- most dramatically on the earliest-trained domains (code: 3.6x worse). The dense model, with zero architectural protection at all, resisted forgetting better than the model specifically designed to resist it.
+
+**Real, honest mechanistic explanation, not just a null shrug**: a frozen write bank is only protective if it's self-contained. Here it isn't -- `decoder_up` (the shared D->r compression step feeding every bank, including the frozen ones) and the entire addressing stack (`encoder`/`encoder_v`/attention/`P`/`O`) keep drifting through all 5 phases, since only `decoder_down_banks[domain_id]` itself is frozen, a small slice of the total architecture. A bank frozen early in training was tuned against the SHARED representation as it existed at that point; by the time evaluation happens (after 4 more domains' worth of drift in the shared backbone), the frozen bank and the now-different shared representation are misaligned. Freezing only locked in staleness, not protection -- the opposite of the intended effect. This is a real, disclosed lesson for any future partial-freezing design: freezing a component is not enough on its own; the components it depends on need to be either also frozen or robust to the frozen piece's staleness.
+
+**Secondary result (addressing-neuron within/across-domain Jaccard) -- real, modest positive**, tempered as expected:
+
+| | mean within-domain | mean across-domain | ratio |
+|---|---:|---:|---:|
+| archived i.i.d.-mixed diagnostic (production scale, prior work) | -- | -- | 1.03x-1.12x |
+| dense (this run, sequential curriculum) | 0.081 | 0.076 | 1.068x |
+| banks (this run, sequential curriculum) | 0.139 | 0.099 | **1.408x** |
+
+The dense-sequential arm alone doesn't show more addressing locality than the archived i.i.d. baseline (1.068x falls inside that band) -- sequential curriculum order alone isn't what moves this number. The banked arm's 1.408x is clearly above both, a real (if still small in absolute terms -- 13.9% within-domain support overlap, nowhere near "predictable coarse locality" territory) increase attributable specifically to the write-side banking. **This does not redeem the primary result** -- the metric that actually matters for the continual-learning framing is per-domain quality, and that got decisively worse.
+
+**Overall verdict**: kill this specific mechanism (domain-fixed hard write banking with only the decoder frozen). Real, disclosed follow-up NOT pursued given the primary result's clear direction: freezing more of the dependency chain (e.g. also snapshotting/protecting `decoder_up`'s state relevant to a domain, or using a soft rather than hard gate to avoid the staleness-lock-in failure mode) might fix the mechanism, but that's a materially bigger redesign, not a small tweak, and doesn't have a clear enough hypothesis yet to justify the next GPU spend without further thought.
+
+## 20. Real, current standing recommendation, 2026-08-29
+
+Of eight tracks tested this session (Muon, MTP, n-gram, gated residual, retrieval-diagnostic, MoE, systems/profiler, domain-banks), exactly two are real wins:
+
+1. **Adopt the Phase-4 single-gate result** (`--gated-residual --gated-residual-single-stream`): real, clean win, val_loss 1.4114 vs baseline 1.4326, zero extra parameters. The single best architecture change found this session.
+2. **Enable `--compile-training` in the next real training run**: real, measured ~2x wall-clock/TFLOPS win in isolated profiling (section 8.1), not yet confirmed end-to-end in a real multi-domain/multi-hour training run -- the single cheapest, highest-confidence next action, since it requires zero new architecture and the flag already exists.
+
+Everything else this session (Muon, MTP, n-gram, MoE, retrieval, domain-banks) is closed or below its own promotion bar. The addressing-resists-compression / value-output-compresses-well principle ([[20.1]] in the other plan doc) held up against every new test this session threw at it, including the freshest one (domain banking backfiring specifically because it touched a component -- the write path -- that's dependent on a still-shifting shared backbone, not because the principle itself was wrong).
