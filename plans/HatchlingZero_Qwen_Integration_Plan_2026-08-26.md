@@ -334,6 +334,28 @@ Ran the isolating ablation (`--gated-residual --gated-residual-single-stream`, `
 
 **Recommendation: adopt the single-gate version, not the two-stream one**, as this phase's real Phase-4 result. Closing the two-stream / decoder2 track -- it added real parameters and complexity for a worse result than the version without it. This is a genuinely useful, cheap, one-parameter architectural change: `g1` learnable, initialized at 1.0, gating the existing decoder's contribution to the residual stream.
 
+## 13. Systems track, 2026-08-29 -- real analytic byte ledger + real GPU profiler, a genuinely large uncaptured win found
+
+Proposed as a parallel track: before assuming training's remaining ~7.3x gap vs. a matched Transformer needs architecture work (the standing conclusion from earlier in this project), check whether it's actually memory-bandwidth-bound instead -- if so, a FlashBDH-style fused kernel (never materialize intermediates to HBM, analogous to FlashAttention) could matter more than further FLOP reduction. Two real, disclosed-scope diagnostics, in order:
+
+**Step 1 -- analytic byte ledger** (`scripts/hz0h_bdh_vb_subspace_decoder_byte_ledger.py`, no GPU needed): per-op FLOPs and bytes moved for one compound-architecture recurrent round, assuming peak advertised TFLOPS/bandwidth. Real result: the round is compute-bound at both RTX 4090/5090 (achieved AI 520.4 FLOP/byte vs knees of 163.7/116.9, 3.18x-4.45x above), confirming rather than overturning the project's standing conclusion -- IF peak throughput is actually achieved. A real, separate, physically-grounded correction inside the same analysis: cross-round weight residency in L2 cache (the "load once, reuse across R=8 rounds" idea) isn't physically available at production scale -- `encoder`/`encoder_v`/`decoder` are each ~199MB in bf16, several times larger than even a 5090's 96MB L2. But a genuine, narrower, cache-feasible target survived: the elementwise ops (2x ReLU, 3x LayerNorm, the `xy_sparse` multiply) carry ~47% of the round's bytes for ~0% of its FLOPs (AI 0.17-0.25 vs the round's blended 346.9).
+
+**Step 2 -- real GPU profiler cross-check** (`scripts/hz0h_bdh_vb_subspace_decoder_profiler_roofline.py`, real A40, batch sizes 1/2/8, eager vs `torch.compile(mode="max-autotune")`), because the analytic result depended entirely on the achieved=peak assumption. Real, decisive result -- **that assumption does NOT hold**:
+
+| | eager achieved TFLOPS | % of A40's real ~149.7 TFLOPS peak | elementwise bandwidth | % of A40's real ~696 GB/s peak |
+|---|---:|---:|---:|---:|
+| B=1 | 18.2 | ~12% | 15.8 GB/s | ~2.3% |
+| B=2 | 18.1 | ~12% | 15.1 GB/s | ~2.2% |
+| B=8 | 21.0 | ~14% | 18.5 GB/s | ~2.7% |
+
+Neither compute nor bandwidth is anywhere near its ceiling -- the real bottleneck is a third regime the two-axis roofline model doesn't capture: kernel-launch/dispatch overhead from many small, fragmented, sequential ops (the same underlying mechanism as this project's previously-documented B=1->B=2 decode cliff, now showing up in training too, though batch scaling here was smooth with no cliff -- a real, separate data point, since this measured forward+backward-with-checkpointing, a different regime from the decode path where the cliff was originally found).
+
+**Direct, measured proof of the fix**: `torch.compile` roughly DOUBLES both achieved TFLOPS and wall-clock speed at every batch size tested (B=8: 1013ms -> 458ms wall-clock, 21.0 -> 46.5 TFLOPS), and the elementwise kernel count drops from **1511 separate kernels to 109** -- real fusion, ~14x fewer kernel launches. This is a substantially bigger, more immediate win than the analytic ledger's own "modest elementwise cleanup" framing predicted -- it's the single largest lever found in this whole systems track, and it costs zero architecture work: **none of this session's recent training runs (Muon, MTP, n-gram, gated-residual, MoE, domain-banks) used `--compile-training`**, despite that flag already existing in `hz0h_bdh_vb_subspace_decoder_quality_check.py`.
+
+**Real, disclosed caveats**: measured on an A40 (a card not in the original roofline table, chosen by GPU availability, not by design) -- the qualitative finding (large eager-mode underutilization, largely fixed by compile) is very likely to generalize since the mechanism is kernel-dispatch overhead, not a card-specific quirk, but the exact percentages should be reconfirmed on RTX 4090/5090 before treating them as final. `--test-compile`'s `mode="max-autotune"` took a very long time on this A40 (many unique matmul/bmm shapes across 3 batch sizes, each independently autotuned) -- a real, disclosed cost of this specific diagnostic, not representative of ordinary training overhead (`mode="default"` would compile far faster and was not tested here).
+
+**Practical, immediate next step, cheaper than any further profiling or kernel work**: enable `--compile-training` on the NEXT real training run and confirm the ~2x win holds end-to-end (not just in this isolated profiler harness) before deciding whether custom kernel authorship (the original FlashBDH proposal) is still worth pursuing on top of it -- compiled-mode achieved TFLOPS (45-47) is still only ~30% of the A40's peak, so real headroom likely remains beyond what `torch.compile` alone captures, but that's a smaller, harder-to-justify investment until the cheap, already-available win is actually banked in a real run.
+
 ## 9. Phase 5 — occasional precise retrieval
 
 ### Real Tier-A diagnostic, 2026-08-28 — the hypothesis is real, not borrowed: recall collapses by ~128-256 tokens of distance
