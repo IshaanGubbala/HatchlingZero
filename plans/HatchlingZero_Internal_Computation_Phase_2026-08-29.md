@@ -58,3 +58,17 @@ Do not start with generic reasoning text at scale. Build executable synthetic wo
 **Honest secondary observation, not yet explained**: most of the gain completes by round 4; rounds 5-8 add little to what a *linear* probe can read out. Two live hypotheses, not distinguished by this diagnostic: (a) genuine diminishing marginal computation past round 4 for this task family at this model scale, or (b) the underlying state keeps improving in ways a linear probe's limited capacity can't detect (an MLP probe or a probe trained per-round with more capacity would help distinguish these -- not done here). Relevant directly to Phase 5's inference-time-scaling question: if (a), we may not see much benefit from R>8 at inference on tasks like this one; if (b), a stronger probe might reveal room the LM head itself isn't yet exploiting.
 
 **Ladder gate cleared -- proceed to Phase 2 (round embeddings) and the R-scaling baseline.**
+
+## 4. R-scaling baseline, 2026-08-29 -- real, honest, nuanced: extrapolation holds on easy tasks, degrades on the hardest one
+
+Extended the same script (`--max-round`, real: the weight-tied recurrence can be run for MORE rounds than the model's trained `config.n_layer=8` -- architecturally valid, weights are shared/reused every round by construction, not per-round-specific) to R=16, double the trained depth, on the identical four-hop-count task family.
+
+| round | hops=1 | hops=2 | hops=3 | hops=4 |
+|---:|---:|---:|---:|---:|
+| 8 (trained depth) | 0.780 | 0.750 | 0.870 | 0.840 |
+| 12 | 0.840 | 0.770 | 0.880 | 0.770 |
+| 16 | 0.880 | 0.740 | 0.810 | **0.660** |
+
+**Real, honest, nuanced result -- not a clean win, not a clean loss.** On hops=1,2,3, the round-4-8 plateau found in the base Phase 1 result continues cleanly all the way to R=16, no meaningful decay (values stay within their established 0.74-0.91 band). On hops=4 -- the hardest task tested, the one where the model has the least margin to begin with -- extrapolation shows a REAL, substantial decline: 0.840 at the trained depth down to 0.660 by R=16, a genuine ~0.18 drop, well beyond anything explainable by probe-training noise at this sample size.
+
+**Why this matters for the ladder, concretely**: naive weight-tied depth extrapolation is not free. It holds up on tasks the model already solves comfortably by round 4, but breaks down on the task at the edge of its real capability. The model has no explicit signal for "which round am I currently in" -- every round applies the identical shared transformation regardless of depth already completed, so running past the trained depth is architecturally valid but not something the model was ever taught to handle gracefully. This is a real, concrete failure case, not a hypothetical one, for Phase 2's round embeddings to address: `e_r` gives the model exactly the missing signal to potentially modulate its computation appropriately at round 12 or 16 differently than at round 4, rather than blindly reapplying round-4-style computation past where it stops helping. **Phase 2's promotion criteria should explicitly include this hops=4 R=16 degradation as a real test case** -- round embeddings should be checked against whether they close this specific gap, not just whether they improve in-distribution (R<=8) quality.
