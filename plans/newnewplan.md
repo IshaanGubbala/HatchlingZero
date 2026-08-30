@@ -168,24 +168,42 @@ nor:
 
 It is a continuous quality/compute control.
 
-Real, 2026-08-30 (RTX 5090, matched 25M-token budget, seed=7):
+Real, 2026-08-30 (RTX 5090/RTX 4090 fallback, matched 25M-token budget, seed=7):
 
 $$
-8/8 \approx 1.414\text{–}1.433,\quad 6/8 = 1.4505,\quad 4/8=1.5125,\quad 2/8=\text{pending}.
+8/8 \approx 1.414\text{–}1.433,\quad 6/8 = 1.4505,\quad 4/8=1.5125,\quad 2/8=1.4984.
 $$
 
-`final_g1` at 6/8 landed at 0.5366 -- same attractor family as 8/8's
-0.583/0.586 and 4/8's 0.5748, now a fourth independent confirmation.
+`final_g1` landed at 0.5366 (6/8) and 0.5955 (2/8) -- same attractor
+family as 8/8's 0.583/0.586 and 4/8's 0.5748, now confirmed across
+FOUR independent refresh cadences.
 
-Once the frontier lands, define the production cadence from measured Pareto efficiency.
+**Real, non-monotonic surprise: 2/8 (1.4984) beat 4/8 (1.5125).** Not
+what the plan's own outcome table predicted ("2 refreshes = likely too
+stale" implying the worst score). Real, disclosed confound before
+reading too much into this: `curriculum_stages(target_tokens,
+n_refresh)` computes ramp stages as `{max(2, round(n_refresh*f)) for f
+in (0.5,0.75,1.0)}` -- at n_refresh=2 this collapses to a SINGLE stage
+`{2}` (the `max(2,...)` floor collides with the target itself), so the
+2/8 arm trained at a CONSTANT refresh=2 the entire run, while 4/8 and
+6/8 both got real 3-stage ramps (2/8 log confirms: `n_refresh=2` on
+every single logged step, never anything else). So 2/8 and 4/8 are not
+quite an apples-to-apples comparison of "final cadence" alone -- 2/8
+also never spent any training time at LOWER-than-target refresh the
+way 4/8 and 6/8 did, and never spent time at HIGHER refresh mid-run
+either. Real, open question, not yet decomposed: does 2/8 truly
+tolerate more staleness than 4/8, or did skipping the ramp (training
+at the final cadence from step 1) help more than reaching a higher
+final cadence did? A same-schedule-shape rerun would be needed to
+separate these two effects cleanly -- not run here.
 
 Potential outcomes:
 
 ```text id="qv9x4u"
 8 refreshes = maximum quality (1.414-1.433)
 6 refreshes = real, small cost (+0.017-0.036) -- looks like the efficiency knee
-4 refreshes = real, moderate cost (+0.078-0.098) -- aggressive speed mode
-2 refreshes = likely too stale, pending
+2 refreshes = real, moderate cost (+0.065-0.084) -- constant schedule, no ramp
+4 refreshes = real, moderate cost (+0.078-0.098) -- WORSE than 2/8 despite more refreshes, curriculum-shape confound above
 ```
 
 Do not hard-code 4/8 as the vNext architecture.
