@@ -1,1393 +1,1076 @@
-Yes. I think this is the right moment to stop making tiny additions to BDH and design a **coherent vNext architecture** around what the experiments have actually taught us.
+Absolutely. The old plan needs a real rewrite now because the 4/8 cached-evidence result changes the architecture direction materially.
 
-I’d call the working design **BDH-Δ**, or internally **HatchlingZero vNext: Adaptive Evidence-Refresh BDH**.
+# HatchlingZero vNext Plan — Revised after cached-evidence crux
 
-The central change is:
+## 0. Updated thesis
 
-$$
-\boxed{\text{Separate expensive information access from cheap internal computation.}}
-$$
-
-Current BDH largely bundles both together every recurrent round. BDH-Δ would **retrieve exactly, think cheaply several times, update cautiously, then retrieve again only when useful**.
-
----
-
-# 1. The architecture in one picture
-
-```text
-                         HATCHLINGZERO / BDH-Δ
-┌──────────────────────────────────────────────────────────────────────────┐
-│                                                                          │
-│   TOKENS                                                                 │
-│      │                                                                   │
-│      ▼                                                                   │
-│  ┌──────────────────┐                                                    │
-│  │ Token Stem       │   calculated/cacheable once where possible        │
-│  │ embeddings/RoPE  │                                                    │
-│  └────────┬─────────┘                                                    │
-│           │                                                              │
-│           ▼                                                              │
-│  ╔════════════════════════════════════════════════════════════════════╗  │
-│  ║            EXACT ADDRESS / EVIDENCE REFRESH                       ║  │
-│  ║                                                                    ║  │
-│  ║   exact high-rank BDH addressing                                  ║  │
-│  ║   NO Q/K approximation                                            ║  │
-│  ║   NO neuron router                                                ║  │
-│  ║   NO sparse gather/scatter                                        ║  │
-│  ║                                                                    ║  │
-│  ║        query ──► exact competition ──► evidence                   ║  │
-│  ╚═══════════════════════╤════════════════════════════════════════════╝  │
-│                          │                                               │
-│                          ▼                                               │
-│                ┌──────────────────┐                                      │
-│                │ Evidence Cache   │                                      │
-│                │ value-side       │                                      │
-│                │ compressed       │                                      │
-│                └────────┬─────────┘                                      │
-│                         │                                                │
-│                         ▼                                                │
-│        ┌─────────────────────────────────────────┐                       │
-│        │      ADAPTIVE DELTA THINK CELL          │◄──────────────┐       │
-│        │                                         │               │       │
-│        │ inspect current belief + evidence       │               │       │
-│        │             │                           │               │       │
-│        │             ▼                           │               │       │
-│        │     propose Δstate                      │               │       │
-│        │     predict update gate g               │               │       │
-│        │     predict convergence c               │               │       │
-│        │             │                           │               │       │
-│        │             ▼                           │               │       │
-│        │ state ← state + g · Δstate              │───────────────┘       │
-│        └─────────────────────────────────────────┘    cheap × K          │
-│                         │                                                │
-│                 state changed enough?                                   │
-│                         │                                                │
-│              ┌──────────┴──────────┐                                     │
-│              │                     │                                     │
-│              ▼                     ▼                                     │
-│        evidence stale         evidence sufficient                       │
-│              │                     │                                     │
-│              ▼                     ▼                                     │
-│      EXACT REFRESH AGAIN       keep thinking                            │
-│                                                                          │
-│                         │                                                │
-│                         ▼                                                │
-│                ┌───────────────────┐                                     │
-│                │ Persistent Belief │────► next token latent carry        │
-│                └─────────┬─────────┘                                     │
-│                          │                                               │
-│                          ▼                                               │
-│                  rank-64 decoder                                         │
-│                          │                                               │
-│                          ▼                                               │
-│                       LOGITS                                             │
-│                                                                          │
-└──────────────────────────────────────────────────────────────────────────┘
-```
-
-The important part is that this architecture no longer equates
+The previous vNext thesis was:
 
 $$
-\text{one reasoning step}=\text{one full BDH re-query}.
+\text{exact address} \rightarrow
+\text{cheap compressed reasoning} \rightarrow
+\text{occasional re-address}
 $$
 
-That equivalence is currently killing us both computationally and, apparently, algorithmically.
+That was too aggressive.
 
----
+The new evidence says:
 
-# 2. The new primitive: **retrieve → think → think → think → retrieve**
+1. **Exact re-addressing is useful every round.**
+2. But reducing its frequency produces a **graceful quality/compute tradeoff**, not immediate collapse.
+3. The catastrophic BDH-Δ regression came primarily from the new compressed belief/workspace/Think Cell system.
+4. Therefore we should preserve BDH's existing full-dimensional representation and modify its dynamics **in-place**.
 
-Instead of current BDH behaving roughly like
-
-$$
-h_{r+1}=F_{\text{address+compute}}(h_r,x),
-$$
-
-eight times,
-
-I want:
-
-$$
-e_j=A(h_j,x)
-$$
-
-where \(A\) is the **expensive exact addressing operation**, followed by:
-
-$$
-h_{j,k+1}
-=
-h_{j,k}
-+
-g_{j,k}\Delta_{j,k}
-$$
-
-for several cheap internal microsteps \(k\).
-
-Then refresh evidence:
-
-$$
-e_{j+1}=A(h_{j,K},x).
-$$
-
-So execution could look like:
-
-```text
-exact address
-   ↓
-think
-think
-think
-   ↓
-exact address
-   ↓
-think
-think
-think
-   ↓
-exact address
-   ↓
-think
-think
-   ↓
-output
-```
-
-rather than:
-
-```text
-address + transform
-address + transform
-address + transform
-address + transform
-address + transform
-address + transform
-address + transform
-address + transform
-```
-
-This is probably the single biggest architectural idea here.
-
-It attacks **reasoning and speed simultaneously**.
-
----
-
-# 3. Why separate addressing from thinking?
-
-Because the experiments are screaming this distinction at us.
-
-| What we learned                                                  | BDH-Δ consequence                                        |
-| ---------------------------------------------------------------- | -------------------------------------------------------- |
-| Q/K compression fails badly even at enormous retained SVD energy | **Do not approximate addressing**                        |
-| Candidate routing/filtering fails                                | No neuron router                                         |
-| Cross-token neuron locality is terrible                          | No block-sparse neuron design                            |
-| Exact addressing appears load-bearing                            | Keep exact address refreshes                             |
-| m=32→16 loses surprisingly little quality                        | Make each exact refresh narrower/cheaper                 |
-| Decoder rank-64 works                                            | Compress after addressing, not before                    |
-| MoE barely helps and gate stays near zero                        | No expert machinery                                      |
-| Single residual gate gives best architectural quality win        | Controlled writes become fundamental                     |
-| R=2–4 tends to beat R=8                                          | Current recurrent updates probably overshoot             |
-| R=12/16 collapses                                                | Need stable delta dynamics                               |
-| Round embeddings hurt                                            | Don't tell it *which round* it's in                      |
-| State supervision learned shortcuts                              | Don't dictate internal representation                    |
-| `torch.compile` gives ~2.2×                                      | Architecture must be deliberately compiler/GEMM friendly |
-| Sparse execution gets slower                                     | Dense regular computation only                           |
-
-That gives us a surprisingly constrained design space.
-
----
-
-# 4. The **Adaptive Delta Think Cell**
-
-This is where I would depart most aggressively from original BDH.
-
-The cell gets:
-
-$$
-(h,e,b)
-$$
-
-where:
-
-* \(h\) = current scratch state
-* \(e\) = cached evidence retrieved by exact BDH addressing
-* \(b\) = slower persistent belief state
-
-and computes in **one packed projection**:
-
-$$
-[u,v,\gamma,\beta,c]
-=
-W_{\text{packed}}
-\begin{bmatrix}
-\operatorname{RMSNorm}(h)\\
-e\\
-b
-\end{bmatrix}.
-$$
-
-Then something like:
-
-$$
-\Delta h
-=
-W_o
-\left[
-\operatorname{SiLU}(u)\odot v
-\right]
-$$
-
-and
-
-$$
-g=\sigma(\gamma).
-$$
-
-Update:
+New thesis:
 
 $$
 \boxed{
-h' = h+\alpha\,g\,\frac{\Delta h}
-{\operatorname{RMS}(\Delta h)+\epsilon}
+\text{Keep BDH's full-state exact-address machinery intact,
+but make its recurrent dynamics cheaper, more stable, and more adaptive.}
 }
 $$
 
-The normalization is deliberate.
-
-We don't want the model learning:
-
-> do increasingly huge transformations.
-
-We want:
-
-> choose the **direction** of the next computation and choose how strongly to apply it.
-
-### This directly addresses the R>8 collapse
-
-Current recurrence can repeatedly push the state farther and farther:
-
-$$
-h\to F(h)\to F^2(h)\to F^3(h)\to\cdots
-$$
-
-with no reason for that trajectory to remain stable.
-
-Delta recurrence turns it into something closer to numerical integration:
-
-$$
-h_{r+1}=h_r+\delta_r.
-$$
-
-If you're close to the solution:
-
-$$
-g_r\rightarrow0.
-$$
-
-If there's work left:
-
-$$
-g_r>0.
-$$
-
-That's much closer to the chef tasting the dish.
+vNext should evolve **from the current champion**, not replace its internal representation.
 
 ---
 
-# 5. Don't use a round clock. Give it a **thermometer**
+# 1. Canonical starting point
 
-Our round-embedding experiment essentially said:
-
-> “You are on round 5.”
-
-It didn't help.
-
-Instead, give the controller information like:
-
-$$
-q_r =
-[
-\|\Delta h_r\|,
-\cos(h_r,h_{r-1}),
-H(e_r),
-\|e_r-e_{r-1}\|,
-g_{r-1},
-c_{r-1}
-].
-$$
-
-These are **state-of-computation signals**, not round identity.
-
-The model learns:
-
-> my belief barely changed
-
-or
-
-> my new evidence disagrees strongly with the existing state
-
-rather than:
-
-> it's round seven, therefore I should verify.
-
-That's a much more plausible basis for adaptive algorithms.
-
-And these are just tiny reductions/scalars.
-
----
-
-# 6. Two timescales of state
-
-I would seriously consider splitting the current hidden representation conceptually into:
-
-### Scratch state \(h\)
-
-Changes quickly.
-
-Used for:
-
-* candidate deductions
-* temporary relationships
-* intermediate computation
-* uncertainty
-* local search
-
-### Belief state \(b\)
-
-Changes slowly.
-
-$$
-b' = b+\beta w_b\Delta b,
-\qquad \beta \ll \alpha.
-$$
-
-This is the model's more stable internal representation of:
-
-* what it believes
-* entities
-* persistent relationships
-* goals
-* established deductions
-
-So you get:
-
-```text
-Evidence
-   ↓
-Scratch:  "maybe A→C"
-   ↓
-Scratch:  "B→C confirms it"
-   ↓
-Belief:   commit A→C
-```
-
-instead of continuously rewriting the same tensor with everything.
-
-This could be implemented without huge parameter duplication because the update machinery stays shared.
-
----
-
-# 7. Make the internal workspace **small and dense**
-
-I'd go even further and carve a tiny fixed latent workspace out of the state.
-
-Something like:
-
-$$
-S\in\mathbb{R}^{4\times128}
-$$
-
-or:
-
-$$
-S\in\mathbb{R}^{8\times96}.
-$$
-
-Not dynamic slots.
-
-Not routed experts.
-
-Not sparse neurons.
-
-Just **4–8 fixed dense thinking registers**.
-
-Think:
-
-```text
-slot 0     current goal
-slot 1     fact / entity
-slot 2     second fact
-slot 3     candidate consequence
-slot 4     unresolved relation
-slot 5     verification
-```
-
-Importantly, we do **not supervise those meanings**.
-
-Those are merely examples of what the model *could* invent.
-
-The network gets a compact structured workspace, but it determines its semantics.
-
-Because there are very few slots, operations across all of them become tiny regular matrix multiplies.
-
-No gather/scatter.
-
-No router.
-
-No token-specific sparse kernels.
-
----
-
-# 8. Exact addressing becomes an **observation operator**
-
-This changes how I conceptually interpret BDH addressing.
-
-Instead of addressing itself being the reasoning mechanism, make it:
-
-$$
-\boxed{\text{BDH addressing = observe/retrieve relevant evidence}}
-$$
-
-and the delta cell becomes:
-
-$$
-\boxed{\text{latent workspace = compute on that evidence}}
-$$
-
-This is a major separation of concerns.
-
-BDH's bizarre high-rank neuron competition seems excellent at **finding useful representations**.
-
-We've repeatedly failed when trying to simplify that.
-
-Fine.
-
-Let it specialize in what it's apparently good at.
-
-Don't also require that operation to be our entire reasoning engine.
-
----
-
-# 9. Cache the exact-address result
-
-This is where the speed story gets interesting.
-
-Say current BDH uses eight expensive exact re-queries.
-
-Imagine BDH-Δ uses:
-
-$$
-3\text{ exact refreshes}
-$$
-
-with
-
-$$
-3\text{ cheap thinking steps per refresh}.
-$$
-
-Then you get:
-
-$$
-9\text{ internal transformations}
-$$
-
-while paying for expensive addressing only:
-
-$$
-3\times.
-$$
-
-That's precisely the kind of quality/compute trade we haven't tested properly because historically we've tried to **skip whole recurrent computation**.
-
-Here we're not skipping thought.
-
-We're separating:
-
-$$
-\text{retrieval cost}
-$$
-
-from:
-
-$$
-\text{computation depth}.
-$$
-
-That's crucial.
-
----
-
-# 10. Value-side evidence compression
-
-After exact addressing produces evidence:
-
-$$
-e=A(q,K,V),
-$$
-
-compress **there**.
-
-For example:
-
-$$
-e_c=P_{64}^{T}e.
-$$
-
-Then all the cheap reasoning operates in the compressed space.
-
-This is where our evidence supports aggression.
-
-Q/K compression:
-
-❌ catastrophic.
-
-Decoder/value-side rank-64:
-
-✅ works.
-
-Therefore:
+Start from the strongest validated architecture:
 
 $$
 \boxed{
-\text{high fidelity before selection; aggressive compression after selection}
+\text{compound BDH}
++
+\text{rank-64 decoder}
++
+\text{single }g_1\text{ residual gate}
++
+\text{torch.compile}
 }
 $$
 
-could become an explicit HatchlingZero design principle.
+Keep:
+
+* exact high-rank addressing
+* full \(D=2496\) recurrent state
+* weight tying
+* rank-64 output/value-side compression
+* \(m=16\)-class reduced width
+* BF16
+* static/preallocated execution
+* compiled training/inference
+* existing depth curriculum where useful
+
+Do **not** insert a new latent coordinate system between BDH rounds.
 
 ---
 
-# 11. Persistent latent feedback across tokens
+# 2. Kill the compressed world-model architecture
 
-I'd also add one somewhat more speculative feature.
+The following BDH-Δ components should be removed from the main architecture:
 
-Don't throw away the final thinking state when you emit a token.
+* 384-d belief bottleneck
+* 8×96 separate workspace
+* separate belief cell
+* cross-token compressed belief carry
+* large fresh Think Cell
+* independent compressed latent dynamics
+* predictor/corrector built around that bottleneck
 
-Carry a compact portion into the next token:
+Reason:
 
 $$
-b_{t+1,0}
+1.7862-1.5125\approx0.274
+$$
+
+Most of BDH-Δ's damage came from the new machinery, not cached addressing.
+
+The failure looks like a **representation/interface failure**, not evidence that adaptive recurrence itself is impossible.
+
+---
+
+# 3. Preserve full-state reasoning
+
+Any new internal-computation mechanism now operates directly on:
+
+$$
+h_r\in\mathbb{R}^{2496}
+$$
+
+rather than:
+
+$$
+2496\rightarrow384\rightarrow\text{workspace}.
+$$
+
+So the same representational space that BDH already knows how to use remains intact.
+
+This becomes a hard architectural principle:
+
+$$
+\boxed{\text{Don't force BDH through a new bottleneck unless evidence demands it.}}
+$$
+
+We've already repeatedly learned that BDH tolerates value/output compression much better than changes to representations involved in its internal computation.
+
+---
+
+# 4. Separate two concepts we previously bundled
+
+There are really two different questions:
+
+### Evidence refresh
+
+$$
+e_r=A(h_r,x)
+$$
+
+How often do we pay for exact addressing?
+
+### State evolution
+
+$$
+h_{r+1}=U(h_r,e_r)
+$$
+
+How should the state change after receiving evidence?
+
+These should remain conceptually separate even if they stay tightly coupled in implementation.
+
+The cached-evidence experiment is measuring the first.
+
+The next architecture work should focus on the second.
+
+---
+
+# 5. Evidence refresh becomes a tunable cadence
+
+We now know:
+
+$$
+8/8 \approx 1.414\text{–}1.433
+$$
+
+and:
+
+$$
+4/8=1.5125.
+$$
+
+So exact refresh frequency is neither:
+
+> totally redundant
+
+nor:
+
+> absolutely required every iteration.
+
+It is a continuous quality/compute control.
+
+Real, 2026-08-30 (RTX 5090, matched 25M-token budget, seed=7):
+
+$$
+8/8 \approx 1.414\text{–}1.433,\quad 6/8 = 1.4505,\quad 4/8=1.5125,\quad 2/8=\text{pending}.
+$$
+
+`final_g1` at 6/8 landed at 0.5366 -- same attractor family as 8/8's
+0.583/0.586 and 4/8's 0.5748, now a fourth independent confirmation.
+
+Once the frontier lands, define the production cadence from measured Pareto efficiency.
+
+Potential outcomes:
+
+```text id="qv9x4u"
+8 refreshes = maximum quality (1.414-1.433)
+6 refreshes = real, small cost (+0.017-0.036) -- looks like the efficiency knee
+4 refreshes = real, moderate cost (+0.078-0.098) -- aggressive speed mode
+2 refreshes = likely too stale, pending
+```
+
+Do not hard-code 4/8 as the vNext architecture.
+
+The frontier decides.
+
+---
+
+# 6. Introduce the concept of **evidence lifetime**
+
+The useful question is:
+
+$$
+\boxed{
+\text{How many state transformations remain useful before evidence becomes stale?}
+}
+$$
+
+Call that the **evidence lifetime**.
+
+If 6/8 performs almost like 8/8, evidence can survive roughly one skipped refresh.
+
+If 4/8 loses much more, two consecutive transformations on stale evidence is too much.
+
+This should guide the architecture directly.
+
+Instead of blindly:
+
+```text id="g4xmnf"
+refresh
+think
+think
+refresh
+think
+think
+```
+
+we can design around the measured lifetime.
+
+---
+
+# 7. Full-state Adaptive Delta BDH
+
+This is now the main architectural change I would pursue.
+
+Current update approximately:
+
+$$
+h_{r+1}=\operatorname{LN}(h_r+y_r).
+$$
+
+We already learned the write should be scaled:
+
+$$
+h_{r+1}
 =
-\lambda_t b_{t,\text{final}}
-+
-(1-\lambda_t)E(x_{t+1}).
-$$
-
-Not the entire previous activation stack.
-
-Just a small persistent belief vector/workspace.
-
-That means a reasoning process doesn't have to be reconstructed from scratch at every generated token.
-
-Recent 2026 work is independently exploring this direction. Microsoft's Latent Recurrent Transformer feeds a high-level latent state from the prior token into the next and reports improvements with as little as ~0.3% additional parameters; their new Full-Bandwidth Transformer similarly feeds top-level latent information back into the next decoding step while preserving ordinary autoregressive generation. ([Microsoft][1])
-
-For us it fits unusually well because **stateful computation is already BDH's philosophical territory**.
-
----
-
-# 12. A convergence head, but NOT immediate dynamic routing
-
-The Think Cell should predict:
-
-$$
-c_r=\sigma(w_c^Th_r)
-$$
-
-representing something like:
-
-> “How settled am I?”
-
-But I would initially **not** use it to branch execution sample-by-sample.
-
-Why?
-
-Because we already learned what happens when mathematically elegant sparsity hits a GPU:
-
-💀 gather/scatter
-💀 poor occupancy
-💀 irregular work
-💀 theoretical FLOP savings that become slower wall-clock
-
-Instead, execution remains static during training:
-
-```text
-3 refreshes × 3 think steps
-```
-
-but \(c_r\) can suppress state updates:
-
-$$
-g_r\leftarrow g_r(1-c_r).
-$$
-
-Later, inference can bucket sequences:
-
-```text
-still-thinking batch
-finished batch
-```
-
-if early exit proves worthwhile.
-
-This separates **adaptive mathematics** from **irregular GPU execution**.
-
----
-
-# 13. A fixed-point interpretation
-
-There's a neat way to formulate the goal:
-
-We want:
-
-$$
-h^\*=T(h^\*,e)
-$$
-
-where the correct internal solution is approximately a fixed point.
-
-Repeated computation should approach:
-
-$$
-h_0\rightarrow h_1\rightarrow h_2\rightarrow\cdots\rightarrow h^\*
-$$
-
-instead of:
-
-$$
-h_0\rightarrow h_1\rightarrow h_2
-\rightarrow \text{good}
-\rightarrow \text{worse}
-\rightarrow \text{garbage}.
-$$
-
-This isn't just our speculation. A 2026 paper on **Attractor Models** explicitly redesigns recurrent refinement around solving for a fixed point and adaptive convergence, motivated in part by instability in ordinary looped architectures. Their results are interesting enough that I'd absolutely steal the *principle*, though not necessarily their implementation. ([arXiv][2])
-
-That maps extremely well onto our empirical R=12/16 collapse.
-
----
-
-# 14. The addressing engine itself
-
-I would keep this boring.
-
-That's intentional.
-
-### Keep
-
-Exact high-rank BDH addressing.
-
-No:
-
-* Q/K SVD
-* neuron routing
-* block routing
-* dynamic candidate pruning
-* static masks
-* K-means templates
-
-The addressing failures are now too numerous to ignore.
-
-But I **would** retain the architectural wins around it:
-
-$$
-m=16
-$$
-
-or the current equivalent reduced-width operating point rather than returning to the oversized \(m=32\) regime.
-
-And where the proven attention variant is applicable, retain the properly scaled softmax behavior that beat the inherited primitive.
-
----
-
-# 15. Now make exact addressing brutally GPU-friendly
-
-Even if the math remains exact, the implementation shouldn't resemble the original sequence of little operations.
-
-We want something like:
-
-```text
-              ┌──────────── packed GEMM ───────────────┐
-state/input ──┤ encoder | encoder_v | query auxiliaries │
-              └─────────────────────────────────────────┘
-                                 ↓
-                      exact BDH competition
-                                 ↓
-                       fused normalization
-                                 ↓
-                         value aggregation
-                                 ↓
-                         compressed evidence
-```
-
-rather than individual launches for every conceptual operation.
-
-The profiler already gave us the mandate:
-
-$$
-1511\rightarrow109
-$$
-
-elementwise kernels after compilation, and wall time improved roughly:
-
-$$
-1013\text{ ms}\rightarrow458\text{ ms}.
-$$
-
-That means **graph shape matters enormously**.
-
-So BDH-Δ should be designed from the beginning as a handful of large operators.
-
----
-
-# 16. Pack projections whenever dependencies permit it
-
-Current BDH spends enormous compute in wide encoder / encoder_v / decoder-style projections.
-
-When two projections consume the exact same tensor:
-
-Instead of:
-
-$$
-Q=XW_Q
-$$
-
-$$
-V=XW_V
-$$
-
-perform:
-
-$$
-[Q,V]
-=
-X
-\begin{bmatrix}
-W_Q&W_V
-\end{bmatrix}.
-$$
-
-Same mathematical result.
-
-Bigger GEMM.
-
-Fewer launches.
-
-Better Tensor Core utilization.
-
-This should become a **design constraint**, not an after-the-fact optimization.
-
----
-
-# 17. The Think Cell should have almost no little kernels
-
-One microstep should ideally become approximately:
-
-```text
-RMSNorm
-   ↓
-ONE packed input GEMM
-   ↓
-SiLU × gate
-   ↓
-ONE output GEMM
-   ↓
-fused gated residual update
-```
-
-Under `torch.compile`, the norm/gates/residual can hopefully collapse around those GEMMs.
-
-So maybe:
-
-$$
-2\text{ substantial GEMMs / thought step}.
-$$
-
-No token-specific indexing.
-
-No expert dispatch.
-
-No sparse scatter.
-
-No dynamically sized tensors.
-
----
-
-# 18. Unroll the cheap recurrence inside one compiled graph
-
-Because microstep count is small and fixed during training:
-
-```text
-ThinkCell
-ThinkCell
-ThinkCell
-```
-
-should be compiled as one graph.
-
-Weights are reused.
-
-Parameters don't grow.
-
-Inductor can see the whole recurrence.
-
-Eventually, if profiling says those remaining boundaries dominate, **that** becomes the custom kernel target.
-
-Not “FlashBDH everything.”
-
-A very specific fused **Think-3** kernel.
-
----
-
-# 19. Cache positional/context-side calculations aggressively
-
-We found RoPE itself could consume absurd wall-clock despite essentially no FLOPs.
-
-BDH-Δ naturally creates more reuse opportunities because the evidence refreshes are sparse relative to thought steps.
-
-Anything depending purely on static token position/context should be computed once and retained.
-
-Then the Think Cell sees already-prepared evidence.
-
-No positional math during:
-
-```text
-think
-think
-think
-```
-
-at all.
-
----
-
-# 20. Slow belief writes
-
-Our single-gate experiment might be pointing at something profound.
-
-It started around \(1.0\) and learned roughly:
-
-$$
-g_1\approx0.586.
-$$
-
-The model improved when we simply told its write pathway:
-
-> do less.
-
-So I would hardwire that philosophy into the new recurrence.
-
-Scratch can update relatively fast:
-
-$$
-h' = h+\alpha g_h\Delta h.
-$$
-
-Persistent belief updates slower:
-
-$$
-b'=b+\beta g_b\Delta b
+\operatorname{LN}(h_r+g_1y_r)
 $$
 
 with:
 
 $$
-\beta<\alpha.
+g_1\approx0.58.
 $$
 
-Maybe initial values something like:
+Now generalize that minimally.
+
+Instead of a single global scalar:
 
 $$
-\alpha\approx0.5,\qquad
-\beta\approx0.1
+g_1
 $$
 
-as hypotheses, not sacred constants.
-
-The model can later learn them.
-
----
-
-# 21. Protect the new state machinery early in training
-
-Another lesson we shouldn't waste:
-
-Identity initialization worked only when protected.
-
-The same good representation was ruined when gradients attacked immediately, while freezing for 500 steps produced a huge improvement.
-
-So new BDH-Δ should initialize close to the known-good BDH function.
-
-Specifically:
+use a **state-dependent gate**:
 
 $$
-g_{\text{new-delta}}\approx0
-$$
-
-initially.
-
-Therefore:
-
-$$
-h'\approx h.
-$$
-
-Then gradually permit the new Think Cell to contribute.
-
-That gives us a migration path:
-
-```text
-known-good BDH
-      ↓
-small delta behavior
-      ↓
-learned adaptive internal computation
-```
-
-instead of throwing all the representations into chaos at initialization.
-
----
-
-# 22. No auxiliary symbolic state targets
-
-This becomes a design rule.
-
-We should **never again tell the state what its representation is supposed to look like** unless there is overwhelming evidence.
-
-No:
-
-```text
-slot 1 = entity
-slot 2 = location
-round 3 = deduction
-```
-
-The architecture supplies computational affordances.
-
-LM/reasoning outcomes supply pressure.
-
-The network invents representation.
-
-The failed state-supervision run was useful precisely because it showed how eager the model is to satisfy our probe instead of solving our intended computation.
-
----
-
-# 23. No round embeddings
-
-Also gone.
-
-The Think Cell receives:
-
-$$
-(h,e,b)
-$$
-
-and determines what to do from them.
-
-Same function.
-
-Different state ⇒ different operation.
-
-Exactly the chef analogy.
-
-That is the behavior we're trying to make emerge.
-
----
-
-# 24. But keep weight tying absolutely
-
-This is one of BDH's strongest results.
-
-Untying recurrence at matched parameter count was disastrous.
-
-So:
-
-$$
-T_{\theta}
-$$
-
-is the **same Think Cell every iteration**.
-
-Likewise the expensive address machinery remains shared.
-
-That's how compute substitutes for parameters.
-
-Looped-model research independently supports the basic premise that effective reasoning depth can be increased through repeated use of the same parameters, even though—as our own experiment showed—recurrence by itself clearly doesn't guarantee that outcome. ([arXiv][3])
-
----
-
-# 25. One potentially wild addition: **predictor / corrector recurrence**
-
-There's a numerical-method analogy I really like.
-
-Treat cheap thinking as a predictor:
-
-$$
-\tilde h_{r+1}
-=
-h_r+\Delta(h_r,e_r).
-$$
-
-Then exact BDH addressing is the corrector:
-
-$$
-e_{r+1}=A(\tilde h_{r+1},x).
+g_r=g_\theta(h_r,e_r).
 $$
 
 Then:
 
 $$
+\boxed{
 h_{r+1}
 =
-\tilde h_{r+1}
-+
-C(\tilde h_{r+1},e_{r+1}).
+\operatorname{LN}
+\left(
+h_r+g_r\,y_r
+\right)
+}
 $$
 
-So:
+No new hidden representation.
 
-```text
-THINK ─► prediction
-          │
-          ▼
-ADDRESS ─► check against actual context
-          │
-          ▼
-CORRECT
-```
+No separate Think Cell.
 
-That could be a very natural way to combine BDH's strong retrieval/association machinery with an actual internal dynamics model.
+No new workspace.
+
+Just make the already-successful gate adaptive.
 
 ---
 
-# 26. Another wild addition: **evidence disagreement**
+# 8. Keep the controller tiny
 
-The model should know when its current belief conflicts with newly retrieved evidence.
+This controller should be deliberately tiny.
 
-Calculate a tiny compatibility score:
+For example:
+
+$$
+q_r=
+[
+\operatorname{RMS}(h_r),
+\operatorname{RMS}(y_r),
+\cos(h_r,y_r),
+\operatorname{RMS}(h_r-h_{r-1})
+].
+$$
+
+Then:
+
+$$
+g_r=\sigma(W_2\phi(W_1q_r)).
+$$
+
+Maybe only tens or hundreds of parameters.
+
+Alternatively a per-channel gate:
+
+$$
+g_r\in\mathbb{R}^{D}
+$$
+
+could be tested later, but start scalar or per-head.
+
+The important point is:
+
+$$
+\boxed{\text{controller complexity} \ll \text{BDH state complexity}.}
+$$
+
+We don't want another 4.6M-parameter subsystem inventing a parallel coordinate system.
+
+---
+
+# 9. Protect initialization at the known-good solution
+
+This is critical.
+
+Initialize adaptive gating so:
+
+$$
+g_r\approx0.58.
+$$
+
+Not zero.
+
+Not one.
+
+Not random.
+
+We now have remarkable reproducibility:
+
+$$
+0.583,\quad0.586,\quad0.5748.
+$$
+
+So ~0.58 looks like a genuine attractor of the existing dynamics.
+
+Start vNext **exactly there**.
+
+Then the new controller initially behaves approximately like the known-good single-gate architecture:
+
+$$
+g_\theta(h,e)\approx0.58.
+$$
+
+Training only has to learn deviations from a working solution.
+
+This uses the protected-learning lesson correctly.
+
+---
+
+# 10. Add a bounded delta-update
+
+The next minimal extension is to constrain update magnitude:
+
+$$
+u_r=g_r y_r.
+$$
+
+Then:
+
+$$
+u_r'
+=
+\alpha_r
+\frac{u_r}
+{\operatorname{RMS}(u_r)+\epsilon}.
+$$
+
+And:
+
+$$
+h_{r+1}
+=
+\operatorname{LN}(h_r+u_r').
+$$
+
+But this should be tested conservatively.
+
+The purpose is to prevent:
+
+$$
+R=12,16
+$$
+
+from driving the representation off-manifold.
+
+We want recurrence to behave more like:
+
+$$
+h_{r+1}=h_r+\delta_r
+$$
+
+than repeatedly performing unrestricted state rewrites.
+
+---
+
+# 11. No explicit round identity
+
+Do not reintroduce round embeddings.
+
+The controller should answer:
+
+> How much should I update given my current state?
+
+not:
+
+> What round number am I on?
+
+So all control signals come from state dynamics:
+
+* change magnitude
+* evidence disagreement
+* residual magnitude
+* confidence/convergence proxies
+
+not \(r\).
+
+This preserves extrapolation potential.
+
+---
+
+# 12. Evidence disagreement, but in full state
+
+This idea survives BDH-Δ.
+
+Calculate something cheap like:
 
 $$
 d_r=
-\cos(
-P_b b_r,
-P_e e_r
-).
+\cos(P_hh_r,P_ee_r).
 $$
 
-If:
+Or even avoid projections initially:
 
 $$
-d_r\approx1
+d_r=
+\cos(h_r,e_r)
 $$
 
-the evidence supports its belief.
+if dimensions align meaningfully.
 
-If:
+Feed it into the update gate:
 
 $$
-d_r\ll1
+g_r=f(q_r,d_r).
 $$
 
-something changed or its hypothesis is wrong.
+Interpretation:
 
-Feed \(d_r\) into the delta gate.
+* evidence agrees with state → smaller update
+* evidence conflicts → stronger correction
 
-Then the network gets the primitive:
+This gives recurrence a primitive for:
 
-> “My current model of the situation disagrees with what I just retrieved.”
+$$
+\boxed{\text{“what I believe” vs “what I just observed.”}}
+$$
 
-That's a surprisingly fundamental ingredient for actual iterative reasoning.
-
-And it costs almost nothing.
+without creating a separate belief representation.
 
 ---
 
-# 27. The compute hierarchy becomes
+# 13. Adaptive refresh eventually, but not sample-level branching
 
-Instead of every operation costing roughly the same:
+Once the 8/6/4/2 frontier is known, we can consider a refresh-confidence score:
 
-### Level 0 — tiny controller
+$$
+\rho_r=f(h_r,e_r,h_{r-1}).
+$$
 
-Scalar reductions/gates.
+Conceptually:
 
-Almost free.
+$$
+\rho_r\rightarrow\text{“cached evidence is stale.”}
+$$
 
-### Level 1 — Think Cell
+But do not immediately implement:
 
-Small dense state GEMMs.
+```text id="5ksj7b"
+if rho > threshold:
+    run attention
+else:
+    skip
+```
 
-Cheap.
+per token.
 
-### Level 2 — Evidence refresh
+That would repeat the dynamic-routing hardware mistakes.
 
-Full exact BDH high-rank addressing.
+Instead:
 
-Expensive.
+### Training
 
-### Level 3 — vocabulary projection
+Use fixed schedules.
 
-Only when output is required.
+### Inference
 
-Potentially expensive.
+Potentially bucket whole sequences or batches into:
 
-This gives the architecture different **computational gears**.
+* refresh now
+* reuse evidence
 
-Current BDH largely has one gear.
+Only if profiling shows the branching pays.
 
-That's part of the problem.
+Architecture can be adaptive mathematically without making CUDA irregular.
 
 ---
 
-# 28. Example: actual multi-hop reasoning
+# 14. Multi-rate recurrence
 
-Input:
+If the frontier supports it, the final architecture becomes a **multi-rate recurrent system**.
 
-```text
-Kav is inside Zim.
-Zim is carried by Pel.
-Pel moved to Room 7.
-Where is Kav?
+Example if 6/8 wins:
+
+```text id="z5ntwg"
+Iteration 1: ADDRESS + UPDATE
+Iteration 2: ADDRESS + UPDATE
+Iteration 3: UPDATE using cached evidence
+Iteration 4: ADDRESS + UPDATE
+Iteration 5: ADDRESS + UPDATE
+Iteration 6: UPDATE using cached evidence
+Iteration 7: ADDRESS + UPDATE
+Iteration 8: ADDRESS + UPDATE
 ```
 
-### Refresh 1
+So expensive evidence acquisition runs at one frequency, while state evolution runs at another.
 
-Exact addressing retrieves:
-
-```text
-Kav → Zim
-```
-
-Scratch:
-
-```text
-Need location(Kav).
-Kav contained by Zim.
-```
-
-### Think 1
-
-State-conditioned operation realizes:
-
-```text
-Need location(Zim).
-```
-
-Not because “this is round two.”
-
-Because that's what the current belief lacks.
-
-### Refresh 2
-
-Query has changed because state changed.
-
-Exact addressing now retrieves:
-
-```text
-Zim → Pel
-Pel → Room 7
-```
-
-### Think 2
-
-Compose:
-
-$$
-Kav\in Zim,\quad
-Zim\in Pel,\quad
-Pel\in Room7.
-$$
-
-### Think 3
-
-Infer:
-
-$$
-Kav\in Room7.
-$$
-
-Convergence rises.
-
-Update gate falls.
-
-No more meaningful state change.
-
-### Output
-
-`Room 7`.
-
-That is finally something I would be comfortable calling **latent iterative reasoning** if the experiments supported it.
+This is substantially less radical than BDH-Δ but still genuinely new.
 
 ---
 
-# 29. What the full vNext might look like numerically
+# 15. Preserve the original computation on cached rounds
 
-A first serious configuration could be roughly:
+The cached-evidence crux taught us another important thing.
 
-| Component                     | vNext starting point                      |
-| ----------------------------- | ----------------------------------------- |
-| BDH addressing                | exact                                     |
-| Address width                 | reduced operating point / ~m16-equivalent |
-| Q/K                           | full-fidelity                             |
-| Exact refreshes               | **3–4**                                   |
-| Think steps per refresh       | **2–4**                                   |
-| Total latent think depth      | ~8–12                                     |
-| Decoder                       | SVD rank 64                               |
-| Scratch workspace             | ~4–8 slots                                |
-| Slot width                    | ~64–128                                   |
-| Belief state                  | ~256–512                                  |
-| Think-cell weights            | shared                                    |
-| Address weights               | shared                                    |
-| Delta gate                    | state-dependent                           |
-| Belief gate                   | state-dependent + slower                  |
-| Round embedding               | none                                      |
-| MoE                           | none                                      |
-| sparse routing                | none                                      |
-| dynamic training control flow | none                                      |
-| state dtype                   | BF16                                      |
-| execution                     | static / compiled                         |
-| decode buffers                | preallocated                              |
-| latent carry across tokens    | yes                                       |
-| convergence estimate          | yes                                       |
-| early exit                    | optional/bucketed inference only          |
+When an address refresh is skipped, don't replace BDH's normal state computation with a new MLP.
 
-Those exact dimensions are hypotheses, but the **structure** is what matters.
+Use the existing:
+
+* `encoder`
+* `encoder_v`
+* ReLU
+* multiplicative interaction
+* rank-64 decoder
+* gated residual
+
+with cached \(e\).
+
+That gives us cheap computation **inside the representation BDH already understands**.
+
+This is much safer than:
+
+$$
+\text{cached evidence}\rightarrow\text{new Think Cell}.
+$$
 
 ---
 
-# 30. The core mathematical object
+# 16. Speed architecture: design for a tiny number of big kernels
 
-If I had to compress the entire redesign into one equation, it would be:
+This stays central.
+
+The architecture should intentionally map to:
 
 $$
-\boxed{
-\begin{aligned}
-e_j &= A_{\rm exact}(b_j,x) \\[2mm]
-h_{j,0} &= I(b_j,e_j) \\[2mm]
-h_{j,k+1}
-&=
-h_{j,k}
+\text{large dense GEMM}
 +
-g(h_{j,k},e_j,b_j)\,
-\Delta_\theta(h_{j,k},e_j,b_j) \\[2mm]
-b_{j+1}
-&=
-b_j+
-w(h_{j,K},e_j,b_j)\,
-\Delta b_\theta(h_{j,K},e_j,b_j)
-\end{aligned}
-}
+\text{large dense GEMM}
++
+\text{fused reductions}
 $$
 
-with shared \(\theta\).
+rather than many conceptual kernels.
 
-That's HatchlingZero's new loop:
-
-$$
-\boxed{
-\text{observe}
-\rightarrow
-\text{think}
-\rightarrow
-\text{think}
-\rightarrow
-\text{update belief}
-\rightarrow
-\text{observe again}.
-}
-$$
-
-Not:
+We already saw:
 
 $$
-\text{redo whole BDH eight times}.
+1511\rightarrow109
+$$
+
+elementwise kernels and:
+
+$$
+2.21\times
+$$
+
+speed from compilation alone.
+
+That is too large to treat implementation geometry as secondary.
+
+---
+
+# 17. Fuse same-input projections
+
+Where dependencies permit:
+
+$$
+XW_1,\quad XW_2
+$$
+
+becomes:
+
+$$
+X[W_1|W_2].
+$$
+
+Candidates include compatible portions of:
+
+* encoder
+* encoder_v
+* control statistics projection
+* any future gate projections
+
+The adaptive controller should preferably consume statistics already produced by the main kernels.
+
+Don't introduce three tiny GEMMs just to decide a scalar gate.
+
+---
+
+# 18. Cached-round specialized kernel
+
+If the frontier promotes reduced refresh cadence, there should eventually be **two compiled round types**:
+
+### Refresh round
+
+```text id="laa1xs"
+encoder
+exact attention/address
+value path
+decoder
+adaptive residual
+```
+
+### Cached round
+
+```text id="7oa4jw"
+encoder
+reuse evidence
+value path
+decoder
+adaptive residual
+```
+
+The cached round should be substantially cheaper.
+
+That gives us a predictable static execution pattern suitable for compile/kernel specialization.
+
+---
+
+# 19. Static schedules first
+
+Possible schedule forms:
+
+### Uniform
+
+$$
+\{1,3,5,7\}
+$$
+
+### Front-loaded
+
+$$
+\{1,2,3,5,7,8\}
+$$
+
+### Back-loaded
+
+$$
+\{1,3,5,6,7,8\}
+$$
+
+### Boundary-heavy
+
+$$
+\{1,2,4,6,7,8\}
+$$
+
+The 4/8 experiment only tests frequency, not necessarily optimal placement.
+
+Because state changes may be largest early, refresh placement could matter.
+
+But test this **after** the count frontier.
+
+---
+
+# 20. Revisit the depth curriculum with refresh curriculum
+
+Training shouldn't necessarily start at the final sparse-refresh schedule.
+
+A natural curriculum is:
+
+```text id="g4e2as"
+early training:
+8/8 refresh
+
+middle:
+7/8 or 6/8
+
+late:
+target cadence
+```
+
+This is analogous to the successful depth curriculum.
+
+Early training gets maximum fresh evidence while the representation is forming.
+
+Later training learns to operate with stale evidence.
+
+That might recover some of the 4/8 quality gap.
+
+This is much more principled than asking freshly initialized compressed machinery to learn everything simultaneously.
+
+---
+
+# 21. Train for variable refresh count
+
+Eventually sample:
+
+$$
+K\sim\{4,6,8\}
+$$
+
+during training.
+
+But unlike the failed variable-R reasoning experiment, here there is already direct evidence that K is a useful compute knob.
+
+This could produce one checkpoint with selectable modes:
+
+```text id="x2h71v"
+quality mode     8/8
+balanced mode    6/8
+speed mode       4/8
+```
+
+That would be genuinely useful for deployment.
+
+---
+
+# 22. Re-test reasoning only after recurrence dynamics improve
+
+Don't immediately put synthetic world-model losses back in.
+
+First require the architecture itself to show:
+
+$$
+A(R=1)<A(R=2)<A(R=4)<A(R=8)
+$$
+
+on genuinely multi-hop tasks.
+
+Or at least:
+
+$$
+R_{\text{optimal}}
+$$
+
+should increase with task difficulty.
+
+If full-state adaptive gating/delta recurrence changes the curve, then revisit reasoning objectives.
+
+If it still doesn't, we have stronger evidence that BDH recurrence is fundamentally refinement rather than sequential reasoning.
+
+---
+
+# 23. Add a convergence diagnostic, not a training target
+
+Track:
+
+$$
+\Delta_r=\|h_r-h_{r-1}\|
+$$
+
+$$
+\cos(h_r,h_{r-1})
+$$
+
+$$
+\|y_r\|
+$$
+
+$$
+g_r
+$$
+
+and possibly evidence disagreement.
+
+On ordinary LM and reasoning tasks.
+
+We want to see whether:
+
+$$
+\Delta_r\rightarrow0
+$$
+
+as recurrence progresses.
+
+Current BDH appears to have a preferred finite operating depth.
+
+vNext should ideally exhibit controlled settling rather than late-depth destruction.
+
+---
+
+# 24. Full-state persistent carry: postpone
+
+The previous cross-token carry stayed near zero.
+
+So remove it for now.
+
+Not permanently killed, but there is no reason to complicate the architecture until within-token recurrence itself works.
+
+If revisited later, carry a projection of the existing full state rather than constructing a separate world-model state.
+
+---
+
+# 25. No MoE, no router, no sparse execution
+
+Still hard no.
+
+The architecture should remain:
+
+$$
+\boxed{\text{dense, regular, predictable}}
+$$
+
+because every attempt to exploit apparent sparsity has run into one of:
+
+* insufficient stable support
+* poor candidate recall
+* slow gather/scatter
+* GPU underutilization
+* quality loss
+
+The architecture should help Tensor Cores, not fight them.
+
+---
+
+# 26. Revised vNext architecture
+
+The architecture now looks like:
+
+```text id="k67fg7"
+TOKENS
+  │
+  ▼
+embedding / cached positional preparation
+  │
+  ▼
+FULL D=2496 STATE
+  │
+  │
+  ├───────────────────────────────────────────────────────┐
+  │                                                       │
+  ▼                                                       │
+EXACT ADDRESS REFRESH                                     │
+  │                                                       │
+  ▼                                                       │
+fresh evidence e                                          │
+  │                                                       │
+  ▼                                                       │
+existing BDH value/write computation                      │
+  │                                                       │
+  ▼                                                       │
+adaptive state-conditioned gate                           │
+  │                                                       │
+  ▼                                                       │
+h ← LN(h + g(h,e,state_stats) · update)                   │
+  │                                                       │
+  ▼                                                       │
+cached iteration? ───── yes ─► reuse e ───────────────────┘
+  │
+  no / scheduled refresh
+  │
+  └──────────────► exact address again
+
+after R updates
+  │
+  ▼
+rank-64 decoder path
+  │
+  ▼
+logits
+```
+
+That's much simpler than old BDH-Δ.
+
+And importantly, nearly every arrow is backed by something we've measured.
+
+---
+
+# 27. Revised principles
+
+### Principle 1
+
+$$
+\boxed{\text{Exact addressing is valuable, but its frequency is negotiable.}}
+$$
+
+### Principle 2
+
+$$
+\boxed{\text{Preserve BDH's internal coordinate system.}}
+$$
+
+### Principle 3
+
+$$
+\boxed{\text{Change state dynamics before changing state representation.}}
+$$
+
+### Principle 4
+
+$$
+\boxed{\text{Controlled writes beat aggressive writes.}}
+$$
+
+### Principle 5
+
+$$
+\boxed{\text{Compression belongs after selection, not before it.}}
+$$
+
+### Principle 6
+
+$$
+\boxed{\text{Dense regular compute beats theoretically sparse irregular compute.}}
+$$
+
+### Principle 7
+
+$$
+\boxed{\text{Weight-tied computation remains the path to compute-per-parameter scaling.}}
+$$
+
+### Principle 8
+
+$$
+\boxed{\text{Hardware geometry is part of the architecture.}}
 $$
 
 ---
 
-# 31. What I would explicitly delete from the architectural idea pool
+# 28. Immediate experimental sequence
 
-This redesign also gives us permission to stop revisiting a bunch of dead ends:
+The next experiments now have a very clear order.
 
-* neuron/block routers
-* Q/K low-rank approximations
-* static candidate masks
-* sparse gather/scatter execution
-* round embeddings
-* direct intermediate-state supervision
-* MTP heads
-* n-gram injection
-* Muon as an architecture solution
-* large MoE
-* hard frozen domain banks
-* jump operators
-* “just run current recurrence more times”
+### A. Finish refresh frontier
 
-They've paid for their information.
+$$
+8,\quad6,\quad4,\quad2
+$$
 
-No need to keep carrying them.
+Measure:
+
+* val loss
+* training tok/s
+* compiled tok/s
+* decode tok/s
+* wall-clock
+* `g1`
+
+This identifies the evidence-lifetime/refresh knee.
+
+### B. Adaptive gate on full state
+
+Replace:
+
+$$
+g_1=\text{global scalar}
+$$
+
+with:
+
+$$
+g_r=f(\text{current state statistics})
+$$
+
+initialized to 0.58.
+
+Compare against the single-gate champion at 8/8 first.
+
+### C. Stability test
+
+Evaluate:
+
+$$
+R=2,4,8,12,16
+$$
+
+on LM loss and reasoning probes.
+
+The question:
+
+> Does adaptive gating prevent late-depth collapse?
+
+### D. Combine only after B wins
+
+Then test:
+
+$$
+\text{adaptive gate}
++
+\text{best reduced-refresh schedule}.
+$$
+
+No bundled experiments before isolated wins.
+
+### E. Compile/profile final candidate
+
+Then attack:
+
+* remaining GEMM utilization
+* packed projections
+* graph breaks
+* refresh/cached specialized kernels
 
 ---
 
-# 32. The broader thesis changes slightly
+# 29. Success criterion
 
-Originally the HatchlingZero thesis was leaning toward:
+The real vNext target isn't merely lower loss.
 
-> BDH's repeated addressing itself might be the source of reasoning.
-
-I don't think the evidence supports that anymore.
-
-The stronger thesis now looks like:
+We want something like:
 
 $$
 \boxed{
 \begin{array}{c}
-\textbf{exact BDH addressing provides powerful information access}\\
-+\\
-\textbf{a tiny weight-tied latent dynamics engine performs computation}\\
-+\\
-\textbf{persistent state supplies memory/world state}\\
-+\\
-\textbf{adaptive gated updates make compute depend on what is needed}
+\text{quality}\leq\text{current champion}\\
+\text{training throughput substantially higher}\\
+\text{decode throughput substantially higher}\\
+\text{stable recurrence beyond }R=8\\
+\text{harder tasks benefit from more compute}
 \end{array}
 }
 $$
 
-That actually feels much more coherent.
+Even getting the first three would already be a major architectural win.
 
-And interestingly, current research is converging on nearby pieces independently: recurrent depth for parameter-efficient reasoning, fixed-point/convergence-based recurrence for stability, and latent feedback across tokens for preserving computation. ([arXiv][2])
-
-But **our particular architecture is being driven primarily by our failures**, which is better:
-
-* exact address because approximate address failed;
-* dense execution because sparsity failed;
-* post-address compression because pre-address compression failed;
-* cautious delta writes because single-gate won and deep recurrence collapses;
-* state-conditioned computation because round conditioning failed;
-* weight sharing because untying failed;
-* large fused GEMMs because profiling showed utilization, not bandwidth, was choking us;
-* fewer address refreshes because repeated exact re-query is expensive;
-* more cheap latent computation because we still want compute to substitute for parameters.
-
-That gives us a genuinely new architectural direction rather than another collection of features.
-
-**BDH found the information. BDH-Δ should learn what to do with it.** 🐉🧠
-
-[1]: https://www.microsoft.com/en-us/research/publication/latent-recurrent-transformer-architecture-exploration-training-strategies-and-scaling-behavior/?utm_source=chatgpt.com "Latent Recurrent Transformer: Architecture Exploration, Training Strategies, and Scaling Behavior - Microsoft Research"
-[2]: https://arxiv.org/abs/2605.12466?utm_source=chatgpt.com "Solve the Loop: Attractor Models for Language and Reasoning"
-[3]: https://arxiv.org/abs/2502.17416?utm_source=chatgpt.com "Reasoning with Latent Thoughts: On the Power of Looped Transformers"
+The latter two would turn it into the more ambitious reasoning architecture we're trying to build.
 
 ---
 
-## 33. Real result, 2026-08-29 -- full-fidelity build (reference/hz0h_bdh_delta_vnext_torch.py, no disclosed simplifications, every mechanism in sections 4/5/6/7/9/10/11/12/21/24/25/26 implemented and locally verified before any GPU spend), dispatched at matched 25M-token budget, RTX 5090, K=4/M=2 (n_refresh*n_think=8, matching the base model's n_layer=8), standard recurrence mode, seed=7
+# 30. New one-sentence architecture thesis
 
-**Quality: a decisive real negative.** val_loss=1.7862, params=211.08M -- worse than the plain baseline (1.4142/1.4326 across the two seed runs this session has used) by +0.35 to +0.37, and worse than every other rejected arm this session, including Muon (+0.054) and the state-supervision kill (+0.0504) by a wide margin. This is the worst real result any architecture change has produced this session.
+The old BDH-Δ idea was:
 
-Real signal from the learned scalars, not just the loss: `think_alpha` dropped from its 0.5 init to 0.353 (the scratch update partially suppressing itself, unprompted), `belief_beta_scale` roughly DOUBLED from its 0.1 init to 0.199 (belief moving faster than initialized, the opposite of the "slow belief" philosophy section 20 hypothesized), and `lambda_carry` stayed pinned near its near-zero init (0.047 -> 0.026, if anything suppressing itself further) -- the model never found cross-chunk belief carry worth using at this budget.
+> retrieve sparsely and reason in a new compressed latent world model.
 
-**Real, local (MPS, `scripts/hz0h_bdh_delta_vnext_local_speed_benchmark.py`) speed result: the efficiency claim holds up on its own terms.** Matched think-depth (K=4/M=2 vs base n_layer=8), production dims (n_embd=2496), apples-to-apples checkpointed forward+backward (both arms use the same `torch.utils.checkpoint` convention every real training script in this project uses, not a plain-vs-checkpointed mismatch):
+The revised vNext is:
 
-  - forward-only (inference-shaped): 1.38x faster than base.
-  - forward+backward (training-step-shaped): 1.38x faster than base.
-  - naive (no-KV-cache) autoregressive decode: 1.99x faster than base -- the biggest win, directly consistent with section 2/9's central claim (K=4 expensive re-addresses per generated token instead of 8).
-  - only +4.61M params (206.47M -> 211.08M, ~2.2%) for the entire Think Cell + belief cell + all bridging projections -- cheap, consistent with "compute substitutes for parameters."
+$$
+\boxed{
+\textbf{Keep BDH's full exact representation, refresh evidence only as often as needed, and make each recurrent write a small state-dependent correction implemented as dense compiler-friendly computation.}
+}
+$$
 
-**So: the decoupled-refresh-cadence mechanism itself is doing what section 2 predicted, on wall-clock, at these dims.** The real negative is elsewhere -- most likely candidates, unverified: (a) the reduced-width belief (384) genuinely bottlenecks information relative to the base model's full D=2496 residual stream, a real architectural cost that section 29's numeric table didn't price in; (b) the fixed 8x96 workspace is too small for this task/budget to route useful information through every refresh block; (c) 25M tokens and one seed is simply not enough training for 4.61M freshly-initialized parameters (Think Cell, belief cell, every bridge projection) to earn their keep, unlike the Phase 4 gate result which started at the already-validated solution and only had to prove ONE scalar's movement was worth it -- this file's SVD warmstart only covers decoder_up/decoder_down, not the workspace/belief machinery around them, so BDH-Delta is training much more from scratch than any other arm this session. Not yet decomposed into which of these (or something else) actually explains the gap -- a real, open question, not resolved by this run alone.
+That is much more consistent with what the experiments have actually taught us. 🐉

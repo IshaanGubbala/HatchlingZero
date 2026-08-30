@@ -173,7 +173,13 @@ def add_delta_vnext(
 
 
 def _rms(t: torch.Tensor) -> torch.Tensor:
-    return t.pow(2).mean(dim=-1, keepdim=True).sqrt()
+    # eps INSIDE the sqrt, not added after it -- sqrt's gradient is
+    # infinite at exactly 0. delta_h/delta_b are near-zero-probability of
+    # landing exactly on 0, unlike hz0h_bdh_adaptive_gate_torch.py's
+    # h-h_prev (architecturally guaranteed zero at each block's first
+    # iteration, where this exact bug produced a real NaN) -- fixed here
+    # too for the same correctness reason, not because it was observed.
+    return (t.pow(2).mean(dim=-1, keepdim=True) + _EPS).sqrt()
 
 
 def _rmsnorm(x: torch.Tensor, weight: torch.Tensor) -> torch.Tensor:
