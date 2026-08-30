@@ -1374,3 +1374,20 @@ That gives us a genuinely new architectural direction rather than another collec
 [1]: https://www.microsoft.com/en-us/research/publication/latent-recurrent-transformer-architecture-exploration-training-strategies-and-scaling-behavior/?utm_source=chatgpt.com "Latent Recurrent Transformer: Architecture Exploration, Training Strategies, and Scaling Behavior - Microsoft Research"
 [2]: https://arxiv.org/abs/2605.12466?utm_source=chatgpt.com "Solve the Loop: Attractor Models for Language and Reasoning"
 [3]: https://arxiv.org/abs/2502.17416?utm_source=chatgpt.com "Reasoning with Latent Thoughts: On the Power of Looped Transformers"
+
+---
+
+## 33. Real result, 2026-08-29 -- full-fidelity build (reference/hz0h_bdh_delta_vnext_torch.py, no disclosed simplifications, every mechanism in sections 4/5/6/7/9/10/11/12/21/24/25/26 implemented and locally verified before any GPU spend), dispatched at matched 25M-token budget, RTX 5090, K=4/M=2 (n_refresh*n_think=8, matching the base model's n_layer=8), standard recurrence mode, seed=7
+
+**Quality: a decisive real negative.** val_loss=1.7862, params=211.08M -- worse than the plain baseline (1.4142/1.4326 across the two seed runs this session has used) by +0.35 to +0.37, and worse than every other rejected arm this session, including Muon (+0.054) and the state-supervision kill (+0.0504) by a wide margin. This is the worst real result any architecture change has produced this session.
+
+Real signal from the learned scalars, not just the loss: `think_alpha` dropped from its 0.5 init to 0.353 (the scratch update partially suppressing itself, unprompted), `belief_beta_scale` roughly DOUBLED from its 0.1 init to 0.199 (belief moving faster than initialized, the opposite of the "slow belief" philosophy section 20 hypothesized), and `lambda_carry` stayed pinned near its near-zero init (0.047 -> 0.026, if anything suppressing itself further) -- the model never found cross-chunk belief carry worth using at this budget.
+
+**Real, local (MPS, `scripts/hz0h_bdh_delta_vnext_local_speed_benchmark.py`) speed result: the efficiency claim holds up on its own terms.** Matched think-depth (K=4/M=2 vs base n_layer=8), production dims (n_embd=2496), apples-to-apples checkpointed forward+backward (both arms use the same `torch.utils.checkpoint` convention every real training script in this project uses, not a plain-vs-checkpointed mismatch):
+
+  - forward-only (inference-shaped): 1.38x faster than base.
+  - forward+backward (training-step-shaped): 1.38x faster than base.
+  - naive (no-KV-cache) autoregressive decode: 1.99x faster than base -- the biggest win, directly consistent with section 2/9's central claim (K=4 expensive re-addresses per generated token instead of 8).
+  - only +4.61M params (206.47M -> 211.08M, ~2.2%) for the entire Think Cell + belief cell + all bridging projections -- cheap, consistent with "compute substitutes for parameters."
+
+**So: the decoupled-refresh-cadence mechanism itself is doing what section 2 predicted, on wall-clock, at these dims.** The real negative is elsewhere -- most likely candidates, unverified: (a) the reduced-width belief (384) genuinely bottlenecks information relative to the base model's full D=2496 residual stream, a real architectural cost that section 29's numeric table didn't price in; (b) the fixed 8x96 workspace is too small for this task/budget to route useful information through every refresh block; (c) 25M tokens and one seed is simply not enough training for 4.61M freshly-initialized parameters (Think Cell, belief cell, every bridge projection) to earn their keep, unlike the Phase 4 gate result which started at the already-validated solution and only had to prove ONE scalar's movement was worth it -- this file's SVD warmstart only covers decoder_up/decoder_down, not the workspace/belief machinery around them, so BDH-Delta is training much more from scratch than any other arm this session. Not yet decomposed into which of these (or something else) actually explains the gap -- a real, open question, not resolved by this run alone.

@@ -1,0 +1,15 @@
+{
+  "validation_loss": 1.7861747443675995,
+  "params": 211076180,
+  "elapsed_s": 3912.9560484825633,
+  "n_refresh": 4,
+  "n_think": 2,
+  "recurrence_mode": "standard",
+  "n_slots": 8,
+  "slot_width": 96,
+  "belief_dim": 384,
+  "chunk_size": 64,
+  "think_alpha": 0.35294845700263977,
+  "belief_beta_scale": 0.1992068886756897,
+  "lambda_carry": 0.0257585309445858
+}
