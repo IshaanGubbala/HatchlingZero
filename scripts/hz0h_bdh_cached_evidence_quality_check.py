@@ -53,7 +53,16 @@ def train(config, args, device):
     add_gated_residual_stream(model, single_stream=True)  # zero new params beyond g1, init=1.0 (known-good behavior)
     optimizer = make_optimizer(model.parameters(), args, device)
     steps = math.ceil(args.target_tokens / (args.batch_size * args.sequence_length))
-    stages = curriculum_stages(args.target_tokens, args.n_refresh)  # ramps n_refresh, n_iterations stays fixed
+    if args.constant_schedule:
+        # Real confound found in the K=2 arm: curriculum_stages' max(2,...)
+        # floor collapses to a single stage when n_refresh==2, so that arm
+        # trained at a CONSTANT cadence the whole run while K=4/K=6 got a
+        # real 3-stage ramp -- not apples-to-apples. This flag makes EVERY
+        # arm match K=2's accidental shape on purpose, isolating "final
+        # refresh count" from "did this arm get a curriculum ramp."
+        stages = [(args.target_tokens, args.n_refresh)]
+    else:
+        stages = curriculum_stages(args.target_tokens, args.n_refresh)  # ramps n_refresh, n_iterations stays fixed
     tokens = 0
     started = time.perf_counter()
     with args.data.open() as handle:
@@ -122,6 +131,11 @@ def main() -> None:
     parser.add_argument("--d-state", type=int, default=624)
     parser.add_argument("--subspace-rank", type=int, default=64)
     parser.add_argument("--n-refresh", type=int, default=4, help="exact-address refresh count out of n_layer total steps, curriculum-ramped")
+    parser.add_argument("--constant-schedule", action="store_true",
+                         help="Train at --n-refresh the ENTIRE run, no curriculum ramp -- matches the shape "
+                              "the K=2 arm got by accident (curriculum_stages' max(2,...) floor collapsed "
+                              "its ramp to one stage). Use this to isolate refresh COUNT from schedule SHAPE "
+                              "when comparing against the K=2 result.")
     parser.add_argument("--save-checkpoint", type=Path, default=None)
     args = parser.parse_args()
 
@@ -145,7 +159,8 @@ def main() -> None:
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps({
         "validation_loss": val_loss, "params": params, "elapsed_s": elapsed,
-        "n_layer": args.n_layer, "n_refresh": args.n_refresh, "final_g1": float(model.g1),
+        "n_layer": args.n_layer, "n_refresh": args.n_refresh, "constant_schedule": args.constant_schedule,
+        "final_g1": float(model.g1),
     }, indent=2), encoding="utf-8")
     print(f"[done] wrote {args.out}", flush=True)
 
