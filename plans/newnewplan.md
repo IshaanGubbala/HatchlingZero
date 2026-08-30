@@ -998,7 +998,61 @@ Measure:
 
 This identifies the evidence-lifetime/refresh knee.
 
-### B. Adaptive gate on full state
+### B. Adaptive gate on full state -- real result, 2026-08-30
+
+Real dispatch (RTX 4090, matched 25M-token budget, seed=7, n_refresh=8/8
+so this is isolated from the refresh-cadence question entirely,
+protected init at 0.58 per the attractor evidence above):
+
+$$
+\text{val\_loss}=1.4023.
+$$
+
+This is real and it BEATS every arm measured so far, including the
+8/8 single-gate champion (1.4142-1.4326) and the whole cached-evidence
+frontier (1.4505-1.5125).
+
+**But read the gate stats before celebrating**: `gate_stats={'mean':
+0.55078125, 'std': 0.0, 'min': 0.55078125, 'max': 0.55078125}` on a
+real held-out batch. The controller had full freedom to vary `g_r` by
+`(h_r, y_r, h_prev, e_r)` per position, and it didn't -- every position
+in the batch got the EXACT same gate value. It converged to a
+DIFFERENT constant (0.5508) than the plain single-gate arms
+(0.583-0.596), but still a constant, not input-conditional gating. Real
+caveat before over-reading the zero: eval ran under bf16 autocast, and
+bf16's ~8 significant bits could be collapsing a genuinely tiny but
+nonzero spread down to one representable value -- "indistinguishable
+from constant at bf16 precision" is the honest claim, not "provably
+zero variance." Not re-checked in fp32.
+
+So the honest read: **the adaptive-gate machinery didn't demonstrably
+learn to be adaptive**, but the run still landed at a real, meaningfully
+better val_loss than any prior arm -- most likely explained by the
+different initialization/parameterization path (a small MLP settling
+near 0.55 versus a single scalar settling near 0.58-0.59) giving a
+marginally better optimization trajectory, not by genuine
+state-conditional computation. This doesn't kill the adaptive-gate
+idea, but it means section 28C (does adaptive gating prevent late-depth
+collapse at R=12/16?) is the real test of whether there's more here
+than a better-placed constant -- if the gate stays flat there too,
+"adaptive" is the wrong word for what this run found.
+
+**Real operational gap, not a training result**: the local dispatch
+wrapper's polling loop died silently sometime after the val_loss/
+gate_stats print (no further local log lines, no error), while the
+remote pod kept running with nothing left to do. Checkpoint save and
+the script's own JSON write never completed on the pod -- process
+vanished with no Python traceback right after that exact print, most
+likely an OOM-kill on host RAM during `torch.save` prep (not diagnosed
+further; checkpoint-saving worked fine on other, similarly-sized arms
+this session, so this looks pod-specific). The val_loss/gate_stats
+numbers are real, printed by the script's own eval before whatever
+killed it -- recovered manually into
+`results/local/hz0h_bdh_adaptive_gate_88_quality_check.json`. Pod
+`ddmr5t5xgj5m1f` terminated manually since nothing was going to clean
+it up automatically.
+
+Original plan for step B:
 
 Replace:
 

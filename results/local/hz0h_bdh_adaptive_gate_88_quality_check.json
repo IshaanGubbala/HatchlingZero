@@ -1,0 +1,11 @@
+{
+  "validation_loss": 1.4023344963788986,
+  "params": 206469121,
+  "elapsed_s": 9334,
+  "n_layer": 8,
+  "n_refresh": 8,
+  "gate_hidden": 16,
+  "g_init": 0.58,
+  "gate_stats": {"mean": 0.55078125, "std": 0.0, "min": 0.55078125, "max": 0.55078125},
+  "note": "Recovered manually from the remote training log after the local runpod_run.sh wrapper exited without detecting completion (its own polling loop died silently, pod ddmr5t5xgj5m1f left running with nothing further to do -- terminated manually). Checkpoint save and the script's own JSON write never completed on the pod (process vanished with no Python traceback right after this exact print, most likely an OOM-kill on host RAM during torch.save prep, not diagnosed further -- checkpoint-saving worked fine on other, similarly-sized arms this session, so this looks pod-specific, not systemic). The validation_loss and gate_stats numbers themselves are real, printed by the training script's own eval pass before whatever killed it."
+}
