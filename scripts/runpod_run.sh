@@ -38,6 +38,7 @@ IMAGE="runpod/pytorch:1.0.2-cu1281-torch280-ubuntu2404"
 DISK_GB=20
 TTL_MINUTES=180
 NETWORK_VOLUME_ID=""
+DATA_CENTER_IDS=""
 POD_NAME=""
 SYNC_MODE="local"
 REMOTE_DIR=""
@@ -61,6 +62,7 @@ while [[ $# -gt 0 ]]; do
         --image) IMAGE="$2"; shift 2 ;;
         --disk-gb) DISK_GB="$2"; shift 2 ;;
         --network-volume-id) NETWORK_VOLUME_ID="$2"; shift 2 ;;
+        --data-center-ids) DATA_CENTER_IDS="$2"; shift 2 ;;
         --ttl-minutes) TTL_MINUTES="$2"; shift 2 ;;
         --name) POD_NAME="$2"; shift 2 ;;
         --sync) SYNC_MODE="$2"; shift 2 ;;
@@ -150,7 +152,9 @@ if [[ -z "$POD_ID" ]]; then
     TERMINATE_AT="$(date -u -v+"${TTL_MINUTES}"M +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d "+${TTL_MINUTES} minutes" +%Y-%m-%dT%H:%M:%SZ)"
     VOLUME_ARGS=()
     [[ -n "$NETWORK_VOLUME_ID" ]] && VOLUME_ARGS=(--network-volume-id "$NETWORK_VOLUME_ID")
-    log "no running pod found, creating one: gpu='$GPU_ID' image=$IMAGE disk=${DISK_GB}GB ttl=${TTL_MINUTES}m network_volume='${NETWORK_VOLUME_ID:-none}' (auto-terminate at $TERMINATE_AT as a hard safety net)"
+    DC_ARGS=()
+    [[ -n "$DATA_CENTER_IDS" ]] && DC_ARGS=(--data-center-ids "$DATA_CENTER_IDS")
+    log "no running pod found, creating one: gpu='$GPU_ID' image=$IMAGE disk=${DISK_GB}GB ttl=${TTL_MINUTES}m network_volume='${NETWORK_VOLUME_ID:-none}' data_centers='${DATA_CENTER_IDS:-any}' (auto-terminate at $TERMINATE_AT as a hard safety net)"
     set +e
     CREATE_JSON="$(runpodctl pod create \
         --image "$IMAGE" \
@@ -160,6 +164,7 @@ if [[ -z "$POD_ID" ]]; then
         --name "$POD_NAME" \
         --terminate-after "$TERMINATE_AT" \
         "${VOLUME_ARGS[@]+"${VOLUME_ARGS[@]}"}" \
+        "${DC_ARGS[@]+"${DC_ARGS[@]}"}" \
         --wait --wait-timeout "$WAIT_TIMEOUT")"
     CREATE_EXIT=$?
     set -e

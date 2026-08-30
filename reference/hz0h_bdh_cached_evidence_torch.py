@@ -57,6 +57,22 @@ def refresh_schedule(n_iterations: int, n_refresh: int) -> set[int]:
     return idxs
 
 
+# plans/newnewplan.md section 19's named placement patterns, for
+# n_iterations=8, converted from the plan's 1-indexed notation to
+# 0-indexed. "uniform_6" isn't in the plan (its own "Uniform" example
+# is a 4-position set, {1,3,5,7}, not a K=6 pattern) -- added here so
+# the K=6 placement sweep has a like-for-like comparison point against
+# the ALREADY-MEASURED evenly-spaced 6/8 result (refresh_schedule(8,6),
+# val_loss=1.4505) rather than only against differently-sized patterns.
+NAMED_PLACEMENT_PATTERNS_8: dict[str, set[int]] = {
+    "uniform_4": {0, 2, 4, 6},              # plan's own "Uniform" {1,3,5,7}, K=4
+    "uniform_6": refresh_schedule(8, 6),     # {0,1,3,4,5,7} -- the measured 6/8 baseline
+    "front_loaded": {0, 1, 2, 4, 6, 7},      # plan's {1,2,3,5,7,8}, K=6
+    "back_loaded": {0, 2, 4, 5, 6, 7},       # plan's {1,3,5,6,7,8}, K=6
+    "boundary_heavy": {0, 1, 3, 5, 6, 7},    # plan's {1,2,4,6,7,8}, K=6
+}
+
+
 def _existing_compute(x: torch.Tensor, x_sparse: torch.Tensor, e: torch.Tensor,
                        model: BDHVBSubspaceDecoder, nh: int, N: int) -> torch.Tensor:
     """The unchanged rest of the compound+g1 round: encoder_v -> relu ->
@@ -104,13 +120,28 @@ def bdh_cached_evidence_forward_checkpointed(
     n_refresh: int,
     targets: torch.Tensor | None = None,
 ):
+    return bdh_cached_evidence_forward_checkpointed_explicit(
+        model, idx, n_iterations, refresh_schedule(n_iterations, n_refresh), targets,
+    )
+
+
+def bdh_cached_evidence_forward_checkpointed_explicit(
+    model: BDHVBSubspaceDecoder,
+    idx: torch.Tensor,
+    n_iterations: int,
+    refresh_at: set[int],
+    targets: torch.Tensor | None = None,
+):
+    """Same as bdh_cached_evidence_forward_checkpointed but takes the
+    refresh POSITIONS directly instead of deriving them from a count --
+    plans/newnewplan.md section 19: frequency alone isn't the whole
+    story, WHERE the refreshes land (front-loaded/back-loaded/boundary-
+    heavy/uniform) may matter independently of how many there are."""
     C = model.config
     B, T = idx.size()
     D = C.n_embd
     nh = C.n_head
     N = D * C.mlp_internal_dim_multiplier // nh
-
-    refresh_at = refresh_schedule(n_iterations, n_refresh)
 
     x = model.embed(idx).unsqueeze(1)
     x = model.ln(x)
