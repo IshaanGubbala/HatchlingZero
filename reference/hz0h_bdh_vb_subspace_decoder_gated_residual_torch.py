@@ -30,20 +30,34 @@ from reference.hz0h_bdh_vb_subspace_decoder_torch import BDHVBSubspaceDecoder
 
 
 def add_gated_residual_stream(model: BDHVBSubspaceDecoder, rank: int | None = None, g2_init: float = 0.01,
-                               single_stream: bool = False) -> None:
+                               single_stream: bool = False, g1_init: float = 1.0, g1_fixed: bool = False) -> None:
     """single_stream=True builds ONLY g1 (no decoder2/g2 at all) -- the
     isolating ablation for the real 2026-08-28 two-stream result, whose
     g2 ended at 0.0002 (~unchanged from init) while g1 dropped from 1.0
     to 0.583. If that drop alone explains the win, this cheaper
     single-parameter variant should reproduce it without the extra
-    decoder_up2/decoder_down2 parameters."""
+    decoder_up2/decoder_down2 parameters.
+
+    g1_init/g1_fixed, 2026-08-30: the real adaptive-gate result
+    (val_loss=1.4023, gate collapsed to a constant ~0.5508 -- see
+    plans/newnewplan.md section B) raised a genuine question this
+    project hasn't isolated yet: is a FIXED scalar at ~0.55 already as
+    good as the "adaptive" controller, or did the controller's own
+    parameterization/training dynamics matter even though its output
+    is constant? g1_fixed=True freezes g1 at g1_init for the whole run
+    (requires_grad_(False)) -- if a hard-coded g=0.55 reproduces 1.4023,
+    the adaptive-gate mechanism is dead weight; if it doesn't, something
+    about HOW that value was reached mattered, not just the value."""
     C = model.config
     device = next(model.parameters()).device
     dtype = next(model.parameters()).dtype
-    model.g1 = nn.Parameter(torch.tensor(1.0, device=device, dtype=torch.float32))
+    model.g1 = nn.Parameter(torch.tensor(g1_init, device=device, dtype=torch.float32))
+    if g1_fixed:
+        model.g1.requires_grad_(False)
     model._gated_residual_single_stream = single_stream
     if single_stream:
-        print("[gated_residual] single-stream ablation: g1 only, no decoder2/g2", flush=True)
+        print(f"[gated_residual] single-stream ablation: g1 only, no decoder2/g2 "
+              f"(g1_init={g1_init} g1_fixed={g1_fixed})", flush=True)
         return
     r = rank if rank is not None else C.subspace_rank
     nh = C.n_head

@@ -65,7 +65,8 @@ def train(config, args, device):
     if args.ngram_order > 0:
         add_ngram_memory(model, args.ngram_table_params, args.ngram_order)
     if args.gated_residual:
-        add_gated_residual_stream(model, single_stream=args.gated_residual_single_stream)
+        add_gated_residual_stream(model, single_stream=args.gated_residual_single_stream,
+                                   g1_init=args.g1_init, g1_fixed=args.g1_fixed)
     if args.moe_experts > 0:
         add_moe_decoder(model, n_experts=args.moe_experts, top_k=args.moe_top_k)
     if args.round_embed:
@@ -211,6 +212,15 @@ def main() -> None:
                               "unchanged from init, while g1 dropped 1.0->0.583): builds ONLY g1 gating "
                               "the existing decoder stream, no decoder2/g2 at all. Only used when "
                               "--gated-residual is also set.")
+    parser.add_argument("--g1-init", type=float, default=1.0,
+                         help="Real fixed-scalar control, 2026-08-30: the adaptive-gate experiment landed "
+                              "at val_loss=1.4023 with its gate collapsed to a constant ~0.5508, not "
+                              "genuinely state-dependent. This lets g1 start (and, with --g1-fixed, stay) "
+                              "at any value to test whether a hard-coded g~0.55 alone reproduces that "
+                              "result, isolating 'the value' from 'the controller's training dynamics.'")
+    parser.add_argument("--g1-fixed", action="store_true",
+                         help="Freeze g1 at --g1-init for the entire run (requires_grad=False) instead of "
+                              "letting it train. Only meaningful with --gated-residual-single-stream.")
     parser.add_argument("--moe-experts", type=int, default=0,
                          help="Phase 7 of the integration plan: 0 = disabled. N>=1 adds N routed "
                               "output experts (real value/output MoE, NOT addressing -- encoder/Q/K "
