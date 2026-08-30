@@ -46,7 +46,9 @@ def train(config, args, device):
     if args.init_checkpoint is not None:
         svd_warmstart_decoder(model, args.init_checkpoint, config.subspace_rank, device)
     add_delta_vnext(model, n_refresh=args.n_refresh, n_think=args.n_think,
+                     n_slots=args.n_slots, slot_width=args.slot_width, belief_dim=args.belief_dim,
                      think_hidden=args.think_hidden, belief_hidden=args.belief_hidden,
+                     chunk_size=args.chunk_size, recurrence_mode=args.recurrence_mode,
                      alpha_init=args.alpha_init, beta_scale_init=args.beta_scale_init,
                      gamma_bias_init=args.gamma_bias_init, beta_bias_init=args.beta_bias_init)
     optimizer = make_optimizer(model.parameters(), args, device)
@@ -123,6 +125,14 @@ def main() -> None:
     parser.add_argument("--subspace-rank", type=int, default=64)
     parser.add_argument("--n-refresh", type=int, default=4, help="K, expensive exact-addressing count, curriculum-ramped")
     parser.add_argument("--n-think", type=int, default=2, help="M, cheap think-steps per refresh, NOT curriculum-ramped")
+    parser.add_argument("--n-slots", type=int, default=8, help="section 7: fixed dense thinking-register slot count")
+    parser.add_argument("--slot-width", type=int, default=96, help="section 7: width per slot (workspace_dim = n_slots*slot_width)")
+    parser.add_argument("--belief-dim", type=int, default=384, help="section 29: reduced persistent-belief width, << n_embd")
+    parser.add_argument("--chunk-size", type=int, default=64, help="section 11: cross-token belief-carry chunk size during training")
+    parser.add_argument("--recurrence-mode", choices=["standard", "predictor_corrector"], default="standard",
+                         help="standard = section 30's core boxed equation (default dispatch arm). "
+                              "predictor_corrector = section 25's explicit alternate/'wild' recurrence, "
+                              "real and tested but not the primary comparison arm.")
     parser.add_argument("--think-hidden", type=int, default=384)
     parser.add_argument("--belief-hidden", type=int, default=384)
     parser.add_argument("--alpha-init", type=float, default=0.5)
@@ -143,7 +153,9 @@ def main() -> None:
     params = sum(p.numel() for p in model.parameters())
     print(f"[delta_vnext] validation_loss={val_loss} params={params/1e6:.2f}M elapsed={elapsed:.0f}s", flush=True)
     print(f"[delta_vnext] final think_alpha={float(model.think_alpha):.4f} "
-          f"belief_beta_scale={float(model.belief_beta_scale):.4f}", flush=True)
+          f"belief_beta_scale={float(model.belief_beta_scale):.4f} "
+          f"lambda_carry={float(torch.sigmoid(model.lambda_carry_logit)):.4f} "
+          f"recurrence_mode={args.recurrence_mode}", flush=True)
 
     if args.save_checkpoint is not None:
         args.save_checkpoint.parent.mkdir(parents=True, exist_ok=True)
@@ -153,8 +165,11 @@ def main() -> None:
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps({
         "validation_loss": val_loss, "params": params, "elapsed_s": elapsed,
-        "n_refresh": args.n_refresh, "n_think": args.n_think,
+        "n_refresh": args.n_refresh, "n_think": args.n_think, "recurrence_mode": args.recurrence_mode,
+        "n_slots": args.n_slots, "slot_width": args.slot_width, "belief_dim": args.belief_dim,
+        "chunk_size": args.chunk_size,
         "think_alpha": float(model.think_alpha), "belief_beta_scale": float(model.belief_beta_scale),
+        "lambda_carry": float(torch.sigmoid(model.lambda_carry_logit)),
     }, indent=2), encoding="utf-8")
     print(f"[done] wrote {args.out}", flush=True)
 
