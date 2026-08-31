@@ -1,0 +1,9 @@
+{
+  "validation_loss": 2.700017601251602,
+  "params": 206469121,
+  "elapsed_s": 892.6804950000001,
+  "n_layer": 8,
+  "n_refresh": 4,
+  "constant_schedule": true,
+  "final_g1": 0.9042563438415527
+}
