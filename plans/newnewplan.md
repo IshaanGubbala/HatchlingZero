@@ -1,3 +1,67 @@
+# Priority override, 2026-08-31 -- do not resume the plan below mechanically, section-by-section
+
+The adaptive-gate result (1.4023, real +0.028 over the best matched
+fixed-scalar control, section B below) is large enough that
+understanding IT outranks building anything further down this
+document. Sections below remain the architecture backlog, but the
+literal reading order is superseded by this sequence until each step
+resolves:
+
+$$
+\boxed{
+\text{understand gate} \rightarrow \text{test recurrence stability} \rightarrow \text{finish refresh frontier} \rightarrow \text{combine winners} \rightarrow \text{resume deeper vNext work}
+}
+$$
+
+1. **Lock the gate mechanism.** In flight now: FP32 gate-variance check
+   (does real fp32 precision reveal state-dependent variation bf16
+   rounded away?), gate-trajectory analysis (did g drift meaningfully
+   during training even though the endpoint looks flat?), and the
+   state-independent `C_theta(1)` control (identical controller,
+   architecturally incapable of state-dependence -- lands near 1.4023
+   -> pure optimization-path effect; near 1.414 -> state-dependence
+   itself matters; between -> both). Whichever way this resolves,
+   simplify to the smallest mechanism that reproduces 1.4023 and adopt
+   THAT as the new 8/8 quality baseline, replacing the plain single-gate
+   champion everywhere below.
+2. **R-stability test on the resolved gate.** R in {2,4,8,12,16}. The
+   entire reason adaptive writes got proposed was the old late-depth
+   collapse (R=8<R=4, R=12/16 near-chance). If 1.4023 is a pure LM-loss
+   win but R=12/16 still collapses identically, the gate is a quality/
+   optimization win, not (yet) a reasoning-dynamics win -- a real,
+   useful, but smaller finding. If deeper recurrence stabilizes, that's
+   the bigger architectural result this whole internal-computation track
+   has been chasing.
+3. **Finish the refresh-side cleanup**, now second priority, not first:
+   constant-schedule 4/8 and 6/8 (fixing the K=2 curriculum confound,
+   built, dispatch died to the disk-quota issue, needs a clean rerun),
+   plus the 6/8 placement sweep (front-loaded/back-loaded/boundary-heavy
+   vs uniform_6, built and verified, not yet dispatched). Goal: the true
+   refresh Pareto point with no curriculum-shape confound anywhere in it.
+4. **Combine the two independent winners only after both are locked
+   separately** -- explicitly do not assume they compose (this
+   project's own standing lesson, repeated across BDH-VB, subspace
+   decoder, and now gate/refresh). Test resolved-gate+6/8 against
+   resolved-gate+8/8. If 6/8 only costs ~0.01-0.02 while giving real
+   compiled speed, it's the efficiency variant; if it wipes out the
+   gate's win, keep 8/8.
+5. **Only then resume the deeper sections below**, and only the parts
+   still consistent with what steps 1-4 found: full-state delta/
+   stability dynamics, state-of-computation signals, evidence
+   disagreement, static compiler-friendly schedules, packed GEMMs,
+   specialized refresh/cached kernels, eventually variable compute. The
+   compressed belief/workspace branch (BDH-Delta, 1.7862) stays dead
+   unless new evidence specifically revives it -- nothing so far does.
+
+If the gate turns out to genuinely use tiny state-dependent variation,
+the plan pivots harder toward state-conditioned recurrent control. If
+it's an optimization-path effect, the plan pivots toward training-
+dynamics/protected-recurrence mechanisms instead of state-conditioning
+per se. That distinction is what steps 1-2 above are for, before any
+further GPU spend on a new redesign.
+
+---
+
 Absolutely. The old plan needs a real rewrite now because the 4/8 cached-evidence result changes the architecture direction materially.
 
 # HatchlingZero vNext Plan — Revised after cached-evidence crux
