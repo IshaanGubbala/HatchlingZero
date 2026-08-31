@@ -1052,6 +1052,29 @@ killed it -- recovered manually into
 `ddmr5t5xgj5m1f` terminated manually since nothing was going to clean
 it up automatically.
 
+**Fixed-g1 local sweep, 2026-08-30 -- real, but inconclusive.** Ran
+`--g1-fixed` at g in {0.50, 0.525, 0.55, 0.575, 0.60} locally on MPS,
+500K tokens/arm (NOT the 25M-token budget every other number in this
+file uses -- a quick directional check during a GPU-dispatch hold, not
+a substitute for the real matched-budget test). Real result:
+
+```text
+g1=0.50:  val_loss=2.7074
+g1=0.525: val_loss=2.7108
+g1=0.55:  val_loss=2.7097
+g1=0.575: val_loss=2.7217
+g1=0.60:  val_loss=2.7190
+```
+
+Non-monotonic, spread of only ~0.014 across all 5 arms -- looks like
+noise at this budget, not a real trend. This does NOT answer the real
+question (does fixed g~0.55 reproduce the adaptive-gate's 1.4023) --
+absolute values aren't comparable across a 500K vs 25M-token budget,
+and even the relative ordering here is too noisy at 500K tokens to
+trust. The real test still requires GPU dispatch at the matched 25M
+budget; this local run was a cheap sanity check, not a resolution.
+Full results: `results/local/hz0h_bdh_g1_fixed_local_sweep.json`.
+
 Original plan for step B:
 
 Replace:

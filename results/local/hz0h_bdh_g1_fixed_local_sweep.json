@@ -1,0 +1,25 @@
+{
+  "note": "Local MPS sweep, 500K tokens per arm (NOT the 25M-token budget used everywhere else this session) -- a quick directional check requested mid-hold on GPU dispatch, not a substitute for the real matched-budget comparison against the adaptive-gate result (val_loss=1.4023 at 25M tokens). Absolute values here are not comparable to that number.",
+  "results": {
+    "0.50": {
+      "validation_loss": 2.7073821127414703,
+      "training_seconds": 1826.563207084
+    },
+    "0.525": {
+      "validation_loss": 2.710764914751053,
+      "training_seconds": 890.207936583
+    },
+    "0.55": {
+      "validation_loss": 2.709662437438965,
+      "training_seconds": 781.314052125
+    },
+    "0.575": {
+      "validation_loss": 2.7216972708702087,
+      "training_seconds": 773.247625584
+    },
+    "0.60": {
+      "validation_loss": 2.719005584716797,
+      "training_seconds": 1024.8308247920002
+    }
+  }
+}
