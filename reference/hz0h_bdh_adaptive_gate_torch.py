@@ -57,12 +57,30 @@ from reference.hz0h_bdh_vb_subspace_decoder_torch import BDHVBSubspaceDecoder
 _EPS = 1e-5
 
 
-def add_adaptive_gate(model: BDHVBSubspaceDecoder, hidden: int = 16, g_init: float = 0.58) -> None:
+def add_adaptive_gate(model: BDHVBSubspaceDecoder, hidden: int = 16, g_init: float = 0.58,
+                       state_independent: bool = False) -> None:
+    """state_independent=True builds the "killer control" the fixed-g1
+    sweep's result demanded, 2026-08-31: the real result showed every
+    frozen scalar (including g=0.55, the exact value the adaptive
+    controller converged to) landed worse than the adaptive controller
+    (1.4023) by a real +0.028 -- so the controller's OWN parameterization
+    or training dynamics are doing something a fixed number can't, even
+    though its measured output looks flat. This variant keeps the
+    IDENTICAL controller (same width, same param count, same protected
+    zero-init, same optimizer geometry) but feeds it a constant input
+    (q := ones, ignoring h/y/e/h_prev entirely) instead of real state
+    features -- g_r = C_theta(1), structurally incapable of varying by
+    token/state/round no matter what it learns. Three possible outcomes:
+    lands near 1.4023 -> the win is an optimization/parameterization
+    effect, nothing to do with state-dependence; lands near 1.414 (the
+    plain single-gate champion) -> state-dependence itself is what
+    mattered; lands in between -> both contribute."""
     device = next(model.parameters()).device
     dtype = next(model.parameters()).dtype
     q_dim = 5
 
     model.gate_hidden = hidden
+    model.gate_state_independent = state_independent
     model.gate_w1 = nn.Parameter(torch.zeros((q_dim, hidden), device=device, dtype=dtype).normal_(std=0.02))
     model.gate_b1 = nn.Parameter(torch.zeros((hidden,), device=device, dtype=dtype))
     model.gate_w2 = nn.Parameter(torch.zeros((hidden, 1), device=device, dtype=dtype))  # exact zero: protected init
@@ -71,7 +89,7 @@ def add_adaptive_gate(model: BDHVBSubspaceDecoder, hidden: int = 16, g_init: flo
 
     n_gate_params = q_dim * hidden + hidden + hidden * 1 + 1
     print(f"[adaptive_gate] hidden={hidden} g_init={g_init} (logit={logit:.4f}) "
-          f"controller_params={n_gate_params}", flush=True)
+          f"controller_params={n_gate_params} state_independent={state_independent}", flush=True)
 
 
 def _rms(t: torch.Tensor) -> torch.Tensor:
@@ -85,20 +103,26 @@ def _rms(t: torch.Tensor) -> torch.Tensor:
 
 def _adaptive_g(h: torch.Tensor, y: torch.Tensor, h_prev: torch.Tensor, e: torch.Tensor,
                  model: BDHVBSubspaceDecoder) -> torch.Tensor:
-    # e is (B, nh, T, D) here -- the attention output BEFORE the nh
-    # dimension gets reduced (that reduction happens later, inside
-    # _existing_compute_adaptive's decoder_up sum). d_r = cos(h, e) needs
-    # a single D-wide evidence vector to compare against h (B,1,T,D), so
-    # average across the nh "head" copies -- a real, disclosed necessity
-    # (not in the plan's own notation, which doesn't have this per-head
-    # structure), not a silent shortcut.
-    e_summary = e.mean(dim=1, keepdim=True)
-    q = torch.cat([
-        _rms(h), _rms(y),
-        F.cosine_similarity(h, y, dim=-1).unsqueeze(-1),
-        _rms(h - h_prev),
-        F.cosine_similarity(h, e_summary, dim=-1).unsqueeze(-1),
-    ], dim=-1)
+    if model.gate_state_independent:
+        # C_theta(1): identical controller weights/optimizer geometry,
+        # but the input is a constant -- structurally incapable of
+        # varying by token/state/round, regardless of what it learns.
+        q = torch.ones(*h.shape[:-1], 5, device=h.device, dtype=h.dtype)
+    else:
+        # e is (B, nh, T, D) here -- the attention output BEFORE the nh
+        # dimension gets reduced (that reduction happens later, inside
+        # _existing_compute_adaptive's decoder_up sum). d_r = cos(h, e) needs
+        # a single D-wide evidence vector to compare against h (B,1,T,D), so
+        # average across the nh "head" copies -- a real, disclosed necessity
+        # (not in the plan's own notation, which doesn't have this per-head
+        # structure), not a silent shortcut.
+        e_summary = e.mean(dim=1, keepdim=True)
+        q = torch.cat([
+            _rms(h), _rms(y),
+            F.cosine_similarity(h, y, dim=-1).unsqueeze(-1),
+            _rms(h - h_prev),
+            F.cosine_similarity(h, e_summary, dim=-1).unsqueeze(-1),
+        ], dim=-1)
     hid = F.silu(q @ model.gate_w1 + model.gate_b1)
     g_logit = hid @ model.gate_w2 + model.gate_b2
     return torch.sigmoid(g_logit)
