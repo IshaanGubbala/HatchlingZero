@@ -38,10 +38,16 @@ from scripts.hz0h_bdh_register_machine_task import generate_register_machine_exa
 from scripts.hz0h_bdh_width_flop_frontier_local import pick_device, synchronize
 
 
-def add_answer_head(model: BDHVBSubspaceDecoder, n_classes: int = 10) -> None:
+def add_answer_head(model: BDHVBSubspaceDecoder, n_classes: int = 10, pool: str = "last") -> None:
     device = next(model.parameters()).device
     dtype = next(model.parameters()).dtype
     model.answer_head = nn.Parameter(torch.zeros((model.config.n_embd, n_classes), device=device, dtype=dtype).normal_(std=0.02))
+    if pool == "attn":
+        # Learnable query for attention-pooling over ALL sequence positions,
+        # not just the last one -- the last-token-only readout is a narrow
+        # instrument that can miss task-relevant info sitting elsewhere in
+        # the sequence (see plans/newnewplan.md section 31's caveat).
+        model.attn_pool_query = nn.Parameter(torch.zeros((model.config.n_embd,), device=device, dtype=dtype).normal_(std=0.02))
 
 
 def load_adaptive_gate_checkpoint(config: BDHVBSubspaceDecoderConfig, checkpoint_path: Path, gate_hidden: int, device) -> BDHVBSubspaceDecoder:
@@ -57,7 +63,7 @@ def load_adaptive_gate_checkpoint(config: BDHVBSubspaceDecoderConfig, checkpoint
 
 
 def forward_answer_at_round(model: BDHVBSubspaceDecoder, idx: torch.Tensor, n_rounds: int,
-                             answer_label: torch.Tensor | None = None):
+                             answer_label: torch.Tensor | None = None, pool: str = "last"):
     C = model.config
     B, T = idx.size()
     D = C.n_embd
@@ -72,8 +78,20 @@ def forward_answer_at_round(model: BDHVBSubspaceDecoder, idx: torch.Tensor, n_ro
         h_prev = x
         x = x_new
 
-    last_token = x[:, :, -1, :].reshape(B, D)
-    answer_logits = last_token @ model.answer_head
+    positions = x[:, 0, :, :]  # (B, T, D) -- drop the size-1 head-carry dim
+    if pool == "last":
+        pooled = positions[:, -1, :]
+    elif pool == "mean":
+        pooled = positions.mean(dim=1)
+    elif pool == "attn":
+        scale = D ** 0.5
+        scores = (positions @ model.attn_pool_query) / scale  # (B, T)
+        weights = F.softmax(scores, dim=-1)
+        pooled = torch.einsum("bt,btd->bd", weights, positions)
+    else:
+        raise ValueError(f"unknown pool mode: {pool}")
+
+    answer_logits = pooled @ model.answer_head
     loss = None
     if answer_label is not None:
         loss = F.cross_entropy(answer_logits, answer_label)
@@ -83,8 +101,9 @@ def forward_answer_at_round(model: BDHVBSubspaceDecoder, idx: torch.Tensor, n_ro
 def train_probe(model, args, device):
     for p in model.parameters():
         p.requires_grad_(False)
-    add_answer_head(model, n_classes=10)
-    optimizer = torch.optim.AdamW([model.answer_head], lr=args.learning_rate, betas=(0.9, 0.95))
+    add_answer_head(model, n_classes=10, pool=args.pool)
+    probe_params = [model.answer_head] + ([model.attn_pool_query] if args.pool == "attn" else [])
+    optimizer = torch.optim.AdamW(probe_params, lr=args.learning_rate, betas=(0.9, 0.95))
     rng = random.Random(args.seed)
     step_pool = [1, 2, 3, 4, 6, 8]
     r_pool = [1, 2, 4, 8]
@@ -97,7 +116,7 @@ def train_probe(model, args, device):
         label = torch.tensor([correct], dtype=torch.long, device=device)
         optimizer.zero_grad(set_to_none=True)
         with autocast_context(args, device):
-            _, loss = forward_answer_at_round(model, idx, n_rounds, label)
+            _, loss = forward_answer_at_round(model, idx, n_rounds, label, pool=args.pool)
         loss.backward()
         if args.grad_clip > 0:
             torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
@@ -131,7 +150,7 @@ def evaluate_matrix(model, args, device):
                 text, _st, correct_val, decoy_val = generate_register_machine_example(rng, n_steps)
                 idx = torch.tensor([list(text.encode("utf-8"))], dtype=torch.long, device=device)
                 with autocast_context(args, device):
-                    logits, _ = forward_answer_at_round(model, idx, n_rounds)
+                    logits, _ = forward_answer_at_round(model, idx, n_rounds, pool=args.pool)
                 pred = int(logits.argmax(dim=-1).item())
                 if pred == correct_val:
                     correct += 1
@@ -162,6 +181,9 @@ def main() -> None:
     parser.add_argument("--subspace-rank", type=int, default=64)
     parser.add_argument("--gate-hidden", type=int, default=16)
     parser.add_argument("--arm-label", default="unknown")
+    parser.add_argument("--pool", choices=["last", "mean", "attn"], default="last",
+                         help="readout position(s): last token only (original), mean over "
+                              "all positions, or learned attention-pooling over all positions")
     args = parser.parse_args()
 
     device = pick_device(args.device)
@@ -175,7 +197,7 @@ def main() -> None:
     print(f"=== R x step-count evaluation matrix (arm={args.arm_label}) ===", flush=True)
     matrix = evaluate_matrix(model, args, device)
 
-    report = {"arm_label": args.arm_label, "init_checkpoint": str(args.init_checkpoint), "training_seconds": elapsed, "matrix": matrix}
+    report = {"arm_label": args.arm_label, "init_checkpoint": str(args.init_checkpoint), "pool": args.pool, "training_seconds": elapsed, "matrix": matrix}
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(f"[done] wrote {args.out}", flush=True)
