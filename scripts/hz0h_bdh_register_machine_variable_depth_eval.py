@@ -81,8 +81,10 @@ def forward_answer_at_round(model: BDHVBSubspaceDecoder, idx: torch.Tensor, n_ro
 
 
 def train_probe(model, args, device):
+    for p in model.parameters():
+        p.requires_grad_(False)
     add_answer_head(model, n_classes=10)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate, betas=(0.9, 0.95))
+    optimizer = torch.optim.AdamW([model.answer_head], lr=args.learning_rate, betas=(0.9, 0.95))
     rng = random.Random(args.seed)
     step_pool = [1, 2, 3, 4, 6, 8]
     r_pool = [1, 2, 4, 8]
