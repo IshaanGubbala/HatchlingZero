@@ -1239,19 +1239,52 @@ initialized to 0.58.
 
 Compare against the single-gate champion at 8/8 first.
 
-### C. Stability test
+### C. Stability test -- real result, 2026-08-31: YES, the collapse is gone, but not (yet) proof of depth-dependent reasoning
 
-Evaluate:
+Real dispatch (RTX 5090, `scripts/hz0h_bdh_adaptive_gate_variable_depth_eval.py`), direct methodological parallel to the original R-scaling result (Phase-redesign section 8 above: accuracy peaked R=2-4, DECLINED by R=8, COLLAPSED toward chance -- 0.0625 for 16 locations -- by R=12/16), same task, same training protocol, same eval matrix, only the backbone swapped for the locked adaptive-gate checkpoint (val_loss=1.3879):
 
-$$
-R=2,4,8,12,16
-$$
+```text
+hops=1: R1=0.30 R2=0.41 R4=0.31 R8=0.32 R12=0.42 R16=0.27
+hops=4: R1=0.27 R2=0.29 R4=0.32 R8=0.34 R12=0.35 R16=0.28
+hops=8: R1=0.31 R2=0.40 R4=0.35 R8=0.39 R12=0.29 R16=0.27
+```
 
-on LM loss and reasoning probes.
+**The real, unambiguous positive**: every single cell in the full 6x6
+matrix (36 cells) lands between 0.27 and 0.43 -- nowhere close to the
+0.0625 chance floor the plain-architecture R=12/16 arms collapsed
+toward. The catastrophic late-depth breakdown that motivated this
+whole adaptive-gate track in the first place is real and gone on this
+backbone.
 
-The question:
+**The real caveat, stated as plainly as the positive**: this is
+stability, not (yet) evidence of depth-dependent reasoning. There is no
+clean monotonic trend anywhere -- R=12 is the single best point for
+hops=1 (0.42) but among the worst for hops=8 (0.29); accuracy is
+better described as a flat, noisy band across the whole R range than
+as a curve that peaks then degrades. `shortcut_rate` stays comparably
+high throughout every R (0.25-0.49 across the matrix, often exceeding
+the real accuracy at that same cell -- e.g. hops=4 R=1: accuracy=0.27,
+shortcut_rate=0.49), meaning the positional-shortcut confound this
+task was specifically designed to expose is still very much live at
+every depth, not just at the R values that used to collapse.
 
-> Does adaptive gating prevent late-depth collapse?
+**Honest verdict for the priority sequence's own question**: "does
+adaptive gating prevent late-depth collapse, or is it just an LM-loss
+win?" -- the answer is genuinely in between, and closer to "prevents
+collapse" than "just LM loss," but doesn't yet clear the bar for "the
+gate enables genuine reasoning-depth-dependence" (section 22's own
+target: A(R=1)<A(R=2)<A(R=4)<A(R=8) on a real multi-hop task -- not
+observed here; the matrix is flat, not increasing). This is real
+progress on the recurrence-stability axis specifically, decoupled from
+(and not yet evidence for) the separate reasoning-uses-depth axis. Per
+section 22's own instruction ("if it still doesn't [show the ordering],
+we have stronger evidence that BDH recurrence is fundamentally
+refinement rather than sequential reasoning") -- stability without
+ordering is consistent with refinement (the state settles into a
+decent, roughly depth-independent operating point and stays there)
+rather than sequential composition, though a flat-not-collapsing curve
+is a meaningfully different regime than the pre-gate flat-then-collapsing
+one and worth taking as real progress on its own terms.
 
 ### D. Combine only after B wins
 
