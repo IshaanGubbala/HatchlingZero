@@ -1,0 +1,25 @@
+{
+  "validation_loss": 1.3969892710447311,
+  "params": 206469233,
+  "elapsed_s": 7387.841030763462,
+  "n_layer": 8,
+  "n_refresh": 8,
+  "gate_hidden": 16,
+  "g_init": 0.58,
+  "state_independent": true,
+  "gate_stats": {
+    "mean": 0.55078125,
+    "std": 0.0,
+    "min": 0.55078125,
+    "max": 0.55078125
+  },
+  "gate_stats_fp32": {
+    "mean": 0.5488393306732178,
+    "std": 0.0,
+    "min": 0.5488393306732178,
+    "max": 0.5488393306732178,
+    "std_across_tokens_within_batch0": 0.0,
+    "n_values": 2040
+  },
+  "gate_trajectory": []
+}

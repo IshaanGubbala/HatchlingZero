@@ -1155,6 +1155,72 @@ Adaptive gate (real, full budget): **1.4023**.
 
 Real, still-open question this raises rather than closes: if the gate isn't varying by input in any bf16-visible way, what IS different between "a scalar starting at 0.58 that gets pulled to 0.55 through gradient descent on a fixed value" and "a tiny MLP starting at 0.58 (by construction, via the protected zero-init) that gets pulled to output ~0.55 through gradient descent on its own weights"? Candidates, none yet tested: (a) the MLP's extra parameters (even producing a flat output) change the loss landscape / effective learning rate the shared backbone sees during training, a real optimization-dynamics effect unrelated to the final gate value; (b) bf16 eval genuinely is hiding real per-token variance too small to see at that precision but large enough over 25M tokens of gradient signal to matter; (c) something about SiLU/the two-layer structure biases early training differently even before g1 settles. Worth an fp32 gate-stats re-check (candidate b) before deeper investigation, since it's the cheapest to rule out.
 
+## Gate mechanism resolved, 2026-08-31 -- real answer: BOTH effects are real, and both were measured cleanly
+
+Three real, same-session (both RTX 5090, same seed=7, same 25M-token
+budget, ran concurrently so no cross-run drift) dispatches close this
+out:
+
+```text
+best hard-frozen fixed g1 (from the 5-point sweep):     1.4293
+plain learned single scalar (original champion):        1.4142-1.4326
+state-independent trainable gate, C_theta(1):            1.3970
+real state-dependent adaptive gate (this retrain):       1.3879
+```
+
+**The state-independent control (`--state-independent`, identical
+controller architecture/param count/protected init, but fed a constant
+input -- structurally incapable of varying by token/state/round) beat
+every fixed value AND the original champion by a wide margin (1.3970
+vs best-fixed 1.4293) but was still real and measurably worse than the
+true state-dependent gate (1.3879) by 0.0091.**
+
+That's the "in between -> both contribute" branch of the three-way
+decomposition, not either pure outcome:
+
+1. **A real, large optimization/parameterization effect** (~0.017-0.036
+   depending which baseline): training a 113-parameter MLP via gradient
+   descent to output what is STILL mathematically just one scalar (no
+   state input at all) does substantially better than either a single
+   learned scalar or any hand-set constant. This is the "training
+   dynamics matter, not just the final value" hypothesis, confirmed --
+   the SAME final behavior (a flat gate) reached via a richer
+   optimization path is a real, different, better local solution than
+   the same value set or learned directly.
+2. **A real, small, fp32-confirmed state-dependence effect on top of
+   that** (~0.009): the real gate's `gate_stats_fp32` showed genuine
+   nonzero variance -- std=1.94e-6, min=0.548983, max=0.548999 across a
+   real held-out batch -- not the exact bf16-rounding-induced 0.0 the
+   bf16 read showed, and categorically different from the
+   state-independent arm's mathematically-guaranteed-exact 0.0 (same
+   fp32 diagnostic, same code path, confirmed exactly zero there,
+   confirming the real gate's nonzero reading isn't a numerical-noise
+   artifact of the measurement itself). Tiny in absolute terms, but a
+   real, repeatable, non-bf16-artifact signal that the controller IS
+   using state information, just very weakly at this training budget.
+
+**Resolution for the priority-override sequence's step 1**: lock in the
+real state-dependent adaptive gate (this retrain's checkpoint,
+`results/local/hz0h_bdh_adaptive_gate_retrain_checkpoint.pt`, verified
+loadable, not corrupted like gate88's) as the new 8/8 quality baseline,
+val_loss=1.3879 -- both because it's the best real number measured and
+because the state-dependence, however small, is real and worth
+preserving rather than simplifying away. The gate-trajectory log
+(`gate_trajectory` field in the result JSON, 61 points over training)
+additionally confirms the earlier local-sweep observation: std was
+genuinely nonzero and shrinking through roughly step 3000-6000
+(0.0005-0.003 range) before settling near the bf16 floor for the rest
+of training -- the controller DID use more state-dependence earlier in
+training than it settled into by the end, consistent with an
+"automatically learned residual curriculum" as speculated, though the
+FINAL fp32 measurement (post-training) is what's quoted above as the
+operative number for the model actually being adopted.
+
+**Next per the reprioritized sequence**: R-stability test (R in
+{2,4,8,12,16}) on this exact checkpoint -- does state-dependent
+adaptive writing prevent the old late-depth collapse, or does 1.3879
+hold as an LM-loss win with the same R=12/16 breakdown as before?
+
 Original plan for step B:
 
 Replace:
