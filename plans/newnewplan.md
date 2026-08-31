@@ -1452,4 +1452,59 @@ easier task variant before concluding progressive latentization
 categorically doesn't work here -- but as currently measured, Arm D
 gives no support for the hypothesis it was built to test.
 
+---
+
+# 32. Refresh-side cleanup: real result, 2026-08-31 (500K-token local stopgap)
+
+The deferred refresh-frontier cleanup from the priority-override sequence
+(constant-schedule K=4/K=6 reruns fixing the earlier curriculum confound,
+plus the 6/8 placement-pattern sweep) finally got dispatched -- and the
+real GPU run died mid-flight: RunPod balance hit zero, force-killing all
+6 pods simultaneously (`Connection to ... closed by remote host` on every
+one, confirmed root cause via a direct `402: "Your account balance is too
+low to rent a pod"` from the create-pod API). None of the 6 saved a
+result; one job (K=4 constant-schedule) was 65%+ through a 99-minute run
+when it died -- real wasted compute, not recoverable.
+
+Rather than wait, all 6 were rerun locally on the Mac's MPS backend at a
+reduced 500K-token budget (245 steps, single seed=7) as an explicit
+stopgap -- same precedent as the earlier local g1-sweep. **These numbers
+are NOT comparable to any 25M-token GPU result elsewhere in this
+document** (val_loss magnitudes are ~2x higher purely from 50x less
+training) -- only the *relative ordering within this batch* is
+informative, and even that comes from a single 245-step run per variant,
+not a statistically powered comparison.
+
+| Variant | Refresh schedule | val_loss |
+|---|---|---|
+| K=4 constant (`n4_const`) | {0,2,4,6} | 2.7000 |
+| K=4 placement (`uniform_4`) | {0,2,4,6} (same schedule, different script) | 2.6952 |
+| K=6 constant (`n6_const`) | {0,1,3,4,5,7} | 2.7115 |
+| K=6 front_loaded | {0,1,2,4,6,7} | **2.6905** (best) |
+| K=6 boundary_heavy | {0,1,3,5,6,7} | 2.6914 |
+| K=6 back_loaded | {0,2,4,5,6,7} | 2.7197 (worst) |
+
+Two real, useful things from this batch despite the reduced budget:
+
+1. **Cross-script sanity check passed.** `n4_const` and `uniform_4` use
+   the *identical* refresh schedule `{0,2,4,6}` through two independently
+   written scripts (`hz0h_bdh_cached_evidence_quality_check.py` vs
+   `hz0h_bdh_cached_evidence_placement_quality_check.py`). They land
+   within 0.005 of each other (2.7000 vs 2.6952) -- consistent with the
+   same computation modulo minor implementation-path/nondeterminism
+   noise, not a bug in either script.
+2. **Directional hint on placement, not yet a real result.** Among the
+   four K=6 placement variants, `front_loaded` and `boundary_heavy`
+   both beat the naive-uniform `n6_const`/`uniform_6`-equivalent
+   schedule, while `back_loaded` is clearly worst. If this holds at real
+   budget, it suggests refreshing early (front-loaded) or avoiding a gap
+   right before the final round (back-loaded skips index 1 and 3, landing
+   two consecutive skips right before the last two rounds) matters more
+   than even spacing. This is exactly the kind of signal the placement
+   sweep was built to surface -- but at 500K tokens it is a hint worth
+   re-testing at 25M budget, not a conclusion. **Once RunPod funds are
+   restored, rerun all 6 (or at minimum the two placement extremes,
+   front_loaded and back_loaded) at the real 25M-token budget before
+   updating the refresh-frontier decision in section 27-28.**
+
 That is much more consistent with what the experiments have actually taught us. 🐉
