@@ -1,0 +1,52 @@
+{
+  "config": {
+    "data": "data/packed/hz0h_bytes_25m_train.jsonl",
+    "validation_data": "data/packed/hz0h_bytes_25m_val.jsonl",
+    "init_checkpoint": "results/local/hz0h_bdh_checkpoint_for_ablation.pt",
+    "out": "results/local/hz0h_bdh_g1_fixed_055_25m_quality_check.json",
+    "device": "auto",
+    "target_tokens": 25000000,
+    "batch_size": 8,
+    "sequence_length": 256,
+    "warmup_steps": 100,
+    "learning_rate": 0.001,
+    "grad_clip": 1.0,
+    "eval_batches": 8,
+    "log_every": 50,
+    "optimizer": "adamw",
+    "muon_lr": 0.02,
+    "mtp_order": 0,
+    "ngram_order": 0,
+    "ngram_table_params": 25000000,
+    "gated_residual": true,
+    "gated_residual_single_stream": true,
+    "g1_init": 0.55,
+    "g1_fixed": true,
+    "moe_experts": 0,
+    "moe_top_k": 2,
+    "round_embed": false,
+    "dtype": "bfloat16",
+    "seed": 7,
+    "n_embd": 2496,
+    "mult": 16,
+    "n_layer": 8,
+    "n_head": 8,
+    "d_state": 624,
+    "subspace_rank": 64,
+    "compile_training": false,
+    "compile_mode": "max-autotune",
+    "save_checkpoint": null
+  },
+  "d_state": 624,
+  "subspace_rank": 64,
+  "results": {
+    "vb_subspace_decoder": {
+      "validation_loss": 1.4303265511989594,
+      "parameter_count": 206469121,
+      "training_seconds": 3771.6756232655607,
+      "gate_values": {
+        "g1": 0.550000011920929
+      }
+    }
+  }
+}

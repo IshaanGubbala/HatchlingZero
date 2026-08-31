@@ -1075,6 +1075,22 @@ trust. The real test still requires GPU dispatch at the matched 25M
 budget; this local run was a cheap sanity check, not a resolution.
 Full results: `results/local/hz0h_bdh_g1_fixed_local_sweep.json`.
 
+**Full-budget fixed-g1 sweep, RTX 5090, 25M tokens/arm, real -- this is the decisive answer.** Same 5 values, matched to every other arm's methodology (seed=7, same curriculum, same warmstart):
+
+```text
+g1=0.50:  val_loss=1.4315
+g1=0.525: val_loss=1.4293  <- best fixed value
+g1=0.55:  val_loss=1.4303  <- closest to the adaptive gate's actual landing point (0.5508)
+g1=0.575: val_loss=1.4339
+g1=0.60:  val_loss=1.4470
+```
+
+Adaptive gate (real, full budget): **1.4023**.
+
+**Every fixed value is worse than the adaptive gate, including g1=0.55 -- the value closest to where the controller itself landed.** Gap at the closest point: 1.4303 vs 1.4023, +0.028, real and not small (comparable in size to the entire single-gate-vs-baseline win this whole gated-residual line started from). This directly answers the question from section B: **a hard-coded scalar does NOT reproduce the adaptive gate's result, even at the exact value it converged to.** The controller's own parameterization or training dynamics were doing real work, despite its measured output collapsing to a near-constant (std=0 under bf16 eval). Whatever that work is, it isn't captured by "found a better constant."
+
+Real, still-open question this raises rather than closes: if the gate isn't varying by input in any bf16-visible way, what IS different between "a scalar starting at 0.58 that gets pulled to 0.55 through gradient descent on a fixed value" and "a tiny MLP starting at 0.58 (by construction, via the protected zero-init) that gets pulled to output ~0.55 through gradient descent on its own weights"? Candidates, none yet tested: (a) the MLP's extra parameters (even producing a flat output) change the loss landscape / effective learning rate the shared backbone sees during training, a real optimization-dynamics effect unrelated to the final gate value; (b) bf16 eval genuinely is hiding real per-token variance too small to see at that precision but large enough over 25M tokens of gradient signal to matter; (c) something about SiLU/the two-layer structure biases early training differently even before g1 settles. Worth an fp32 gate-stats re-check (candidate b) before deeper investigation, since it's the cheapest to rule out.
+
 Original plan for step B:
 
 Replace:
