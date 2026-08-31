@@ -1347,4 +1347,109 @@ $$
 }
 $$
 
+---
+
+# 31. Progressive Latentization Training: real 4-arm result, 2026-08-31
+
+The falsification experiment proposed alongside the gate-mechanism work:
+freeze the 1.3879 locked adaptive-gate architecture and vary only the
+*training regime* on a new order-dependent task (register-machine:
+sequential `op val` clauses, decoy variable groups for shortcut
+resistance, single-digit answers so the real `lm_head` can be reused
+for step supervision). Four arms, all initialized from the same locked
+checkpoint, each given 8M continued tokens (A/B) or 20K examples (C/D):
+
+* **Arm A** -- ordinary continued LM training, fixed R=8. Real result:
+  val_loss=1.3777 (real improvement over the 1.3879 baseline).
+* **Arm B** -- Huginn-style random-R continued LM training, R drawn from
+  `[6,6,6,7,7,8,8,8,8,12,12,16]` per step. Real result: val_loss=1.3949
+  (real regression vs. baseline and vs. Arm A).
+* **Arm C** -- explicit CoT SFT on clean (no-decoy) register-machine
+  traces, ordinary byte-level LM loss. Real result: 20K examples in
+  1327s (no comparable val_loss -- different training distribution).
+* **Arm D** -- progressive latentization (Coconut/LOTUS/CODI-style):
+  curriculum grows `n_latent` 0->n_steps over training, each latent
+  reasoning step is one real recurrent round appended as a new sequence
+  position, LOTUS-style step supervision reads intermediate rounds
+  through the real `lm_head` against the true intermediate digit,
+  `lambda` decays 1.0->0.5->0.1->0.0 across training. Real result: 20K
+  examples in 2784s, checkpoint verified (13 keys, matches A/B/C
+  architecture exactly).
+
+## A real methodology bug found and fixed mid-experiment
+
+The shared eval instrument (`hz0h_bdh_register_machine_variable_depth_eval.py`,
+mirroring the entity-chain R-stability eval from section 22-28) trains a
+fresh `answer_head` on top of each arm's checkpoint via 20,000 steps of
+gradient descent, then reports an accuracy matrix over
+step-count x R in {1,2,4,8,12,16}. The first run of this against Arms
+A/B/C produced eval matrices that were **bit-identical across all 36
+cells for all three arms**, despite different checkpoints and different
+training losses -- caught by literally diffing the JSON files rather
+than trusting the printed accuracy numbers. Root cause:
+`train_probe()` called `torch.optim.AdamW(model.parameters(), ...)` --
+full-model fine-tuning, not a frozen-backbone linear probe. 20,000 steps
+of full fine-tuning on the same seeded data is enough gradient signal to
+overwrite whatever each arm's differing continued-pretraining did,
+so all three converged to the same fixed point regardless of starting
+checkpoint. (This exact protocol was valid for the single-architecture
+R-stability question in section 22-28 -- it only breaks when reused to
+compare *different* checkpoints against each other, which is precisely
+what this 4-arm experiment needs.) Fixed by freezing the backbone
+(`requires_grad_(False)` on every parameter except the fresh
+`answer_head`) before probe training -- now a real linear probe, matching
+what the docstring already claimed. Verified: rerun matrices are
+genuinely distinct across all four arms (confirmed by diff, not just
+eyeballing).
+
+## Real result after the fix
+
+Chance accuracy for this 10-way single-digit classification is 0.10.
+Overall accuracy across the full step-count x R matrix (36 cells,
+eval_n=100/cell, so per-cell std error ~0.03):
+
+| Arm | overall accuracy | overall shortcut-rate |
+|-----|------------------|------------------------|
+| A (plain continued LM)      | 0.126 |0.062 |
+| B (random-R continued LM)   | 0.124 | 0.064 |
+| C (explicit CoT SFT)        | 0.112 | 0.071 |
+| D (progressive latentization) | 0.122 | 0.067 |
+
+All four arms land in a narrow 0.11-0.13 band, barely above chance, with
+low shortcut-rates (so the near-chance accuracy is not decoys pulling
+predictions away from real answers -- the probe genuinely isn't finding
+the answer, not finding something else instead). Per-R breakdown for
+Arm D specifically (the one this whole experiment exists to test):
+
+R=1: 0.137, R=2: 0.123, R=4: 0.128, R=8: 0.105, R=12: 0.132, R=16: 0.105
+
+**No monotonic R-dependence in any arm, including D.** The target
+falsification signature from the original proposal --
+`A(R=1)<A(R=2)<A(R=4)<A(R=8)` or any consistent increasing trend with
+R specifically in Arm D and not in A/B/C -- is not present. Arm D's
+curve is flat-to-slightly-decreasing across R, statistically
+indistinguishable from noise given the ~0.03 per-cell standard error,
+and not meaningfully different in shape from Arms A/B/C.
+
+**Honest verdict, per the falsification framing the experiment was
+explicitly built for**: this is a real negative result. Under this
+instrument, progressive latentization training does not produce
+evidence of stepwise reasoning-depth-dependence on a genuinely
+order-sensitive task, no more than ordinary continued pretraining does.
+Two real caveats, neither of which should be used to explain the result
+away without further evidence: (1) the frozen linear probe reads out
+only the *last-token* hidden state through a single matmul -- it is a
+real but narrow instrument, and it's possible task-relevant information
+is present in the frozen features but not linearly decodable from that
+one position; (2) overall accuracy for all four arms is close enough to
+chance that the register-machine task itself, at n_steps up to 8 with
+decoys, may simply be too hard for this model scale/training budget
+regardless of training regime -- a near-floor instrument has limited
+power to detect *any* real difference between arms, not just the
+depth-dependence one. Both caveats argue for a follow-up with either a
+richer probe (e.g. read out at every position, not just the last) or an
+easier task variant before concluding progressive latentization
+categorically doesn't work here -- but as currently measured, Arm D
+gives no support for the hypothesis it was built to test.
+
 That is much more consistent with what the experiments have actually taught us. 🐉
