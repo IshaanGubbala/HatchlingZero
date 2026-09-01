@@ -1736,14 +1736,23 @@ source exists yet at the new 150M config -- the existing
 206.47M champion, not directly reusable), and the GPU dispatch decision
 (cost-estimate-first, per the standing agreement).
 
-**150M pretrain in progress, run locally per explicit request (no GPU
-spend)**: `scripts/hz0h_bdh_hzcq_150m_pretrain.py`, real throughput
-probed at 502 tok/s, 5M-token budget chosen (~2.8hrs, user's explicit
-choice over 2M/25M alternatives), no SVD warmstart (disclosed gap --
-no dense-BDH source exists at 150M dims). Currently PAUSED (SIGSTOP,
-not killed -- fully resumable, zero progress lost) pending the
-objective refinement below, since it directly bears on whether 150M is
-still the right target size.
+**150M pretrain complete, 2026-09-01, run entirely locally (zero GPU
+spend)**: `scripts/hz0h_bdh_hzcq_150m_pretrain.py`, 5M tokens, real
+19,623s wall-clock (paused via SIGSTOP mid-run for the objective
+refinement below, then resumed -- real throughput measured directly
+via step-count diffs since the pause corrupted the script's own
+cumulative rate stat, confirmed healthy throughout, 250-1300 tok/s
+bursty range). **Real result: val_loss=1.849, params=150,577,393
+(matches the target 150.58M config exactly)**. No SVD warmstart
+(disclosed gap -- no dense-BDH source exists at 150M dims). Checkpoint
+verified loadable (13 keys, correct 2128-dim embed, no NaN).
+
+**Not comparable to the 206.47M champion's 1.3879** -- different scale,
+no warmstart, 1/5 the tokens (5M vs 25M). This checkpoint's real
+purpose is as the full warmstart source for HZ-CQ's ARC fine-tuning
+phase (the actual gap this pretrain existed to close -- no 150M
+checkpoint of any kind existed before this), not a quality result to
+compare against other numbers in this document.
 
 ## Objective sharpened, 2026-09-01: Pareto frontier, not a single score
 
