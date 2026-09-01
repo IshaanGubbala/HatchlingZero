@@ -1508,3 +1508,120 @@ Two real, useful things from this batch despite the reduced budget:
    updating the refresh-frontier decision in section 27-28.**
 
 That is much more consistent with what the experiments have actually taught us. 🐉
+
+---
+
+# 33. Major pivot proposed, 2026-08-31: target BDH-CQ, lock params at 150M
+
+**Standing decision from this point forward: all future HatchlingZero
+architecture work is locked at ~150M parameters** (current champion is
+206.47M -- future configs need to shrink to match). The explicit target
+is no longer "improve BDH LM loss in the abstract" but:
+
+$$
+\boxed{\text{beat BDH-CQ's reported ARC-AGI-1 pass@2 at} \le 150M \text{ params and} \le \text{its reported cost/task}}
+$$
+
+**Important sourcing caveat, stated plainly**: the BDH-CQ specification
+below (architecture shape, disclosed/undisclosed pieces, and every
+specific number -- 29.5% pass@2, 0.85 H200-sec/task, \$0.00070/task, the
+per-failure-mode breakdowns like 0/72 on color-swap+relocation) comes
+from the user's own reading of an external paper, not from anything
+verified independently in this session. Treat it as the target
+specification to build against, not as an internally-confirmed fact,
+until someone actually pulls and checks the source. If the numbers turn
+out to be misremembered or the paper doesn't say what's summarized here,
+the target moves, not the discipline around it.
+
+## What BDH-CQ reportedly does (per the above caveat)
+
+Two distinct recurrent processes, not one:
+
+1. **Persistent task memory** $S$, built by ingesting demonstrations
+   sequentially: $S_t = U_\theta(S_{t-1}, D_t)$. Model weights don't
+   change; the demonstrations update the recurrent state.
+2. **Separate latent reasoning workspace** $H$, initialized from the
+   query and the final memory state: $H_0 = E_\theta(x^*, S_K)$, then
+   iterated $H_{r+1} = F_\theta(H_r, S_K)$ for $R$ steps, decoded to an
+   answer $\hat y = G_\theta(H_R)$.
+
+Reportedly trained at **variable latent-reasoning effort** (LOW/MEDIUM/
+HIGH bands, roughly R in {2-4, 6-8, 12-16}), giving a real accuracy/cost
+knob at inference (21% / 27% / 29.5% pass@2 respectively, per the
+external summary) -- this is the same "more compute -> better answer"
+property this whole session's recurrence-stability work has been
+chasing, and if accurate, BDH-CQ already has it via Huginn-style
+variable-R training, not anything more exotic.
+
+No evidence of explicit CoT->latent distillation (Coconut-style) in
+what's disclosed -- the training objective is reportedly just
+demonstrations -> memory update -> query -> R latent steps -> exact
+target, trained on a large curated ARC curriculum (ARC-AGI-1 train,
+RE-ARC, ConceptARC, ARC-Heavy, ARC-GEN100K, undisclosed augmentations).
+The evaluated system also reportedly includes candidate generation +
+ranking around the network (pass@2 = up to 2 ranked candidates), not a
+single raw forward pass.
+
+Explicitly undisclosed: state/workspace dimensions, exact $U_\theta$/
+$F_\theta$, recurrent step count, BDH internal dims, optimizer/LR/
+schedule/batch size, augmentation recipe. **This cannot be literally
+reproduced from the paper** -- only the system *shape* is knowable.
+
+## Proposed HZ-CQ architecture (real work items, not yet built)
+
+1. **Task memory $S$**: real persistent recurrent memory built from
+   demonstration pairs (both input AND output enter memory -- the model
+   needs to infer the transformation, not just encode inputs). Likely
+   reuses BDH's exact associative addressing + state-dependent gated
+   writes, NOT the aggressively bottlenecked belief/workspace split
+   that killed BDH-Delta (1.7862, dead per section 27) -- keep $S$ and
+   $H$ high-dimensional, don't squeeze through a 384-d bottleneck again.
+2. **Reasoning workspace $H$**: separate from $S$, high-dim, iterated
+   with the **already-validated adaptive gate** (1.3879 champion,
+   real state-dependence, real stability through R=16 per sections
+   22-28) as the update rule: $H_{r+1} = \text{LN}(H_r + g_r \Delta H_r)$
+   with $g_r = C_\phi(H_r, \Delta H_r, S)$. This is a real, already-
+   proven-in-this-project piece BDH-CQ hasn't disclosed having.
+3. **Variable-effort training**: R sampled per-episode from LOW/MEDIUM/
+   HIGH bands (or a broader distribution + the adaptive gate learning
+   when to stop, going beyond BDH-CQ's reported discrete effort modes
+   toward real per-task halting).
+4. **Task-structured training data**: each training item is a full
+   episode (demo1 in/out, demo2 in/out, demo3 in/out, query in -> query
+   out), no explicit task ID -- learning-to-learn through recurrent
+   state, not parametric memorization.
+5. **Procedural curriculum targeting BDH-CQ's own reported failure
+   modes** (per the external summary): ordering (length-8 collapse),
+   deep nesting (depth-5 failures without demonstration), operator
+   composition (reflection+relocation down to 47/72, color-swap+
+   relocation at 0/72), extrapolation (train on depth 1-3, query depth
+   4+). These reported weak points are a real, free roadmap for where
+   to generate synthetic training coverage -- IF the numbers hold up
+   under the sourcing caveat above.
+6. **Candidate generation + verification/ranking**: instead of one
+   forced-correct decode, produce a small candidate set and a cheap
+   verifier scoring "does this candidate obey the transformation
+   inferred from the demonstrations" -- optionally with a latent
+   self-correction loop (candidate -> verify -> correct -> re-emit,
+   no CoT tokens) as a potential improvement over pure ranking.
+7. **Efficiency**: reuse this project's existing speed work (compile,
+   packed GEMMs, BF16, static batched recurrence) -- beating BDH-CQ on
+   accuracy alone while being far slower isn't actually beating it on
+   its own accuracy/cost frontier.
+
+## Explicit sequencing decision needed
+
+**Not started yet.** This is a full scope change from the refresh/gate
+work this document has tracked through section 32 -- new task (ARC-AGI
+style, not register-machine or entity-chain), new architecture pieces
+(persistent task memory, separate workspace, candidate ranking), new
+param budget (150M, down from 206.47M), new success metric (ARC pass@2
++ cost/task, not LM validation loss). Before writing any code: decide
+whether to (a) finish the in-flight 6-job refresh-cleanup sweep first
+(5/6 done as of this section, real GPU cost already sunk, cheap to
+finish), then pivot fully, or (b) treat the current champion as frozen
+now and start HZ-CQ design work immediately in parallel. Given this
+session's explicit cost-discipline agreement (small batches, one job
+at a time, cost estimates before dispatch), HZ-CQ's first real
+GPU spend should get the same treatment -- an explicit estimate and
+go-ahead before any dispatch, not a silent large fan-out.
