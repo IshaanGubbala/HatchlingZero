@@ -1,0 +1,15 @@
+{
+  "validation_loss": 1.4107649326324463,
+  "params": 206469121,
+  "elapsed_s": 4678.7812456302345,
+  "n_layer": 8,
+  "placement_pattern": "uniform_4",
+  "refresh_at": [
+    0,
+    2,
+    4,
+    6
+  ],
+  "n_refresh": 4,
+  "final_g1": 0.5933676958084106
+}
