@@ -1702,3 +1702,36 @@ reasoning workspace wired to the adaptive gate, the training script
 itself, and the GPU dispatch decision (which needs the same cost-
 estimate-first treatment as everything else per the sequencing note
 above).
+
+## Real groundwork done, 2026-09-01: core forward pass built and verified
+
+**`reference/hz0h_bdh_arc_task_memory_torch.py`** (`forward_hz_cq`) --
+real, working implementation of the persistent-memory + separate-
+workspace architecture, built entirely from already-validated pieces
+(the adaptive gate's `_refresh_iteration`, the growing-sequence-with-
+carry pattern from progressive-latentization's `_full_rounds`).
+Deliberately NOT combined with the new K=4 refresh-schedule champion
+(section 32) yet -- stacking two unvalidated combinations at once would
+make failures unattributable.
+
+Smoke-tested at tiny dims (CPU, zero GPU cost): loss finite, backward()
+succeeds, P/O correctly frozen (no grad, by design), gate_w1/b1
+correctly zero-grad on step 1 (documented protected-init behavior, not
+a bug), held-out inference path clean, R in {0,1,16} all stable, the
+single largest real ARC episode (9356 bytes) runs without crashing.
+**Most important check**: swapping in a different task's demonstrations
+produces a genuinely different final workspace state (0.064 max abs
+diff) -- confirms task memory actually conditions the reasoning
+workspace rather than being silently ignored by the forward pass.
+
+`scripts/hz0h_bdh_arc_task_loader.py` also gained `build_episode_parts`
+(returns memory/query/answer text separately instead of one joined
+string), verified to rejoin to byte-identical output vs the original
+`serialize_episode` on 50 real tasks.
+
+Still not started: the variable-effort (LOW/MEDIUM/HIGH R-band)
+training script, the 150M-param checkpoint warmstart (no warmstart
+source exists yet at the new 150M config -- the existing
+`hz0h_bdh_checkpoint_for_ablation.pt` SVD warmstart is sized for the
+206.47M champion, not directly reusable), and the GPU dispatch decision
+(cost-estimate-first, per the standing agreement).
