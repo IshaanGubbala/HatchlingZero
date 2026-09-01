@@ -1735,3 +1735,61 @@ source exists yet at the new 150M config -- the existing
 `hz0h_bdh_checkpoint_for_ablation.pt` SVD warmstart is sized for the
 206.47M champion, not directly reusable), and the GPU dispatch decision
 (cost-estimate-first, per the standing agreement).
+
+**150M pretrain in progress, run locally per explicit request (no GPU
+spend)**: `scripts/hz0h_bdh_hzcq_150m_pretrain.py`, real throughput
+probed at 502 tok/s, 5M-token budget chosen (~2.8hrs, user's explicit
+choice over 2M/25M alternatives), no SVD warmstart (disclosed gap --
+no dense-BDH source exists at 150M dims). Currently PAUSED (SIGSTOP,
+not killed -- fully resumable, zero progress lost) pending the
+objective refinement below, since it directly bears on whether 150M is
+still the right target size.
+
+## Objective sharpened, 2026-09-01: Pareto frontier, not a single score
+
+Real refinement of section 33's target -- not "beat BDH-CQ's 29.5%
+pass@2" as an isolated number, but beat it on its own cost/quality
+frontier simultaneously:
+
+$$
+\boxed{\text{better quality} + \text{lower latency} + \text{lower memory} + \text{lower training/inference cost}}
+$$
+
+**Same sourcing caveat as section 33 applies to every BDH-CQ number
+below.** Concrete target, if BDH-CQ is roughly 150M params / 29.5%
+pass@2 / 0.85 H200-sec/task (per the user's external summary):
+
+$$
+\boxed{\ge 35\text{-}40\%\text{ pass@2}, \quad <100M\text{ params}, \quad <0.5\text{ H200-equivalent sec/task}}
+$$
+
+**Real tension with the standing 150M lock**: this message explicitly
+argues for 50-100M params ("target 50-100M parameters rather than
+matching 150M blindly") -- reasoning depth should come from recurrent
+compute (more rounds), not duplicated layers, so a smaller model that
+uses its recurrence well should be able to match or beat a larger one
+that doesn't. This has NOT been reconciled with the in-progress 150M
+pretrain above yet -- needs a real decision (resize before resuming,
+or keep 150M as the ceiling and treat 50-100M as a later efficiency
+pass once the memory+workspace architecture is validated at all).
+
+**Per-experiment evaluation frame going forward** -- judge every future
+HZ-CQ experiment on these four columns, not loss alone:
+
+| Experiment | Intelligence | Speed | Memory/Cost | Verdict |
+|---|---|---|---|---|
+| Adaptive gate | real, validated (1.3879) | ~neutral | ~neutral | keep -- this is HZ-CQ's recurrence engine |
+| BDH-Delta (belief/workspace bottleneck) | decisive real loss (1.7862) | some gain | maybe some gain | dead, section 27 -- do not revive without new evidence |
+| K=4 cached-schedule refresh | real win (1.4108, beats K=6 at 1.4135+) | real win (less compute/round) | real win | keep, but not yet combined with adaptive gate (unvalidated combo) |
+| Variable-R training (LOW/MED/HIGH) | target, not yet measured | flexible by construction | flexible by construction | high priority, not yet built |
+| CoT distillation (Coconut-style) | maybe, per section 31's negative result on register-machine | inference neutral | training cost up | secondary, not first arm |
+| Sparse/dynamic routing | unclear, this project's own earlier routing work hit real OOM issues | often down in practice | unclear | not being pursued right now |
+
+Roadmap direction (not yet built, in priority order once the params
+question above is settled): (1) task memory + high-dim workspace +
+adaptive gate [core forward pass already built, section 33 above], (2)
+variable-compute training targeting BDH-CQ's disclosed failure modes
+(composition, ordering, nesting, extrapolation) directly, (3) revisit
+the K=4 refresh-schedule combination once the base architecture is
+validated, (4) real per-task adaptive halting (R(x,S) rather than
+fixed discrete bands) as a later refinement, not the first cut.
