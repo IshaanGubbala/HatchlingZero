@@ -1,0 +1,10 @@
+{
+  "validation_loss": 1.849031701683998,
+  "params": 150577393,
+  "elapsed_s": 19622.830078291,
+  "n_layer": 8,
+  "n_refresh": 8,
+  "n_embd": 2128,
+  "target_tokens": 5000000,
+  "no_svd_warmstart": true
+}
