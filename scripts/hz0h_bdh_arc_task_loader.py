@@ -73,6 +73,24 @@ def serialize_episode(task: dict, rng: random.Random, held_out_query: bool = Fal
     return "\n".join(parts), query["output"]
 
 
+def build_episode_parts(task: dict, rng: random.Random) -> tuple[str, str, str, Grid]:
+    """Same content as serialize_episode but split into the three
+    phases the HZ-CQ forward pass needs staged separately: demonstration
+    text (-> persistent task memory), query text (-> conditions the
+    reasoning workspace init), and answer text (-> teacher-forced
+    target during training, never fed to the model at real eval time).
+    Always returns the true answer text/grid; the caller decides
+    whether to embed it (training) or hold it out (eval)."""
+    demos = task["train"]
+    query = rng.choice(task["test"]) if len(task["test"]) > 1 else task["test"][0]
+
+    demo_parts = [f"IN\n{_serialize_grid(d['input'])}\nOUT\n{_serialize_grid(d['output'])}\nEND" for d in demos]
+    memory_text = "\n".join(demo_parts)
+    query_text = f"QUERY\n{_serialize_grid(query['input'])}"
+    answer_text = f"ANSWER\n{_serialize_grid(query['output'])}"
+    return memory_text, query_text, answer_text, query["output"]
+
+
 def parse_answer(generated_text: str) -> Grid | None:
     """Extracts the grid following the last 'ANSWER\\n' in generated text.
     Returns None if the model didn't produce a well-formed answer block
@@ -122,6 +140,18 @@ if __name__ == "__main__":
 
     print(f"[arc_task_loader] round-trip verified on {checked}/400 training tasks")
     print(f"[arc_task_loader] max episode length: {max_episode_bytes} bytes")
+
+    # build_episode_parts: verify the three pieces concatenate back to
+    # exactly serialize_episode's output (same content, just staged).
+    for task_id, task in list(tasks.items())[:50]:
+        rng2 = random.Random(7)
+        whole_text, _ = serialize_episode(task, rng2, held_out_query=False)
+        rng3 = random.Random(7)
+        mem_text, query_text, answer_text, true_out = build_episode_parts(task, rng3)
+        rejoined = "\n".join([mem_text, query_text, answer_text])
+        assert rejoined == whole_text, f"{task_id}: build_episode_parts doesn't match serialize_episode"
+        assert true_out is not None
+    print("[arc_task_loader] build_episode_parts verified against serialize_episode on 50 tasks")
 
     # held-out mode sanity: no ANSWER marker should appear, parse_answer -> None
     text_held, true_out = serialize_episode(tasks[next(iter(tasks))], rng, held_out_query=True)
