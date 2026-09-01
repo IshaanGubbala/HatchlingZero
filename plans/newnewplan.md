@@ -1625,3 +1625,39 @@ session's explicit cost-discipline agreement (small batches, one job
 at a time, cost estimates before dispatch), HZ-CQ's first real
 GPU spend should get the same treatment -- an explicit estimate and
 go-ahead before any dispatch, not a silent large fan-out.
+
+## Real groundwork done, 2026-08-31 (no GPU spend, done while the refresh sweep finished)
+
+1. **150M-param config found**: `n_embd=2128, n_head=8, n_layer=8,
+   d_state=532, subspace_rank=64, mult=16` -> 150,577,280 real params
+   (verified by instantiating `BDHVBSubspaceDecoder` and counting, not
+   estimated) -- 150.58M, within 0.4% of the 150M target, same
+   architecture ratios as the 206.47M champion (d_state=n_embd/4,
+   rank=64) just scaled down.
+2. **ARC-AGI-1 dataset in place**: cloned from
+   `github.com/fchollet/ARC-AGI` into `data/arc_agi_1/` (gitignored,
+   matches project convention), 400 training + 400 evaluation tasks,
+   real public benchmark data with known answers on the training split.
+3. **`scripts/hz0h_bdh_arc_task_loader.py`** built and verified: loads
+   tasks, serializes an episode as `IN/<grid>/OUT/<grid>/END` per
+   demonstration (JSON's own order kept -- unlike register-machine,
+   ARC demos have no "real order" to shuffle-protect) followed by
+   `QUERY/<input>/ANSWER/<output>`, single ASCII digit per grid cell
+   (byte-level, matches vocab_size=256 everywhere else in this
+   project). Round-trip verified against all 400 real training tasks
+   (serialize then recover the exact grid via `parse_answer`) -- not a
+   toy/synthetic check.
+4. **Real constraint found**: episode byte-length distribution is
+   `median=925, p90=2493, mean=1232, max=9356` (all real numbers from
+   the actual dataset, not estimated). This is far beyond the
+   `sequence_length=256` chunks every other training script in this
+   project uses -- whatever HZ-CQ training script comes next needs to
+   either (a) support much longer context (2048-4096 would cover
+   ~90-95% of tasks, 9356+ needed for the real max), or (b) filter/
+   truncate the long tail, a real design decision not yet made.
+
+Still not started: the persistent task-memory module, the separate
+reasoning workspace wired to the adaptive gate, the training script
+itself, and the GPU dispatch decision (which needs the same cost-
+estimate-first treatment as everything else per the sequencing note
+above).
