@@ -1507,6 +1507,47 @@ Two real, useful things from this batch despite the reduced budget:
    front_loaded and back_loaded) at the real 25M-token budget before
    updating the refresh-frontier decision in section 27-28.**
 
+## Real result, 2026-08-31 (25M-token budget, all 6 jobs, real GPU)
+
+Funds were restored and all 6 jobs reran at the real 25M-token budget,
+one at a time (RTX 5090, ~$1.3-1.4/job, ~$8.20 total), per the cost-
+discipline agreement established after the earlier burn-rate concern.
+Real final results:
+
+| Variant | Schedule | val_loss |
+|---|---|---|
+| K=4 constant (`n4_const`) | {0,2,4,6} | **1.4108** (best) |
+| K=4 placement (`uniform_4`) | {0,2,4,6} (same, cross-check) | 1.4108 (bit-identical) |
+| K=6 constant (`n6_const`, evenly spaced) | {0,1,3,4,5,7} | 1.4135 |
+| K=6 front_loaded | {0,1,2,4,6,7} | 1.4159 |
+| K=6 boundary_heavy | {0,1,3,5,6,7} | 1.4307 |
+| K=6 back_loaded | {0,2,4,5,6,7} | 1.4314 (worst) |
+
+**Decisive, real finding: K=4 constant-schedule is the new refresh-
+frontier champion**, beating every K=6 variant tested including the
+best-placed one -- and it does so with LESS exact-address compute per
+round (4 refreshes vs 6), making it a genuine Pareto win: cheaper AND
+better. This directly reverses the earlier curriculum-confounded
+result (K=4=1.5125 losing to K=6=1.4505) -- the confound was masking
+the real ordering the whole time.
+
+Among the K=6 placement variants, evenly-spaced (`n6_const`, 1.4135)
+beats all three clustered patterns -- real evidence that even spacing
+matters more than clustering refreshes at specific positions, which
+also **reverses** the 500K-token local-stopgap's directional hint
+(front_loaded predicted best, actually second-worst at real budget;
+only back_loaded's "worst" prediction held up). This is a real,
+disclosable lesson for the whole project: small-budget stopgap
+rankings are not reliable substitutes for real-budget results, even
+when the direction seems intuitive.
+
+**Refresh-frontier decision, updated**: K=4 constant-schedule
+(schedule {0,2,4,6}) is the new candidate for the "combine with
+adaptive gate" step (section 27-28's step D), not K=6 as previously
+assumed. This work is now superseded in priority by the BDH-CQ pivot
+(section 33) but stays the correct answer to "which refresh schedule
+wins" whenever refresh-frontier work resumes.
+
 That is much more consistent with what the experiments have actually taught us. 🐉
 
 ---
