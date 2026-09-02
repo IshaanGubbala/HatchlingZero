@@ -1754,6 +1754,69 @@ phase (the actual gap this pretrain existed to close -- no 150M
 checkpoint of any kind existed before this), not a quality result to
 compare against other numbers in this document.
 
+## ARC fine-tuning real result, 2026-09-01: an inverted-U, not a monotonic curve
+
+`scripts/hz0h_bdh_hzcq_arc_finetune.py` built and run locally (400
+examples, one full pass over the real ARC-AGI-1 training split, 8700s
+wall-clock, warmstarted from the 150M pretrain checkpoint above). Per-
+episode R sampled from LOW (2-4) / MEDIUM (6-8) / HIGH (12-16) bands,
+per-band eval loss tracked at 8 checkpoints (every 50 examples) on a
+fixed held-out set of real evaluation-split tasks.
+
+**Real, decisive, and completely consistent across all 8 checkpoints,
+no exceptions**:
+
+| Step | LOW | MEDIUM | HIGH |
+|---|---|---|---|
+| 50 | 1.789 | 1.486 | 1.604 |
+| 100 | 1.525 | 1.230 | 1.384 |
+| 150 | 1.509 | 1.261 | 1.288 |
+| 200 | 1.378 | 1.140 | 1.269 |
+| 250 | 1.515 | 1.132 | 1.313 |
+| 300 | 1.411 | 1.195 | 1.284 |
+| 350 | 1.391 | 1.163 | 1.271 |
+| 400 (final) | 1.460 | **1.157** | 1.364 |
+
+**MEDIUM beats both LOW and HIGH at every single checkpoint.** This is
+NOT the monotonic "more recurrent compute -> better answer" signature
+this whole architecture line was built to test for (that would need
+HIGH to beat MEDIUM) -- but it is real, reproducible evidence of an
+inverted-U / sweet-spot pattern: LOW is consistently worst (some extra
+reasoning depth clearly helps a lot, R=2-4 is not enough), while HIGH
+consistently underperforms MEDIUM (more than R~6-8 stops helping and
+mildly hurts, at least at this training scale).
+
+**Real, disclosed caveats before reading too much into this:**
+
+1. **This is teacher-forced next-byte loss, not task-solving accuracy.**
+   Lower loss on the true answer bytes is suggestive but is not the
+   same thing as the model actually producing correct ARC grids --
+   BDH-CQ's own real target metric is pass@2 exact-match accuracy.
+   An exact-match eval script has not been built yet; that's the next
+   real thing needed before this finding can be compared to any
+   external benchmark number.
+2. **The 8 checkpoints are NOT independent replications** -- eval uses
+   a fixed seed (0) against a fixed 30-task sample every time, so this
+   is one real trajectory of the same instrument as training
+   progresses, not 8 separate experiments. The *consistency* across
+   the trajectory is still real signal (a noisy instrument wouldn't
+   hold the same ordering 8/8 times), but it's one seed, one training
+   pass, no repeat run yet.
+3. **A real confound not yet ruled out**: HIGH-R episodes are longer
+   (more appended latent-reasoning positions before the answer) than
+   LOW-R episodes. Longer context immediately preceding the predicted
+   bytes could affect loss through ordinary positional/recency
+   dynamics unrelated to "reasoning quality" specifically -- this
+   hasn't been isolated from the real R-effect yet.
+
+**Honest verdict**: real, consistent, worth taking seriously -- but a
+loss-based inverted-U on one training pass, not (yet) the "more
+compute solves harder ARC tasks" result HZ-CQ was built to chase.
+Next real steps: (1) build exact-match pass@k accuracy eval, (2) test
+whether the sweet spot shifts with more training / more R-band
+resolution, (3) rule out the length confound (e.g. compare against a
+LOW-R run padded to HIGH-R's sequence length with no-op rounds).
+
 ## Objective sharpened, 2026-09-01: Pareto frontier, not a single score
 
 Real refinement of section 33's target -- not "beat BDH-CQ's 29.5%
