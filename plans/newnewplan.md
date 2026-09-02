@@ -2987,3 +2987,36 @@ cost) is exactly what Rule 6 ("no expensive scaling before mechanism
 validation") and Rule 3 ("kill criterion before running") are for --
 it would have been a real waste to jump straight to ARC-scale training
 before finding this.
+
+## Quick multi-token-query follow-up: inconclusive, confounded, honestly reported
+
+Immediately tried the fix the previous section's root cause implied:
+made the query genuinely multi-token (T_query=4 vectors instead of 1).
+Result: WORSE, not better -- loss~0.96, rel_err=0.9747, vs the
+single-token version's loss~0.85, rel_err~0.91.
+
+**Real, honest caveat before drawing any conclusion from this**: this
+quick test changed TWO things at once, not one -- (1) the query
+tokenization (the actual fix implied by the root-cause finding), AND
+(2) the readout mechanism, which had to change since M_H=8 workspace
+slots no longer map cleanly onto T_query=4 outputs. The readout used
+was `H.reshape(B,4,2,D).mean(dim=2)` -- an arbitrary, UNTRAINED,
+fixed assignment of H's 8 slots into 4 pairs, with no real learned
+correspondence between specific slots and specific query positions.
+This is very likely why it got worse, not evidence the multi-token
+query hypothesis is wrong: an arbitrary reshape-based readout is a
+real confound, not a clean test.
+
+**Real, disciplined conclusion**: the single-token-attention diagnosis
+from the previous section still stands as the best current
+explanation (it was isolated by six clean ablations, this quick
+follow-up was not clean). Properly testing the fix needs a REAL
+cross-attention-based readout (H attends over/is read out per query
+position via learned attention, not an arbitrary reshape) -- a real,
+somewhat more involved next step, not attempted carefully here given
+this was a quick immediate follow-up rather than a fresh, deliberate
+design pass. Flagging honestly rather than either (a) claiming the fix
+failed (confounded, not a fair test) or (b) claiming it worked
+(it didn't, on this specific confounded attempt). This is the right
+place to pause this specific investigative thread and let a future
+pass redesign the readout properly before drawing further conclusions.
