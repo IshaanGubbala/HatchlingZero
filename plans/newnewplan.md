@@ -2260,3 +2260,43 @@ the terminator bytes, or checking whether `\nEND` is functionally
 under-represented in the loss vs. the far larger token budget spent on
 grid-digit bytes) before another round of "just train more" is worth
 dispatching.
+
+**Correction, real teacher-forced diagnostic**: the terminator-
+supervision hypothesis above is wrong -- retracting it. Ran a direct
+check (no generation, single teacher-forced forward pass per episode
+on the 2000ex checkpoint, R=7, same 3 dev episodes): at the TRUE
+`\nEND` positions, the model's predicted probability for the correct
+byte is 0.87-1.0 with rank_of_true=0 (its actual top-1 choice) at
+essentially every terminator position across all 3 episodes. It has
+learned `END` under teacher forcing about as well as anything could be
+learned. The real number that matters instead: overall per-byte top-1
+accuracy under teacher forcing is only 0.44-0.67 across the 3
+episodes -- roughly half the answer bytes are wrong even when every
+prior byte is the true one.
+
+Read together, this is classic **exposure bias**, not a terminator-
+specific gap: during free generation the model's own early wrong bytes
+compound (no teacher forcing to correct them), so it drifts off the
+true grid's row/column structure before it ever reaches a state that
+resembles "a complete, correctly-shaped grid" -- there's no available
+`END` to predict because the input context it's actually seeing during
+generation never matches anything like the true-answer contexts this
+diagnostic just showed it handles well. Upweighting the terminator
+loss would do nothing (it's already ~perfectly supervised); the real
+lever is overall content accuracy and/or exposure to the model's own
+generation trajectory during training (e.g. scheduled sampling), not
+special-casing the last few bytes.
+
+**Real next action, revised**: before spending more GPU budget, decide
+between (a) more of the same training (raise overall per-byte accuracy
+enough that free-running trajectories stay close enough to the true
+grid to reach a real stopping point) vs (b) a real architecture/
+training-procedure change addressing exposure bias directly (e.g.
+mixing some fraction of self-generated context into training, matching
+how real eval will condition the model). Given this project's "one
+change at a time" discipline and that (a) hasn't been tried past 2000
+examples yet, the disciplined next step is to first check whether
+per-byte accuracy keeps improving with data before reaching for a
+training-procedure change -- not dispatched yet, flagged for a
+deliberate go/no-go rather than auto-launched, given real GPU spend is
+involved and funds are limited right now.
