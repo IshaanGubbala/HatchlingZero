@@ -2714,3 +2714,51 @@ queued, but this session's real diagnostic and architecture-testing
 arc -- from the K=4 refresh champion through the ARC/HZ-CQ bottleneck
 diagnosis to this LoRA capacity curve -- is at a natural, real,
 well-documented stopping point.
+
+## Real, direct probe of the actual "chat-capable" milestone, 2026-09-02
+
+Everything above (ARC pass@1, per-byte accuracy, LoRA capacity curve)
+measures the HZ-CQ ARC-specific line -- but the standing goal's real
+"smallest coherent chat-capable model" component is about **English
+conversation**, a separate, never-yet-directly-tested target. Ran a
+real, free, direct probe: the 150M `hz0h_bdh_hzcq_150m_pretrain_checkpoint.pt`
+(general byte-level pretrain, 5M tokens, val_loss=1.849, no ARC
+fine-tuning) generating from plain text prompts (not ARC episode
+format) via `bdh_adaptive_gate_forward_checkpointed` -- the model's
+actual plain generative path.
+
+**Greedy decoding**: real English words, spelled correctly ("programs",
+"commands", "specific", "server", "file"), real local syntax (articles,
+spacing) -- but collapses into repetition loops ("the specific to the
+specific the specific...") within ~20 bytes. Real, expected failure
+mode of greedy decoding specifically, not necessarily a model ceiling.
+
+**Temperature sampling + repetition penalty** (temp=0.8, top_k=20,
+rep_penalty=1.3): repetition loop avoided, but output resembles CODE/
+technical text, not English prose -- comment markers (`#`), `import`,
+`def`-shaped fragments, technical-looking identifiers. **Real, honest
+explanation, not a model failure**: `hz0h_bytes_25m` (this project's
+only general pretraining corpus, used for every quality-check baseline
+this whole session) is the same 5-domain mix from the domain-
+specialization diagnostic (code, documentation, json_and_configuration,
+mathematical_and_structured, terminal_and_debugging) -- **this project
+has never had, or trained on, an actual conversational-English
+corpus.** The model isn't failing at chat-capability; it has simply
+never seen chat/conversational text at all.
+
+**Real, clarifying reframe of what "smallest coherent chat-capable
+model" actually needs from here**: (1) a real conversational-English
+training corpus does not yet exist in this project and would need to
+be sourced/built before this milestone is even attemptable, separate
+from and in addition to the ARC/HZ-CQ persistent-memory work; (2) a
+genuinely encouraging real sign at only 5M tokens on a technical/code
+corpus: the architecture already produces correctly-spelled real words
+and locally-valid syntax, not character soup -- the byte-level LM
+mechanism itself is learning real structure fast, which bodes well for
+what it could do given real conversational data at a real budget.
+Real next action, not started today: identify or build a real English-
+conversation byte-level corpus (this is itself a real, nontrivial task,
+not a quick addition) before any further "chat-capable" progress is
+possible -- flagged as a genuinely separate, currently-not-started
+prerequisite, distinct from the ARC funding decision and the LoRA rank
+question, both already on the table.
