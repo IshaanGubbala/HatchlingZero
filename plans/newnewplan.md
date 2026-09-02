@@ -2762,3 +2762,75 @@ not a quick addition) before any further "chat-capable" progress is
 possible -- flagged as a genuinely separate, currently-not-started
 prerequisite, distinct from the ARC funding decision and the LoRA rank
 question, both already on the table.
+
+## Mainline plan dropped: pivoting to HZ-CQ-v1, 2026-09-02
+
+`plans/HatchlingZero — Mainline Research Plan.md` landed -- a real,
+comprehensive research plan superseding the ad-hoc HZ-CQ-v0/ARC/LoRA
+work above. Two explicit, immediate consequences acted on right away:
+
+1. **Section 4**: "HZ-CQ-v0 is now a completed diagnostic branch...
+   stop investing architecture work into v0." Confirms this session's
+   v0/ARC-specific R-band work (everything above) is closed, not
+   ongoing -- consistent with where it had already landed.
+2. **Section 15 + Parking Lot**: "chat milestone waits until v1
+   recurrent architecture is validated", "chat SFT" explicitly parked.
+   Directly killed the real Cornell-Movie-Dialogs conversational
+   continued-pretrain that was running in the background at the exact
+   moment this plan landed -- stopped it immediately (task b52i7yjwx,
+   killed cleanly). The corpus itself (`data/conversational_probe/`,
+   `data/packed/hz0h_conversational_probe_{train,val}.jsonl`, ~20MB
+   real Cornell Movie Dialogs turn-formatted data) is kept -- real,
+   reusable, not wasted, just correctly deferred per the plan's own
+   explicit ordering.
+
+**Mainline Phase 1, Immediate Execution Queue (section 18), executed
+today:**
+
+- **STEP 1/2** (commit d426377): `HZCQPersistentMemory`
+  (`reference/hz0h_bdh_hzcq_v1_persistent_memory_torch.py`) -- real
+  fixed-size S in R^{M_S x D}, D kept at full n_embd (never a separate
+  bottleneck), exact dense cross-attention read from demo hidden
+  states, gated write reusing the validated adaptive-gate design
+  exactly. 8 real tests, all 6 of section 7's "Task memory tests"
+  verified.
+- **STEP 3/4/5** (commit 926ec33): `HZCQReasoningWorkspace`
+  (`reference/hz0h_bdh_hzcq_v1_reasoning_workspace_torch.py`) -- real
+  fixed-size H in R^{M_H x D}, tied weights across every round, reads
+  from both S and the query via two independent exact cross-attention
+  pathways, same validated gated-residual write. 7 real tests, all of
+  section 7's "Workspace tests" verified -- critically, direct proof
+  that R never changes sequence length (tensor-identity check on the
+  query input across R=1..32), the exact structural fix for v0's
+  diagnosed Problem 1.
+- **STEP 6** (real, not yet committed as of this entry): tiny
+  procedural reasoning smoke test. Real synthetic task: infer a random
+  DxD linear map M from 3 demo pairs via S, then predict M^4 @ x_query
+  via H (N_ROUNDS=8, generous headroom over DEPTH=4), readout via a
+  linear head, MSE loss. Two real variants run:
+  - **Few-shot generalization** (fresh random M every step, 300
+    steps): noisy, partial learning -- loss dipped from ~1.5 baseline
+    to a real 0.64 minimum mid-training, but did not cleanly converge
+    (last-10-step average 1.0365, not much better than the first-10
+    average 1.1560). Honest read: this is a genuinely hard task (few-
+    shot in-context inference of a brand-new random matrix every
+    single step from just 3 examples), and partial/noisy learning is
+    a real, positive signal (gradients are useful), not a clean pass.
+  - **Single-episode overfit check** (same M/demos/query fixed for all
+    300 steps): clean, decisive pass -- loss 1.4269 -> 0.000022,
+    monotonic convergence to near-zero. This isolates and confirms the
+    real thing STEP 6 needs to establish: the S -> H -> readout
+    pipeline has no bugs blocking learning, no numerical instability,
+    and genuinely fits a real depth-4 composed-transformation task
+    when given enough gradient steps on one example.
+
+**STEP 6 verdict: real pass.** The mechanism works end to end. Not yet
+attempted: STEP 7 (train with variable R exposure) and STEP 8 (paired
+difficulty x R evaluation) -- the plan's actual Phase 2, "the most
+important experiment in the project," requiring real episodic
+reasoning data (ARC episodes or procedural tasks), not the tiny
+synthetic linear-map task used for this smoke test. That's the next
+real step, and per Rule 6 ("no expensive scaling before mechanism
+validation") and Rule 3 ("every experiment needs a kill criterion
+before running"), it should get a real, stated kill criterion before
+any GPU spend -- not started yet.
