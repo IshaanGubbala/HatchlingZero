@@ -1833,6 +1833,14 @@ LOW-R run padded to HIGH-R's sequence length with no-op rounds).
 
 ## Objective sharpened, 2026-09-01: Pareto frontier, not a single score
 
+**Standing governing loop, stated explicitly by the user**: recursively
+test and update the architecture itself to maximize speed while
+improving quality per parameter. Not a one-shot target -- an ongoing
+cycle (real experiment -> real result -> real architecture change ->
+re-test), the same discipline this whole project has followed since
+the gate/refresh work in sections 22-28, now stated as the explicit
+governing loop for everything after this point, including HZ-CQ.
+
 Real refinement of section 33's target -- not "beat BDH-CQ's 29.5%
 pass@2" as an isolated number, but beat it on its own cost/quality
 frontier simultaneously:
