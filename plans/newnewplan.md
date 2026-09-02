@@ -2055,11 +2055,21 @@ next real action: retrain the ARC fine-tune (real, same recipe,
 corrected loss) to get a checkpoint worth actually evaluating, THEN
 run the real paired-R sweep on it.
 
-## Standing future milestone, 2026-09-01 (not started, do not act on yet)
+## Standing three-part governing goal, updated 2026-09-01
 
-User's explicit direction: eventually get a small model to hold a
-coherent English conversation, which would give this project a much
-richer, more human-legible test surface than byte-level ARC grids or
-raw LM loss. **Explicitly deprioritized for now** -- architecture
-validation (this section's whole Step 1-5 sequence) comes first. Noted
-here so it isn't lost, not because it's next.
+Set explicitly via `/goal` (session-scoped, stays active until met):
+(1) recursively test and update the architecture to maximize speed
+while improving quality per parameter -- the ongoing loop already
+described above; (2) strive for the smallest coherent chat-capable
+model -- a real, human-legible English-conversation test surface,
+much richer than byte-level ARC grids or raw LM loss alone; (3) real
+architecture validation still comes first, per the user's own explicit
+ordering ("first before even that we need to validate the architecture") --
+(2) is a genuine milestone to work toward, not deprioritized/shelved
+anymore, but it's sequenced AFTER the HZ-CQ Step 1-5 validation work
+this section is mid-way through, since a chat-capable model still
+needs a validated recurrence mechanism under it to be worth training
+efficiently. Current real active work (the corrected ARC fine-tune
+retrain, then the real paired-R eval) serves both goals at once: it's
+architecture validation AND the same infrastructure a future chat-
+model training run would reuse.
