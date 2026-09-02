@@ -1756,6 +1756,20 @@ compare against other numbers in this document.
 
 ## ARC fine-tuning real result, 2026-09-01: an inverted-U, not a monotonic curve
 
+**RELABELED HISTORICAL DIAGNOSTIC ONLY, 2026-09-01 (see section 34):**
+this entire result was computed through `forward_hz_cq`'s answer-loss
+code before a real, confirmed off-by-one bug in it was found and fixed
+(every predictor position was paired with the byte TWO positions ahead
+instead of one, and the first answer byte was never a supervised
+target at all -- see `tests/reference/test_hz0h_bdh_arc_task_memory_torch.py`
+and the fix commit). The pattern below (MEDIUM beating LOW and HIGH
+8/8 times) was real and reproducible **as a measurement of the buggy
+loss**, but that loss was not measuring "predict the true next byte"
+correctly, so the inverted-U shape itself is not trustworthy evidence
+about R-band behavior. Kept here for the record, not as a finding to
+build on -- the real re-run (with both this fix and section 34's eval-
+correctness work) is still pending.
+
 `scripts/hz0h_bdh_hzcq_arc_finetune.py` built and run locally (400
 examples, one full pass over the real ARC-AGI-1 training split, 8700s
 wall-clock, warmstarted from the 150M pretrain checkpoint above). Per-
