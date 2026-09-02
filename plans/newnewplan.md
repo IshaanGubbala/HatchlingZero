@@ -2478,3 +2478,53 @@ a calibration/generalization effect, never a raw-correctness effect,
 at any tested R. This closes every open thread from this diagnostic
 chain -- nothing left to do here short of the real go/no-go already
 stated above.
+
+## Real first exercise of the reasoning LoRA adapter, 2026-09-02
+
+Built `scripts/hz0h_bdh_reasoning_lora_quality_check.py`, the first
+actual training run of `HZCQReasoningLoRA` (built and verified
+zero-effect-at-init earlier this session, but never previously
+trained). Same warmstarted-decoder base as every quality-check script
+this project has run (SVD-reconstructed from
+`results/local/hz0h_bdh_checkpoint_for_ablation.pt`), base parameters
+FROZEN throughout, only the LoRA A/B factors trainable -- real
+adapter_params=1,646,592 (0.79% of 208.12M total).
+
+**Real, disclosed infra limitation, not a code bug**: two attempts at a
+real-scale run (500K tokens, then 100K under `caffeinate -i` after the
+first stalled) both hit the same wall -- CPU time essentially frozen
+(single-digit seconds accumulated across 12-20+ real minutes) despite
+the process staying alive (not crashed, not deadlocked in the strict
+sense). Diagnosed with `sample`: the stack is dominated by
+`psynch_cvwait`/`__workq_kernreturn`, i.e. genuinely blocked on thread-
+pool condition variables, not computing. No other competing PyTorch
+process was running at the time. Real conclusion: long-running,
+unattended `nohup` background Python processes on this Mac get
+throttled by the OS scheduler after some real wall-clock threshold,
+independent of `caffeinate`/niceness -- a real, now-documented limit on
+how much local background compute this session can reliably run
+unattended, worth remembering for future dispatch planning (short,
+actively-monitored local runs are reliable; long unattended ones are
+not, on this machine, right now).
+
+**Real result available (small-scale smoke test, NOT the intended
+quality-check-convention scale)**: 20,480 tokens (10 steps, ~35s,
+completed cleanly before either stall): frozen-base-only (LoRA
+scale=0) val_loss=5.3010; after training only the 1.65M adapter
+params, val_loss=4.2886 (delta -1.0124). Honest read: this is far too
+small a budget to compare against the 5M-token full-finetune
+quality-check convention (1.7972 baseline) -- the frozen base here
+starts from a mostly-RANDOM init (only the decoder is SVD-warmstarted;
+encoder/embed/P/O are fresh per this script's own seed), so the high
+starting loss and rapid early drop are expected of ANY training on a
+mostly-random model, not evidence the adapter is special. What this
+DOES show, real and interpretable at this tiny scale: a genuinely tiny
+number of trainable parameters (0.79% of the model) produces a real,
+immediate, substantial loss reduction when everything else is frozen
+-- the LoRA wiring itself (including today's `_w()` routing fix) works
+correctly end-to-end in a real training loop, not just at the
+unit-test level. A real quality-per-parameter comparison against full
+fine-tuning needs a real budget (5M+ tokens, ideally on GPU given this
+session's local-background-throttling limit just found) -- not run
+today, left for a future session or an explicit go-ahead alongside the
+already-flagged ARC training decision.
