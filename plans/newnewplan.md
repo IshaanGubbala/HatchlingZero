@@ -2300,3 +2300,60 @@ per-byte accuracy keeps improving with data before reaching for a
 training-procedure change -- not dispatched yet, flagged for a
 deliberate go/no-go rather than auto-launched, given real GPU spend is
 involved and funds are limited right now.
+
+**Real per-byte accuracy survey, 2026-09-02 (free, local CPU, no GPU
+spend)**: to answer the above before committing any more GPU budget,
+ran a direct teacher-forced per-byte top-1 accuracy check on the
+2000ex checkpoint across 15 real held-out episodes (evaluation split,
+seed=11 sample) at each R-band's representative R (LOW=3, MEDIUM=7,
+HIGH=14) -- no generation, single forward pass per episode, zero cost.
+
+LOW (r=3): n=15, mean=0.6673. MEDIUM (r=7): n=15, mean=0.6688.
+(HIGH/r=14 still running as of this entry -- slower per-episode, more
+recurrent rounds.)
+
+**Real finding**: LOW and MEDIUM per-byte accuracy are essentially
+identical (diff 0.0015, well within episode-to-episode noise -- per-
+episode range was 0.175-0.883). This means the held-out LOSS advantage
+MEDIUM showed throughout training (section above, all 10 eval
+checkpoints) is NOT because MEDIUM gets more bytes right -- it's
+getting the SAME fraction right as LOW. The advantage must be in
+calibration/confidence or in how badly it's wrong on the bytes it
+misses (cross-entropy penalizes confident-wrong far more than a raw
+top-1 accuracy count would show). Real, useful correction to the
+generalization story: "MEDIUM generalizes best" is true of the loss,
+not of raw correctness.
+
+**Real, simpler explanation for 0% pass@1 than exposure bias alone**:
+at ~65-67% per-byte accuracy, the probability of an entire answer
+coming out exactly right is roughly 0.65^N for an N-byte answer --
+for N=50 that's ~4e-10, for N=150 (near this dev set's longer answers)
+effectively zero. Exposure bias (section above) explains why
+generation doesn't even reach a plausible stopping point, but this is
+the more fundamental number: even a hypothetical model immune to
+exposure bias, decoding under perfect teacher-forced conditions the
+whole way, would still almost never produce an exact match at this
+per-byte accuracy. **The real bottleneck is raw per-byte accuracy
+being far too low, not a subtle procedure gap.**
+
+**Real implication for the next decision**: getting pass@1 off the
+floor needs per-byte accuracy well above 90% (ideally 99%+ for longer
+answers), not the ~65-67% this checkpoint has after 2000 examples (5
+epochs). That's a big jump, and the honest expectation is it needs
+substantially more training exposure -- likely an order of magnitude
+more examples/epochs, not another 5x step -- before this line of work
+produces a real nonzero pass@1 to report. This is explicitly a bigger,
+real GPU-cost commitment than anything dispatched so far this session,
+so per the standing cost-discipline agreement and the user's explicit
+"funds are limited, be careful" instruction, **this is left as a
+deliberate go/no-go decision for the user, not auto-dispatched.**
+
+**Separately, real infra note**: the originally-pending Windows/
+RTX3060 domain-specialization dispatch (chat-queued, ~14h overdue) was
+checked and found fully redundant -- that exact experiment (seed=17,
+n_embd=2496, 10M tokens) was already run and closed on RunPod on
+2026-08-21 (`results/cuda/hz0h_domain_specialization_10m_result.json`,
+written up in `docs/restart/hz0h_inherited_choices_audit_results.md`:
+ratio flat 1.03x-1.18x, same negative conclusion as the 2M-token
+version). Not redispatched; the stale Pi-chat monitor watching for it
+was stopped rather than left running indefinitely.
