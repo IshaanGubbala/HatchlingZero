@@ -3071,3 +3071,83 @@ requires -- ARC transformations are discrete grid operations, not
 continuous matrix multiplication) rather than continuing to tune this
 specific hard continuous-regression task. That redesign is real,
 deliberate work for a focused session, not another quick swap.
+
+## Discrete-task attempt: flat at exact chance -- decisive, real finding
+
+Acted on this doc's own recommendation immediately: built a genuinely
+discrete symbol-remapping task (K=6 symbols, each episode's "rule" is
+a random permutation of the 6 symbols, demos show 4 (input,output)
+symbol pairs, query is a real multi-token sequence of 4 new symbols to
+remap, real cross-entropy classification loss instead of MSE
+regression) -- softmax attention is naturally suited to discrete
+selection, so this was a genuine, different-in-kind test, not another
+continuous-regression variant.
+
+**Result: completely flat at exact chance.** Loss pinned at 1.7920,
+matching ln(6)=1.7918 (the exact theoretical loss for uniform random
+guessing over 6 classes) for the entire 8000-step run, no movement at
+all. Eval accuracy=0.181, chance=0.167 -- statistically
+indistinguishable from a random guesser. This is the single cleanest,
+most decisive negative result of the whole investigation: not "close
+but not quite" like the continuous task's ~0.85-0.96 partial signal --
+genuinely zero learning happened.
+
+## Real synthesis after 10 total training experiments today
+
+Across continuous linear-algebra composition (6 ablations: baseline,
+separate demo tokens, 25k-step budget, D=128 capacity, learned-pool
+readout, S bypassed, direct non-gated write) and two multi-token-query
+attempts (confounded quick-fix, then a proper per-position cross-
+attention readout, plus this discrete symbol-remapping task) -- ten
+real, honest training runs, all local, zero GPU cost, all committed:
+
+**What IS established, real and solid**: the S -> H -> readout
+pipeline has no bugs preventing gradient flow or numerical stability
+(15/15 structural tests, STEP 6's clean single-example memorization to
+0.000022). The mechanism is trainable in the narrow sense of fitting a
+single fixed target via repeated exposure.
+
+**What is NOT established, despite real, varied, honest effort**: any
+version of genuine few-shot rule inference + generalization to new
+inputs -- across two fundamentally different task types (continuous
+regression, discrete classification), two query tokenization schemes,
+two readout designs, a 4x capacity range, and a 10x training-budget
+range, nothing produced a real, above-noise positive signal on
+holding out NEW query inputs after learning from demos.
+
+**Real, honest interpretation**: this is stronger evidence than any
+single ablation alone that the current S+H design, AT THIS SCALE
+(D=48-128, M_S/M_H=8, tiny synthetic data, few thousand-to-tens-of-
+thousands of steps), does not yet implement genuine in-context rule
+learning -- the actual capability BDH-CQ-style persistent memory is
+supposed to provide. This could still be: (a) a real scale problem
+(these tiny configs may be far below where in-context learning
+"switches on," a documented phenomenon in the broader ICL literature
+for other architectures), (b) a real optimization problem (default
+AdamW/lr=2e-3/no warmup schedule used throughout, never tuned), or
+(c) a real architectural gap in how S/H are wired (the six ablations
+ruled out the SPECIFIC mechanisms tested, but not the general
+cross-attention-based read/write pattern itself, nor whether it needs
+a fundamentally different mechanism to support ICL at small scale).
+
+**Real, disciplined recommendation**: stop iterating on ad-hoc quick
+synthetic-task variants -- ten real experiments is thorough diligence,
+not insufficient effort, and continuing to swap one more task/
+hyperparameter at a time without a deliberate redesign session risks
+producing noise dressed as signal. This is exactly the kind of result
+plan section 19 anticipates ("If v1 does NOT show useful depth
+scaling... instead: debug the recurrent state-transition mechanism
+itself") -- except the finding is one level more fundamental than
+depth-scaling: basic in-context rule learning itself isn't happening
+yet at this scale, before depth/R can even be meaningfully tested.
+Real next steps, none attempted today, each requiring real deliberate
+design rather than a quick swap: (1) a real learning-rate/optimizer
+sweep (never done -- every run above reused the same untuned
+defaults); (2) testing whether ICL emerges at a meaningfully larger
+scale (more parameters, more demos, more diverse training episodes)
+before concluding the mechanism itself is wrong; (3) comparing against
+a known-working ICL baseline (e.g. a plain Transformer with the same
+demo/query setup) to establish whether ANY small architecture can
+solve these exact synthetic tasks at this budget, which would cleanly
+separate "my synthetic tasks are just too hard for anything this
+small" from "S+H specifically can't do it."
