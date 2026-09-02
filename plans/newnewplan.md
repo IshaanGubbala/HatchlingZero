@@ -2431,3 +2431,42 @@ explicit "funds are limited, be careful" instruction, **this is left
 as a deliberate go/no-go for the user, not auto-dispatched.** Nothing
 further should be launched on this line of work without that
 explicit go-ahead.
+
+**Addenda after full completion (both surveys finished naturally,
+no kills needed)**:
+
+Position survey finished all 10 episodes (the apparent stall was real
+memory pressure on one long-memory episode, not a true hang -- it
+recovered on its own; final RSS reached ~27GB before completing, worth
+noting as a real inefficiency in this ad-hoc diagnostic script, not an
+architecture bug). Final pooled quartile means (n=10):
+**0.719 / 0.486 / 0.523 / 0.646** -- the U-shape holds with the full
+sample, materially unchanged from the n=9 interim read.
+
+**Real bonus finding: answer length vs. per-episode accuracy.**
+Correlating each episode's answer byte-length against its mean
+accuracy: Pearson r=-0.014 across all 10 (near zero) -- but that's
+because one 640-byte episode is BOTH the longest AND the most accurate
+(0.869, highest of the set) and completely masks the trend. Excluding
+that single outlier, the remaining 9 episodes show r=-0.834, a strong
+negative correlation -- longer answers are substantially harder.
+Honest read: length is a real, strong difficulty proxy for most tasks,
+but not a universal one -- the outlier is almost certainly a
+long-but-repetitive/simple transformation (e.g. tiling) where length
+doesn't track transformation complexity. **Real, actionable implication
+for any future training run**: a length-only curriculum (short-to-long)
+would be a reasonable default but should account for task complexity
+independent of raw length, not just byte count, or it will mis-order
+genuinely easy-but-long tasks.
+
+HIGH-band (r=14) per-byte survey recovered from the earlier memory
+pressure (RSS back down to ~4GB) and is still progressing (12/15 as of
+this entry) -- genuinely not a permanent hang, just slow. Not being
+waited on further: LOW=0.6673 and MEDIUM=0.6688 (both n=15, complete)
+already fully support the real conclusion above, and HIGH's own partial
+values (0.830, 0.537, 0.869, 0.840, 0.789, 0.175, 0.577, 0.844, 0.782,
+0.626, 0.804 so far) sit in the same broad range as LOW/MEDIUM, not
+showing a different regime. Left running harmlessly in the background.
+This closes every open thread from this diagnostic chain that's worth
+actively tracking -- nothing left to do here short of the real go/no-go
+already stated above.
