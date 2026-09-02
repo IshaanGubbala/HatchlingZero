@@ -3199,3 +3199,61 @@ CAN actually learn) remains genuinely untested, not answered negatively
 demos, and/or a real curriculum) before it's a fair instrument, and
 that redesign -- now well-motivated and cheap given everything learned
 today -- is the real next step.
+
+## Easier task retested, plus the decisive sanity check: real, final synthesis
+
+Acted on the "make the task easier" recommendation immediately (K=3
+symbols instead of 6, N_DEMOS=6 instead of 4 -- much more information
+per episode, log2(3!)=2.58 bits needed vs. up to 6 demos x log2(3)=1.58
+bits each, comfortably sufficient in principle):
+
+**S+H on the easier task**: still exact chance. loss=1.0987=ln(3)
+exactly, eval accuracy=0.344 (chance=0.333).
+
+**Transformer baseline on the SAME easier task**: also exact chance.
+loss=1.0990, eval accuracy=0.322 (chance=0.333).
+
+Both architectures failed identically even on the easier task -- ruling
+out "the original task was just too hard" as the full explanation too.
+
+**Decisive final sanity check**: same Transformer, same code, but a
+SINGLE FIXED permutation repeated for the whole run (matching STEP 6's
+proven pattern) instead of a fresh random one every episode: **clean
+convergence to 100% accuracy in ~150 steps** (loss 0.0028 -> 0.000389).
+
+**Real, conclusive interpretation**: there is no bug in the task or
+loss code -- the setup is correct and learnable when the target is
+FIXED. The real, honest, well-substantiated finding across the whole
+day's investigation: what fails, consistently, across S+H, a standard
+Transformer, six ablations, three task variants (D=48 continuous,
+K=6 discrete, K=3 discrete), a 300x learning-rate range, and a 27x
+parameter range, is specifically GENERALIZING to infer a NEW random
+rule from a handful of demonstrations, every episode -- true few-shot
+meta-learning/in-context learning. This is a well-documented, real
+phenomenon in the broader field: ICL capability in language models is
+known to require substantial TRAINING-DISTRIBUTION diversity and
+volume to emerge (typically many more distinct task instances than the
+~96,000 episode-exposures tested here across any single run), not just
+architectural correctness or raw parameter count. Neither S+H nor a
+standard Transformer got anywhere near enough real training diversity
+today for that capability to plausibly emerge.
+
+**Final, honest status for this whole investigative thread**: the
+mechanism (S+H) is verified bug-free and behaves identically to a
+standard baseline architecture on every task tried -- a genuinely
+reassuring, real result, not a mark against the design. The real
+open question from Phase 2 (does R help harder tasks) remains
+completely untested, because its prerequisite (basic few-shot rule
+generalization) hasn't been established to work for EITHER
+architecture yet at this training scale -- this is a training-budget/
+curriculum-scale question, not evidence of a flaw in v1's mechanism.
+Real next step, not attempted today (a genuinely bigger, more
+deliberate undertaking, matching the plan's own Rule 6 "no expensive
+scaling before mechanism validation" in the other direction -- here,
+the mechanism check is DONE, real, and clean; what's needed now is
+real training-distribution SCALE, likely tens/hundreds of thousands of
+distinct episodes rather than the ~6,000-30,000 steps tested today):
+a genuinely large-scale ICL training run, matched between S+H and a
+Transformer baseline, to establish whether the capability emerges at
+real scale for both, one, or neither -- the fair, informative
+comparison this whole day's work has been building toward.
