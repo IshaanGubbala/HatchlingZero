@@ -142,17 +142,26 @@ def forward_hz_cq(
     T = x.shape[2]
     x = _full_rounds(x, model, n_rounds_per_phase, B, T, D, nh, N)
 
-    # Position (T - len(answer_bytes) - 1 + j) predicts answer_bytes[j]
-    # for j = 1..len-1 -- the first answer byte's predecessor is the
-    # last query/workspace position, which has no real "next answer
-    # byte" target of its own in this framing (matches the same
-    # boundary convention progressive-latentization uses).
+    # Real bug found and fixed 2026-09-01 (tests/reference/
+    # test_hz0h_bdh_arc_task_memory_torch.py, plans/newnewplan.md
+    # section 34's Step 1a): position (T - n_answer - 1 + k) holds the
+    # byte immediately BEFORE answer_bytes[k] in causal order (for
+    # k=0 that predecessor is the last query/workspace position, which
+    # has a perfectly real "next byte" target -- answer_bytes[0] itself
+    # -- contrary to what the old comment here claimed), so it should
+    # predict answer_bytes[k] for k=0..n_answer-1, ALL n_answer bytes,
+    # not n_answer-1 starting one byte late. The old code paired each
+    # position with the byte TWO positions ahead instead of one, and
+    # never supervised the first answer byte at all -- confirmed by
+    # both an exact-target-pairing test and a gradient-descent
+    # convergence test on a short, non-repeating deterministic
+    # sequence.
     n_answer = len(answer_bytes)
-    if n_answer < 2:
+    if n_answer < 1:
         return None, None, x
     pred_start = T - n_answer - 1
-    pred_positions = x[:, :, pred_start:pred_start + n_answer - 1, :].reshape(-1, D)
+    pred_positions = x[:, :, pred_start:pred_start + n_answer, :].reshape(-1, D)
     logits = pred_positions @ model.lm_head
-    targets = torch.tensor(answer_bytes[1:], dtype=torch.long, device=device)
+    targets = torch.tensor(answer_bytes, dtype=torch.long, device=device)
     loss = F.cross_entropy(logits, targets)
     return logits, loss, x
