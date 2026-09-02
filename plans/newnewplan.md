@@ -2467,6 +2467,14 @@ already fully support the real conclusion above, and HIGH's own partial
 values (0.830, 0.537, 0.869, 0.840, 0.789, 0.175, 0.577, 0.844, 0.782,
 0.626, 0.804 so far) sit in the same broad range as LOW/MEDIUM, not
 showing a different regime. Left running harmlessly in the background.
-This closes every open thread from this diagnostic chain that's worth
-actively tracking -- nothing left to do here short of the real go/no-go
-already stated above.
+
+**Update: HIGH band finished on its own.** Full n=15:
+**HIGH=0.6696** (min=0.175, max=0.879) -- essentially identical to
+LOW=0.6673 and MEDIUM=0.6688. All three R-bands land within 0.0023 of
+each other. This is the cleanest possible confirmation of the real
+conclusion: per-byte accuracy is flat across R, full stop -- the
+sweet-spot loss advantage MEDIUM shows throughout training is entirely
+a calibration/generalization effect, never a raw-correctness effect,
+at any tested R. This closes every open thread from this diagnostic
+chain -- nothing left to do here short of the real go/no-go already
+stated above.
