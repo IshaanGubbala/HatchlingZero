@@ -3151,3 +3151,51 @@ demo/query setup) to establish whether ANY small architecture can
 solve these exact synthetic tasks at this budget, which would cleanly
 separate "my synthetic tasks are just too hard for anything this
 small" from "S+H specifically can't do it."
+
+## The three flagged follow-ups, all run: real, important correction
+
+Ran all three real next steps flagged above -- none required a big
+redesign, all cheap and mechanical:
+
+**LR sweep** (discrete task, 6 values from 1e-4 to 3e-2, a 300x range):
+every single value converges to the identical chance-level plateau
+(loss 1.792-1.800, eval_acc 0.170-0.174). Optimization/learning-rate
+choice is definitively ruled out as the cause.
+
+**Scale sweep** (D=48/128/256, params=41K/284K/1.12M, a 27x range):
+identical chance-level result at every scale (loss~1.792, eval_acc
+0.15-0.18). Raw capacity, at least in this range, is ruled out too.
+
+**The crucial control: a standard plain Transformer baseline.** Built
+a real, standard in-context-learning Transformer (bidirectional
+self-attention, 3 layers, 4 heads, 151,616 params -- comparable budget
+to the S+H configs above) on the EXACT SAME task, same demo/query
+format, same training budget. **It also failed completely, at exact
+chance** (eval accuracy 0.164 vs chance 0.167). This is the single
+most important result of the whole investigation.
+
+**Real, corrected interpretation, materially different from every
+earlier conclusion today**: the flat chance-level results across ten
+S+H experiments were never evidence that S+H specifically can't do
+in-context rule learning -- **a standard Transformer, the exact
+architecture class ICL is well-documented to work on, ALSO can't solve
+this specific task at this budget.** The real, honest explanation is
+task difficulty, not an S+H-specific defect: inferring a full random
+permutation of K=6 symbols from just 4 demos is a genuinely hard
+combinatorial problem (log2(6!)~9.5 bits of information needed; 4
+demos, each worth at most log2(6)~2.6 bits and not guaranteed to cover
+all 6 symbols, provide barely enough information in the best case) --
+likely needing either many more demos, many more training episodes/
+steps, or both, for ANY architecture at this scale to crack it, not
+specifically a problem with S/H's design.
+
+**This corrects the day's overall verdict**: the honest conclusion is
+no longer "S+H doesn't show real in-context learning" -- it's "this
+specific synthetic task was too hard for a fair test at this budget,
+and S+H performs no worse than a standard, proven baseline on it."
+The real open question (does v1 show useful depth scaling on tasks it
+CAN actually learn) remains genuinely untested, not answered negatively
+-- today's synthetic task needs to be made easier (fewer symbols, more
+demos, and/or a real curriculum) before it's a fair instrument, and
+that redesign -- now well-motivated and cheap given everything learned
+today -- is the real next step.
