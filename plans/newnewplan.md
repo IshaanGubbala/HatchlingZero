@@ -2073,3 +2073,63 @@ efficiently. Current real active work (the corrected ARC fine-tune
 retrain, then the real paired-R eval) serves both goals at once: it's
 architecture validation AND the same infrastructure a future chat-
 model training run would reuse.
+
+## Real corrected ARC fine-tune retrain, 2026-09-02 (RunPod RTX 5090)
+
+Re-ran the exact same recipe as section 33's original ARC fine-tune
+(`scripts/hz0h_bdh_hzcq_arc_finetune.py`, 400 examples, warmstarted
+from the 150M pretrain checkpoint) with the corrected `forward_hz_cq`
+answer-loss (Step 1a's off-by-one fix). Dispatched to a RunPod RTX
+5090 -- real cost ~$0.99/hr x ~25min wall (1351s training + setup) =
+under $0.50. Two real, disclosed dispatch bugs hit and fixed along the
+way: `scripts/runpod_run.sh --sync local` excludes both `results/` and
+`data/` by default, so the first attempt crashed immediately
+(`IndexError: Cannot choose from an empty sequence` -- `data/arc_agi_1`
+never made it to the pod); fixed by pushing the 602MB pretrain
+checkpoint and the 5.3MB ARC dataset directly via rsync/scp before
+rerunning with `--sync none`. Pod terminated cleanly on completion
+(`--kill-reused`), `results/local/hz0h_bdh_hzcq_arc_finetune_fixed.json`
+committed, `_checkpoint.pt` left untracked per convention.
+
+**Real held-out eval-band losses (LOW/MEDIUM/HIGH), all 4 checkpoints:**
+
+| step | LOW    | MEDIUM | HIGH   |
+|------|--------|--------|--------|
+| 100  | 1.4219 | 1.1110 | 1.1586 |
+| 200  | 1.3337 | 1.0659 | 1.1869 |
+| 300  | 1.2774 | 0.9679 | 1.0829 |
+| 400  | 1.2944 | 0.9740 | 1.1237 |
+
+MEDIUM beats both LOW and HIGH at every one of the 4 held-out eval
+checkpoints -- consistent, not a one-off. This is the SAME qualitative
+pattern the pre-fix (buggy) run showed, but this time computed with
+the corrected loss, so it's real evidence, not a bug artifact.
+
+**Real, more interesting wrinkle**: `train_band_means` (loss averaged
+over the noisy per-step *training* losses, all 400 steps) tells a
+DIFFERENT story than eval -- HIGH=1.2586 < MEDIUM=1.2927 < LOW=1.3127,
+i.e. monotonically improving with more R, the naive "more compute
+helps" signature. Only the held-out eval bands show the MEDIUM
+sweet spot. Read plainly: HIGH-R episodes fit their own training
+loss best but generalize worse than MEDIUM-R to held-out tasks --
+a real train/eval divergence, not just noise (holds at all 4 eval
+checkpoints), and a more informative finding than either "more
+compute helps" or "there's a flat compute-depth ceiling" alone would
+have been.
+
+**Explicit caveat, per this doc's own benchmark discipline**: this is
+still teacher-forced CE under the ORIGINAL unpaired LOW/MEDIUM/HIGH
+eval protocol (`eval_pass` samples different random episodes into each
+band per call) -- not the paired fixed-R evaluator built in Step 1c
+(`scripts/hz0h_bdh_hzcq_arc_eval.py`, same frozen episodes, only R
+varies) and not real exact-match pass@1. Per the explicit "do not"
+list above ("optimize against teacher-forced CE instead of real task
+success"), this loss pattern motivates the next step, it doesn't
+substitute for it.
+
+**Real next action**: run `hz0h_bdh_hzcq_arc_eval.py`'s paired fixed-R
+sweep against this fresh, correctly-supervised checkpoint
+(`results/local/hz0h_bdh_hzcq_arc_finetune_fixed_checkpoint.pt`) to
+get real exact-match pass@1 and a confound-free accuracy-vs-R curve --
+this is the actual Step 2 diagnostic the whole eval-infra build in
+Step 1b/c was for.
