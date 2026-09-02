@@ -1,0 +1,32 @@
+{
+  "config": {
+    "data": "data/packed/hz0h_bytes_25m_train.jsonl",
+    "validation_data": "data/packed/hz0h_bytes_25m_val.jsonl",
+    "init_checkpoint": "results/local/hz0h_bdh_checkpoint_for_ablation.pt",
+    "out": "results/local/hz0h_bdh_reasoning_lora_quality_check_250k_rank64.json",
+    "device": "auto",
+    "target_tokens": 250000,
+    "batch_size": 8,
+    "sequence_length": 256,
+    "warmup_steps": 20,
+    "learning_rate": 0.001,
+    "grad_clip": 1.0,
+    "eval_batches": 8,
+    "log_every": 25,
+    "seed": 7,
+    "n_embd": 2496,
+    "mult": 16,
+    "n_layer": 8,
+    "n_head": 8,
+    "d_state": 624,
+    "subspace_rank": 64,
+    "lora_rank": 64,
+    "no_curriculum": false
+  },
+  "adapter_params": 6586368,
+  "total_params": 213055488,
+  "floor_val_loss_scale0": 5.32624214887619,
+  "trained_val_loss": 3.0554887652397156,
+  "elapsed_seconds": 370.865390708,
+  "tokens": 251904
+}
