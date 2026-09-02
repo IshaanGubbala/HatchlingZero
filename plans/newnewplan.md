@@ -2182,3 +2182,60 @@ this paired sweep with a larger dev-n for a real accuracy-vs-R
 reading. This -- not more architecture speculation -- is the actual
 bottleneck the last two real results (training retrain + this eval)
 point at.
+
+## Real 2000-example ARC fine-tune (5x more exposure), 2026-09-02 (RunPod RTX 5090)
+
+Per explicit instruction to address the real bottleneck the paired-R
+eval flagged (model hadn't learned the `END` stop marker at 400
+examples): reran the same fine-tune recipe with `--n-examples 2000`
+(5 real epochs over the 400 ARC training tasks instead of 1), fresh
+warmstart from the 150M pretrain checkpoint. Real cost: RTX 5090,
+6347s (~106min) training + setup, ~$1.85 total. Two bad-network pods
+hit and killed early (real, disclosed: one pod transferred a 602MB
+file at ~70KB/s -- would've taken hours and cost real money for
+nothing; killed both within minutes of confirming the slow rate rather
+than let them bill). Third pod (same IP that worked cleanly earlier
+this session) transferred cleanly in ~55s.
+
+**Real held-out eval bands across all 10 checkpoints (step 200-2000):**
+
+| step | LOW    | MEDIUM | HIGH   |
+|------|--------|--------|--------|
+| 200  | 1.3337 | 1.0659 | 1.1869 |
+| 400  | 1.2944 | 0.9740 | 1.1237 |
+| 600  | 1.1795 | 0.8869 | 1.0708 |
+| 800  | 1.1882 | 0.8897 | 1.0114 |
+| 1000 | 1.1824 | 0.8280 | 1.0565 |
+| 1200 | 1.1615 | 0.8483 | 1.0634 |
+| 1400 | 1.1323 | 0.8196 | 1.0171 |
+| 1600 | 1.1431 | 0.8257 | 0.9916 |
+| 1800 | 1.1652 | 0.8156 | 0.9760 |
+| 2000 | 1.1395 | 0.8621 | 1.0549 |
+
+MEDIUM beats both LOW and HIGH at all 10 checkpoints now (vs 4/4 at
+400 examples) -- the sweet-spot pattern isn't just surviving more
+training, the gap is widening (MEDIUM-vs-HIGH gap grows from ~0.12 at
+step 200 to ~0.19 at step 2000).
+
+**Real, sharper version of the train/eval divergence finding**:
+`train_band_means` are now nearly IDENTICAL across bands (LOW=0.9960,
+MEDIUM=0.9954, HIGH=0.9850, spread=0.011 -- down from spread=0.054 at
+400 examples). Training loss has converged to roughly the same value
+regardless of R, but held-out generalization still clearly separates
+the bands, with MEDIUM the consistent best generalizer. Read plainly:
+this is NOT the model getting equally good at every R and then
+generalizing differently by chance -- it's fitting all three R-bands'
+training losses about equally well while consistently generalizing
+worse at both very-low and very-high R. That's real evidence the
+sweet spot is about generalization/robustness at this R, not just
+training-loss fit.
+
+**Real next action**: spot-check whether more exposure fixed the
+`END`-terminator gap flagged in the last eval (Step 1c infra,
+`hz0h_bdh_hzcq_arc_eval.py`) -- in progress as of this writeup, real
+autoregressive generation against this fresh checkpoint at R=7,
+200-byte cap, same 3 frozen dev episodes. Once that lands, rerun the
+full paired R-sweep with a larger dev-n for a real accuracy-vs-R
+reading -- this is now the actual blocking step before this line of
+work says anything about real task-solving capability rather than
+teacher-forced loss.
