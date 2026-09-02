@@ -1857,11 +1857,133 @@ HZ-CQ experiment on these four columns, not loss alone:
 | CoT distillation (Coconut-style) | maybe, per section 31's negative result on register-machine | inference neutral | training cost up | secondary, not first arm |
 | Sparse/dynamic routing | unclear, this project's own earlier routing work hit real OOM issues | often down in practice | unclear | not being pursued right now |
 
-Roadmap direction (not yet built, in priority order once the params
-question above is settled): (1) task memory + high-dim workspace +
-adaptive gate [core forward pass already built, section 33 above], (2)
-variable-compute training targeting BDH-CQ's disclosed failure modes
-(composition, ordering, nesting, extrapolation) directly, (3) revisit
-the K=4 refresh-schedule combination once the base architecture is
-validated, (4) real per-task adaptive halting (R(x,S) rather than
-fixed discrete bands) as a later refinement, not the first cut.
+Roadmap direction (not yet started once the params question above is
+settled) superseded by section 34's reframing below.
+
+---
+
+# 34. HZ-CQ fresh research reframing, 2026-09-01 -- v0 relabeled, v1 designed
+
+Real, substantive correction to everything built so far in section 33.
+Same sourcing caveat as before applies to every external BDH-CQ number.
+Condensed but faithful capture of the user's full reframing (the
+complete version lives in this session's transcript, not reproduced
+verbatim here for length).
+
+## The core technical correction
+
+**`forward_hz_cq()` (section 33) is relabeled HZ-CQ-v0: a growing-
+sequence latent-recurrence smoke test, not a faithful implementation.**
+Real problem identified: v0 concatenates all demos into one string,
+embeds them together, and represents each latent reasoning step as a
+NEW appended sequence position -- so there is no real persistent,
+fixed-size $S_t = U_\theta(S_{t-1}, D_t)$, and $H_r$ is not a
+structured workspace, it's just "more sequence." This directly
+explains why R and sequence length were never disentangled in the
+fine-tuning result above -- the exact confound flagged as unresolved
+in that writeup, now identified as architectural, not incidental.
+
+**HZ-CQ-v1 design correction**: $S$ must be a real fixed-size
+multi-vector memory ($S_t \in \mathbb{R}^{M_S \times D_S}$, $M_S$
+small like 4-16, $D_S$ kept high per BDH-Delta's own lesson against
+aggressive bottlenecks), updated via a real adaptive-gated write
+($\Delta S_t = U_\theta(S_{t-1}, E(D_t))$, $g_t^S = C_\phi(\ldots)$,
+same gated-residual pattern as the validated adaptive gate) and
+discarded after each demo -- NOT accumulated as growing raw sequence.
+$H$ must be the same: a fixed-size workspace ($M_H \in \{4,8\}$ slots)
+that the SAME slots evolve against across R rounds, so R becomes a
+real compute-depth variable instead of a sequence-length variable.
+$S$ conceptually answers "what task am I solving" (updated slowly,
+during demo ingestion only); $H$ answers "what am I computing right
+now" (updated fast, during query reasoning) -- keep them structurally
+separate from the start rather than blurring them.
+
+## What the v0 fine-tuning result (above) actually shows, honestly
+
+Real, useful, but not what it might look like at first: R=2-4 is
+consistently insufficient (LOW worst in all 8 checkpoints) and R=6-8
+substantially helps -- real evidence the direction is alive. But R=12-16
+not helping further is now suspect as a length artifact (longer
+sequences push the answer further from the demos/query) rather than
+proof that more reasoning genuinely stops helping. **Do not conclude
+"R=6-8 is optimal" from v0** -- the instrument that produced that
+result cannot currently distinguish "more reasoning" from "longer
+sequence." This needs isolating (see Step 2 below) before it means
+anything architectural.
+
+## Explicit, ordered priority (per the user's own message, do not reorder)
+
+**Step 1 -- evaluation correctness, P0, blocks everything else.** No
+major new training until this exists: (a) a real unit test proving the
+teacher-forced answer-byte target alignment is correct (no assumed
+off-by-one indexing -- construct a tiny deterministic sequence, assert
+exact position-to-target mapping); (b) true held-out generation (model
+never sees the answer, real exact-grid-match parsing, malformed-output
+detection, pass@1 today, pass@2 later -- teacher-forced CE becomes a
+debugging metric only, not the headline number); (c) a PAIRED fixed-R
+evaluator: same episodes, same checkpoint, only R varies across
+{0,1,2,3,4,6,8,10,12,16,24}, tracking exact accuracy(R), CE(R),
+latency(R), VRAM(R) -- the current LOW/MEDIUM/HIGH eval samples
+DIFFERENT episodes into each band, which is not a real controlled
+comparison.
+
+**Step 2 -- diagnose v0 on the ALREADY-TRAINED checkpoint (no new
+training needed).** Run the paired-R curve above on the existing
+`hz0h_bdh_hzcq_arc_finetune_checkpoint.pt`, plus an explicit
+length-confound control: real R=4 vs "padded R=4" (4 real thought
+steps + 12 inert/no-op positions so the answer sits at the same
+sequence position real R=16 would put it) vs real R=16. If padded-R4
+degrades to R16 levels, the inverted-U is mostly a position/length
+artifact. If padded-R4 stays good while real R16 still worsens, the
+extra recurrence itself is the problem. This is cheap (no training,
+reuses the existing checkpoint) and should happen before any more GPU/
+wall-clock is spent training.
+
+**Step 3 -- build HZ-CQ-v1's persistent $S$** (real fixed-size
+multi-vector memory, sequential demo ingestion, adaptive-gated writes,
+unit-tested for demo-sensitivity/order-dependence/accumulation/
+capacity/efficiency -- query-time cost must NOT scale with raw demo
+token count, or the memory architecture has failed its actual purpose).
+
+**Step 4 -- build HZ-CQ-v1's structured $H$** (fixed-size workspace,
+adaptive-gated writes, same slots evolve across R rounds, no new
+sequence positions -- R becomes real compute depth). Rerun the paired-R
+curve on v1.
+
+**Step 5 -- real curriculum.** One pass over 400 tasks (the v0 run
+above) is nowhere near enough; build episodic training from ARC train +
+RE-ARC + ConceptARC + ARC-GEN100K + procedural generators targeting
+BDH-CQ's reported failure modes specifically (composition, ordering,
+nesting, extrapolation, conditional rules) -- only after v1's $S$/$H$
+are validated structurally. K=4 refresh, rank-64, compiled execution,
+adaptive halting, and candidate verification/ranking all get added
+ONE AT A TIME after v1's skeleton is proven, each measured
+independently -- explicitly not bundled together, the same "no
+combined experiments before isolated wins" discipline this whole
+project has repeated since the gate/refresh work in sections 22-28.
+
+## Explicit "do not" list (real, worth keeping visible)
+
+Do not: run another generic LM pretrain just because it's familiar;
+optimize v0's kernels; call MEDIUM "fundamentally optimal" off the v0
+result; call the current raw-sequence state "faithful BDH-CQ memory";
+revive the tiny BDH-Delta belief bottleneck; combine multiple
+architecture changes into one run; optimize against teacher-forced CE
+instead of real task success; call stochastic two-sample decoding
+"pass@2 candidate ranking" without a real verifier; abandon the
+mainline adaptive-gate/K=4 work while chasing this.
+
+## Benchmark discipline going forward
+
+Every serious HZ-CQ variant gets: params, real ARC pass@1/pass@2,
+per-difficulty accuracy, accuracy-vs-R curve, mean R used, GPU-sec/
+task, peak VRAM, training cost -- plus accuracy-per-GPU-second, not
+loss alone. Architecture decisions happen on a private/held-out
+development set (RE-ARC/ARC-GEN/procedural, not the public ARC-AGI-1
+eval split), which only gets touched at real milestones -- otherwise
+the public benchmark quietly becomes the training objective.
+
+**Immediate next real action**: Step 1a (the answer-alignment unit
+test) -- cheap, unblocks everything else, and directly checks
+`forward_hz_cq`'s existing teacher-forced loss indexing for the exact
+kind of off-by-one bug this reframing flags as unverified.
