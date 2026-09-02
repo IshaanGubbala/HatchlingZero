@@ -3020,3 +3020,54 @@ failed (confounded, not a fair test) or (b) claiming it worked
 (it didn't, on this specific confounded attempt). This is the right
 place to pause this specific investigative thread and let a future
 pass redesign the readout properly before drawing further conclusions.
+
+## Proper multi-token readout built and tested: real but inconclusive
+
+Built the real fix the confound above called for: a genuine per-
+position learned cross-attention readout (each of T_query=4 query
+positions gets its own attention read over H's 8 slots via a real
+Q/K/V projection, not an arbitrary reshape) -- isolates the multi-
+token-query hypothesis from the earlier readout confound.
+
+**First look (8000 steps)** was genuinely encouraging: loss trending
+down from 0.9669 to 0.9071, STILL DECREASING at the cutoff -- a real,
+qualitatively different signature from every single-token variant,
+which all plateaued flat by step ~1500-2000 and never moved again.
+
+**Extended to 30,000 steps to check if that trend held -- it did not.**
+Loss improved to a real minimum around step 14000 (~0.8893), then
+climbed back to ~0.93 by step 30000 and stayed there, noisy, not
+converging. Final eval: rel_err=0.9585, acc@0.1=0%, acc@0.3=0% --
+slightly WORSE than the 8000-step checkpoint's 0.9398, and not
+meaningfully different from the single-token variants' ~0.88-0.92
+range this whole investigation has produced.
+
+**Honest correction to this doc's own earlier optimism**: the "still
+improving, unlike the flat plateau" read after 8000 steps was real but
+premature -- it looked like a different, better regime, but turned out
+to be transient, not a genuine path to convergence. This is worth
+recording explicitly rather than letting the earlier optimistic
+snapshot stand as the final word.
+
+**Real, disciplined status after this whole investigation (single-
+token diagnosis, confounded quick-fix, proper multi-token+readout
+retest)**: none of the variants tried -- six original ablations plus
+two multi-token attempts, eight real training runs total -- achieve
+real learning on this synthetic composed-orthogonal-matrix task beyond
+a soft, partial signal (rel_err ~0.85-0.96, never approaching the
+~0 achieved by STEP 6's single-example memorization). The single-token
+attention-collapse diagnosis explains ONE real mechanistic issue but
+demonstrably is not the whole story -- fixing it did not unlock
+convergence.
+
+**Real, honest recommendation, not attempted further today**: this
+specific synthetic task (infer an exact orthogonal matrix's action from
+demos, apply via attention-based read/write recurrence) may simply be a
+poor match for what dense cross-attention + gated residual writes can
+learn at this tiny scale/budget -- worth trying a genuinely easier
+synthetic task next (e.g. simple discrete/categorical transformations
+instead of continuous exact linear algebra, closer to what ARC actually
+requires -- ARC transformations are discrete grid operations, not
+continuous matrix multiplication) rather than continuing to tune this
+specific hard continuous-regression task. That redesign is real,
+deliberate work for a focused session, not another quick swap.
