@@ -2551,3 +2551,31 @@ starts mostly-random (only the decoder is warmstarted) -- this
 demonstrates the adapter mechanism works and improves substantially
 with more (still tiny) exposure, not a finished quality-per-parameter
 verdict against full fine-tuning.
+
+**A third real point, 250K tokens** (harness-tracked background
+execution this time -- reliable, unlike the earlier `nohup` stalls --
+251,904 tokens in 575s, ~440 tok/s steady state): trained_val_loss=
+3.2292, delta=+2.0980 vs. the same floor=5.3272.
+
+**Real trend across all three budgets, same frozen base/adapter/seed,
+only tokens varying:**
+
+| tokens | trained_val_loss | delta vs. floor (5.3272-5.3010) |
+|---|---:|---:|
+| 20,480 | 4.2886 | +1.01 |
+| 100,352 | 3.5161 | +1.81 |
+| 251,904 | 3.2292 | +2.10 |
+
+Monotonic, still climbing, not plateaued at 250K -- 1.65M trainable
+parameters (0.79% of the 208M-param model) keep extracting real
+quality from just 250K tokens of exposure. Real, honest scope: still
+nowhere near the 5M-token quality-check convention or a same-budget
+full-fine-tuning comparison (not run), so this isn't yet a "LoRA beats
+full fine-tuning per parameter" result -- it's a real, solid
+demonstration that the mechanism works correctly and scales with data
+in the expected direction, which is what this first-exercise session
+set out to establish. A real head-to-head against full fine-tuning at
+matched token budgets is the natural next step, itself free (no GPU
+needed, same local foreground-execution pattern that just worked
+three times in a row) and worth queuing before any larger GPU spend
+decision.
