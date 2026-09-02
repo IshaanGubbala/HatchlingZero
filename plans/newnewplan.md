@@ -2133,3 +2133,52 @@ sweep against this fresh, correctly-supervised checkpoint
 get real exact-match pass@1 and a confound-free accuracy-vs-R curve --
 this is the actual Step 2 diagnostic the whole eval-infra build in
 Step 1b/c was for.
+
+## Real paired fixed-R held-out eval, 2026-09-02 (fresh corrected checkpoint)
+
+Ran `scripts/hz0h_bdh_hzcq_arc_eval.py`'s paired fixed-R evaluator
+against the just-retrained `hz0h_bdh_hzcq_arc_finetune_fixed_checkpoint.pt`
+(the one with the corrected loss, see prior section) -- the actual
+Step 1c instrument, real autoregressive held-out generation, not
+teacher-forced CE. Same 3 frozen dev episodes (evaluation split,
+seed=7) at R in {2, 7, 14} -- one representative from each effort
+band. Real, disclosed session hiccup: the background dispatch got
+externally killed twice mid-run with zero output (not a script crash --
+clean process exit, no traceback, no leftover pid); worked around by
+running each R value as a small foreground call instead (~4min each).
+
+| R  | n | pass1_accuracy | malformed_rate | mean_generated_bytes | mean_s/example |
+|----|---|----------------|-----------------|----------------------|-----------------|
+| 2  | 3 | 0.0            | 0.0             | 120.0                | 77.2            |
+| 7  | 3 | 0.0            | 0.0             | 120.0                | 76.3            |
+| 14 | 3 | 0.0            | 0.0             | 120.0                | 83.5            |
+
+**Real finding, and it's not just "wrong content"**: all 9 generations
+(3 episodes x 3 R) hit the 120-byte cap -- but the 3 dev episodes'
+real true-answer lengths are 66, 166, and 52 bytes. Two of three
+(66 and 52) are well under the cap, so a model that had learned the
+`END` terminator should have stopped well before 120 bytes on those.
+It never did, at any R. Real conclusion: at 400 training examples
+(one pass), the model hasn't learned to emit the stop marker yet --
+this is a real, distinct failure mode from getting grid content wrong,
+and it means pass@1 at this checkpoint isn't yet a meaningful
+architecture signal (accuracy is floored at 0% by a formatting gap,
+not by reasoning depth). `malformed_rate=0.0` despite this just means
+`parse_answer` still recovered a well-formed (wrong) grid from
+whatever digits came out before the cap or a ragged line ended it.
+
+**Sample-size caveat**: n=3 per R is nowhere near enough to read
+anything into the accuracy-vs-R curve itself (it's flat at 0% because
+of the floor above, not because R doesn't matter) -- this run's real
+purpose was confirming the eval pipeline produces sane, honest output
+end-to-end on the corrected checkpoint, which it did.
+
+**Real next actions**: (1) more training data/epochs so the model
+actually learns the `END` convention before spending more eval budget
+on accuracy -- one epoch over 400 examples with everything else
+(persistent memory format, effort bands, answer format) still novel is
+not enough exposure; (2) once generation reliably terminates, rerun
+this paired sweep with a larger dev-n for a real accuracy-vs-R
+reading. This -- not more architecture speculation -- is the actual
+bottleneck the last two real results (training retrain + this eval)
+point at.
