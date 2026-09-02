@@ -2579,3 +2579,30 @@ matched token budgets is the natural next step, itself free (no GPU
 needed, same local foreground-execution pattern that just worked
 three times in a row) and worth queuing before any larger GPU spend
 decision.
+
+**That head-to-head, run immediately after**: same 250K-token budget,
+same seed (7), same SVD-warmstarted decoder base, using the existing
+`hz0h_bdh_vb_subspace_decoder_quality_check.py` (all 206.47M params
+trainable, not just the decoder) vs. the LoRA run above (1.65M
+trainable, 0.79%):
+
+| arm | trainable params | val_loss (250K tokens) |
+|---|---:|---:|
+| full fine-tune | 206.47M (100%) | 2.9156 |
+| LoRA adapter only | 1.65M (0.79%) | 3.2292 |
+
+Full fine-tuning wins in absolute terms, as expected with 125x more
+trainable parameters -- but LoRA lands within 0.31 nats using under 1%
+of them. **Real caveat, not a clean isolated comparison**: the two
+scripts don't share an identical recipe beyond the warmstart+seed+
+budget -- `hz0h_bdh_vb_subspace_decoder_quality_check.py`'s `train()`
+ramps a depth curriculum (`curriculum_stages`, depth 4->8 over the
+run), while the LoRA script always runs at fixed full depth
+(`n_rounds_per_phase=config.n_layer`). Some of the full-fine-tune
+arm's advantage could be the curriculum, not only the parameter count.
+Real, honest read: this is a real first quality-per-parameter data
+point in the right direction (a tiny adapter recovers real quality,
+not comparable to full fine-tuning yet, gap is meaningful not huge),
+not a controlled ablation -- a same-recipe (both fixed-depth or both
+curriculum) rerun would be needed before trusting the exact 0.31-nats
+gap as a clean per-parameter measurement.
