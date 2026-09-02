@@ -2239,3 +2239,24 @@ full paired R-sweep with a larger dev-n for a real accuracy-vs-R
 reading -- this is now the actual blocking step before this line of
 work says anything about real task-solving capability rather than
 teacher-forced loss.
+
+**Addendum, spot-check result**: it didn't. R=7, same 3 frozen dev
+episodes, 200-byte cap: `mean_generated_bytes=200.0` -- hit the cap on
+all 3 examples again, exactly like the 400-example checkpoint did at
+its 120-byte cap. `pass1_accuracy=0.0`, `malformed_rate=0.0`
+(well-formed-but-wrong/truncated grids, same as before). 5x more
+training exposure sharpened the held-out teacher-forced loss gap
+(MEDIUM's generalization edge over LOW/HIGH got real and repeatable),
+but did NOT teach the model to emit `\nEND` and stop. These are
+genuinely separate capabilities -- getting better at *predicting the
+next byte of a mostly-right answer under teacher forcing* is not the
+same skill as *knowing when the answer is finished during free
+generation*, and this checkpoint has made real progress on the first
+without the second budging at all. Real implication: pass@1 stays
+floored at 0% regardless of R until this is fixed specifically, so
+further R-band training exposure alone won't move the real metric --
+this needs direct attention (e.g. more explicit weight/supervision on
+the terminator bytes, or checking whether `\nEND` is functionally
+under-represented in the loss vs. the far larger token budget spent on
+grid-digit bytes) before another round of "just train more" is worth
+dispatching.

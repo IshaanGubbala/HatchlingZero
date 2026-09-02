@@ -1,0 +1,20 @@
+{
+  "dev_ids": [
+    "1990f7a8",
+    "6f473927",
+    "0bb8deee"
+  ],
+  "split": "evaluation",
+  "init_checkpoint": "results/local/hz0h_bdh_hzcq_arc_finetune_2000ex_checkpoint.pt",
+  "results": [
+    {
+      "R": 7,
+      "n": 3,
+      "pass1_accuracy": 0.0,
+      "malformed_rate": 0.0,
+      "mean_generated_bytes": 200.0,
+      "mean_seconds_per_example": 181.35485695833336,
+      "wall_clock_s": 544.073836916
+    }
+  ]
+}
