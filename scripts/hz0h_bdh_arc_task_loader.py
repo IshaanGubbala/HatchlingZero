@@ -68,7 +68,7 @@ def serialize_episode(task: dict, rng: random.Random, held_out_query: bool = Fal
         parts.append(f"IN\n{_serialize_grid(demo['input'])}\nOUT\n{_serialize_grid(demo['output'])}\nEND")
     parts.append(f"QUERY\n{_serialize_grid(query['input'])}")
     if not held_out_query:
-        parts.append(f"ANSWER\n{_serialize_grid(query['output'])}")
+        parts.append(f"ANSWER\n{_serialize_grid(query['output'])}\nEND")
 
     return "\n".join(parts), query["output"]
 
@@ -87,7 +87,7 @@ def build_episode_parts(task: dict, rng: random.Random) -> tuple[str, str, str, 
     demo_parts = [f"IN\n{_serialize_grid(d['input'])}\nOUT\n{_serialize_grid(d['output'])}\nEND" for d in demos]
     memory_text = "\n".join(demo_parts)
     query_text = f"QUERY\n{_serialize_grid(query['input'])}"
-    answer_text = f"ANSWER\n{_serialize_grid(query['output'])}"
+    answer_text = f"ANSWER\n{_serialize_grid(query['output'])}\nEND"
     return memory_text, query_text, answer_text, query["output"]
 
 
@@ -95,7 +95,11 @@ def parse_answer(generated_text: str) -> Grid | None:
     """Extracts the grid following the last 'ANSWER\\n' in generated text.
     Returns None if the model didn't produce a well-formed answer block
     (missing marker, ragged rows, non-digit characters) -- real failure
-    modes to expect from a model that hasn't learned the format yet."""
+    modes to expect from a model that hasn't learned the format yet. A
+    trailing 'END' marker (if present, real generation should produce
+    one -- see hz0h_bdh_arc_eval.py's stopping criterion) is accepted
+    but not required, so this still parses teacher-forced text from
+    before the END marker existed."""
     marker = "ANSWER\n"
     idx = generated_text.rfind(marker)
     if idx == -1:
@@ -104,7 +108,7 @@ def parse_answer(generated_text: str) -> Grid | None:
     lines = body.split("\n")
     grid_lines = []
     for line in lines:
-        if not line or not all(ch.isdigit() for ch in line):
+        if not line or line == "END" or not all(ch.isdigit() for ch in line):
             break
         grid_lines.append(line)
     if not grid_lines:
