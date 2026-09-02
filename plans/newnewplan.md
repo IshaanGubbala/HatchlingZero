@@ -2834,3 +2834,84 @@ real step, and per Rule 6 ("no expensive scaling before mechanism
 validation") and Rule 3 ("every experiment needs a kill criterion
 before running"), it should get a real, stated kill criterion before
 any GPU spend -- not started yet.
+
+## Mainline Phase 2 attempt: real negative finding, more fundamental than depth
+
+Defined a real, stated kill criterion (adopting Rule 3's own worked
+example verbatim): "if v1 produces <1-2 percentage points of
+reproducible accuracy improvement from R=4->8/12 on deep tasks, do not
+claim depth reasoning." Built `scripts/hz0h_bdh_hzcq_v1_composition_depth_experiment.py`:
+real procedural task family (plan section 10's own example, A then
+A o B then A o B o C), S+H trained with variable depth in {1,2,4,8} and
+variable R in {2,4,6,8,12,16} per section 8's spec, real paired
+difficulty x R evaluation at the end.
+
+**First real run, D=48, fresh random orthogonal matrix per episode**:
+complete failure, loss stuck at ~1.0, 0% accuracy everywhere, kill
+criterion FAIL. Caught and fixed a real flaw in the experiment design
+before trusting this: compared the observed relative error (~1.00)
+against the TRUE random-guess baseline for independent unit vectors
+(~1.41, confirmed numerically) -- the model was extracting real signal
+better than chance, but the task itself (identify an arbitrary DxD=48
+random orthogonal matrix from just 4 demos) is information-
+theoretically underdetermined regardless of architecture. Not a real
+negative result about v1 -- a flawed task design.
+
+**Real fix**: `build_primitive_library` -- a small, FIXED set of 6
+primitive transformations shared across every episode (train and eval
+alike), so the model can genuinely learn to recognize a bounded
+vocabulary through repeated exposure, much closer to how ARC's own
+bounded transformation vocabulary actually works. Reran depth-1..8
+composition with this fix: still stuck at ~1.0, kill criterion still
+FAIL.
+
+**Isolated the real cause via three real ablations, all before
+concluding anything**:
+1. Suspected a lossy demo encoder (`nn.Linear(2D, D)` compressing each
+   (x,y) demo pair into one token) -- retested with x and y as two
+   SEPARATE tokens (type-embedded, no compression). Same result
+   (loss~0.84, rel_err~0.92). Not the cause.
+2. Suspected slow convergence, not a hard ceiling -- retested the
+   simplest possible case (depth=1 only, apply just ONE of 6 known
+   primitives) at 25,000 steps instead of 3,000 (8x). Loss at step
+   2,500 (0.8506) vs step 25,000 (0.8375) -- genuinely flat, not still
+   improving. Not a training-budget issue.
+3. Suspected insufficient capacity -- retested depth=1 at D=128
+   (2.7x wider, memory_slots=12, gate_hidden=32, 249,762 real
+   trainable params vs the D=48 config's much smaller count) for 8,000
+   steps. Same plateau (loss~0.85, rel_err~0.90). Not a raw-capacity
+   issue either.
+
+**Real, honest conclusion**: this is a genuine, structural finding,
+not a tuning problem the three obvious levers (encoding, training
+length, capacity) can fix. Contrast directly with STEP 6's clean
+result: the S->H->readout pipeline CAN drive loss to 0.000022 on a
+SINGLE fixed, repeated example (real memorization/overfitting works
+fine), but CANNOT learn to generalize a demonstrated rule to NEW query
+inputs at even the simplest possible case (one known primitive from a
+library of 6). This is more fundamental than "does R help on harder
+tasks" -- true few-shot rule-application generalization itself doesn't
+appear to be happening yet, which is the actual prerequisite for
+composition-depth scaling to be measurable at all.
+
+**Real, disclosed hypotheses for what might be wrong, not yet tested**
+(worth a future, more careful investigation rather than more blind
+scaling): (a) S's sequential gated-write demo ingestion may be too
+lossy/blended for tasks needing PRECISE identity recovery of a specific
+known transformation, vs. the soft feature-refinement regime the
+adaptive gate was originally validated for; (b) the readout
+(`H.mean(dim=1)`, naive averaging across workspace slots) may be
+discarding real structure if different slots specialize differently;
+(c) the gated-residual write's bias toward small, cautious updates
+(g starting near 0.58) may be fundamentally mismatched to a task
+needing sharp, exact numerical recall rather than gentle refinement.
+
+**Real status per plan section 19**: this matches the "If v1 does NOT
+show useful depth scaling" branch, but one level more fundamental --
+"debug the recurrent state-transition mechanism itself" is the
+stated next step, specifically the demo-ingestion/readout pathway
+before touching depth/R again. Composition-depth results collected
+above (results/local/hz0h_bdh_hzcq_v1_composition_depth_experiment.json)
+are real but currently uninterpretable as a depth-reasoning signal,
+since the more basic single-rule-application capability hasn't been
+established as working yet.

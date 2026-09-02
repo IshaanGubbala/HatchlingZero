@@ -1,0 +1,148 @@
+{
+  "config": {
+    "out": "results/local/hz0h_bdh_hzcq_v1_composition_depth_experiment.json",
+    "d_model": 48,
+    "memory_slots": 8,
+    "workspace_slots": 8,
+    "gate_hidden": 16,
+    "n_demos": 4,
+    "batch_size": 16,
+    "train_steps": 20000,
+    "lr": 0.002,
+    "eval_episodes": 200,
+    "accuracy_threshold": 0.1,
+    "seed": 7
+  },
+  "train_elapsed_s": 170.7570955,
+  "final_train_loss": 1.0011065435409545,
+  "results": {
+    "1": {
+      "1": {
+        "mean_relative_error": 1.0007996559143066,
+        "accuracy": 0.0
+      },
+      "2": {
+        "mean_relative_error": 1.0000085830688477,
+        "accuracy": 0.0
+      },
+      "4": {
+        "mean_relative_error": 1.000023603439331,
+        "accuracy": 0.0
+      },
+      "6": {
+        "mean_relative_error": 1.000022292137146,
+        "accuracy": 0.0
+      },
+      "8": {
+        "mean_relative_error": 0.9999575018882751,
+        "accuracy": 0.0
+      },
+      "12": {
+        "mean_relative_error": 1.0000369548797607,
+        "accuracy": 0.0
+      },
+      "16": {
+        "mean_relative_error": 1.0000232458114624,
+        "accuracy": 0.0
+      }
+    },
+    "2": {
+      "1": {
+        "mean_relative_error": 1.001694917678833,
+        "accuracy": 0.0
+      },
+      "2": {
+        "mean_relative_error": 0.9999507665634155,
+        "accuracy": 0.0
+      },
+      "4": {
+        "mean_relative_error": 1.0000221729278564,
+        "accuracy": 0.0
+      },
+      "6": {
+        "mean_relative_error": 1.000246286392212,
+        "accuracy": 0.0
+      },
+      "8": {
+        "mean_relative_error": 1.0000566244125366,
+        "accuracy": 0.0
+      },
+      "12": {
+        "mean_relative_error": 1.0000178813934326,
+        "accuracy": 0.0
+      },
+      "16": {
+        "mean_relative_error": 0.9999755620956421,
+        "accuracy": 0.0
+      }
+    },
+    "4": {
+      "1": {
+        "mean_relative_error": 1.0015257596969604,
+        "accuracy": 0.0
+      },
+      "2": {
+        "mean_relative_error": 1.0001615285873413,
+        "accuracy": 0.0
+      },
+      "4": {
+        "mean_relative_error": 1.000077724456787,
+        "accuracy": 0.0
+      },
+      "6": {
+        "mean_relative_error": 1.0000855922698975,
+        "accuracy": 0.0
+      },
+      "8": {
+        "mean_relative_error": 1.0001221895217896,
+        "accuracy": 0.0
+      },
+      "12": {
+        "mean_relative_error": 0.9999868273735046,
+        "accuracy": 0.0
+      },
+      "16": {
+        "mean_relative_error": 0.9999189972877502,
+        "accuracy": 0.0
+      }
+    },
+    "8": {
+      "1": {
+        "mean_relative_error": 1.0010517835617065,
+        "accuracy": 0.0
+      },
+      "2": {
+        "mean_relative_error": 1.0001007318496704,
+        "accuracy": 0.0
+      },
+      "4": {
+        "mean_relative_error": 1.0001713037490845,
+        "accuracy": 0.0
+      },
+      "6": {
+        "mean_relative_error": 1.0001251697540283,
+        "accuracy": 0.0
+      },
+      "8": {
+        "mean_relative_error": 1.000136137008667,
+        "accuracy": 0.0
+      },
+      "12": {
+        "mean_relative_error": 1.000218391418457,
+        "accuracy": 0.0
+      },
+      "16": {
+        "mean_relative_error": 0.9999397397041321,
+        "accuracy": 0.0
+      }
+    }
+  },
+  "kill_criterion": {
+    "stated": "1-2 percentage points reproducible accuracy improvement from R=4->8/12 on depth=8",
+    "acc_r4": 0.0,
+    "acc_r8": 0.0,
+    "acc_r12": 0.0,
+    "best_improvement": 0.0,
+    "verdict": "FAIL (do not claim depth reasoning)"
+  }
+}
