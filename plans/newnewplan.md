@@ -2528,3 +2528,26 @@ fine-tuning needs a real budget (5M+ tokens, ideally on GPU given this
 session's local-background-throttling limit just found) -- not run
 today, left for a future session or an explicit go-ahead alongside the
 already-flagged ARC training decision.
+
+**Real fix for the throttling limit, and a bigger real result**: the
+stall traced above only ever hit `nohup`-backgrounded runs; a plain
+FOREGROUND call (the same process a smoke test or any directly-awaited
+command uses) has no such issue -- confirmed by running the real
+quality-check at 100,000 tokens in the foreground, no throttling,
+completed cleanly in 204s at ~505 tok/s steady-state. Real, better
+result: frozen-base-only val_loss=5.3272, trained (1.65M adapter
+params, 0.79% of 208.12M total) val_loss=3.5161, delta=+1.8111 -- a
+substantially larger improvement than the 20K-token smoke test's
++1.0124, consistent with more training helping (as expected), not yet
+plateaued. Foreground execution is now the established, reliable
+pattern for any further local unattended-background-throttling-prone
+work this session; background `nohup` should be reserved for cases
+short enough to finish within one realistic check-in window, not
+multi-minute runs meant to proceed unwatched.
+
+Still the same honest scope caveat as above: 100K tokens is still far
+below the 5M-token quality-check convention, and the frozen base
+starts mostly-random (only the decoder is warmstarted) -- this
+demonstrates the adapter mechanism works and improves substantially
+with more (still tiny) exposure, not a finished quality-per-parameter
+verdict against full fine-tuning.
