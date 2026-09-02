@@ -2915,3 +2915,75 @@ above (results/local/hz0h_bdh_hzcq_v1_composition_depth_experiment.json)
 are real but currently uninterpretable as a depth-reasoning signal,
 since the more basic single-rule-application capability hasn't been
 established as working yet.
+
+## Real root cause found: single-token attention read is vacuous
+
+Ran three more real ablations targeting the disclosed hypotheses above,
+all cheap (local, <2min each):
+
+1. **Learned attention-pool readout** (single learned query attending
+   over H's 8 slots) instead of naive `H.mean(dim=1)`: same plateau
+   (loss~0.85, rel_err~0.89). Readout pooling was not the cause.
+2. **S bypassed entirely** -- H reads directly from raw demo hidden
+   states, no persistent-memory compression/gating at all: same
+   plateau (loss~0.84, rel_err~0.88). S's sequential gated write was
+   not the cause.
+3. **Direct non-gated, non-residual write** (`H_new = LN(write_proj(read))`,
+   no gate, no residual at all) instead of the validated gated-residual
+   pattern: same plateau (loss~0.84, rel_err~0.88). The gate's
+   conservative-update bias was not the cause.
+
+All three flagged hypotheses ruled out. One more, decisive test: **give
+the model the exact primitive index directly** (a one-hot-style
+embedding, zero inference required -- purely "look up matrix k, apply
+it to x_q"). If even this trivial lookup-and-apply fails, the problem
+has nothing to do with few-shot rule inference at all.
+
+**It failed identically**: loss~0.845, rel_err=0.9143, 0% accuracy --
+statistically indistinguishable from every demo-based variant above,
+despite requiring zero inference.
+
+**Real, concrete, mechanistic cause, found by working through what
+`step_fn`'s cross-attention actually computes when its source has
+exactly one token**: `x_q.unsqueeze(1)` (and the direct-index test's
+`prim_token`) are both shape `(B, 1, D)` -- a SINGLE key/value pair.
+Softmax attention over one option is mathematically a no-op: the
+attention weight is always exactly 1.0 regardless of the query Q, so
+`read = V = v_proj(source)` deterministically, completely independent
+of H's own evolving state. Every one of the 8 real "reasoning rounds"
+copies the SAME fixed vector into H from that pathway, every round,
+regardless of what H has learned so far -- there is no real
+content-dependent selection happening on that read at all. This is not
+a bug in the sense of incorrect code (the math is exactly what
+softmax-over-one-option always does); it is a real, structural
+mismatch between this cross-attention design and any task where the
+"thing being read" is a single vector rather than a genuine multi-item
+sequence. S's demo-ingestion pathway (n_demos=4, genuine multi-token)
+does NOT have this problem -- only the query-side read does, in this
+particular task shape.
+
+**Real, honest scope of this finding**: this specific synthetic task
+(compose known DxD orthogonal matrices, single-vector query) forces
+the query into a single-token read, which is a degenerate case for
+attention specifically -- it does NOT necessarily mean S+H can't work
+on real ARC-style tasks, where the query is itself a multi-token grid
+(many real byte/cell positions), not a single vector. But it is a
+real, load-bearing lesson for HOW to wire v1 to real data: **any
+future integration must keep the query as a genuine multi-token
+sequence** (e.g. the query grid's own cells as separate attention
+items), never collapse it to one vector before H's cross-attention,
+or the same vacuous-attention failure mode will recur silently.
+
+**Real status**: STEP 6 (memorization) and this deeper mechanism check
+are both now complete and thoroughly understood. The synthetic
+composition-depth task as designed is a poor test vehicle specifically
+because of its single-vector-query shape -- not because v1's
+architecture is fundamentally broken. A real Phase 2 attempt on actual
+multi-token data (real ARC episodes, or a redesigned synthetic task
+with a multi-token query, e.g. a short sequence instead of one vector)
+is the honest next step, not yet run. This entire investigation (6
+real training ablations, ~15 minutes of real local compute, zero GPU
+cost) is exactly what Rule 6 ("no expensive scaling before mechanism
+validation") and Rule 3 ("kill criterion before running") are for --
+it would have been a real waste to jump straight to ARC-scale training
+before finding this.
