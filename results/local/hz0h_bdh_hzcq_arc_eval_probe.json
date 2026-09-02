@@ -1,0 +1,37 @@
+{
+  "dev_ids": [
+    "1990f7a8",
+    "6f473927"
+  ],
+  "split": "evaluation",
+  "init_checkpoint": "results/local/hz0h_bdh_hzcq_arc_finetune_checkpoint.pt",
+  "results": [
+    {
+      "R": 0,
+      "n": 2,
+      "pass1_accuracy": 0.0,
+      "malformed_rate": 0.0,
+      "mean_generated_bytes": 40.0,
+      "mean_seconds_per_example": 25.685349354,
+      "wall_clock_s": 51.373914
+    },
+    {
+      "R": 4,
+      "n": 2,
+      "pass1_accuracy": 0.0,
+      "malformed_rate": 0.0,
+      "mean_generated_bytes": 40.0,
+      "mean_seconds_per_example": 23.784786124999993,
+      "wall_clock_s": 47.570354458
+    },
+    {
+      "R": 8,
+      "n": 2,
+      "pass1_accuracy": 0.0,
+      "malformed_rate": 0.0,
+      "mean_generated_bytes": 40.0,
+      "mean_seconds_per_example": 24.528536583500006,
+      "wall_clock_s": 49.057301124999995
+    }
+  ]
+}
