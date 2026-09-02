@@ -2357,3 +2357,77 @@ written up in `docs/restart/hz0h_inherited_choices_audit_results.md`:
 ratio flat 1.03x-1.18x, same negative conclusion as the 2M-token
 version). Not redispatched; the stale Pi-chat monitor watching for it
 was stopped rather than left running indefinitely.
+
+**Real position-quartile accuracy survey, 2026-09-02 (free, local CPU,
+no GPU spend)**: same 2000ex checkpoint, R=7, 9 real held-out episodes
+(evaluation split, seed=23 sample; a 10th hung mid-forward-pass on an
+apparent pathological long-memory episode -- real, disclosed, left
+running harmlessly in the background rather than force-killed, but not
+waited on further). Teacher-forced per-byte top-1 accuracy binned into
+answer-position quartiles (first 25% of answer bytes, 25-50%, 50-75%,
+last 25%), pooled (unweighted per-episode mean) across the 9 episodes:
+
+| quartile | bytes 0-25% | 25-50% | 50-75% | 75-100% |
+|---|---:|---:|---:|---:|
+| mean accuracy | 0.764 | 0.511 | 0.547 | 0.676 |
+
+**Real finding: a U-shape, not monotonic decay.** If exposure bias /
+recurrence-depth drift were the dominant story, accuracy should fall
+steadily toward the end of the answer. It doesn't -- it dips hardest
+in the middle two quartiles and recovers toward the end (consistent
+with the earlier finding that the literal END-terminator region is
+already near-perfectly predicted, and with grid answers often having
+more constrained/predictable start and end structure than their
+middle content). Read plainly: **the capacity gap lives in generating
+correct mid-transformation grid content, not in losing coherence over
+recurrence depth or sequence position.** This is additional, different-
+angle evidence for the same conclusion the per-byte survey reached:
+the bottleneck is the model not yet having learned the core ARC
+transformations well enough, not a depth/exposure-bias-specific defect
+in the architecture.
+
+**Real per-byte survey, final state**: LOW (r=3, n=15)=0.6673, MEDIUM
+(r=7, n=15)=0.6688 both fully complete and solid. HIGH (r=14) survey
+stalled at 6/15 (last real progress: episode 7, ~55s of CPU time added
+across 30+ real minutes -- a genuine hang, not just a slow episode) and
+is not being waited on further; left running in the background at no
+cost in case it recovers, but the LOW/MEDIUM numbers alone are already
+sufficient to support the real conclusion above (both nearly identical
+despite MEDIUM's clear loss advantage).
+
+## Session close-out, 2026-09-02: free diagnostics exhausted, real decision point for the user
+
+The real diagnostic chain this session built, end to end: K=4 constant
+refresh schedule confirmed as the champion recurrence-refresh recipe
+-> pivot to targeting BDH-CQ at a locked 150M params -> HZ-CQ-v0 built
+-> a real off-by-one bug in the answer-loss found and fixed via unit
+test (invalidating the original ARC fine-tune result) -> corrected
+retrain (400 examples) found a real, repeatable MEDIUM R-band
+held-out-loss sweet spot -> retrained again at 5x more exposure (2000
+examples) and the sweet spot held and sharpened, with train losses
+converging across bands while eval losses stayed separated (real
+generalization signature) -> real held-out generation eval found 0%
+pass@1 and an END-terminator gap that survived more training -> a
+direct teacher-forced diagnostic showed END is actually well-learned,
+retracting the terminator-supervision hypothesis in favor of exposure
+bias -> a free per-byte accuracy survey found the real, simpler
+explanation (per-byte accuracy only ~65-67%, roughly flat across R,
+making exact-match pass@1 essentially impossible at any realistic
+answer length regardless of exposure bias specifics) -> a free
+position-quartile survey further localized the gap to mid-answer
+content generation specifically, not depth/position drift.
+
+**Free local diagnostics are exhausted for now.** Every cheap, no-GPU-
+cost question this checkpoint could answer has been asked. The real
+next lever is unambiguous and has been unambiguous since the per-byte
+survey landed: per-byte accuracy needs to go from ~65-67% to well
+above 90% before pass@1 becomes achievable at all, and getting there
+needs substantially more training than any single step taken this
+session (2000 examples was 5 real epochs over the 400-task training
+set; closing this gap plausibly needs an order of magnitude more, not
+another imcremental 5x step). That is a real, larger GPU-cost
+commitment. Per the standing cost-discipline agreement and the user's
+explicit "funds are limited, be careful" instruction, **this is left
+as a deliberate go/no-go for the user, not auto-dispatched.** Nothing
+further should be launched on this line of work without that
+explicit go-ahead.
