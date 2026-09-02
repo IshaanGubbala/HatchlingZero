@@ -130,11 +130,11 @@ def _adaptive_g(h: torch.Tensor, y: torch.Tensor, h_prev: torch.Tensor, e: torch
 
 def _existing_compute_adaptive(x: torch.Tensor, x_sparse: torch.Tensor, e: torch.Tensor, h_prev: torch.Tensor,
                                 model: BDHVBSubspaceDecoder, nh: int, N: int):
-    y_latent = e @ model.encoder_v
+    y_latent = e @ model._w("encoder_v")
     y_sparse = F.relu(y_latent)
     xy_sparse = model.drop(x_sparse * y_sparse)
-    alpha = torch.matmul(xy_sparse, model.decoder_up.view(nh, N, -1)).sum(dim=1, keepdim=True)
-    y1 = model.ln(alpha @ model.decoder_down)  # y_r
+    alpha = torch.matmul(xy_sparse, model._w("decoder_up").view(nh, N, -1)).sum(dim=1, keepdim=True)
+    y1 = model.ln(alpha @ model._w("decoder_down"))  # y_r
     g = _adaptive_g(x, y1, h_prev, e, model)
     x_new = model.ln(x + g * y1)
     return x_new, g

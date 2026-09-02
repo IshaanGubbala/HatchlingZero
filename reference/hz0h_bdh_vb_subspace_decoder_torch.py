@@ -66,6 +66,10 @@ class BDHVBSubspaceDecoder(BDHVB):
         self.decoder_up = nn.Parameter(torch.zeros((nh * N, r)).normal_(std=0.02))
         self.decoder_down = nn.Parameter(torch.zeros((r, D)).normal_(std=0.02))
 
+    def _w(self, name: str) -> torch.Tensor:
+        """Effective-weight hook; subclasses may supply training-only adapters."""
+        return getattr(self, name)
+
     def forward(self, idx, targets=None):
         C = self.config
         B, T = idx.size()
@@ -85,7 +89,7 @@ class BDHVBSubspaceDecoder(BDHVB):
             yKV = yKV_bottleneck @ self.O
             yKV = self.ln(yKV)
 
-            y_latent = yKV @ self.encoder_v
+            y_latent = yKV @ self._w("encoder_v")
             y_sparse = F.relu(y_latent)
             xy_sparse = x_sparse * y_sparse
             xy_sparse = self.drop(xy_sparse)
@@ -93,8 +97,8 @@ class BDHVBSubspaceDecoder(BDHVB):
             # Real Phase B fix, 2026-08-26: see hz0h_bdh_vb_subspace_decoder_stream_torch.py's
             # matching comment -- avoids a non-contiguous-tensor materialization
             # that dominates cost at batch>1 (verified mathematically identical).
-            alpha = torch.matmul(xy_sparse, self.decoder_up.view(nh, N, -1)).sum(dim=1, keepdim=True)
-            yMLP = alpha @ self.decoder_down
+            alpha = torch.matmul(xy_sparse, self._w("decoder_up").view(nh, N, -1)).sum(dim=1, keepdim=True)
+            yMLP = alpha @ self._w("decoder_down")
             y = self.ln(yMLP)
             x = self.ln(x + y)
 
