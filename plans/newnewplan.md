@@ -2639,3 +2639,41 @@ decoder is warmstarted). Whether this 0.21-nat gap holds, narrows, or
 widens at a real production budget is genuinely unknown and would need
 either a much larger local run (slow, hours) or GPU time (real cost) --
 not run today.
+
+## Real 500K-token matched-budget point, and a correction, 2026-09-02
+
+Ran both arms again at 500K tokens (same curriculum, same seed, same
+warmstart): LoRA-only trained_val_loss=2.9430 (968s); full fine-tune
+validation_loss=2.7372 (1277s, ~1.3x LoRA's wall-clock -- expected,
+backprop through 206M params vs 1.65M costs more per step even though
+LoRA's *forward* cost is nearly identical).
+
+**Real gap at 500K: 0.2058 nats** (2.9430 - 2.7372), vs. 0.2144 nats at
+250K. The gap narrowed, but only slightly (~4% relative) -- **roughly
+stable, not dramatically closing.**
+
+**Correction to the mid-run framing**: right after the LoRA arm alone
+finished (before the full-finetune arm's real 500K number existed),
+this doc's live commentary compared LoRA's 500K result (2.9430) against
+full fine-tune's OWN STALE 250K number (2.9156) and called it "closing
+in fast" -- that was comparing across two different token budgets, not
+a real matched-budget read, and the real number now available (full
+fine-tune actually reaches 2.7372 at 500K, well below LoRA's 2.9430)
+does not support that framing. Flagging and correcting this explicitly
+rather than letting the more exciting but wrong mid-run take stand.
+
+**Real, honest trend across the two controlled points:**
+
+| tokens | LoRA val_loss | full-finetune val_loss | gap (nats) |
+|---|---:|---:|---:|
+| 250K | 3.1300 | 2.9156 | 0.2144 |
+| 500K | 2.9430 | 2.7372 | 0.2058 |
+
+Two points isn't enough to call a real trend line, but the honest
+read is: the gap is not obviously closing with more data at this
+scale, and may simply be a roughly constant offset reflecting the
+adapter's real capacity limit (1.65M params, rank=16) relative to
+full-rank updates on this architecture at this budget. A genuine "does
+it ever close" answer needs either a bigger rank sweep (free, same
+local pattern, real next step) or a much larger token budget (slow
+locally, real GPU cost if done properly) -- not resolved today.
