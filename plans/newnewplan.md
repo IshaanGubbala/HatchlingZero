@@ -2606,3 +2606,36 @@ not comparable to full fine-tuning yet, gap is meaningful not huge),
 not a controlled ablation -- a same-recipe (both fixed-depth or both
 curriculum) rerun would be needed before trusting the exact 0.31-nats
 gap as a clean per-parameter measurement.
+
+## Real controlled rerun: matched depth curriculum, 2026-09-02
+
+Fixed the recipe mismatch flagged above: added the same
+`curriculum_stages`/`depth_at` depth ramp (matching
+`hz0h_bdh_vb_subspace_decoder_quality_check.py` exactly) to
+`hz0h_bdh_reasoning_lora_quality_check.py` (`--no-curriculum` restores
+the old fixed-depth behavior). Verified via smoke test that depth now
+ramps 4->6->8 identically to the full-finetune script before spending
+the real budget.
+
+**Real, now-controlled 250K-token result**: LoRA-only (1.65M params,
+0.79%), same curriculum as full fine-tune: val_loss=3.1300 (vs 3.2292
+under the old fixed-depth recipe -- the curriculum helped the LoRA arm
+too, as expected). Full fine-tune (206.47M params, 100%, curriculum):
+val_loss=2.9156 (unchanged, already used curriculum).
+
+**Real, clean quality-per-parameter gap at matched 250K-token budget,
+same recipe both arms: 0.2144 nats** (down from the earlier
+mismatched-recipe estimate of 0.3136 -- about a third of that gap WAS
+recipe, not parameter count, confirming the caveat was worth checking).
+1.65M trainable parameters (0.79% of the 208M total) get within 0.21
+nats of full fine-tuning at this budget. This is now a real, clean,
+controlled quality-per-parameter measurement for this architecture --
+the first one this session actually produced end to end.
+
+Real, honest scope that still applies: 250K tokens is still far below
+the 5M-token quality-check convention this project normally uses to
+trust a result, and the frozen base itself is mostly random (only the
+decoder is warmstarted). Whether this 0.21-nat gap holds, narrows, or
+widens at a real production budget is genuinely unknown and would need
+either a much larger local run (slow, hours) or GPU time (real cost) --
+not run today.
