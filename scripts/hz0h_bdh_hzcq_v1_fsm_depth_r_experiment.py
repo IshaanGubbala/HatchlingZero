@@ -105,7 +105,7 @@ def forward_episode(model, demo_state, demo_symbol, demo_next, q_start, q_seq, n
     return classifier(read)
 
 
-def gate_magnitude_by_depth(model, K, A, n_demos, D, depths, n_rounds, batch=8, seed=555):
+def gate_magnitude_by_depth(model, K, A, n_demos, D, depths, n_rounds, batch=8, seed=555, device=None):
     state_embed, symbol_embed, mem, ws, demo_encoder, query_encoder, rq, rk, rv, classifier = model
     ws.eval(); mem.eval()
     rng = torch.Generator().manual_seed(seed)
@@ -113,6 +113,10 @@ def gate_magnitude_by_depth(model, K, A, n_demos, D, depths, n_rounds, batch=8, 
     with torch.no_grad():
         for depth in depths:
             demo_state, demo_symbol, demo_next, q_start, q_seq, _ = sample_episode(K, A, n_demos, depth, batch, rng)
+            if device is not None:
+                demo_state, demo_symbol, demo_next, q_start, q_seq = (
+                    demo_state.to(device), demo_symbol.to(device), demo_next.to(device),
+                    q_start.to(device), q_seq.to(device))
             d_s, d_a, d_n = state_embed(demo_state), symbol_embed(demo_symbol), state_embed(demo_next)
             demo_hidden_all = demo_encoder(torch.cat([d_s, d_a, d_n], dim=-1))
             demo_hiddens = [demo_hidden_all[:, i:i + 1, :] for i in range(n_demos)]
@@ -162,17 +166,24 @@ def main() -> None:
     parser.add_argument("--continue-from-checkpoint", type=Path, default=None)
     parser.add_argument("--save-checkpoint", type=Path, default=None)
     parser.add_argument("--seed", type=int, default=7)
+    parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu",
+                         help="real bug fixed 2026-09-03: this script previously never moved anything "
+                              "to CUDA, so a RunPod GPU dispatch silently ran on CPU the whole time "
+                              "(0% GPU utilization observed). Defaults to cuda when available.")
     args = parser.parse_args()
 
     torch.manual_seed(args.seed)
+    device = torch.device(args.device)
     D, K, A = args.d_model, args.k_states, args.a_symbols
     n_demos = K * A
     model = build_model(D, K, A, args.workspace_slots, args.gate_hidden, args.allow_ablation_slots,
                          identity_biased=args.identity_biased, layerscale_init=args.layerscale_init)
+    model = tuple(m.to(device) for m in model)
     state_embed, symbol_embed, mem, ws, demo_encoder, query_encoder, rq, rk, rv, classifier = model
+    print(f"[fsm_v1] device={device}", flush=True)
 
     if args.continue_from_checkpoint is not None:
-        ckpt = torch.load(args.continue_from_checkpoint, map_location="cpu")
+        ckpt = torch.load(args.continue_from_checkpoint, map_location=device)
         state_embed.load_state_dict(ckpt["state_embed"]); symbol_embed.load_state_dict(ckpt["symbol_embed"])
         mem.load_state_dict(ckpt["mem"]); ws.load_state_dict(ckpt["ws"])
         demo_encoder.load_state_dict(ckpt["demo_encoder"]); query_encoder.load_state_dict(ckpt["query_encoder"])
