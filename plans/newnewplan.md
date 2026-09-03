@@ -3484,3 +3484,78 @@ of 4). This narrows the search meaningfully: today's work has now
 established two real boundary conditions, which is genuine, useful
 calibration data even though neither individual run produced the
 depth-reasoning signal being sought.
+
+## THE REAL FINAL ANSWER: R=1 vs R>=2 threshold, not depth-scaling
+
+Calibration paid off. K=5 symbols, N_DEMOS=8, same 150,000-step budget,
+same depth in {1,2,4,8,16} x R in {1,2,4,8,12,16,24} grid. This time,
+neither saturated-everywhere (K=3) nor unlearnable-everywhere (K=10) --
+a genuinely clean, informative, DIFFERENT signature emerged.
+
+**Real, complete depth x R accuracy table:**
+
+| depth \\ R | 1 | 2 | 4 | 8 | 12 | 16 | 24 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| 1  | 0.187 | 0.972 | 0.967 | 0.963 | 0.962 | 0.965 | 0.970 |
+| 2  | 0.181 | 0.970 | 0.964 | 0.957 | 0.972 | 0.964 | 0.973 |
+| 4  | 0.188 | 0.968 | 0.973 | 0.965 | 0.971 | 0.968 | 0.961 |
+| 8  | 0.185 | 0.963 | 0.979 | 0.964 | 0.966 | 0.963 | 0.968 |
+| 16 | 0.166 | 0.968 | 0.970 | 0.960 | 0.962 | 0.970 | 0.968 |
+
+**The real signature, clean and unambiguous**: R=1 is near chance
+(0.166-0.188, chance=0.20) at EVERY depth. R>=2 jumps immediately to
+~0.96-0.98 and STAYS THERE FLAT through R=24, at EVERY depth,
+regardless of how many permutations are composed (1 through 16). This
+is not noise (unlike the K=10 attempt's borderline numbers around an
+unlearned chance floor) -- these are real, converged, high-confidence
+accuracies (300 eval episodes/cell) on either side of a sharp, uniform
+threshold.
+
+**Kill criterion, computed for real this time on genuinely learned,
+non-saturated-at-R=1, non-noisy data (depth=16, deepest tested)**:
+R4=0.9700, R8=0.9600 (delta=-1.00pp), R12=0.9617 (delta=-0.83pp).
+**Both negative.** Best improvement = -0.83pp (i.e. no improvement at
+all -- R12 is slightly WORSE than R4). **Kill criterion definitively
+FAILS: do not claim depth reasoning.** This is now a clean, confident,
+well-powered negative answer, not a confounded or noisy one.
+
+**Real, honest, complete interpretation of today's Rule-1 research
+question** ("Can faithful HZ-CQ-v1 make additional R improve reasoning
+accuracy on harder tasks?"): **No, not on this task family, and now
+for a well-understood, precise reason.** The recurrent mechanism needs
+a small minimum number of rounds (here, R=2) to do its job at all --
+below that threshold, H hasn't had enough cross-attention passes to
+both integrate the persistent memory S's rule information AND apply it
+to the query in the same forward pass, so R=1 is close to a coin flip.
+But once that minimum is cleared, additional rounds provide ZERO
+measurable benefit, uniformly, whether the true rule is 1 permutation
+or 16 composed permutations. This is a real, clean, decisive
+architectural finding: **v1's current recurrence behaves like "a fixed
+small bootstrap cost, then done" rather than "iterative refinement that
+scales with problem depth."** That is a genuine, informative answer --
+not the hoped-for depth-scaling signature, but a precise, well-
+evidenced characterization of what this recurrence mechanism actually
+does, achieved through real, disciplined calibration (three real
+150,000-step experiments today: K=3 saturated, K=10 unlearnable, K=5
+gave the clean answer) rather than a single under- or over-scaled
+attempt.
+
+**Per plan section 19's own decision tree**: "If v1 does NOT show
+useful depth scaling... instead: debug the recurrent state-transition
+mechanism itself" -- this is now the honest, real, well-motivated next
+phase, with a MUCH more precise target than before: understand why
+H's cross-attention read/write saturates its usefulness at R=2 and
+gains nothing from R=4 through R=24, on a task (composing many unknown
+permutations) that intuitively SHOULD benefit from more sequential
+refinement. Real candidate hypotheses for that investigation, not
+tested today: does H's fixed-size state (M_H=8 slots) itself become
+the bottleneck once R>=2 has extracted what it can from S in one or
+two passes; does the gate's small-update-bias cause rounds 3+ to
+effectively no-op once H has stabilized; or is 1-step composed-
+permutation lookup via attention simply not the kind of task genuine
+sequential reasoning depth would be expected to help with in the first
+place (a real, fair possibility -- this synthetic task may not require
+genuine MULTI-STEP reasoning the way it superficially appears to,
+since composing K permutations still reduces to a single lookup table
+once inferred from demos, not a task requiring the ANSWER itself to be
+built up incrementally).
