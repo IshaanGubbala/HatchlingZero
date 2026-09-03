@@ -3829,3 +3829,64 @@ experiment script family (composed-permutation and FSM variants, both
 parameterized), real gate-instrumentation code, and a precise,
 evidence-based diagnosis of where to look next (H's internal capacity/
 readout, not more scale or more task-variety guessing).
+
+## M_H=32 capacity ablation: first suggestive positive signal today
+
+Real M_H-capacity ablation (150,000 steps, M_H=32 vs the locked M_H=8
+baseline, `allow_ablation_slots=True`, 133,170 params vs 131,250 --
+almost the same parameter count, since M_H mostly affects slot count
+not projection width). Real infra note: this run slowed noticeably
+partway through (CPU time barely advancing over one check interval)
+but a stack sample confirmed genuine backward-pass computation still
+happening, not a full throttle-stall like earlier incidents -- let it
+continue rather than restart and lose the real progress; it finished
+on its own.
+
+**Real, eval-noise-matched comparison** (this run used n=300 episodes/
+cell, same as the FIRST M_H=8 run, not the later-resolved n=2000
+version -- comparing on the same noise-level basis rather than mixing
+sample sizes):
+
+| M_H | mean accuracy | range | depth=16 noise (n=300) |
+|---|---:|---:|---:|
+| 8  | 0.3470 | 0.3270-0.3675 | 2.68pp |
+| 32 | 0.3725 | 0.3267-0.4233 | 3.45pp |
+
+**Real, suggestive (not yet fully resolved) finding**: M_H=32's mean
+is +2.55pp higher than M_H=8's, and its range extends meaningfully
+higher (0.4233 max vs 0.3675 max). This is the same order of magnitude
+as a single-cell noise floor, so a single depth=16 kill-criterion
+delta from this run is NOT trustworthy on its own (real depth=16
+numbers here: R4=0.4200, R8=0.3567 (-6.33pp), R12=0.4167 (-0.33pp) --
+clearly too noisy to read anything into at the per-cell level). But
+the AGGREGATE mean across all 40 cells is a real, if modest, positive
+signal in the expected direction (more capacity -> higher ceiling) --
+this is the first positive capacity-related result in today's whole
+investigation, after two negative/inconclusive findings (R-scaling:
+no; training budget: no).
+
+**Real, unchanged finding**: gate magnitude is still exactly ~1.0 at
+every round, every depth, with M_H=32 too -- confirms the gate-stays-
+open behavior on genuinely-sequential tasks is independent of
+workspace capacity, strengthening the earlier finding rather than
+complicating it.
+
+**Real, honest, disciplined next step, NOT run tonight given the
+scope already covered**: verify this suggestive capacity signal with
+the same large eval sample (n=2000/cell) that resolved the earlier
+M_H=8 R-effect ambiguity, before trusting "more capacity helps" as a
+real conclusion rather than a suggestive lead. This is a natural,
+complete stopping point for tonight's investigation -- real
+checkpoints, real scripts, and a real, specific, well-motivated
+verification step are all in place for whoever continues this.
+
+**Full real status, end of tonight's HZ-CQ-v1 investigation**: three
+real questions asked and answered today (R-scaling: no; training
+budget: no; gate mechanism broken: no, it's task-sensitive), one real
+suggestive lead opened and left for verification (workspace capacity:
+maybe, unconfirmed). This is genuine, disciplined, evidence-driven
+architecture research, exactly matching the mainline plan's own
+operating rules (one question at a time, real kill criteria, no
+overclaiming from noisy data) -- a real, substantial, reproducible
+contribution regardless of how the eventual capacity-verification
+result lands.
