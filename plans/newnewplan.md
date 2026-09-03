@@ -3951,3 +3951,54 @@ near-ceiling at M_H=8, so may not show the same lift, itself an
 informative comparison); (c) revisit real ARC-scale application now
 armed with concrete evidence that M_H should likely be larger than the
 plan's original {4,8} spec for tasks with real state-tracking demands.
+
+---
+
+## Real result, 2026-09-03: script family gap closed
+
+Self-identified gap from last session: the mainline plan's new 8.5
+section claimed a reusable `scripts/hz0h_bdh_hzcq_v1_*` family existed
+in the working tree, but only
+`hz0h_bdh_hzcq_v1_composition_depth_experiment.py` was actually
+committed -- the FSM harness, gate-diagnostic script, and large-scale
+S+H-vs-Transformer ICL comparison that produced most of yesterday's
+real findings (M_H capacity +3.04pp, gate collapse vs gate-open,
+99.9% vs 32.85% ICL) existed only in `/tmp/`, uncommitted, at real
+risk of loss.
+
+Fixed by writing three canonical, argparse-based, parameterized
+versions and committing them (`f43f4ee`):
+
+- `scripts/hz0h_bdh_hzcq_v1_fsm_depth_r_experiment.py` -- the FSM
+  harness, generalized from the hardcoded `/tmp/fsm_mh32_v2.py`.
+  `--workspace-slots` is now a real CLI flag (default 8, matching the
+  plan's locked spec) instead of a hardcoded 32 -- one script now
+  covers the M_H=8 baseline and every M_H ablation (16/32/64) with no
+  code duplication. Built-in checkpoint save/load and gate-vs-depth
+  instrumentation carried over unchanged.
+- `scripts/hz0h_bdh_hzcq_v1_gate_diagnostic.py` -- the composed-
+  permutation gate-collapse diagnostic, generalized from
+  `/tmp/gate_diagnostic_k5.py`.
+- `scripts/hz0h_bdh_hzcq_v1_large_scale_icl_experiment.py` -- the S+H-
+  vs-Transformer comparison, merging `/tmp/large_scale_icl_test.py`
+  and `/tmp/large_scale_icl_transformer.py` into one script with a
+  `--model {sh,transformer}` flag so both arms share one set of
+  task/eval code instead of two forked copies.
+
+All four (fsm, gate-diagnostic, icl-sh, icl-transformer) were smoke-
+tested end to end with tiny step counts before committing -- real
+run, not just import-checked. The ICL smoke test reproduced the exact
+71,762 / 151,488 param counts from the real 150K-step run, a good
+sign the generalization didn't silently change the architectures.
+
+Net effect: the plan's 8.5 section claim is now actually true, and
+the day's real findings are reproducible from a clean checkout, not
+stranded in `/tmp`.
+
+**Still open, still gated on user go-ahead** (not started tonight,
+per the standing decision not to launch multi-hour unattended compute
+without explicit confirmation): M_H=64 saturation test, M_H-capacity
+transfer check on the composed-permutation task, ARC-scale M_H
+resizing. Script is ready (`--workspace-slots 64
+--allow-ablation-slots`, wired through automatically once slots > 8);
+nothing is running.
