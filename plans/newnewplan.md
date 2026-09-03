@@ -4254,3 +4254,47 @@ let useful early-round information survive to the readout instead of
 being overwritten by the correctness-blind drift PAPER-0/1 both found.
 
 Result: `results/local/hz0h_bdh_hzcq_v1_paper1_attractor_mh32.json`.
+
+---
+
+## Real result, 2026-09-03 (8): PAPER-2 identity-biased LayerScale -- FAILED, and a striking gate finding
+
+Real result from the RunPod GPU run (after fixing two real device bugs
+along the way -- see the two "Fix real bug" commits, d419ee5/1fd8e23 --
+and auditing/fixing the same bug class across all 5 remaining scripts,
+52b3b95). Same FSM task, M_H=32, 150K steps, n=2000/cell eval as the
+LN baseline, --identity-biased --layerscale-init 0.1.
+
+**Mean accuracy: 0.3276 vs the LN baseline's 0.3774 -- a real -4.98pp
+regression** (depth=16 noise floor 0.57pp, so this is ~9x the noise,
+not ambiguous). Not "R stays flat, fixed-R improves" (the failure mode
+the plan explicitly anticipated) -- fixed-R accuracy got WORSE. R
+still shows no real effect either (depth=16 R4->R8 +0.55pp, R4->R12
++0.95pp, both at/below the noise floor).
+
+**The real surprise**: gate behavior. Instead of staying open (LN
+baseline's signature on this task) or degrading gradually, it SLAMS
+SHUT after round 1, identically at all 5 tested depths: ~0.999 (round
+1) -> ~0.0001 or exactly 0.0 (round 2 onward), flat for the remaining
+15 rounds. Removing the per-round LayerNorm means the unbounded
+residual can genuinely compound without correction across 16 rounds --
+the model appears to have learned to protect against that by doing
+essentially all its real writing in round 1, then hard-closing the
+gate. Clean, real, reproducible, and a genuinely new mechanistic
+observation this session hadn't seen before (previous gate signatures
+were either "stays ~1.0" or "decays smoothly over ~5 rounds" -- this
+is neither, it's a near-discontinuous single-round cutoff).
+
+**Verdict**: PAPER-2 as specified is a real, honest failure on both
+axes the promotion criterion checked. Per the queue's strict order,
+this unblocks PAPER-3 (bounded residual + evidence re-injection),
+which was explicitly gated on "PAPER-2 fails to produce useful depth
+scaling." The gate-hard-close finding is worth keeping in mind for
+PAPER-3/4's own residual-bounding designs -- an unbounded residual
+without renormalization seems to push this architecture toward
+"decide everything early, then stop," which is close to the opposite
+of what genuine iterative refinement over many rounds would need.
+
+Checkpoint and result JSON committed. Not launching PAPER-3 yet --
+that's a new real compute decision (another ~2-3hr training run),
+holding for explicit go-ahead same as PAPER-2 was.

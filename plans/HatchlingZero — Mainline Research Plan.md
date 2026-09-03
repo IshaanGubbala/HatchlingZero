@@ -1786,6 +1786,40 @@ If it only improves fixed-R accuracy but R stays flat, record that
 honestly as an optimization/capacity result, NOT recurrent reasoning
 -- exactly the same honesty standard the M_H=32 finding was held to.
 
+**Real result, 2026-09-03: FAILED, on both axes.** Same FSM task,
+same M_H=32, same 150K steps/n=2000 eval protocol as the LN baseline,
+`--identity-biased --layerscale-init 0.1`. Mean accuracy 0.3276 vs the
+LN baseline's 0.3774 -- **-4.98pp, a real, clean regression** (noise
+floor at depth=16 is 0.57pp, this is ~9x that). Not just "R stays
+flat" -- fixed-R accuracy actively got WORSE. Depth=16 R4->R8 +0.55pp,
+R4->R12 +0.95pp, both at or below the noise floor -- no real R-effect
+here either.
+
+**Real, striking mechanistic finding, not predicted going in**: the
+gate did not stay open (as in the LN baseline) or stay collapsed
+gradually (as in the composed-permutation task's earlier gate-collapse
+finding) -- it **slams shut after round 1, at every depth**: g goes
+from ~0.999 (round 1) to ~0.0001 or exactly 0.0 (round 2 onward),
+identically across all 5 tested depths. Removing the per-round
+LayerNorm means unbounded repeated additions genuinely can compound
+without correction -- the model appears to have learned to protect
+itself from that by doing all its real writing in round 1, then
+closing the gate hard for the remaining 15 rounds. A clean, real,
+reproducible behavior, just not the "useful information survives
+longer" effect the hypothesis predicted.
+
+**Verdict**: identity-biased/LayerScale recurrence, as specified here,
+is not a promotion -- it is a real, honest negative result on both the
+accuracy axis and the depth-scaling axis, plus a genuine new
+mechanistic observation (gate learns to hard-close under an unbounded
+residual) worth keeping in mind for PAPER-3/4's own residual-bounding
+designs. Per the queue's own strict order, PAPER-2 has now "failed to
+produce useful depth scaling" -- PAPER-3 is unblocked.
+
+Checkpoint:
+`results/local/hz0h_bdh_hzcq_v1_fsm_paper2_identity_biased_mh32_checkpoint.pt`.
+Result: `results/local/hz0h_bdh_hzcq_v1_fsm_paper2_identity_biased_mh32.json`.
+
 ### PAPER-3 — Bounded residual + evidence re-injection
 
 Source: "Latent Recurrent Thoughts: Recurrent Refinement of Proposed
