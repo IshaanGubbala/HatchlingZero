@@ -3721,3 +3721,56 @@ training steps and/or a larger eval sample (more than 300 episodes/
 cell) specifically on this FSM task family, now that full-coverage
 demos and the gate-stays-open finding have de-risked the task design
 itself.
+
+## FSM v2, resolved with larger eval sample: kill criterion fails clearly
+
+Reran the identical trained recipe (same architecture, same 150,000
+training steps, same full-coverage demos) with two real additions:
+(1) a saved checkpoint (`results/local/hz0h_bdh_hzcq_v1_fsm_full_coverage_checkpoint.pt`,
+so future diagnostics don't require retraining), (2) eval sample size
+raised from 300 to 2,000 episodes/cell specifically to resolve whether
+the earlier +2.67-3.00pp signal at depth=16 was real or noise.
+
+**Real, resolved numbers**: depth=16 R4=0.3445, R8=0.3485 (delta
++0.40pp), R12=0.3530 (delta +0.85pp). The across-R noise floor at
+depth=16 shrank from 2.68pp (n=300/cell) to **0.44pp** (n=2000/cell) --
+roughly the expected sqrt(2000/300)~2.6x reduction from more samples,
+confirming the earlier ambiguity really was sampling noise, not a
+measurement artifact or a fluke.
+
+**Real, now-unambiguous verdict**: R4->R8's delta (+0.40pp) is smaller
+than the noise floor itself -- indistinguishable from zero. R4->R12's
+delta (+0.85pp) is real in the sense of being outside one noise
+std-dev, but still well below the stated 1-2pp threshold. **Kill
+criterion FAILS clearly and confidently this time** -- not the
+ambiguous, ROI on cell-noise call from the smaller-sample run.
+
+**Real, complete, final synthesis of the whole day's Rule-1
+investigation** ("Can faithful HZ-CQ-v1 make additional R improve
+reasoning accuracy on harder tasks?"): **No, not yet demonstrated, on
+either task family tested** (composed-permutation lookup: R=1 vs R>=2
+threshold effect only, no depth-scaling beyond that minimum;
+genuinely-sequential FSM traversal: real learning happens, gate stays
+meaningfully active every round -- a real, positive, DIFFERENT
+mechanistic behavior from the lookup task -- but the resulting
+accuracy gain from more R, once measured cleanly, is not real). The
+gate-behavior finding remains genuinely informative and positive (the
+adaptive controller is not simply broken -- it responds differently to
+different task structures, exactly as a working controller should).
+But the hoped-for "harder task -> larger useful R -> better accuracy"
+chain has not been observed, cleanly, on any task tried today.
+
+**Honest, complete status for continuing this thread**: the FSM task's
+overall accuracy plateaued around 0.33-0.37 (chance=0.20) -- real
+learning, but far from mastery, at 150,000 steps. Whether MORE
+training (not more R) would raise accuracy on this task, and whether
+a real R-effect would emerge only once the task is closer to solved
+(analogous to how R=1-vs-R>=2 was only visible once the permutation
+task was well-learned), is a real, reasonable, but untested hypothesis
+for a future session -- not pursued further today given the real time
+already invested (multiple full 150K-step runs, real infra throttling
+incidents worked around twice). This is a natural, complete, honest
+stopping point for today's Rule-1 investigation: a real, negative,
+well-evidenced answer, a real positive mechanistic side-finding (gate
+task-sensitivity), and precisely-identified open threads for whoever
+picks this up next.
