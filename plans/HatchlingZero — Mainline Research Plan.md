@@ -1658,6 +1658,42 @@ information?
 
 Cheapest and FIRST paper-derived experiment. No architecture change.
 
+**Real result, 2026-09-03**
+(`scripts/hz0h_bdh_hzcq_v1_paper0_forced_exit_diagnostic.py`, loading
+the confirmed M_H=32 checkpoint, depth=16, R=16, n=200 episodes, one
+real trajectory, no training): a clean, real, precise mechanistic
+signature -- **the READOUT freezes, not the state.**
+
+Rounds 1-4: accuracy fluctuates (0.390 -> 0.380 -> 0.370 -> 0.370),
+predictive KL between consecutive rounds is real and shrinking
+(0.00197 -> 0.00112 -> 0.00008). By round ~5-6 accuracy locks to
+EXACTLY 0.3750 and stays bit-for-bit identical through round 16;
+predictive KL between consecutive rounds hits 0.00000 from round 6
+onward -- the classifier's output distribution stops changing at all.
+
+But \(\|\Delta H\|\) (the round-to-round state-change norm) does NOT
+shrink to match -- it stays large and stable (~1.93) for the entire
+remaining 10 rounds, larger than round 1's own \(\Delta H\) in most of
+those rounds. \(H\) keeps moving substantially every round; the
+answer stops listening. \(\cos(H_r,H_{r-1})\) is consistently
+*negative* (~-0.11 to -0.16, stabilizing) -- each round's update has a
+real anti-correlated component with the previous state, not a
+diminishing one.
+
+**Real, updated mechanistic picture**: the earlier finding (gate stays
+~1.0, so "the model isn't refusing to compute") is now sharper --
+compute keeps happening (H keeps moving, gate stays open), but by
+round ~5-6 that movement lands somewhere the READOUT (the
+`rq`/`rk`/`rv`/classifier cross-attention against \(H\)) has become
+insensitive to. This is a genuinely new candidate explanation for the
+flat-\(R\) result that neither "gate collapse" nor "training budget"
+captured: not a stopped computation, but a computation whose products
+stop reaching the answer. Directly motivates PAPER-1 next -- is this a
+real attractor in the READOUT's effective output space even though raw
+\(H\)-space keeps drifting?
+
+Result: `results/local/hz0h_bdh_hzcq_v1_paper0_forced_exit_mh32.json`.
+
 ### PAPER-1 — Attractor/convergence diagnostic
 
 Source: "Equilibrium Reasoners: Learning Attractors Enables Scalable

@@ -4159,3 +4159,49 @@ the M_H=8->32 capacity lift transfers to the composed-permutation task
 informative); (d) ARC-scale resizing should target M_H=32, not 64 --
 64 was worth ruling out but isn't the right default now that it's
 shown to add nothing over 32.
+
+---
+
+## Real result, 2026-09-03 (6): PAPER-0 forced-exit diagnostic -- the readout freezes, not the state
+
+Goal was cleared (user ran `/goal clear`), resolving the whole-session
+chat-capable-model tension. User said to continue with the plan from
+where we were. Per the paper-derived queue's own strict order,
+PAPER-0 (forced-exit trajectory diagnostics) is first, cheapest, and
+needs zero new training -- it reuses the confirmed M_H=32 checkpoint
+already saved on disk.
+
+Built `scripts/hz0h_bdh_hzcq_v1_paper0_forced_exit_diagnostic.py`:
+loads a checkpoint, runs ONE real trajectory to R=16 on a real depth=16
+FSM eval batch (n=200), and decodes the classifier at EVERY
+intermediate H_r (not by rerunning with different R -- literally the
+same trajectory, inspected at every step, per the paper's explicit
+methodology).
+
+**Real result**: predictions freeze hard by round ~5-6 -- accuracy
+locks to exactly 0.3750 and predictive KL between consecutive rounds
+hits 0.00000, both dead flat through round 16. But the state itself
+does NOT converge: ||H_r - H_{r-1}|| stays ~1.93 for the whole
+remaining 10 rounds (not shrinking, in fact larger than round 1's own
+delta in most rounds), and cos(H_r,H_{r-1}) stays consistently
+*negative* (~-0.11 to -0.16). H keeps moving substantially every
+round; the READOUT (rq/rk/rv/classifier cross-attention against H)
+stops listening.
+
+This sharpens the whole day's earlier finding. Gate-stays-open (~1.0)
+already ruled out "the model refuses to compute." This adds: compute
+keeps happening and the state keeps changing, but by round ~5-6 that
+change stops reaching the answer through the readout path. Neither
+"gate collapsed" nor "not enough training" explains THIS -- it's a
+new, precise, real candidate mechanism: the readout becomes
+insensitive to further state movement well before the state itself
+settles down.
+
+Real next step, motivated directly by this: PAPER-1 (attractor/
+convergence diagnostic) -- is there a real attractor in the readout's
+effective output space (where predictions clearly stabilize) even
+though raw H-space keeps drifting (where it doesn't)? That would
+explain both observations at once. Also diagnostic-only, no training,
+same checkpoint reusable.
+
+Result: `results/local/hz0h_bdh_hzcq_v1_paper0_forced_exit_mh32.json`.
