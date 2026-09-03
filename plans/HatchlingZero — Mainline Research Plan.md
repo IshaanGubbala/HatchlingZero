@@ -869,7 +869,7 @@ Every item below is tagged:
 
 ## 11.3 The concrete optimization sequence
 
-### 1. Cache fixed K/V once per query -- **[DO NOW]**
+### 1. Cache fixed K/V once per query -- **[DO NOW]** -- DONE, 2026-09-03
 
 Real, verified fact about the current code
 (`reference/hz0h_bdh_hzcq_v1_reasoning_workspace_torch.py`): inside
@@ -882,6 +882,20 @@ are the same tensors passed unchanged into every round -- only \(Q\)
 Compute \(K_S,V_S,K_x,V_x\) once before the round loop, reuse across
 all \(R\) rounds. Exact attention semantics unchanged -- this is
 provably the same computation, just not repeated.
+
+**Real result**: implemented in `_ExactCrossAttention.project_kv`/
+`.attend` plus `HZCQReasoningWorkspace._step_with_cache`, with `run()`
+now computing \(K_S,V_S,K_x,V_x\) once before the round loop instead
+of once per round. Verified bit-identical (`torch.equal`, not just
+`allclose`) against the old per-round-recompute path via `step()`
+called manually in a loop, on a real (B=2, M_S=8, M_H=8, D=32) case at
+R=12. All 15 existing structural tests (workspace + memory) still
+pass unchanged. Measured (CPU, forward-only, D=80, M_H=8, R=16, B=16,
+200 reps after 5 warmup): 1.0027s -> 0.8773s, **1.14x**. Modest at
+this R -- expected, since this only removes redundant K/V projection
+GEMMs, not the dominant per-round attention/gate cost -- but real,
+free, and zero-risk. Item 5 (below) landed in the same change since
+it's the same redundant-recompute pattern.
 
 ### 2. Factory/pipeline execution -- **[BENCH]**
 
@@ -923,13 +937,22 @@ equivalence check since fused reductions can change floating-point
 rounding order.
 
 ### 5. Remove unnecessary per-round work -- **[DO NOW]** for provably
-loop-invariant work, **[BENCH]** for anything touching numerics
+loop-invariant work, **[BENCH]** for anything touching numerics --
+the `s_summary` instance DONE, 2026-09-03
 
 Real, verified instance in the current code: `HZCQReasoningWorkspace._gate`
 recomputes `s_summary = S.mean(dim=1, keepdim=True)` on **every**
 call, even though \(S\) is invariant across the whole `run()` call --
 identical redundant-recompute pattern to item 1, just inside the gate
 rather than the attention read. Hoist it out once per `run()` call.
+**Real result**: `_gate` now takes an optional `s_summary` param;
+`run()` computes it once and threads it through `_step_with_cache`.
+`step()` itself is untouched (still recomputes on every direct call,
+for the diagnostic scripts and tests that call it standalone) --
+verified bit-identical against `run()`'s new cached path, same test as
+item 1 above. The general sweep for other loop-invariant work (masks,
+dtype/device conversions, unnecessary `.clone()`) has NOT been done
+yet -- only this one verified instance landed.
 General sweep, same treatment: redundant summaries, masks recomputed
 from the same inputs, unnecessary dtype/device conversions, and
 `.clone()` calls that aren't protecting against real aliasing --

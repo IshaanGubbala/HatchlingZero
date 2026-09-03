@@ -4002,3 +4002,41 @@ transfer check on the composed-permutation task, ARC-scale M_H
 resizing. Script is ready (`--workspace-slots 64
 --allow-ablation-slots`, wired through automatically once slots > 8);
 nothing is running.
+
+---
+
+## Real result, 2026-09-03 (2): first real [DO NOW] speed items landed
+
+Section 11.0's gate said nothing in section 11 runs ahead of the
+genuinely-sequential-task test -- that test is the FSM work (section
+8.5), which concluded with a real, confirmed verdict, not an open
+question anymore. So the two already-identified [DO NOW] items
+(zero-semantic-change, no compute risk) were safe to land tonight
+without needing the M_H=64 go-ahead:
+
+- Item 1 (cache K_S/V_S/K_x/V_x once per `run()` call instead of once
+  per round) and item 5's `s_summary` instance (same hoist, inside the
+  gate) both landed in
+  `reference/hz0h_bdh_hzcq_v1_reasoning_workspace_torch.py`.
+- `_ExactCrossAttention` gained `project_kv`/`attend`; `forward` is now
+  just those two composed (unchanged behavior for any direct caller).
+  `HZCQReasoningWorkspace` gained `_step_with_cache`; `run()` uses it
+  with precomputed K/V/s_summary, `step()` is untouched (still used by
+  tests and the diagnostic scripts that manually replicate `step`'s
+  internals round-by-round).
+- Verified bit-identical (`torch.equal`, not just close) against the
+  old naive per-round-recompute path, on a real (B=2, M_S=8, M_H=8,
+  D=32, R=12) case. All 15 existing structural tests pass unchanged.
+- Measured (CPU, forward-only, D=80, M_H=8, R=16, B=16, 200 reps after
+  5 warmup): 1.0027s -> 0.8773s, **1.14x**. Real but modest -- this
+  only removes redundant K/V projection GEMMs, the smallest piece of
+  the per-round cost, not the attention/gate work itself. Consistent
+  with 11.1's diagnosis that the bigger win is items 2-4 (fused/
+  pipelined execution), which are [BENCH]-classified and need the
+  full equivalence check before landing.
+
+Still not started tonight: M_H=64 saturation, capacity-transfer check,
+ARC-scale resizing (all real compute, all still gated on explicit
+user go-ahead), and items 2/4/6 of the speed sequence (all [BENCH],
+need the 11.4 profiling checklist run properly on real CUDA hardware,
+not just a CPU microbenchmark like the one above).

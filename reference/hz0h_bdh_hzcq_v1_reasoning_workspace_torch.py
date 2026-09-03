@@ -88,15 +88,28 @@ class _ExactCrossAttention(nn.Module):
         self.v_proj = nn.Linear(n_embd, n_embd, bias=False)
         self.scale = 1.0 / math.sqrt(n_embd)
 
-    def forward(self, H: torch.Tensor, source: torch.Tensor, source_mask: torch.Tensor | None = None) -> torch.Tensor:
+    def project_kv(self, source: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """K, V depend only on `source`, never on the query H. Plan
+        section 11.3 item 1 [DO NOW]: `run()` calls this once per
+        round-loop instead of once per round, since S and x_hidden are
+        the same tensors on every round -- only Q (a function of the
+        evolving H_r) actually changes. Provably identical output:
+        this is the exact same computation `forward` already did
+        inline, just callable before the loop instead of inside it."""
+        return self.k_proj(source), self.v_proj(source)
+
+    def attend(self, H: torch.Tensor, K: torch.Tensor, V: torch.Tensor,
+               source_mask: torch.Tensor | None = None) -> torch.Tensor:
         Q = self.q_proj(H)
-        K = self.k_proj(source)
-        V = self.v_proj(source)
         scores = torch.matmul(Q, K.transpose(-1, -2)) * self.scale
         if source_mask is not None:
             scores = scores.masked_fill(~source_mask.unsqueeze(1), float("-inf"))
         attn = F.softmax(scores, dim=-1)
         return torch.matmul(attn, V)
+
+    def forward(self, H: torch.Tensor, source: torch.Tensor, source_mask: torch.Tensor | None = None) -> torch.Tensor:
+        K, V = self.project_kv(source)
+        return self.attend(H, K, V, source_mask)
 
 
 class HZCQReasoningWorkspace(nn.Module):
@@ -134,8 +147,15 @@ class HZCQReasoningWorkspace(nn.Module):
         H0 = self.H_init.to(device=device or self.H_init.device, dtype=dtype or self.H_init.dtype)
         return H0.unsqueeze(0).expand(batch_size, -1, -1).clone()
 
-    def _gate(self, H_prev: torch.Tensor, delta_H: torch.Tensor, S: torch.Tensor) -> torch.Tensor:
-        s_summary = S.mean(dim=1, keepdim=True)  # (B, 1, D), broadcasts against (B, M_H, D)
+    def _gate(self, H_prev: torch.Tensor, delta_H: torch.Tensor, S: torch.Tensor | None,
+              s_summary: torch.Tensor | None = None) -> torch.Tensor:
+        if s_summary is None:
+            # (B, 1, D), broadcasts against (B, M_H, D). Plan section
+            # 11.3 item 5 [DO NOW]: S is invariant across a whole
+            # run() call, so `run` precomputes this once and passes it
+            # in -- this branch exists only for direct `step` callers
+            # (tests, diagnostics) that don't have a cached summary.
+            s_summary = S.mean(dim=1, keepdim=True)
         q = torch.cat([
             _rms(H_prev), _rms(delta_H),
             F.cosine_similarity(H_prev, delta_H, dim=-1).unsqueeze(-1),
@@ -158,6 +178,21 @@ class HZCQReasoningWorkspace(nn.Module):
         H_new = self.ln_state(H_prev + g * delta_H)
         return H_new
 
+    def _step_with_cache(self, H_prev: torch.Tensor, K_S: torch.Tensor, V_S: torch.Tensor,
+                          K_x: torch.Tensor, V_x: torch.Tensor, s_summary: torch.Tensor,
+                          x_mask: torch.Tensor | None = None) -> torch.Tensor:
+        """Same computation as `step`, but reads from precomputed
+        K/V/s_summary instead of re-deriving them from S/x_hidden.
+        Real, exact equivalence to `step`: K_S/V_S/K_x/V_x/s_summary
+        are literally the same tensors `step` would recompute from the
+        same S/x_hidden on this round -- reusing them changes nothing
+        about the arithmetic, only how many times it runs."""
+        read_from_s = self.read_s.attend(H_prev, K_S, V_S)
+        read_from_x = self.read_x.attend(H_prev, K_x, V_x, x_mask)
+        delta_H = self.ln_read(self.write_proj(torch.cat([read_from_s, read_from_x], dim=-1)))
+        g = self._gate(H_prev, delta_H, None, s_summary=s_summary)
+        return self.ln_state(H_prev + g * delta_H)
+
     def run(self, batch_size: int, S: torch.Tensor, x_hidden: torch.Tensor, n_rounds: int,
             x_mask: torch.Tensor | None = None, device=None, dtype=None) -> torch.Tensor:
         """Apply the SAME tied operator n_rounds times. Real, direct
@@ -165,8 +200,17 @@ class HZCQReasoningWorkspace(nn.Module):
         n_rounds and verify (Phase 1A test 1-4) that only the CONTENT
         of the returned H changes, never its shape, and that no new
         sequence positions or growing tensors appear anywhere in the
-        process."""
+        process.
+
+        Plan section 11.3 items 1 and 5 [DO NOW]: S and x_hidden are
+        the same tensors on every round, so their K/V projections and
+        the gate's S-summary are computed once here instead of once
+        per round inside `step` -- provably identical output, see
+        `_step_with_cache`'s docstring."""
         H = self.init_state(batch_size, device=device, dtype=dtype)
+        K_S, V_S = self.read_s.project_kv(S)
+        K_x, V_x = self.read_x.project_kv(x_hidden)
+        s_summary = S.mean(dim=1, keepdim=True)
         for _ in range(n_rounds):
-            H = self.step(H, S, x_hidden, x_mask)
+            H = self._step_with_cache(H, K_S, V_S, K_x, V_x, s_summary, x_mask)
         return H
