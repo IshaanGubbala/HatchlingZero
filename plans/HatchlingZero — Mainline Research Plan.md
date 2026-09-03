@@ -1033,6 +1033,183 @@ verification) gets measured on all of:
 
 ---
 
+## 11.5 Cross-platform architecture-level speed plan — CUDA + MPS
+
+Items 1, 5, and 6 above are DONE (bit-identical K/V + `s_summary`
+caching, and packed `read_s`/`read_x` Q projections; see their DONE
+notes in 11.3) -- real, but small (1.125x combined, CPU-only,
+D=80/M_H=8), and only measured on this Mac's CPU so far. That's the
+gap this subsection exists to close.
+
+**Restating the current, real evidence this plan is now built on**
+(not re-deriving it -- see section 8.5 for the full writeup): S+H
+shows real fresh-rule ICL; \(M_H=32\) is a confirmed positive lever
+over \(M_H=8\) (+3.04pp mean, n=2000/cell, FSM task); recurrent depth
+\(R\) is still essentially flat at both \(M_H=8\) and \(M_H=32\); the
+gate diagnostic shows the bottleneck class is sequential-dependency +
+fragmented per-round work, not demonstrated HBM/VRAM-bandwidth
+saturation (11.1).
+
+**The goal here is explicitly NOT CUDA-only kernel hacking.** The goal
+is to change computation *geometry* so the architecture gets faster on
+BOTH CUDA and Apple MPS, by reducing:
+
+1. the number of dispatched operations,
+2. the number of expensive evidence reads,
+3. the number of recurrent rounds actually executed,
+4. intermediate materializations,
+
+while preserving exact/high-fidelity Q/K addressing (section 2's
+"KEEP: exact/high-fidelity addressing" -- still locked, still not up
+for renegotiation by anything in this subsection).
+
+`torch.compile`/Inductor is an optional CUDA accelerator here, **not**
+the architectural foundation of this plan -- section 2's "KEEP:
+compiler-friendly dense computation" 2x number came from the OLD BDH
+architecture, not HZ-CQ-v1, and CUDA-specific compilation wins don't
+by themselves demonstrate a real cross-platform geometry win. Every
+item below must show its benefit independently on MPS and CUDA before
+being trusted.
+
+### SPEED-A — Batched dual-source attention [BENCH FIRST, semantics-preserving target]
+
+\(H\) currently performs two separate attention reads every round --
+one against \(S\), one against \(x_{hidden}\) (`read_s`, `read_x` in
+`HZCQReasoningWorkspace.step`/`_step_with_cache`). Design an execution
+form that runs both as ONE batched backend operation wherever
+possible, built on top of the already-landed packed-Q (item 6) and
+cached-K/V (item 1) work.
+
+Constraints:
+- preserve separate softmax normalization domains for \(S\) and
+  \(x_{hidden}\) -- **do not** concatenate them into one softmax
+  distribution, that changes the model, not just its execution;
+- retain separate learned Q/K/V parameters unless a later, explicitly
+  named ablation tests sharing them;
+- conceptually stack the two attention problems along a synthetic
+  batch/head/source axis, execute through one batched matmul/SDPA-
+  style call, then split the two read results back out.
+
+Desired effect: two attention dispatch sequences -> one larger,
+backend-friendlier dispatch sequence.
+
+**Promotion gate**: verify output equality (or extremely tight
+numerical equivalence) against the current path; verify gradients;
+run all structural tests (section 7); benchmark BOTH MPS and CUDA;
+record forward latency, training-step latency, throughput, peak
+memory, and dispatch/kernel count where measurable (11.4's checklist,
+run on real hardware this time, not just CPU).
+
+### SPEED-B — Refresh-and-refine recurrent cell [ARCHITECTURE ABLATION]
+
+The most expensive semantic operation is rereading \(S\) and \(x\)
+every round. Introduce a two-timescale recurrent design:
+
+\[
+\text{EXPENSIVE outer refresh: } E_j = \text{Read}(H_j, S, x)
+\]
+\[
+\text{CHEAP inner refinement: } H_{j,k+1} = H_{j,k} + \alpha\, g\, \Phi(H_{j,k}, E_j)
+\]
+
+where `Read` is the current exact/high-fidelity S/x evidence
+attention, \(\Phi\) is a small FULL-DIMENSIONAL local recurrent update
+(no low-dimensional BDH-\(\Delta\)-style bottleneck -- section 3's
+"DEAD: compressed BDH-\(\Delta\) belief/workspace architecture" is not
+being revived here), Q/K addressing stays exact, and \(E\) is reused
+for several cheap \(H\)-only microsteps before the next real refresh.
+
+Test refresh ratios \(K=1\) (exact current baseline), \(K=2\),
+\(K=4\). Goal: cut expensive S/x cross-attention calls ~2-4x while
+still allowing several real state transitions. Do NOT assume the old
+cached-evidence results (section 12's 8/8 vs 6/8 refresh-cadence work,
+or item 3's parked evidence-cart/waterfall note in 11.3) transfer --
+treat this as a new HZ-CQ-v1 ablation. This is the same general
+"reduce expensive refresh" family as section 12 and item 3, approached
+from a different angle (a two-timescale cell vs a cadence schedule on
+the existing per-round mechanism, or a cached evidence bank) -- keep
+these three threads clearly labeled and don't merge their results.
+
+**Kill criterion**: if \(K=2\) does not yield a meaningful
+cross-platform speed improvement, OR loses more than 1pp reasoning
+accuracy without a compensating Pareto gain, stop before \(K=4\).
+Measure actual GPU/MPS wall-clock speed, not FLOP estimates.
+
+### SPEED-C — Post-hoc adaptive early exit [ARCHITECTURE/INFERENCE POLICY]
+
+The gate has shown real, confirmed task sensitivity (8.5, and the
+gate-diagnostic script): on lookup-like tasks it collapses after a few
+rounds; on genuinely sequential FSM tasks it stays open. Section 11.3
+item 8 already parked hard early-exit pending exactly this kind of
+task-sensitivity evidence -- that evidence now exists, so this is the
+follow-up. Section 13 (Adaptive Compute) is the *trained*,
+model-decides-\(R(x,S)\) version of this idea, gated on \(R\) first
+being shown to help difficult tasks; SPEED-C is deliberately smaller
+and comes first -- a POST-HOC stopping rule over a frozen, already-
+trained model, not a new halting network.
+
+Use a post-hoc stopping rule based on multiple signals, e.g.:
+minimum \(R \geq 2\); mean gate magnitude below threshold for two
+consecutive rounds; AND/OR predictive KL/logit change below threshold;
+AND/OR \(\cos(H_r, H_{r-1})\) indicating convergence. Evaluate
+thresholds on frozen trained trajectories. Do not use gate magnitude
+alone as the only stop signal.
+
+Report: accuracy, average realized \(R\), p50/p95 realized \(R\),
+latency, GPU/MPS seconds per task.
+
+**Promotion criterion**: same accuracy within statistical noise, with
+a substantial reduction in mean realized \(R\) and wall-clock latency.
+
+### SPEED-D — Compressed value/write pathway only [SECONDARY ARCHITECTURE ABLATION]
+
+Only after A-C are characterized. Test reducing the dimensionality of
+the VALUE/WRITE side while keeping Q/K/addressing full-dimensional:
+\(Q,K\) dimension stays \(D\); \(V\)/write dimension becomes \(D/2\)
+or \(D/4\); project back to \(D\) only at the recurrent residual
+write. Directly motivated by section 2's "KEEP: value/output-side
+compression" (`high fidelity before selection, compression after
+selection`) -- this is that same locked lesson, applied to \(H\)'s
+write pathway specifically.
+
+Do NOT: compress Q/K; introduce sparse routing (section 3's "DEAD:
+addressing-side routing/sparsification" stays dead); create many tiny
+GEMMs; use dimensions so small that kernel-launch overhead defeats the
+nominal FLOP savings. Benchmark \(D\), \(D/2\), \(D/4\).
+
+### Cross-platform benchmark contract
+
+Fixed benchmark matrix using the current quality-relevant workspace
+configuration, especially \(M_H=32\), not only \(M_H=8\). At minimum:
+\(M_H=32\); \(R=2,4,8,16\); representative short and long query
+lengths; batch 1 and a training-relevant batch size; fp32 where
+required on MPS plus the normal production precision on CUDA.
+
+For every speed change, record: MPS latency; CUDA latency;
+training-step time; throughput; peak memory; kernel/dispatch count
+where available; output/accuracy equivalence; parameter count;
+realized recurrent rounds if adaptive exit is involved. Do not call a
+change a speed win based only on CPU measurements or theoretical
+FLOPs -- the 1.125x measured for items 1/5/6 above is a CPU number and
+must not be reported as this section's cross-platform result once real
+MPS/CUDA numbers exist.
+
+### Priority order
+
+1. finish/benchmark the already-landed semantics-preserving
+   packing/caching (items 1, 5, 6) on real MPS + CUDA, not just CPU;
+2. SPEED-A batched dual-source attention;
+3. SPEED-C post-hoc adaptive early exit;
+4. SPEED-B refresh-and-refine;
+5. SPEED-D value/write compression.
+
+C before B: adaptive exit can potentially remove whole recurrent
+rounds without changing the trained architecture, whereas
+refresh-and-refine changes what evidence each round receives -- the
+cheaper, less invasive diagnostic goes first.
+
+---
+
 # 12. MAINLINE PHASE 6 — Reduce Expensive Evidence Refresh
 
 Only after v1 quality is stable.
@@ -1210,6 +1387,24 @@ They are not deleted.
 
 They are simply forbidden from interrupting the current experiment.
 
+### Parked, with an explicit place and prerequisites (not side branches)
+
+The "Paper-Derived Reasoning Upgrades — Controlled Queue" section
+(after section 19) gives several of the above items a real, ordered
+path back into the mainline instead of leaving them as an undated
+list: adaptive halting -> PAPER-0's forced-exit diagnostic first, then
+SPEED-C's post-hoc exit (11.5), then section 13's trained version, in
+that order; dynamic refresh -> section 12's 8/8-vs-6/8 cadence work
+and SPEED-B's refresh-and-refine (11.5) are the two named, separate
+threads, neither of which has started; alternative workspace layouts
+-> PAPER-2 through PAPER-4; RL/verifiable reward -> explicitly gated
+behind PAPER-6, and only after a supervised value-guided baseline
+proves branching latents contain useful diversity, per that section's
+own "not permission to immediately add RL" line. None of this changes
+their PARK status -- section 19's decision tree still gates entry into
+this queue on the v1 negative branch, which is the branch we're
+actually on.
+
 ---
 
 # 17. Operating Rules to Prevent Drift
@@ -1371,6 +1566,254 @@ Instead:
 \]
 
 because the architecture still does not know how to use sequential computation.
+
+Real, current status (2026-09-03): this is the branch we're actually
+on -- \(M_H\) capacity is confirmed positive, \(R\) is still flat at
+every \(M_H\) tested. The concrete debug plan for this branch is the
+"Paper-Derived Reasoning Upgrades — Controlled Queue" section
+immediately below.
+
+---
+
+# Paper-Derived Reasoning Upgrades — Controlled Queue
+
+This section translates recent 2026 recurrent-reasoning papers into
+falsifiable HatchlingZero experiments, without turning the project
+into a collection of simultaneous architecture changes (section 17
+Rule 2 -- one architecture change per experiment -- applies to every
+item below exactly as it does everywhere else in this plan). This is
+the concrete execution plan for section 19's negative branch: "debug
+the recurrent state-transition mechanism itself."
+
+## Restating the current evidence this queue is built on
+
+- S+H has demonstrated strong fresh-rule ICL (section 8.5, 8/8.5).
+- \(M_H\) capacity is a confirmed positive lever: \(M_H=32 > M_H=8\)
+  by +3.04pp on the clean FSM evaluation (n=2000/cell, section 8.5).
+- Additional \(R\) is still essentially useless for accuracy at both
+  \(M_H=8\) and \(M_H=32\).
+- On lookup-like tasks (composed permutation) the adaptive gate
+  collapses after a few rounds.
+- On genuinely sequential FSM tasks the gate stays approximately fully
+  open -- yet accuracy still does not scale materially with \(R\).
+- Therefore the problem is **not** simply "the model refuses to
+  compute" -- the gate is doing something real and task-sensitive, and
+  compute is genuinely happening every round.
+- The open problem: **how do we shape \(H_r \to H_{r+1}\) so that
+  successive states form a useful reasoning trajectory**, rather than
+  R applications of an operator whose extra applications the model has
+  learned it doesn't need?
+
+The items below are an ORDERED experimental queue, not a set of
+proven improvements to HatchlingZero. None of the source papers have
+been reproduced here -- these are HatchlingZero-native, falsifiable
+adaptations of their ideas, evaluated against this project's own
+tasks, kill criteria, and existing locked findings (section 2/3).
+
+---
+
+### PAPER-0 — Forced-exit trajectory diagnostics
+
+Source: "Adaptive Depth in Looped Transformers: Diagnosing Learned
+Halting Gates and Trajectory Readouts" (2026, arXiv:2607.20519).
+
+Before changing \(H\) at all, instrument a SINGLE recurrent
+trajectory. For the same episode and same forward trajectory,
+decode/read out \(H_1, H_2, H_3, \ldots, H_R\) and measure, at every
+round: answer accuracy; correct-answer logit/margin; entropy;
+predictive KL between round \(r\) and \(r-1\); \(\cos(H_r, H_{r-1})\);
+normalized \(\|H_r - H_{r-1}\|\); gate magnitude.
+
+Critical distinction: do NOT infer trajectory quality only by
+rerunning the model with different total \(R\) (that's what the depth
+x R sweeps already did). Inspect intermediate states from the SAME
+trajectory.
+
+Questions: does correctness progressively improve? Does the state
+change while the prediction stays flat? Does the trajectory oscillate?
+Does it converge? Are later states destroying useful earlier
+information?
+
+Cheapest and FIRST paper-derived experiment. No architecture change.
+
+### PAPER-1 — Attractor/convergence diagnostic
+
+Source: "Equilibrium Reasoners: Learning Attractors Enables Scalable
+Reasoning" (2026, arXiv:2605.21488).
+
+Test whether \(H\) behaves like a useful task-conditioned dynamical
+system. For a fixed problem: create multiple small perturbations of
+the initial \(H_0\); run identical recurrence; compare trajectories
+for correct and incorrect examples.
+
+Measure: pairwise trajectory distance over \(r\); cosine convergence;
+prediction convergence; whether correct runs converge toward a shared
+basin/state; whether harder tasks take more iterations to converge.
+
+Desired signature: difficulty up -> convergence time up, and
+convergence strength correlates with correctness. If \(H\) never
+converges toward solution-aligned regions, that's a real mechanistic
+explanation for flat accuracy(\(R\)).
+
+Diagnostic only -- do not copy Equilibrium Reasoners wholesale yet.
+
+### PAPER-2 — Identity-biased / LayerScale \(H\) recurrence
+
+Source: "Thinking Deeper, Not Longer: Depth-Recurrent Transformers for
+Compositional Generalization" (2026, arXiv:2603.21676).
+
+The FIRST real architecture ablation in this queue. Current update:
+\(H_{r+1} = \operatorname{LN}(H_r + g_r \Delta H_r)\). Potential
+problem: the repeated post-update normalization and unconstrained
+residual may continuously rewrite the state instead of maintaining an
+information highway.
+
+Create ONE controlled alternative with: explicit identity-biased
+recurrence; a small learned LayerScale \(\alpha\) initialized close to
+zero/small residual; final-answer-only supervision (NOT
+same-final-answer-at-every-round, section 3's "DEAD: same-final-answer
+supervision at every round" stays dead); same \(S\); same readout;
+same \(M_H\); same parameter budget as closely as possible; same
+adaptive gate unless mathematically redundant.
+
+Candidate form: \(u_r = F(H_r, S, x)\), \(H_{r+1} = H_r + \alpha\, g_r\, u_r\),
+with normalization arranged pre-update or within \(F\) so the direct
+identity path \(H_r \to H_{r+1}\) isn't repeatedly renormalized away.
+
+Do NOT change workspace capacity, training data, readout, addressing
+fidelity, or evidence sources in the same experiment (Rule 2). Run
+paired difficulty x R tests.
+
+**Promotion criterion**: a reproducible difficulty-up -> useful-R-up
+effect that exceeds the existing 1-2pp kill criterion (section 8/8.5).
+If it only improves fixed-R accuracy but R stays flat, record that
+honestly as an optimization/capacity result, NOT recurrent reasoning
+-- exactly the same honesty standard the M_H=32 finding was held to.
+
+### PAPER-3 — Bounded residual + evidence re-injection
+
+Source: "Latent Recurrent Thoughts: Recurrent Refinement of Proposed
+Latents for Reasoning with Frozen LLMs" (2026, arXiv:2609.01117).
+
+Only if PAPER-2 fails to produce useful depth scaling. Borrow the
+PRINCIPLE, not the exact architecture: bounded residual latent
+corrections; continually re-anchor recurrence to the original
+task/query evidence; do not allow \(H\) to drift arbitrarily far from
+its evidence-conditioned starting representation.
+
+Do NOT reproduce the previous BDH-\(\Delta\) low-dimensional
+bottleneck (section 3, still dead) -- all reasoning states stay
+full-dimensional \(D\). Test first as \(H_{r+1} = H_{base} +
+\text{bounded\_correction}(H_r, S, x)\) or an equivalent bounded
+residual formulation. One change at a time.
+
+### PAPER-4 — Fast scratch / slow integrator
+
+Inspired by the two-timescale direction in Latent Recurrent Thoughts
+and related hierarchical recurrent-reasoning work. Only after
+PAPER-2/3. Introduce two FULL-DIMENSIONAL state roles: \(H_{fast}\)
+(temporary scratch computation) and \(H_{slow}\) (persistent
+integrated reasoning state). Example: \(H_{fast} \leftarrow
+F_{fast}(H_{fast}, H_{slow}, S, x)\) several times, then \(H_{slow}
+\leftarrow H_{slow} + \alpha\, F_{slow}(H_{slow}, H_{fast})\).
+
+Constraints: no compressed 384-d belief state; no 8x96 BDH-\(\Delta\)
+recreation; no new low-dimensional latent coordinate system; weight
+tying preferred; compare against a parameter-matched baseline.
+
+Hypothesis: temporary computation should not repeatedly overwrite the
+integrated reasoning state. Promotion criterion remains difficulty ->
+larger useful compute depth.
+
+### PAPER-5 — Breadth before extreme depth
+
+Source: "Generative Recursive Reasoning" / GRAM (2026,
+arXiv:2605.19376). A v2-level experiment, NOT immediate mainline.
+
+Current \(H\) is deterministic: \(H_r \to H_{r+1}\). GRAM motivates
+testing \(H_r \to \{H_{r+1}^{(1)}, \ldots, H_{r+1}^{(B)}\}\) -- multiple
+latent hypotheses explored in parallel. Do NOT start with a large
+branching tree.
+
+Initial experiment: breadth \(B \in \{1,2,4\}\); shallow recurrent
+depth; shared transition parameters; simple stochastic proposal; fixed
+total compute comparison against deeper deterministic recurrence.
+
+Question: at the SAME inference compute, is breadth > depth for tasks
+where the deterministic trajectory commits to the wrong latent
+solution? Do not promote without a compute-matched comparison.
+
+### PAPER-6 — Value-guided latent search
+
+Source: "Q-Learning With World Models" (2026, arXiv:2608.17163),
+combined conceptually with GRAM. Only after PAPER-5 shows useful
+diversity among latent trajectories.
+
+Conceptual HatchlingZero analogue: proposal \(F(H_r, z_i, S, x) \to
+H_{r+1}^{(i)}\); evaluator \(Q_\phi(H_r, z_i, S, x) \to\) predicted
+downstream solution value. Generate several candidate latent updates,
+score them, retain only the best 1-4.
+
+Important: this is NOT permission to immediately add RL; first test
+supervised/verifiable value prediction on procedural tasks where
+correctness is known; keep candidate breadth tiny; compare against
+deterministic \(H\) at matched GPU-seconds; measure whether additional
+test-time compute actually improves correctness. Only consider
+RL/Q-learning after a supervised value-guided search baseline proves
+branching latent states contain useful selectable diversity.
+
+---
+
+## Strict experiment order
+
+\[
+\boxed{
+\begin{aligned}
+&1.\ \text{PAPER-0 forced-exit probe} \\
+&2.\ \text{PAPER-1 attractor probe} \\
+&3.\ \text{finish the current } M_H \text{ capacity curve / current controlled work} \\
+&4.\ \text{PAPER-2 identity-biased LayerScale recurrence} \\
+&5.\ \text{PAPER-3 bounded residual/evidence anchoring} \\
+&6.\ \text{PAPER-4 fast-scratch / slow-integrator} \\
+&7.\ \text{PAPER-5 stochastic breadth} \\
+&8.\ \text{PAPER-6 value-guided latent search}
+\end{aligned}
+}
+\]
+
+Never combine two paper-derived architectural mechanisms in the first
+experiment testing either one (Rule 2, again).
+
+## Required scoreboard for every paper-derived architecture
+
+Always record: accuracy by task difficulty; accuracy by \(R\);
+fixed-compute accuracy; parameter count; wall-clock latency; peak
+memory; gate trajectory; intermediate-state/forced-exit accuracy;
+convergence metrics; MPS and CUDA performance once the mechanism
+survives local validation (see 11.5's cross-platform benchmark
+contract -- the same discipline applies here).
+
+The PRIMARY success criterion remains:
+
+\[
+\boxed{
+\text{harder task} \rightarrow \text{larger useful recurrent/test-time compute}
+}
+\]
+
+A plain fixed-R accuracy improvement is useful but does NOT prove
+reasoning-depth scaling.
+
+## Explicit anti-drift rules
+
+Do not: revive Q/K compression (section 2, locked); revive sparse
+routing (section 3, dead); recreate BDH-\(\Delta\)'s low-dimensional
+belief/workspace (section 3, dead); use same-final-answer supervision
+at every round (section 3, dead); add LoRA, RL, branching search, a
+new readout, a new workspace, and a new loss simultaneously; call
+stochastic breadth a win without compute matching; call an
+R-dependent loss improvement reasoning unless correctness also
+improves.
 
 ---
 

@@ -4069,3 +4069,46 @@ that should show more on GPU. Landed anyway since it's real, verified,
 and cost nothing.
 
 M_H=64 saturation test resumed after this (SIGCONT), still running.
+
+---
+
+## Real result, 2026-09-03 (4): two documentation-only plan amendments (no code, no new runs)
+
+While the M_H=64 saturation run continued in the background
+(untouched by this work), landed two requested docs-only amendments
+to the mainline plan:
+
+1. **Section 11.5, "Cross-platform architecture-level speed plan --
+   CUDA + MPS"**: reframes the remaining speed work explicitly around
+   MPS+CUDA parity, not CUDA-only kernel tricks. Four ordered items
+   (SPEED-A batched dual-source attention, SPEED-B refresh-and-refine
+   two-timescale cell, SPEED-C post-hoc adaptive early exit, SPEED-D
+   compressed value/write pathway), each cross-referenced against
+   existing related threads (section 12's refresh-cadence work, item 3's
+   parked evidence-cart/waterfall note, section 13's trained adaptive
+   compute, section 2's locked KEEP findings) so nothing gets
+   duplicated or silently merged. Explicit priority order (finish
+   real-hardware benchmarking of the already-landed items 1/5/6 first,
+   then A, then C, then B, then D) and a cross-platform benchmark
+   contract (MPS + CUDA both required, CPU numbers explicitly
+   disqualified from being reported as this section's result).
+
+2. **New top-level section, "Paper-Derived Reasoning Upgrades --
+   Controlled Queue"**, placed right after section 19's decision tree
+   as the concrete execution plan for its negative branch ("debug the
+   recurrent state-transition mechanism itself" -- the branch this
+   project is actually on). Seven ordered items (PAPER-0 forced-exit
+   trajectory diagnostic through PAPER-6 value-guided latent search),
+   translating six real 2026 papers (arXiv:2603.21676, 2605.21488,
+   2607.20519, 2609.01117, 2605.19376, 2608.17163) into falsifiable
+   HatchlingZero-native experiments -- explicitly not claimed as
+   reproduced, explicitly gated one-architecture-change-at-a-time
+   (Rule 2), explicitly checked against every existing DEAD/KEEP
+   finding in sections 2/3 so none of them get quietly revived.
+   Parking Lot (section 16) updated with a new subsection giving
+   several previously-undated parked items (adaptive halting, dynamic
+   refresh, alternative workspace layouts, RL) a real prerequisite
+   chain into this queue instead of sitting as a flat list.
+
+No code touched, no training launched, per explicit instruction. Both
+committed as separate, self-contained documentation commits.
