@@ -109,15 +109,21 @@ def main() -> None:
     parser.add_argument("--perturbation-scale", type=float, default=0.1,
                          help="std of the Gaussian noise added to H_0, as a fraction of H_init's own std")
     parser.add_argument("--seed", type=int, default=1234)
+    parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu",
+                         help="real bug fixed 2026-09-03 (same class as the FSM harness's): defaults to "
+                              "cuda when available, though this diagnostic is cheap enough that CPU is "
+                              "usually fine.")
     args = parser.parse_args()
 
+    device = torch.device(args.device)
     D, K, A = args.d_model, args.k_states, args.a_symbols
     n_demos = K * A
     allow_ablation = args.workspace_slots > 8
     model = build_model(D, K, A, args.workspace_slots, args.gate_hidden, allow_ablation)
+    model = tuple(m.to(device) for m in model)
     state_embed, symbol_embed, mem, ws, demo_encoder, query_encoder, rq, rk, rv, classifier = model
 
-    ckpt = torch.load(args.checkpoint, map_location="cpu")
+    ckpt = torch.load(args.checkpoint, map_location=device)
     state_embed.load_state_dict(ckpt["state_embed"]); symbol_embed.load_state_dict(ckpt["symbol_embed"])
     mem.load_state_dict(ckpt["mem"]); ws.load_state_dict(ckpt["ws"])
     demo_encoder.load_state_dict(ckpt["demo_encoder"]); query_encoder.load_state_dict(ckpt["query_encoder"])
@@ -125,7 +131,7 @@ def main() -> None:
     classifier.load_state_dict(ckpt["classifier"])
     for m in model:
         m.eval()
-    print(f"[paper1] loaded checkpoint {args.checkpoint}", flush=True)
+    print(f"[paper1] loaded checkpoint {args.checkpoint} device={device}", flush=True)
 
     rng = torch.Generator().manual_seed(args.seed)
     P = args.n_perturbations
@@ -140,6 +146,8 @@ def main() -> None:
         for ep in range(args.n_episodes):
             demo_state, demo_symbol, demo_next, q_start, q_seq, q_final = sample_episode(
                 K, A, n_demos, args.depth, 1, rng)
+            demo_state, demo_symbol, demo_next, q_start, q_seq, q_final = (
+                t.to(device) for t in (demo_state, demo_symbol, demo_next, q_start, q_seq, q_final))
             d_s, d_a, d_n = state_embed(demo_state), symbol_embed(demo_symbol), state_embed(demo_next)
             demo_hidden_all = demo_encoder(torch.cat([d_s, d_a, d_n], dim=-1))
             demo_hiddens = [demo_hidden_all[:, i:i + 1, :] for i in range(n_demos)]
@@ -153,7 +161,7 @@ def main() -> None:
             q_tokens_b = q_tokens.expand(P, -1, -1)
             final_q_b = final_q.expand(P, -1, -1)
             H0_base = ws.init_state(1).expand(P, -1, -1)
-            noise = torch.randn(P, *H0_base.shape[1:], generator=rng) * noise_std
+            noise = (torch.randn(P, *H0_base.shape[1:], generator=rng) * noise_std).to(device)
             noise[0].zero_()  # perturbation 0 = the real unperturbed start, kept as reference
             H0 = H0_base + noise
 
@@ -167,7 +175,7 @@ def main() -> None:
                 # mean pairwise L2 distance across all P*(P-1)/2 perturbation pairs
                 diffs = H_r.unsqueeze(0) - H_r.unsqueeze(1)  # (P,P,M_H,D)
                 pair_dist = diffs.norm(dim=-1).mean(dim=-1)  # (P,P) mean over slots
-                iu = torch.triu_indices(P, P, offset=1)
+                iu = torch.triu_indices(P, P, offset=1, device=pair_dist.device)
                 mean_pair_dist = pair_dist[iu[0], iu[1]].mean().item()
                 per_round_h_dist[r].append(mean_pair_dist)
 

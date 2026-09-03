@@ -73,9 +73,14 @@ def main() -> None:
     parser.add_argument("--diagnostic-rounds", type=int, default=16)
     parser.add_argument("--diagnostic-batch", type=int, default=8)
     parser.add_argument("--seed", type=int, default=7)
+    parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu",
+                         help="real bug fixed 2026-09-03 (same class as the FSM harness's): this script "
+                              "never moved anything to CUDA, so a GPU dispatch would silently run on CPU. "
+                              "Defaults to cuda when available.")
     args = parser.parse_args()
 
     torch.manual_seed(args.seed)
+    device = torch.device(args.device)
     D, K = args.d_model, args.k_symbols
     symbol_embed = nn.Embedding(K, D)
     mem = HZCQPersistentMemory(HZCQPersistentMemoryConfig(n_embd=D, memory_slots=8, gate_hidden=args.gate_hidden))
@@ -83,6 +88,9 @@ def main() -> None:
     demo_encoder = nn.Linear(2 * D, D, bias=False)
     rq, rk, rv = nn.Linear(D, D, bias=False), nn.Linear(D, D, bias=False), nn.Linear(D, D, bias=False)
     classifier = nn.Linear(D, K, bias=False)
+    symbol_embed, mem, ws, demo_encoder, rq, rk, rv, classifier = (
+        m.to(device) for m in (symbol_embed, mem, ws, demo_encoder, rq, rk, rv, classifier))
+    print(f"[gate_diag] device={device}", flush=True)
     params = (list(symbol_embed.parameters()) + list(mem.parameters()) + list(ws.parameters())
               + list(demo_encoder.parameters()) + list(rq.parameters()) + list(rk.parameters())
               + list(rv.parameters()) + list(classifier.parameters()))
@@ -107,6 +115,7 @@ def main() -> None:
         depth = TRAIN_DEPTHS[torch.randint(0, len(TRAIN_DEPTHS), (1,), generator=train_rng).item()]
         n_rounds = TRAIN_R_VALUES[torch.randint(0, len(TRAIN_R_VALUES), (1,), generator=train_rng).item()]
         demo_in, demo_out, q_in, q_out = sample_episode(K, args.t_query, args.n_demos, depth, args.batch_size, train_rng)
+        demo_in, demo_out, q_in, q_out = (t.to(device) for t in (demo_in, demo_out, q_in, q_out))
         opt.zero_grad(set_to_none=True)
         logits = fwd(demo_in, demo_out, q_in, n_rounds)
         loss = F.cross_entropy(logits.reshape(-1, K), q_out.reshape(-1))
@@ -127,6 +136,7 @@ def main() -> None:
     ws.eval(); mem.eval()
     eval_rng = torch.Generator().manual_seed(999)
     demo_in, demo_out, q_in, q_out = sample_episode(K, args.t_query, args.n_demos, args.diagnostic_depth, args.diagnostic_batch, eval_rng)
+    demo_in, demo_out, q_in, q_out = (t.to(device) for t in (demo_in, demo_out, q_in, q_out))
     with torch.no_grad():
         xs, ys = symbol_embed(demo_in), symbol_embed(demo_out)
         demo_hidden_all = demo_encoder(torch.cat([xs, ys], dim=-1))

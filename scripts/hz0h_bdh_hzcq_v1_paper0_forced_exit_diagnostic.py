@@ -99,15 +99,21 @@ def main() -> None:
     parser.add_argument("--max-rounds", type=int, default=16)
     parser.add_argument("--eval-episodes", type=int, default=200)
     parser.add_argument("--seed", type=int, default=999)
+    parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu",
+                         help="real bug fixed 2026-09-03 (same class as the FSM harness's): defaults to "
+                              "cuda when available, though this diagnostic is cheap enough that CPU is "
+                              "usually fine.")
     args = parser.parse_args()
 
+    device = torch.device(args.device)
     D, K, A = args.d_model, args.k_states, args.a_symbols
     n_demos = K * A
     allow_ablation = args.workspace_slots > 8
     model = build_model(D, K, A, args.workspace_slots, args.gate_hidden, allow_ablation)
+    model = tuple(m.to(device) for m in model)
     state_embed, symbol_embed, mem, ws, demo_encoder, query_encoder, rq, rk, rv, classifier = model
 
-    ckpt = torch.load(args.checkpoint, map_location="cpu")
+    ckpt = torch.load(args.checkpoint, map_location=device)
     state_embed.load_state_dict(ckpt["state_embed"]); symbol_embed.load_state_dict(ckpt["symbol_embed"])
     mem.load_state_dict(ckpt["mem"]); ws.load_state_dict(ckpt["ws"])
     demo_encoder.load_state_dict(ckpt["demo_encoder"]); query_encoder.load_state_dict(ckpt["query_encoder"])
@@ -115,11 +121,13 @@ def main() -> None:
     classifier.load_state_dict(ckpt["classifier"])
     for m in model:
         m.eval()
-    print(f"[paper0] loaded checkpoint {args.checkpoint}", flush=True)
+    print(f"[paper0] loaded checkpoint {args.checkpoint} device={device}", flush=True)
 
     rng = torch.Generator().manual_seed(args.seed)
     demo_state, demo_symbol, demo_next, q_start, q_seq, q_final = sample_episode(
         K, A, n_demos, args.depth, args.eval_episodes, rng)
+    demo_state, demo_symbol, demo_next, q_start, q_seq, q_final = (
+        t.to(device) for t in (demo_state, demo_symbol, demo_next, q_start, q_seq, q_final))
 
     with torch.no_grad():
         d_s, d_a, d_n = state_embed(demo_state), symbol_embed(demo_symbol), state_embed(demo_next)

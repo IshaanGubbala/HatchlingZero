@@ -97,6 +97,10 @@ def build_model(D: int, memory_slots: int, workspace_slots: int, gate_hidden: in
     return mem, ws, readout, demo_encoder
 
 
+def to_device(*tensors, device):
+    return tuple(t.to(device) for t in tensors)
+
+
 def forward_episode(mem, ws, readout, demo_encoder, xs, ys, x_q, n_rounds: int):
     batch, n_demos, D = xs.shape
     demo_pairs = torch.cat([xs, ys], dim=-1)  # (B, n_demos, 2D)
@@ -129,12 +133,19 @@ def main() -> None:
                          help="size of the FIXED transformation library shared across every episode -- "
                               "real fix over a fresh-random-matrix-per-episode design, see build_primitive_library's docstring")
     parser.add_argument("--seed", type=int, default=7)
+    parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu",
+                         help="real bug fixed 2026-09-03 (same class as the FSM harness's): this script "
+                              "never moved anything to CUDA, so a GPU dispatch would silently run on CPU. "
+                              "Defaults to cuda when available.")
     args = parser.parse_args()
 
     torch.manual_seed(args.seed)
+    device = torch.device(args.device)
     D = args.d_model
     primitive_library = build_primitive_library(D, args.n_primitives, args.seed + 12345)
     mem, ws, readout, demo_encoder = build_model(D, args.memory_slots, args.workspace_slots, args.gate_hidden, args.seed)
+    mem, ws, readout, demo_encoder = to_device(mem, ws, readout, demo_encoder, device=device)
+    print(f"[v1_composition] device={device}", flush=True)
     params = list(mem.parameters()) + list(ws.parameters()) + list(readout.parameters()) + list(demo_encoder.parameters())
     opt = torch.optim.AdamW(params, lr=args.lr)
 
@@ -145,6 +156,7 @@ def main() -> None:
         depth = TRAIN_DEPTHS[torch.randint(0, len(TRAIN_DEPTHS), (1,), generator=train_rng).item()]
         n_rounds = TRAIN_R_VALUES[torch.randint(0, len(TRAIN_R_VALUES), (1,), generator=train_rng).item()]
         xs, ys, x_q, target = sample_episode(D, args.n_demos, depth, args.batch_size, train_rng, primitive_library)
+        xs, ys, x_q, target = to_device(xs, ys, x_q, target, device=device)
         opt.zero_grad(set_to_none=True)
         pred = forward_episode(mem, ws, readout, demo_encoder, xs, ys, x_q, n_rounds)
         loss = (pred - target).pow(2).mean()
@@ -168,6 +180,7 @@ def main() -> None:
             results[depth] = {}
             for r in EVAL_R_VALUES:
                 xs, ys, x_q, target = sample_episode(D, args.n_demos, depth, args.eval_episodes, eval_rng, primitive_library)
+                xs, ys, x_q, target = to_device(xs, ys, x_q, target, device=device)
                 pred = forward_episode(mem, ws, readout, demo_encoder, xs, ys, x_q, r)
                 rel_err = relative_error(pred, target)
                 accuracy = (rel_err < args.accuracy_threshold).float().mean().item()
