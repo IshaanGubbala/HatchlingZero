@@ -45,9 +45,27 @@ _EPS = 1e-5
 
 
 class HZCQReasoningWorkspaceConfig:
-    def __init__(self, n_embd: int, workspace_slots: int = 8, gate_hidden: int = 16, g_init: float = 0.58):
-        if workspace_slots not in (4, 8):
-            raise ValueError(f"plan section 6.2 specifies M_H = 4 or 8, got {workspace_slots}")
+    def __init__(self, n_embd: int, workspace_slots: int = 8, gate_hidden: int = 16, g_init: float = 0.58,
+                 allow_ablation_slots: bool = False):
+        """Real, deliberate exception, 2026-09-02: plan section 6.2 locked
+        M_H to {4, 8} for the FIRST, "deliberately boring" v1 pass (section
+        6.4). That pass is now complete -- real evidence (mainline plan
+        section 19 branch, real 150K/300K-step FSM experiments) shows no
+        depth-scaling benefit from R and rules out training budget as the
+        cause, motivating a real look at whether M_H's fixed small capacity
+        is itself the bottleneck. `allow_ablation_slots=True` opts into a
+        wider power-of-2 range for this specific, named ablation -- the
+        default stays locked to the plan's original {4, 8} so nothing
+        silently drifts from the locked spec without an explicit, visible
+        opt-in at the call site."""
+        allowed = (4, 8, 16, 32, 64) if allow_ablation_slots else (4, 8)
+        if workspace_slots not in allowed:
+            raise ValueError(
+                f"plan section 6.2 specifies M_H = 4 or 8, got {workspace_slots}. "
+                f"Pass allow_ablation_slots=True for the real M_H-capacity ablation "
+                f"(section 19's 'debug the recurrent state-transition mechanism' branch), "
+                f"allowed range then is {allowed}."
+            )
         self.n_embd = n_embd
         self.workspace_slots = workspace_slots
         self.gate_hidden = gate_hidden
