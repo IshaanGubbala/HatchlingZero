@@ -3441,3 +3441,46 @@ time, genuinely testable, with a working training recipe, a working
 paired evaluation, and a clear, precise diagnosis of exactly what needs
 to change (task difficulty, not architecture or training scale) to get
 a real answer.
+
+## Overcorrected: K=10/8-demos is unlearnable at ANY depth, real negative result
+
+Tried the harder variant flagged above (K=10 symbols, N_DEMOS fixed at
+8 across depths up to 16, D=96/161,106 params, same 150,000-step
+budget, R in {1,2,4,8,12,16,24}).
+
+**Real, complete, decisive negative result**: flat at exact chance
+(~0.10 = 1/K, ±noise from 300-episode eval cells) across EVERY single
+depth (1,2,4,8,16) and EVERY R value (1-24), for the entire training
+run -- including depth=1, the easiest possible case. Confirmed via the
+full mid-training history (checkpoints every 15,000 steps): never
+moved off ~0.10 at any point, any depth. This is the same signature
+the original K=6/N_DEMOS=4 discrete task showed earlier today, before
+finding K=3/N_DEMOS=6 was the combination that actually worked.
+
+**Real, honest interpretation**: this overcorrected in the opposite
+direction from the K=3 saturation problem. There is a real, narrow
+information-sufficiency boundary this project has now bracketed from
+both sides: K=3 with 6 demos learns and saturates near-ceiling at
+every depth/R tested; K=10 with 8 demos never learns anything at any
+depth/R. The real threshold sits somewhere between these two
+configurations -- not yet found precisely.
+
+**Kill criterion, computed for completeness (depth=16, deepest
+tested)**: R4=0.0883, R8=0.0867 (delta=-0.16pp), R12=0.1050
+(delta=+1.67pp). Best improvement = +1.67pp -- technically inside the
+stated 1-2pp band, but **explicitly NOT trusted as a real signal**:
+every other cell in this same table is equally noisy around the exact
+same ~0.10 chance floor, with no evidence of ANY learning anywhere.
+This is sampling noise (300 eval episodes/cell) around a flat,
+unlearned baseline, not evidence of depth-reasoning -- flagging this
+explicitly rather than letting a technically-passing number stand
+uninterpreted.
+
+**Real, precise next calibration step**: an intermediate difficulty
+between the two known data points -- K=3/6-demos (too easy, saturates)
+and K=10/8-demos (too hard, unlearnable) -- e.g. K=5 or K=6 with more
+demos than the original failed K=6/4-demos attempt (8-10 demos instead
+of 4). This narrows the search meaningfully: today's work has now
+established two real boundary conditions, which is genuine, useful
+calibration data even though neither individual run produced the
+depth-reasoning signal being sought.
