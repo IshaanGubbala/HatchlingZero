@@ -89,7 +89,10 @@ def test_gradient_matches_finite_difference():
     eps = 1e-3
     # Check a handful of entries in A, not the whole tensor, to keep the test fast.
     rng = np.random.default_rng(0)
-    indices = [(0, i, j) for i, j in zip(rng.integers(0, config.dim, 4), rng.integers(0, config.rank, 4))]
+    # int(...): mlx's `.at[]` indexing (0.29.3) rejects numpy integer
+    # scalars ("Cannot index mlx array using the given type yet") --
+    # rng.integers(...) returns numpy.int64, not a plain Python int.
+    indices = [(0, int(i), int(j)) for i, j in zip(rng.integers(0, config.dim, 4), rng.integers(0, config.rank, 4))]
     for layer, row, col in indices:
         plus_a = mx.array(state.a_fast)
         minus_a = mx.array(state.a_fast)

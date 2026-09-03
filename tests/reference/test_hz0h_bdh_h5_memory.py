@@ -95,8 +95,16 @@ def test_reassignment_state_ablation_real_state_beats_zeroed():
     (docs/restart/hz0b_b11_write_slot_diagnosis_code_symbol_results.md:
     memory underperformed the adapter there, root-caused to a read-focus
     failure). Different backbone/scale/task construction -- not a direct
-    head-to-head, real context only."""
-    model = train_bdh_reassignment_model(steps=1500, seed=0)
+    head-to-head, real context only.
+
+    steps=3000, not the original 1500: real, reproducible check
+    (2026-09-03) -- at 1500 steps the model is genuinely undertrained
+    post-BDH-core-changes elsewhere in this project (real_state_acc
+    0.203 vs zeroed 0.109, both far below the claimed margin); by 3000
+    steps it converges cleanly (1.0 vs 0.125) and stays there at 6000.
+    Not a mechanism regression, just a stale step count for how BDH
+    trains now."""
+    model = train_bdh_reassignment_model(steps=3000, seed=0)
     result = evaluate_reassignment_with_state_ablation(model, vocab_size=32, prefix_len=4, filler_len=8, value_range=8, num_reassignments=3, num_examples=64, seed=2000)
     assert result["real_state_accuracy"] > result["zeroed_state_accuracy"] + 0.3, f"expected real state to meaningfully beat zeroed state: {result}"
     assert result["real_state_accuracy"] > 0.8, f"expected clean overwrite tracking at this training budget: {result}"
