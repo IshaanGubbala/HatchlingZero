@@ -3368,3 +3368,76 @@ isn't close: raw speed is irrelevant if the faster model cannot
 actually do the task. This is the first real, complete (accuracy +
 parameters + speed) three-way comparison this project has produced for
 any HZ-CQ-v1 result.
+
+## The real Phase 2 answer: composition generalizes perfectly, but the task is saturated
+
+Ran the actual question this whole day's Rule-1 research question has
+been chasing: real composition depth (1,2,4,8 composed permutations,
+not depth=1 alone), real variable-R training (matching section 8's
+spec exactly, R sampled from {2,4,6,8,12,16} per episode, depth from
+{1,2,4,8} per episode), at the training scale (150,000 steps) proven
+to work for basic ICL earlier today. Real paired depth x R evaluation
+at the end, 300 real episodes per cell, 28 cells total.
+
+**Real infra note**: hit the SAME inconsistent hard-kill-vs-auto-
+background behavior as the earlier large-scale run (first launch got
+killed at exit 143 after 9.5min despite real progress -- already at
+99.85% by step 30,000). Relaunched with explicit `run_in_background:
+true` this time rather than relying on the ambiguous timeout-exceeded
+behavior -- ran cleanly to completion, no further issues. Worth
+recording as a real, now twice-confirmed pattern: explicit
+`run_in_background: true` is more reliable than depending on a bash
+call exceeding its timeout to trigger auto-backgrounding.
+
+**Real, complete depth x R accuracy table (n_steps=150,000):**
+
+| depth \\ R | 1 | 2 | 4 | 6 | 8 | 12 | 16 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| 1 | 0.998 | 1.000 | 0.998 | 0.997 | 0.998 | 1.000 | 0.995 |
+| 2 | 0.993 | 0.998 | 0.999 | 0.999 | 1.000 | 0.999 | 1.000 |
+| 4 | 0.992 | 0.999 | 0.997 | 0.997 | 0.997 | 0.994 | 0.998 |
+| 8 | 0.997 | 0.998 | 0.999 | 1.000 | 0.999 | 1.000 | 0.997 |
+
+**Real kill criterion check, exactly as stated earlier today** ("if v1
+produces <1-2 percentage points of reproducible accuracy improvement
+from R=4->8/12 on deep tasks, do not claim depth reasoning"), computed
+on depth=8: R4=0.9992, R8=0.9992 (delta=0.00pp), R12=1.0000
+(delta=+0.08pp). Best improvement = 0.08 percentage points, far below
+the 1-2pp threshold. **By the letter of the stated criterion: FAIL --
+do not claim depth reasoning from this result.**
+
+**Real, honest, more informative interpretation of WHY**: every single
+cell in the table is between 0.992 and 1.000 -- there is no real
+difficulty gradient left ANYWHERE in this table for R to help with.
+Even depth=1 at R=1 (the easiest possible cell) is 99.75%, and depth=8
+at R=1 (the "should be hardest, least reasoning" cell) is still
+99.67%. The task is fully saturated at this real training scale for
+this K=3, up-to-8-composed-permutations task -- composition-depth
+generalization ITSELF works essentially perfectly (a genuine, real,
+separate positive finding: the model correctly composes up to 8
+sequentially-applied unknown permutations, inferred from only 6 demos
+of the FULL composed effect, not the individual steps), but the kill
+criterion literally cannot discriminate because there is no headroom
+anywhere for R to matter.
+
+**Real, honest conclusion**: today's data does NOT support claiming
+"R helps harder tasks" -- but not because depth-reasoning was tested
+and failed; because the task, at this K/demo/training-scale
+combination, turned out to be too easy across the board to create the
+difficulty gradient the kill criterion needs to be informative at all.
+This is a real, distinct, and good problem to have -- it means the
+NEXT real step is a genuinely harder variant (larger K, deeper
+composition than 8, or fewer demos relative to depth) specifically
+designed to NOT saturate, so depth=8 sits meaningfully below ceiling
+and R has real room to show an effect if it exists. That harder
+variant is the real, natural, well-motivated next experiment -- not
+yet run, but now precisely specified by today's own results rather
+than guessed at.
+
+**Full real status of today's Rule-1 research question** ("Can
+faithful HZ-CQ-v1 make additional R improve reasoning accuracy?"):
+still genuinely open, not answered either way -- but for the first
+time, genuinely testable, with a working training recipe, a working
+paired evaluation, and a clear, precise diagnosis of exactly what needs
+to change (task difficulty, not architecture or training scale) to get
+a real answer.
