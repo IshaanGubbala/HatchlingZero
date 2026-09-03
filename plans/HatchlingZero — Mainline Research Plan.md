@@ -961,7 +961,7 @@ which values flow into a matmul (e.g. an intermediate materialization
 that was also serving as a real numerical checkpoint) gets [BENCH]
 treatment first.
 
-### 6. Pack compatible projections/GEMMs -- **[BENCH]**
+### 6. Pack compatible projections/GEMMs -- **[BENCH]** -- DONE, 2026-09-03
 
 Where exact semantics allow (e.g. `read_s.q_proj`/`read_x.q_proj` are
 both applied to the same \(H\) -- could become one wider GEMM split
@@ -969,6 +969,24 @@ after the matmul instead of two separate `nn.Linear` calls). Real,
 exact equivalence to verify: concatenated-weight-matrix GEMMs must
 produce bit-identical (or float-tolerance-identical) results to the
 separate calls before trusting this.
+
+**Real result**: implemented as `HZCQReasoningWorkspace._packed_q`
+(concatenates `read_s.q_proj.weight` and `read_x.q_proj.weight` into
+one (2D, D) matrix, runs one `F.linear`, splits the result) and
+`_ExactCrossAttention.attend_with_q` (accepts a precomputed Q instead
+of projecting internally). Uses the exact same `Parameter` tensors as
+before -- no weight copies -- so gradients flow to
+`read_s.q_proj.weight`/`read_x.q_proj.weight` exactly as they did
+pre-packing (verified directly). `step()` and direct `read_s`/`read_x`
+calls (tests, diagnostic scripts) are untouched; only `run()`'s
+internal `_step_with_cache` uses the packed path. Verified bit-
+identical (`torch.equal`) against `step()`'s unpacked path on the same
+fixture used for items 1/5, and all 15 structural tests still pass.
+Measured (CPU, forward-only, D=80, M_H=8, R=16, B=16): combined with
+items 1+5, 1.125x vs the fully-naive baseline -- packing two D×D GEMMs
+into one 2D×D barely moves the needle at this small D on CPU, as
+expected; the real payoff (fewer kernel launches) should show more on
+GPU. Landed anyway since it's real, verified, and free.
 
 ### 7. Preallocate recurrent buffers -- **[DO NOW]**
 

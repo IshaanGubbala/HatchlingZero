@@ -98,14 +98,22 @@ class _ExactCrossAttention(nn.Module):
         inline, just callable before the loop instead of inside it."""
         return self.k_proj(source), self.v_proj(source)
 
-    def attend(self, H: torch.Tensor, K: torch.Tensor, V: torch.Tensor,
-               source_mask: torch.Tensor | None = None) -> torch.Tensor:
-        Q = self.q_proj(H)
+    def attend_with_q(self, Q: torch.Tensor, K: torch.Tensor, V: torch.Tensor,
+                       source_mask: torch.Tensor | None = None) -> torch.Tensor:
+        """Same as `attend`, but Q is supplied precomputed -- plan
+        section 11.3 item 6 [BENCH]: `read_s.q_proj` and `read_x.q_proj`
+        are both applied to the same H every round, so the workspace's
+        `_step_with_cache` packs them into one wider GEMM and splits
+        the result rather than calling two separate `nn.Linear`s."""
         scores = torch.matmul(Q, K.transpose(-1, -2)) * self.scale
         if source_mask is not None:
             scores = scores.masked_fill(~source_mask.unsqueeze(1), float("-inf"))
         attn = F.softmax(scores, dim=-1)
         return torch.matmul(attn, V)
+
+    def attend(self, H: torch.Tensor, K: torch.Tensor, V: torch.Tensor,
+               source_mask: torch.Tensor | None = None) -> torch.Tensor:
+        return self.attend_with_q(self.q_proj(H), K, V, source_mask)
 
     def forward(self, H: torch.Tensor, source: torch.Tensor, source_mask: torch.Tensor | None = None) -> torch.Tensor:
         K, V = self.project_kv(source)
@@ -178,17 +186,32 @@ class HZCQReasoningWorkspace(nn.Module):
         H_new = self.ln_state(H_prev + g * delta_H)
         return H_new
 
+    def _packed_q(self, H_prev: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """Plan section 11.3 item 6 [BENCH]: `read_s.q_proj(H_prev)`
+        and `read_x.q_proj(H_prev)` are two separate DxD GEMMs applied
+        to the SAME input every round -- pack their weights into one
+        (2D, D) matrix, run one GEMM, split the (..., 2D) result. Uses
+        the exact same Parameter tensors as the two separate
+        `nn.Linear`s (no copies), so gradients flow to the same
+        `read_s.q_proj.weight` / `read_x.q_proj.weight` as before."""
+        D = self.config.n_embd
+        W_packed = torch.cat([self.read_s.q_proj.weight, self.read_x.q_proj.weight], dim=0)  # (2D, D)
+        Q_packed = F.linear(H_prev, W_packed)  # (B, M_H, 2D)
+        return Q_packed[..., :D], Q_packed[..., D:]
+
     def _step_with_cache(self, H_prev: torch.Tensor, K_S: torch.Tensor, V_S: torch.Tensor,
                           K_x: torch.Tensor, V_x: torch.Tensor, s_summary: torch.Tensor,
                           x_mask: torch.Tensor | None = None) -> torch.Tensor:
         """Same computation as `step`, but reads from precomputed
-        K/V/s_summary instead of re-deriving them from S/x_hidden.
-        Real, exact equivalence to `step`: K_S/V_S/K_x/V_x/s_summary
-        are literally the same tensors `step` would recompute from the
-        same S/x_hidden on this round -- reusing them changes nothing
-        about the arithmetic, only how many times it runs."""
-        read_from_s = self.read_s.attend(H_prev, K_S, V_S)
-        read_from_x = self.read_x.attend(H_prev, K_x, V_x, x_mask)
+        K/V/s_summary instead of re-deriving them from S/x_hidden, and
+        packs the two Q projections into one GEMM (`_packed_q`). Real,
+        exact equivalence to `step`: every quantity here is the same
+        arithmetic `step` would produce from the same S/x_hidden on
+        this round -- reusing/packing changes nothing about the
+        arithmetic, only how many times/kernels it runs."""
+        Q_s, Q_x = self._packed_q(H_prev)
+        read_from_s = self.read_s.attend_with_q(Q_s, K_S, V_S)
+        read_from_x = self.read_x.attend_with_q(Q_x, K_x, V_x, x_mask)
         delta_H = self.ln_read(self.write_proj(torch.cat([read_from_s, read_from_x], dim=-1)))
         g = self._gate(H_prev, delta_H, None, s_summary=s_summary)
         return self.ln_state(H_prev + g * delta_H)

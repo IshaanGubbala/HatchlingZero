@@ -4040,3 +4040,32 @@ ARC-scale resizing (all real compute, all still gated on explicit
 user go-ahead), and items 2/4/6 of the speed sequence (all [BENCH],
 need the 11.4 profiling checklist run properly on real CUDA hardware,
 not just a CPU microbenchmark like the one above).
+
+---
+
+## Real result, 2026-09-03 (3): item 6 (packed Q GEMM) landed while the M_H=64 run was paused
+
+While the M_H=64 saturation test sat SIGSTOP'd (paused by explicit
+request, real CPU freed up for other work), landed the next queued
+speed item: section 11.3 item 6, packing `read_s.q_proj` and
+`read_x.q_proj` into one wider GEMM since both are applied to the
+same `H_prev` every round.
+
+`HZCQReasoningWorkspace._packed_q` concatenates the two existing
+`q_proj.weight` Parameters into a (2D, D) matrix and runs one
+`F.linear`, splitting the (..., 2D) result back into Q_s/Q_x --
+`_ExactCrossAttention` gained `attend_with_q` to accept a precomputed
+Q. No weight copies; gradients verified to still flow to the original
+`read_s.q_proj.weight`/`read_x.q_proj.weight`. `step()` and direct
+`read_s`/`read_x` calls (used by tests and the diagnostic scripts)
+are completely untouched -- only `run()`'s internal `_step_with_cache`
+uses the packed path.
+
+Verified bit-identical (`torch.equal`) against the unpacked `step()`
+path, all 15 structural tests still pass. Measured: combined with
+items 1+5, 1.125x vs fully-naive on CPU (D=80, M_H=8, R=16) -- packing
+barely helps at this D on CPU, real payoff is kernel-launch reduction
+that should show more on GPU. Landed anyway since it's real, verified,
+and cost nothing.
+
+M_H=64 saturation test resumed after this (SIGCONT), still running.
