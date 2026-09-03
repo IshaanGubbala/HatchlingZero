@@ -72,13 +72,14 @@ def sample_episode(K: int, A: int, n_demos: int, depth: int, batch: int, rng: to
     return demo_state, demo_symbol, demo_next, q_start, q_seq, q_final
 
 
-def build_model(D: int, K: int, A: int, workspace_slots: int, gate_hidden: int, allow_ablation: bool):
+def build_model(D: int, K: int, A: int, workspace_slots: int, gate_hidden: int, allow_ablation: bool,
+                 identity_biased: bool = False, layerscale_init: float = 0.1):
     state_embed = nn.Embedding(K, D)
     symbol_embed = nn.Embedding(A, D)
     mem = HZCQPersistentMemory(HZCQPersistentMemoryConfig(n_embd=D, memory_slots=8, gate_hidden=gate_hidden))
     ws = HZCQReasoningWorkspace(HZCQReasoningWorkspaceConfig(
         n_embd=D, workspace_slots=workspace_slots, gate_hidden=gate_hidden,
-        allow_ablation_slots=allow_ablation))
+        allow_ablation_slots=allow_ablation, identity_biased=identity_biased, layerscale_init=layerscale_init))
     demo_encoder = nn.Linear(3 * D, D, bias=False)
     query_encoder = nn.Linear(2 * D, D, bias=False)
     rq, rk, rv = nn.Linear(D, D, bias=False), nn.Linear(D, D, bias=False), nn.Linear(D, D, bias=False)
@@ -142,6 +143,12 @@ def main() -> None:
                               "larger power of 2 with --allow-ablation-slots for the "
                               "real capacity ablation (section 8.5's confirmed +3.04pp finding).")
     parser.add_argument("--allow-ablation-slots", action="store_true")
+    parser.add_argument("--identity-biased", action="store_true",
+                         help="PAPER-2 ablation: H_{r+1}=H_r+alpha*g_r*DeltaH_r (no post-update "
+                              "LayerNorm) instead of the default H_{r+1}=LN(H_r+g_r*DeltaH_r). "
+                              "Everything else (read_s/read_x/gate/M_H/readout) is unchanged.")
+    parser.add_argument("--layerscale-init", type=float, default=0.1,
+                         help="identity_biased only: initial value of the learned alpha scalar")
     parser.add_argument("--gate-hidden", type=int, default=16)
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--train-steps", type=int, default=150000)
@@ -160,7 +167,8 @@ def main() -> None:
     torch.manual_seed(args.seed)
     D, K, A = args.d_model, args.k_states, args.a_symbols
     n_demos = K * A
-    model = build_model(D, K, A, args.workspace_slots, args.gate_hidden, args.allow_ablation_slots)
+    model = build_model(D, K, A, args.workspace_slots, args.gate_hidden, args.allow_ablation_slots,
+                         identity_biased=args.identity_biased, layerscale_init=args.layerscale_init)
     state_embed, symbol_embed, mem, ws, demo_encoder, query_encoder, rq, rk, rv, classifier = model
 
     if args.continue_from_checkpoint is not None:
@@ -176,7 +184,9 @@ def main() -> None:
               + list(ws.parameters()) + list(demo_encoder.parameters()) + list(query_encoder.parameters())
               + list(rq.parameters()) + list(rk.parameters()) + list(rv.parameters()) + list(classifier.parameters()))
     n_params = sum(p.numel() for p in params)
-    print(f"[fsm_v1] params={n_params} K={K} A={A} M_H={args.workspace_slots} n_demos={n_demos} (full coverage)", flush=True)
+    print(f"[fsm_v1] params={n_params} K={K} A={A} M_H={args.workspace_slots} n_demos={n_demos} "
+          f"(full coverage) identity_biased={args.identity_biased} "
+          f"layerscale_init={args.layerscale_init if args.identity_biased else 'n/a'}", flush=True)
     opt = torch.optim.AdamW(params, lr=args.lr)
 
     train_rng = torch.Generator().manual_seed(args.seed + 1)

@@ -115,6 +115,35 @@ def test_numerically_stable_through_deep_recurrence():
             assert torch.isfinite(p.grad).all()
 
 
+# PAPER-2 structural check: the identity_biased (LayerScale) update
+# path is a real, deliberate alternative to the default LN-residual
+# update -- must satisfy the exact same structural contract (fixed
+# shape across R, gradients including into the new `alpha` param,
+# numerically stable through deep R) without being byte-identical to
+# the default path's output.
+def test_identity_biased_layerscale_path_is_structurally_sound():
+    torch.manual_seed(0)
+    ws = HZCQReasoningWorkspace(HZCQReasoningWorkspaceConfig(
+        n_embd=D, workspace_slots=M_H, gate_hidden=8, identity_biased=True, layerscale_init=0.1))
+    assert ws.alpha is not None and ws.alpha.requires_grad
+    S = _fake_s()
+    x = _fake_query()
+    x.requires_grad_(True)
+    for r in (1, 2, 4, 8, 16, 32):
+        H = ws.run(B, S, x, n_rounds=r)
+        assert H.shape == (B, M_H, D)
+        assert torch.isfinite(H).all()
+    H2 = ws.run(B, S, x, n_rounds=2)
+    H16 = ws.run(B, S, x, n_rounds=16)
+    assert not torch.allclose(H2, H16, atol=1e-6)
+    H16.sum().backward()
+    assert torch.isfinite(x.grad).all()
+    assert ws.alpha.grad is not None and torch.isfinite(ws.alpha.grad).all()
+    for p in ws.parameters():
+        if p.grad is not None:
+            assert torch.isfinite(p.grad).all()
+
+
 # Real, additional end-to-end check: H genuinely depends on S (not
 # just x) -- swapping S for a different persistent memory must change
 # H's output at a fixed R, otherwise the "S answers what the rule is"

@@ -46,7 +46,7 @@ _EPS = 1e-5
 
 class HZCQReasoningWorkspaceConfig:
     def __init__(self, n_embd: int, workspace_slots: int = 8, gate_hidden: int = 16, g_init: float = 0.58,
-                 allow_ablation_slots: bool = False):
+                 allow_ablation_slots: bool = False, identity_biased: bool = False, layerscale_init: float = 0.1):
         """Real, deliberate exception, 2026-09-02: plan section 6.2 locked
         M_H to {4, 8} for the FIRST, "deliberately boring" v1 pass (section
         6.4). That pass is now complete -- real evidence (mainline plan
@@ -70,6 +70,24 @@ class HZCQReasoningWorkspaceConfig:
         self.workspace_slots = workspace_slots
         self.gate_hidden = gate_hidden
         self.g_init = g_init
+        # PAPER-2 (paper-derived reasoning queue, identity-biased /
+        # LayerScale H recurrence, arXiv:2603.21676): the DEFAULT update
+        # is H_{r+1}=LN(H_r+g_r*DeltaH_r) -- a repeated post-update
+        # renormalization that may continuously rewrite H instead of
+        # maintaining an information highway (motivated directly by the
+        # PAPER-0/PAPER-1 diagnostics: the readout freezes by round ~5-6
+        # while H itself keeps moving substantially, and that movement
+        # converges onto a trajectory that's blind to answer
+        # correctness). `identity_biased=True` swaps this for
+        # H_{r+1}=H_r+alpha*g_r*DeltaH_r (no post-update LN), with a
+        # small learned scalar `alpha` (LayerScale) initialized close to
+        # zero so the identity path H_r->H_{r+1} isn't repeatedly
+        # renormalized away. Everything else (read_s/read_x/write_proj/
+        # gate/M_H) is byte-for-byte identical to the default path --
+        # this is the ONE controlled change the ablation calls for.
+        # Default False: exact prior behavior, unchanged.
+        self.identity_biased = identity_biased
+        self.layerscale_init = layerscale_init
 
 
 def _rms(t: torch.Tensor) -> torch.Tensor:
@@ -151,6 +169,9 @@ class HZCQReasoningWorkspace(nn.Module):
         logit = math.log(config.g_init / (1.0 - config.g_init))
         self.gate_b2 = nn.Parameter(torch.tensor(logit, dtype=torch.float32))
 
+        self.alpha = nn.Parameter(torch.tensor(config.layerscale_init, dtype=torch.float32)) \
+            if config.identity_biased else None
+
     def init_state(self, batch_size: int, device=None, dtype=None) -> torch.Tensor:
         H0 = self.H_init.to(device=device or self.H_init.device, dtype=dtype or self.H_init.dtype)
         return H0.unsqueeze(0).expand(batch_size, -1, -1).clone()
@@ -183,8 +204,19 @@ class HZCQReasoningWorkspace(nn.Module):
         read_from_x = self.read_x(H_prev, x_hidden, x_mask)
         delta_H = self.ln_read(self.write_proj(torch.cat([read_from_s, read_from_x], dim=-1)))
         g = self._gate(H_prev, delta_H, S)
-        H_new = self.ln_state(H_prev + g * delta_H)
-        return H_new
+        return self._apply_update(H_prev, g, delta_H)
+
+    def _apply_update(self, H_prev: torch.Tensor, g: torch.Tensor, delta_H: torch.Tensor) -> torch.Tensor:
+        """The one real difference PAPER-2 tests. Default
+        (`identity_biased=False`): H_{r+1}=LN(H_r+g_r*DeltaH_r), exactly
+        the original design. `identity_biased=True`:
+        H_{r+1}=H_r+alpha*g_r*DeltaH_r -- no post-update LayerNorm, so
+        the identity path H_r->H_{r+1} is preserved rather than
+        repeatedly renormalized, with a small learned `alpha`
+        (LayerScale) controlling how much of `delta_H` is ever let in."""
+        if self.config.identity_biased:
+            return H_prev + self.alpha * g * delta_H
+        return self.ln_state(H_prev + g * delta_H)
 
     def _packed_q(self, H_prev: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """Plan section 11.3 item 6 [BENCH]: `read_s.q_proj(H_prev)`
@@ -214,7 +246,7 @@ class HZCQReasoningWorkspace(nn.Module):
         read_from_x = self.read_x.attend_with_q(Q_x, K_x, V_x, x_mask)
         delta_H = self.ln_read(self.write_proj(torch.cat([read_from_s, read_from_x], dim=-1)))
         g = self._gate(H_prev, delta_H, None, s_summary=s_summary)
-        return self.ln_state(H_prev + g * delta_H)
+        return self._apply_update(H_prev, g, delta_H)
 
     def run(self, batch_size: int, S: torch.Tensor, x_hidden: torch.Tensor, n_rounds: int,
             x_mask: torch.Tensor | None = None, device=None, dtype=None) -> torch.Tensor:
