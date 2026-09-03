@@ -586,6 +586,74 @@ That becomes the next architecture problem.
 
 ---
 
+## 8.5 Real result, 2026-09-02/03
+
+Section 8's own FAILURE branch fired -- and its own instruction was
+followed: investigated why, rather than compensating by training
+longer. Real, condensed summary of a real, extensive investigation
+(full detail in `plans/newnewplan.md`, dozens of real local
+experiments, all committed):
+
+**Two real synthetic task families tested, both at real 150K-300K-step
+training scale**, not just quick checks:
+
+- **Composed-permutation lookup** (K symbols, demos show full
+  input/output pairs of a composed rule): real ICL emerges at scale
+  (99.9% accuracy, S+H vs. a same-budget standard Transformer stuck at
+  chance -- section 1's "beat BDH-CQ" scoreboard's first real
+  quality-per-parameter win). But depth x R sweep shows only an
+  \(R{=}1\) vs. \(R{\ge}2\) threshold effect, nothing beyond -- FAILURE
+  per section 8's own criterion.
+- **Genuinely-sequential FSM traversal** (answer requires real
+  incremental state-tracking, not a precomputable lookup): real
+  learning (well above chance) but the same FAILURE signature -- no
+  \(R\)-dependence at any depth, confirmed at n=2000/cell (kill
+  criterion computed exactly as section 17 Rule 3 specifies: deltas
+  \(<1\)pp, well below the 1-2pp threshold).
+
+**Real "why" investigation (the FAILURE branch's own instruction)**,
+three real hypotheses tested in order, two ruled out cleanly, one
+confirmed:
+
+1. **Training budget** -- ruled out. Doubling real exposure (150K ->
+   300K steps, continued from a real saved checkpoint) produced no
+   change in accuracy.
+2. **The gate is simply broken** -- ruled out, and productively so.
+   Direct instrumentation shows the gate behaves in OPPOSITE ways on
+   the two task families: collapses to near-zero by round 5 on the
+   lookup task (correctly recognizing it needs no more rounds), stays
+   at \(\approx1.0\) every round on the FSM task (correctly recognizing
+   it needs every round). The controller is task-sensitive, not
+   broken -- real evidence \(\boxed{g_r}\) works as section 2's own
+   "controlled state-dependent writes improve and stabilize
+   recurrence" finding predicts.
+3. **Workspace capacity (\(M_H\))** -- **confirmed real.** \(M_H{=}32\)
+   vs. the locked \(M_H{=}8\): +3.04 percentage points mean accuracy,
+   clean at n=2000/cell (noise floors 0.83pp and 0.44pp respectively --
+   the effect is ~4x the noise). \(R\) still shows no effect even at
+   \(M_H{=}32\).
+
+**Real, updated verdict**: v1's real lever for this task class is
+**state capacity, not recurrent depth**. Section 6.2's original
+\(M_H\in\{4,8\}\) lock (deliberately small, for the "boring first
+pass") measurably left real accuracy on the table. This does not
+close the "does depth ever matter" question -- it was tested at a
+fixed \(M_H\), and now needs retesting at the confirmed-better
+capacity, on a task where depth SHOULD matter more than a lookup-
+reducible one (composed permutation already saturates near-ceiling
+even at \(M_H{=}8\), so it's a poor instrument for this).
+
+**Real, concrete next steps, not yet run**: (a) find where the
+\(M_H\) benefit saturates (64? higher?); (b) retest depth x R at the
+confirmed-better \(M_H\) on the FSM task specifically, now that
+capacity is no longer confounding the measurement; (c) real
+checkpoints and a parameterized script family
+(`scripts/hz0h_bdh_hzcq_v1_*` in the working tree, referenced from
+`plans/newnewplan.md`) exist for whoever continues this without
+needing to rebuild the harness.
+
+---
+
 # 9. MAINLINE PHASE 3 — Reasoning LoRA
 
 Only start this after v1 demonstrates that recurrent depth matters.
