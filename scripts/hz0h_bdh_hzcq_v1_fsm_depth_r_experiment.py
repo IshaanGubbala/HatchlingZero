@@ -72,6 +72,10 @@ def sample_episode(K: int, A: int, n_demos: int, depth: int, batch: int, rng: to
     return demo_state, demo_symbol, demo_next, q_start, q_seq, q_final
 
 
+def to_device(*tensors, device):
+    return tuple(t.to(device) for t in tensors)
+
+
 def build_model(D: int, K: int, A: int, workspace_slots: int, gate_hidden: int, allow_ablation: bool,
                  identity_biased: bool = False, layerscale_init: float = 0.1):
     state_embed = nn.Embedding(K, D)
@@ -207,6 +211,8 @@ def main() -> None:
         depth = TRAIN_DEPTHS[torch.randint(0, len(TRAIN_DEPTHS), (1,), generator=train_rng).item()]
         n_rounds = TRAIN_R_VALUES[torch.randint(0, len(TRAIN_R_VALUES), (1,), generator=train_rng).item()]
         demo_state, demo_symbol, demo_next, q_start, q_seq, q_final = sample_episode(K, A, n_demos, depth, args.batch_size, train_rng)
+        demo_state, demo_symbol, demo_next, q_start, q_seq, q_final = to_device(
+            demo_state, demo_symbol, demo_next, q_start, q_seq, q_final, device=device)
         opt.zero_grad(set_to_none=True)
         logits = forward_episode(model, demo_state, demo_symbol, demo_next, q_start, q_seq, n_rounds, D, n_demos)
         loss = F.cross_entropy(logits, q_final)
@@ -238,12 +244,14 @@ def main() -> None:
             for r in EVAL_R_VALUES:
                 demo_state, demo_symbol, demo_next, q_start, q_seq, q_final = sample_episode(
                     K, A, n_demos, depth, args.eval_episodes, eval_rng)
+                demo_state, demo_symbol, demo_next, q_start, q_seq, q_final = to_device(
+                    demo_state, demo_symbol, demo_next, q_start, q_seq, q_final, device=device)
                 logits = forward_episode(model, demo_state, demo_symbol, demo_next, q_start, q_seq, r, D, n_demos)
                 acc = (logits.argmax(-1) == q_final).float().mean().item()
                 results[depth][r] = acc
                 print(f"[fsm_v1] eval depth={depth} R={r} accuracy={acc:.4f}", flush=True)
 
-    gate_by_depth = gate_magnitude_by_depth(model, K, A, n_demos, D, EVAL_DEPTHS, n_rounds=16)
+    gate_by_depth = gate_magnitude_by_depth(model, K, A, n_demos, D, EVAL_DEPTHS, n_rounds=16, device=device)
     for depth, mags in gate_by_depth.items():
         print(f"[fsm_v1_gate] depth={depth} gate_magnitude_per_round: {[round(x,4) for x in mags]}", flush=True)
 
