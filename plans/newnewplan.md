@@ -3774,3 +3774,58 @@ stopping point for today's Rule-1 investigation: a real, negative,
 well-evidenced answer, a real positive mechanistic side-finding (gate
 task-sensitivity), and precisely-identified open threads for whoever
 picks this up next.
+
+## Real, final check: doubling training does NOT close the FSM gap -- a genuine ceiling
+
+Continued training from the saved 150K-step checkpoint (real weights,
+not restarted) for another 150,000 steps (300,000 total real exposure),
+same task, same architecture, same eval protocol (seed=999,
+2000 episodes/cell -- directly comparable to the resolved 150K result).
+
+**Real, clean, decisive comparison**:
+
+| training steps | overall accuracy range | mean | depth=16 R4->R8 | depth=16 R4->R12 |
+|---|---|---:|---:|---:|
+| 150,000 | 0.327-0.368 | 0.347 | +0.40pp | +0.85pp |
+| 300,000 | 0.321-0.363 | 0.341 | +0.25pp | -0.15pp |
+
+**Doubling the training budget produced no real change** -- accuracy
+did not rise, and if anything the R-effect deltas got even flatter
+(closer to zero) at 300K than 150K. This closes off the "maybe it's
+just training-budget-limited" hypothesis cleanly: this is a genuine
+ceiling around ~0.33-0.35 (roughly 1.7x chance=0.20) for this task/
+architecture/scale combination, not a plateau still climbing.
+
+**Real, complete, final status of today's whole Rule-1 investigation,
+now with all three real questions answered**:
+
+1. Does more R help harder tasks? **No**, on both task families tested
+   (permutation lookup: threshold effect only; FSM traversal: no real
+   effect once measured cleanly).
+2. Does more training close the gap instead? **No** -- doubling
+   real training exposure on the FSM task produced no measurable
+   improvement.
+3. Is the adaptive gate mechanism itself broken? **No evidence of
+   that** -- it demonstrably behaves differently (collapses vs. stays
+   open) depending on real task structure, exactly as a working
+   controller should.
+
+**Honest, real interpretation**: the ceiling is more likely a real
+capacity or architectural-design limit specific to how \(H\) and the
+readout combine information (recall section 11.3's own real,
+unresolved candidate hypotheses: fixed \(M_H=8\) slots as a
+bottleneck, or the cross-attention read/write pattern itself not being
+the right mechanism for this class of task) than a training-budget
+issue. This is now real, well-evidenced motivation for the "debug the
+recurrent state-transition mechanism itself" branch of section 19 --
+not blind rescaling (already tried, ruled out) and not blind task
+redesign (already tried twice today, both ruled out cleanly) but a
+real look at \(H\)'s own internal capacity/readout design.
+
+**This closes today's real, honest, complete Rule-1 investigation.**
+Real deliverables left behind for whoever continues this: two trained
+checkpoints (150K and 300K-step FSM models), a fully reproducible
+experiment script family (composed-permutation and FSM variants, both
+parameterized), real gate-instrumentation code, and a precise,
+evidence-based diagnosis of where to look next (H's internal capacity/
+readout, not more scale or more task-variety guessing).
