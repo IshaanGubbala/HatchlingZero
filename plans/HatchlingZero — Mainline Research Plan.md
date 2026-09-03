@@ -643,14 +643,36 @@ capacity, on a task where depth SHOULD matter more than a lookup-
 reducible one (composed permutation already saturates near-ceiling
 even at \(M_H{=}8\), so it's a poor instrument for this).
 
-**Real, concrete next steps, not yet run**: (a) find where the
-\(M_H\) benefit saturates (64? higher?); (b) retest depth x R at the
-confirmed-better \(M_H\) on the FSM task specifically, now that
-capacity is no longer confounding the measurement; (c) real
-checkpoints and a parameterized script family
+**Real, concrete next steps, not yet run**: ~~(a) find where the
+\(M_H\) benefit saturates (64? higher?)~~ -- DONE, 2026-09-03, see
+below; (b) retest depth x R at the confirmed-better \(M_H\) on the FSM
+task specifically, now that capacity is no longer confounding the
+measurement; (c) real checkpoints and a parameterized script family
 (`scripts/hz0h_bdh_hzcq_v1_*` in the working tree, referenced from
 `plans/newnewplan.md`) exist for whoever continues this without
 needing to rebuild the harness.
+
+**Real result, 2026-09-03: M_H=64 saturation point found.** Same
+harness (`scripts/hz0h_bdh_hzcq_v1_fsm_depth_r_experiment.py
+--workspace-slots 64 --allow-ablation-slots`), same 150K steps,
+n=2000/cell eval. Mean accuracy 0.3761 vs \(M_H{=}32\)'s 0.3774 --
+**-0.13pp, flat, well inside the ~0.8pp noise floor at depth=16**. The
+capacity benefit that was real and clean from \(M_H{=}8\to32\)
+(+3.04pp) does NOT continue from \(32\to64\): \(M_H{=}64\) still beats
+\(M_H{=}8\) by roughly the same margin as \(M_H{=}32\) did (+2.91pp),
+consistent with the earlier finding, but adds nothing further.
+**Real, confirmed saturation point: the capacity lever tops out
+somewhere between \(M_H{=}32\) and \(M_H{=}64\)** -- \(M_H{=}32\) is
+the Pareto-efficient choice found so far (same accuracy as 64, half
+the workspace parameters). \(R\) is still not a reliable lever at
+\(M_H{=}64\) either: depth=16 R4->R8 is -0.20pp (flat), R4->R12 is
++1.65pp (above the 0.8pp noise floor this single run, but
+inconsistent with R8's flat result -- a non-monotonic single-run
+number, not treated as confirmed without replication, same discipline
+as every other borderline signal this session). Gate magnitude is
+still ~1.0 at every round at \(M_H{=}64\) too -- a fourth confirmation
+that the gate-stays-open behavior on this task is capacity-independent.
+Checkpoint saved (`results/local/hz0h_bdh_hzcq_v1_fsm_mh64_checkpoint.pt`).
 
 ---
 

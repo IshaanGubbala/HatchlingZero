@@ -4112,3 +4112,50 @@ to the mainline plan:
 
 No code touched, no training launched, per explicit instruction. Both
 committed as separate, self-contained documentation commits.
+
+---
+
+## Real result, 2026-09-03 (5): M_H=64 saturation point found -- capacity lever tops out between 32 and 64
+
+The M_H=64 run (launched, paused twice for other work, resumed,
+finished tonight) is done. Real, definitive answer to pending item
+(a) from the 8.5 writeup ("find where the M_H benefit saturates"):
+
+```
+M_H=8:  mean 0.3470  (n=2000/cell, resolved baseline)
+M_H=32: mean 0.3774  (+3.04pp vs M_H=8, CONFIRMED, noise floor 0.44-0.83pp)
+M_H=64: mean 0.3761  (-0.13pp vs M_H=32, FLAT, noise floor ~0.8pp)
+                      (+2.91pp vs M_H=8, consistent with the M_H=32 result)
+```
+
+**The capacity lever saturates between M_H=32 and M_H=64.** Doubling
+the workspace again past 32 buys nothing further -- M_H=32 is the
+Pareto-efficient point found so far (same accuracy as 64, half the
+parameters in the workspace). This is a real, clean, useful result:
+it bounds the earlier open question ("64? higher?") with an actual
+answer instead of leaving it open-ended, and gives a concrete
+recommendation (M_H=32) for anything that uses this finding going
+forward (e.g. an eventual ARC-scale resizing, per the 8.5 writeup's
+item (d)).
+
+R is still not a reliable lever at M_H=64: depth=16 R4->R8 -0.20pp
+(flat), R4->R12 +1.65pp (technically above the ~0.8pp noise floor
+this one run, but R8 shows no improvement at all -- non-monotonic,
+single-run, not treated as a confirmed R-effect without replication,
+same standard applied to every other borderline number this session).
+Gate magnitude ~1.0 at every round -- fourth confirmation that
+gate-stays-open on the FSM task is capacity-independent (M_H=8, 32,
+and now 64 all show it).
+
+Checkpoint (`results/local/hz0h_bdh_hzcq_v1_fsm_mh64_checkpoint.pt`)
+and result JSON (`results/local/hz0h_bdh_hzcq_v1_fsm_mh64.json`) both
+saved and committed.
+
+**Updated real next steps**: (b) retest depth x R on the FSM task at
+M_H=32 specifically (the now-confirmed Pareto point, not 64) now that
+capacity is no longer confounding the measurement; (c) test whether
+the M_H=8->32 capacity lift transfers to the composed-permutation task
+(already near-ceiling at M_H=8, may show little/no lift -- itself
+informative); (d) ARC-scale resizing should target M_H=32, not 64 --
+64 was worth ruling out but isn't the right default now that it's
+shown to add nothing over 32.
