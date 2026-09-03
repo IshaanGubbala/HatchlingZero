@@ -3625,3 +3625,39 @@ just "look up the right answer once enough information is available")
 would be a more informative next test of whether R can ever matter for
 v1 -- not attempted today, but now precisely motivated by this real
 mechanistic finding rather than guessed at.
+
+## Genuinely-sequential FSM task, first attempt: confounded by demo coverage
+
+Built and ran the real next test motivated by the gate-collapse
+finding: a finite-state-machine task where the answer depends on
+tracking state through a query-specified SEQUENCE of transitions
+(state_{t+1} = T(state_t, symbol_t)), not a precomputable single
+lookup -- designed specifically to require genuine incremental
+computation, unlike the composed-permutation task.
+
+**Real, complete result (150,000 steps, K=5 states, A=4 symbols,
+N_DEMOS=10, 131,250 params)**: noisy, marginal above-chance accuracy
+(0.22-0.32 across the board, chance=0.20) at EVERY depth (1,2,4,8,16)
+and EVERY R (1-24) -- no clean pattern, no clear R-dependence, no
+clear depth-dependence. Training accuracy plateaued around 0.25-0.27
+from step 15,000 through 150,000 -- real signal above chance, but weak
+and flat.
+
+**Real, honest diagnosis of why, before concluding anything about
+depth/R**: N_DEMOS=10 demo transitions were sampled WITH REPLACEMENT
+from K*A=20 possible (state,symbol) pairs. Expected unique coverage:
+\(20 \times (1-(19/20)^{10}) \approx 8\) of 20 pairs (~40%) -- the
+demos likely never specify a majority of the transition table on any
+given episode. This is a real, structural information deficit,
+directly analogous to the earlier K=10-symbol permutation task's
+failure (too little information relative to what must be inferred) --
+not evidence about R or depth-reasoning at all. Flagging this
+explicitly rather than reading a null result into the R/depth question
+from a confounded task.
+
+**Real fix, immediately actionable**: guarantee full transition-table
+coverage in every episode's demos (N_DEMOS = K*A, deterministic
+coverage of every (state,symbol) pair, not random-with-replacement
+sampling) -- removes the confound the same way finding K=5 (vs K=3
+too-easy, K=10 too-hard) resolved the earlier calibration. Not yet
+relaunched as of this entry; real next action, not a redesign.
