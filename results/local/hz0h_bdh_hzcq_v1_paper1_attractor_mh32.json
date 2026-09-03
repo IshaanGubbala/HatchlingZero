@@ -1,0 +1,264 @@
+{
+  "config": {
+    "out": "results/local/hz0h_bdh_hzcq_v1_paper1_attractor_mh32.json",
+    "checkpoint": "results/local/hz0h_bdh_hzcq_v1_fsm_mh32_checkpoint.pt",
+    "d_model": 80,
+    "k_states": 5,
+    "a_symbols": 4,
+    "workspace_slots": 32,
+    "gate_hidden": 16,
+    "depth": 16,
+    "max_rounds": 16,
+    "n_episodes": 60,
+    "n_perturbations": 6,
+    "perturbation_scale": 0.1,
+    "seed": 1234
+  },
+  "overall_per_round": [
+    {
+      "round": 1,
+      "mean_pairwise_H_distance": 0.03665713869656126,
+      "mean_prediction_agreement": 0.9888888885577519
+    },
+    {
+      "round": 2,
+      "mean_pairwise_H_distance": 0.012505004865427811,
+      "mean_prediction_agreement": 1.0
+    },
+    {
+      "round": 3,
+      "mean_pairwise_H_distance": 0.005027963710017502,
+      "mean_prediction_agreement": 1.0
+    },
+    {
+      "round": 4,
+      "mean_pairwise_H_distance": 0.002225933190008315,
+      "mean_prediction_agreement": 1.0
+    },
+    {
+      "round": 5,
+      "mean_pairwise_H_distance": 0.0010934410015276323,
+      "mean_prediction_agreement": 1.0
+    },
+    {
+      "round": 6,
+      "mean_pairwise_H_distance": 0.0005644247292366344,
+      "mean_prediction_agreement": 1.0
+    },
+    {
+      "round": 7,
+      "mean_pairwise_H_distance": 0.00031182506445475154,
+      "mean_prediction_agreement": 1.0
+    },
+    {
+      "round": 8,
+      "mean_pairwise_H_distance": 0.0001747693764627911,
+      "mean_prediction_agreement": 1.0
+    },
+    {
+      "round": 9,
+      "mean_pairwise_H_distance": 0.00010209428917278274,
+      "mean_prediction_agreement": 1.0
+    },
+    {
+      "round": 10,
+      "mean_pairwise_H_distance": 5.9610703431189904e-05,
+      "mean_prediction_agreement": 1.0
+    },
+    {
+      "round": 11,
+      "mean_pairwise_H_distance": 3.583397289617096e-05,
+      "mean_prediction_agreement": 1.0
+    },
+    {
+      "round": 12,
+      "mean_pairwise_H_distance": 2.143108878650916e-05,
+      "mean_prediction_agreement": 1.0
+    },
+    {
+      "round": 13,
+      "mean_pairwise_H_distance": 1.3127791867854437e-05,
+      "mean_prediction_agreement": 1.0
+    },
+    {
+      "round": 14,
+      "mean_pairwise_H_distance": 7.991549247776675e-06,
+      "mean_prediction_agreement": 1.0
+    },
+    {
+      "round": 15,
+      "mean_pairwise_H_distance": 4.973511791087996e-06,
+      "mean_prediction_agreement": 1.0
+    },
+    {
+      "round": 16,
+      "mean_pairwise_H_distance": 3.075506992603986e-06,
+      "mean_prediction_agreement": 1.0
+    }
+  ],
+  "unperturbed_accuracy": 0.38333333333333336,
+  "correct_group_per_round": [
+    {
+      "round": 1,
+      "mean_pairwise_H_distance": 0.037085037030603576,
+      "mean_prediction_agreement": 0.9782608695652174
+    },
+    {
+      "round": 2,
+      "mean_pairwise_H_distance": 0.012917035360537146,
+      "mean_prediction_agreement": 1.0
+    },
+    {
+      "round": 3,
+      "mean_pairwise_H_distance": 0.005326813775236192,
+      "mean_prediction_agreement": 1.0
+    },
+    {
+      "round": 4,
+      "mean_pairwise_H_distance": 0.0023984509120371354,
+      "mean_prediction_agreement": 1.0
+    },
+    {
+      "round": 5,
+      "mean_pairwise_H_distance": 0.0012031198357758315,
+      "mean_prediction_agreement": 1.0
+    },
+    {
+      "round": 6,
+      "mean_pairwise_H_distance": 0.0006304470605201735,
+      "mean_prediction_agreement": 1.0
+    },
+    {
+      "round": 7,
+      "mean_pairwise_H_distance": 0.0003543457414312086,
+      "mean_prediction_agreement": 1.0
+    },
+    {
+      "round": 8,
+      "mean_pairwise_H_distance": 0.00020143503032791753,
+      "mean_prediction_agreement": 1.0
+    },
+    {
+      "round": 9,
+      "mean_pairwise_H_distance": 0.00011945514148939527,
+      "mean_prediction_agreement": 1.0
+    },
+    {
+      "round": 10,
+      "mean_pairwise_H_distance": 7.076407698901755e-05,
+      "mean_prediction_agreement": 1.0
+    },
+    {
+      "round": 11,
+      "mean_pairwise_H_distance": 4.314228474215823e-05,
+      "mean_prediction_agreement": 1.0
+    },
+    {
+      "round": 12,
+      "mean_pairwise_H_distance": 2.619818670392187e-05,
+      "mean_prediction_agreement": 1.0
+    },
+    {
+      "round": 13,
+      "mean_pairwise_H_distance": 1.6267642950118027e-05,
+      "mean_prediction_agreement": 1.0
+    },
+    {
+      "round": 14,
+      "mean_pairwise_H_distance": 1.0059430361084393e-05,
+      "mean_prediction_agreement": 1.0
+    },
+    {
+      "round": 15,
+      "mean_pairwise_H_distance": 6.338866623484987e-06,
+      "mean_prediction_agreement": 1.0
+    },
+    {
+      "round": 16,
+      "mean_pairwise_H_distance": 3.981525220592383e-06,
+      "mean_prediction_agreement": 1.0
+    }
+  ],
+  "wrong_group_per_round": [
+    {
+      "round": 1,
+      "mean_pairwise_H_distance": 0.03639114784026468,
+      "mean_prediction_agreement": 0.9954954949585167
+    },
+    {
+      "round": 2,
+      "mean_pairwise_H_distance": 0.012248877800900388,
+      "mean_prediction_agreement": 1.0
+    },
+    {
+      "round": 3,
+      "mean_pairwise_H_distance": 0.004842192047854533,
+      "mean_prediction_agreement": 1.0
+    },
+    {
+      "round": 4,
+      "mean_pairwise_H_distance": 0.0021186924438822913,
+      "mean_prediction_agreement": 1.0
+    },
+    {
+      "round": 5,
+      "mean_pairwise_H_distance": 0.0010252622667246975,
+      "mean_prediction_agreement": 1.0
+    },
+    {
+      "round": 6,
+      "mean_pairwise_H_distance": 0.000523383820600921,
+      "mean_prediction_agreement": 1.0
+    },
+    {
+      "round": 7,
+      "mean_pairwise_H_distance": 0.0002853932922801972,
+      "mean_prediction_agreement": 1.0
+    },
+    {
+      "round": 8,
+      "mean_pairwise_H_distance": 0.00015819342946555038,
+      "mean_prediction_agreement": 1.0
+    },
+    {
+      "round": 9,
+      "mean_pairwise_H_distance": 9.130240800299657e-05,
+      "mean_prediction_agreement": 1.0
+    },
+    {
+      "round": 10,
+      "mean_pairwise_H_distance": 5.267752527362137e-05,
+      "mean_prediction_agreement": 1.0
+    },
+    {
+      "round": 11,
+      "mean_pairwise_H_distance": 3.129096823515185e-05,
+      "mean_prediction_agreement": 1.0
+    },
+    {
+      "round": 12,
+      "mean_pairwise_H_distance": 1.8467757648658016e-05,
+      "mean_prediction_agreement": 1.0
+    },
+    {
+      "round": 13,
+      "mean_pairwise_H_distance": 1.1175992546447339e-05,
+      "mean_prediction_agreement": 1.0
+    },
+    {
+      "round": 14,
+      "mean_pairwise_H_distance": 6.706109636801606e-06,
+      "mean_prediction_agreement": 1.0
+    },
+    {
+      "round": 15,
+      "mean_pairwise_H_distance": 4.124777706084461e-06,
+      "mean_prediction_agreement": 1.0
+    },
+    {
+      "round": 16,
+      "mean_pairwise_H_distance": 2.512306472503091e-06,
+      "mean_prediction_agreement": 1.0
+    }
+  ]
+}

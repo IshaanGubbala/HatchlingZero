@@ -4205,3 +4205,52 @@ explain both observations at once. Also diagnostic-only, no training,
 same checkpoint reusable.
 
 Result: `results/local/hz0h_bdh_hzcq_v1_paper0_forced_exit_mh32.json`.
+
+---
+
+## Real result, 2026-09-03 (7): PAPER-1 attractor diagnostic -- H contracts fast, but the attractor is correctness-blind
+
+Direct follow-up to PAPER-0, same session, same M_H=32 checkpoint, no
+training. `scripts/hz0h_bdh_hzcq_v1_paper1_attractor_diagnostic.py`:
+60 real episodes, 6 perturbations of H_0 each (noise std ~10% of
+H_init's own std), same S/query/weights, one real trajectory per
+perturbation to R=16.
+
+**Real result**: H IS a genuinely, strongly contracting dynamical
+system. Mean pairwise H-distance across the 6 perturbed starts goes
+0.0367 (round 1) -> 0.0125 -> 0.0050 -> 0.0022 -> ... -> 0.0000 by
+round 11, roughly halving every round. Prediction agreement across
+perturbations hits 100% by round 2. This is real and nontrivial --
+nothing forces a gated nonlinear recurrence to contract small
+perturbations this cleanly, it could just as easily amplify them.
+
+**But**: splitting the 60 episodes by whether the model's real answer
+was correct (n=23) or wrong (n=37) shows no meaningful difference in
+this convergence at all -- both groups start at ~the same H-distance
+(0.0371 vs 0.0364) and both hit 0.0000 by round 16, agreement 1.0
+either way. Equilibrium Reasoners' own desired signature (difficulty
+up -> convergence time up, convergence strength correlates with
+correctness) does NOT hold here.
+
+**Combined with PAPER-0** this is now a coherent, real mechanistic
+story: H_r contracts fast onto a single trajectory determined almost
+entirely by (S,x), independent of H_0 -- but that trajectory keeps
+moving substantially in absolute terms forever (PAPER-0's
+||dH||~1.93, non-shrinking), and the readout commits to an answer
+(right or wrong, no difference) by round ~5-6, well before whatever
+the trajectory's long-run behavior even is. R doesn't help because
+extra rounds mostly ride an already-committed, correctness-blind
+trajectory -- not because the model "refuses to compute" or "needs
+more training." This is the clearest mechanistic explanation for the
+flat-R result this whole project has produced.
+
+Real next step per the queue's strict order: section 19 (finish/
+retest the M_H capacity curve items already logged) then PAPER-2
+(identity-biased LayerScale recurrence) -- the first real architecture
+ablation, motivated directly by this: if the readout commits early
+regardless of what H does afterward, an explicit identity-biased
+residual (small learned alpha, less aggressive renormalization) might
+let useful early-round information survive to the readout instead of
+being overwritten by the correctness-blind drift PAPER-0/1 both found.
+
+Result: `results/local/hz0h_bdh_hzcq_v1_paper1_attractor_mh32.json`.

@@ -1715,6 +1715,44 @@ explanation for flat accuracy(\(R\)).
 
 Diagnostic only -- do not copy Equilibrium Reasoners wholesale yet.
 
+**Real result, 2026-09-03**
+(`scripts/hz0h_bdh_hzcq_v1_paper1_attractor_diagnostic.py`, same
+M_H=32 checkpoint, depth=16, R=16, 60 episodes x 6 perturbations of
+\(H_0\) each, perturbation std ~10% of \(H_{init}\)'s own std): \(H\)
+IS a real, strongly contracting dynamical system -- and the
+contraction is fast and total, independent of correctness.
+
+Mean pairwise \(H\)-distance across the 6 perturbed starts collapses
+from 0.0367 (round 1) to 0.0000 (round 11+), roughly halving every
+round. Prediction agreement across perturbations hits 100% by round
+2 and stays there. Splitting episodes by whether the (unperturbed)
+model got the real answer right (n=23) or wrong (n=37) shows **no
+meaningful difference**: both groups start at essentially the same
+\(H\)-distance (0.0371 vs 0.0364) and both converge to 0.0000 by
+round 16, agreement 1.0 either way. EqR's desired signature
+(difficulty up -> convergence time up, convergence strength
+correlates with correctness) does **not** hold here -- convergence is
+fast and complete regardless of whether the answer ends up right.
+
+**Real, combined picture with PAPER-0**: \(H_r\) contracts onto a
+single trajectory determined almost entirely by \((S,x)\) within
+~10 rounds, independent of \(H_0\) -- but PAPER-0 already showed that
+trajectory keeps moving substantially in absolute terms
+(\(\|\Delta H\|\approx1.93\), non-shrinking) even after this
+contraction and even after the READOUT has frozen (round ~5-6). Put
+together: the recurrence is a genuine contracting map (small
+perturbations vanish fast, this is a real, nontrivial dynamical
+property, not automatic for a gated nonlinear recurrence), but the
+attractor it contracts onto is a *moving* trajectory shaped by
+\((S,x)\) alone, not a fixed point tied to solving the task -- and the
+readout commits to an answer (right or wrong) well before that
+trajectory's own long-run behavior is decided. This is consistent
+with, and sharpens, section 8.5's verdict: \(R\) doesn't help because
+extra rounds mostly ride an already-committed, task-correctness-blind
+trajectory, not because the model "refuses" or "runs out of training."
+
+Result: `results/local/hz0h_bdh_hzcq_v1_paper1_attractor_mh32.json`.
+
 ### PAPER-2 — Identity-biased / LayerScale \(H\) recurrence
 
 Source: "Thinking Deeper, Not Longer: Depth-Recurrent Transformers for
