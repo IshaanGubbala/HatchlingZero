@@ -1918,6 +1918,41 @@ Checkpoint:
 `results/local/hz0h_bdh_hzcq_v1_fsm_paper3_bounded_residual_mh32_checkpoint.pt`.
 Result: `results/local/hz0h_bdh_hzcq_v1_fsm_paper3_bounded_residual_mh32.json`.
 
+### PAPER-3b — Bounded, accumulating recurrence (inserted control, 2026-09-03)
+
+Real, deliberate insertion between PAPER-3 and PAPER-4, not from any
+source paper -- PAPER-2 and PAPER-3 each changed TWO things relative
+to the default at once, in different combinations, so neither cleanly
+answers "was PAPER-2 bad specifically because the residual was
+unbounded?" PAPER-2 kept real accumulation (\(H_r \to H_{r+1}\) builds
+on \(H_r\)) but left the correction unbounded (gate hard-collapsed);
+PAPER-3 bounded the correction but re-anchored every round to a fixed
+\(H_{base}\) (no accumulation at all). This isolates exactly the
+missing cell: real accumulation AND a hard bound, together.
+
+\[
+H_{r+1} = H_r + \beta\,\tanh(g_r \Delta H_r)
+\]
+
+\(\beta\) is a FIXED (not learned) hyperparameter, deliberately --
+PAPER-2's learned \(\alpha\) drifted from 0.1 to 0.359 during training,
+which could itself have contributed to the instability; fixing
+\(\beta\) removes that confound from this specific comparison. No
+post-update LN, no second state, zero new parameters (verified:
+identical param count to the default path). Same S, same readout,
+same M_H, same everything else (Rule 2).
+
+Real interpretation going in:
+- if accuracy recovers toward the LN baseline -> the missing
+  distinction was found: bounded-but-accumulating is what PAPER-2 and
+  PAPER-3 each independently got half of;
+- if accuracy recovers but \(R\) still stays flat -> recurrence
+  stability improved, the underlying "no genuine multi-round reasoning"
+  problem is still open;
+- if it also lands around ~33% (PAPER-2/3's shared result) -> stop
+  iterating on residual-update variants and move to PAPER-4's
+  structurally different two-state design instead.
+
 ### PAPER-4 — Fast scratch / slow integrator
 
 Inspired by the two-timescale direction in Latent Recurrent Thoughts

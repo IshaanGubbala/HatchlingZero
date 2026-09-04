@@ -47,7 +47,8 @@ _EPS = 1e-5
 class HZCQReasoningWorkspaceConfig:
     def __init__(self, n_embd: int, workspace_slots: int = 8, gate_hidden: int = 16, g_init: float = 0.58,
                  allow_ablation_slots: bool = False, identity_biased: bool = False, layerscale_init: float = 0.1,
-                 bounded_residual: bool = False, bound_scale: float = 1.0):
+                 bounded_residual: bool = False, bound_scale: float = 1.0,
+                 bounded_accumulating: bool = False, beta: float = 0.1):
         """Real, deliberate exception, 2026-09-02: plan section 6.2 locked
         M_H to {4, 8} for the FIRST, "deliberately boring" v1 pass (section
         6.4). That pass is now complete -- real evidence (mainline plan
@@ -106,11 +107,32 @@ class HZCQReasoningWorkspaceConfig:
         # H_base reuses the existing read_s weights, nothing added.
         # Mutually exclusive with identity_biased -- these are two
         # separate, independently tested architecture changes (Rule 2).
-        if bounded_residual and identity_biased:
-            raise ValueError("bounded_residual and identity_biased are separate PAPER-2/PAPER-3 "
-                              "ablations -- test one change at a time (plan section 17 Rule 2).")
         self.bounded_residual = bounded_residual
         self.bound_scale = bound_scale
+
+        # PAPER-3b (real, direct follow-up ablation, 2026-09-03): PAPER-2
+        # and PAPER-3 both failed at ~-4.9pp, but they changed TWO things
+        # at once relative to the default in different combinations --
+        # PAPER-2 kept real accumulation (H_r -> H_{r+1} builds on H_r)
+        # but left the correction UNBOUNDED, causing gate hard-collapse;
+        # PAPER-3 bounded the correction but re-anchored every round to a
+        # FIXED H_base, which structurally prevents rounds from chaining
+        # into a compounding computation at all. Neither cleanly answers
+        # "was PAPER-2 bad specifically because the residual was
+        # unbounded?" `bounded_accumulating=True` isolates exactly that:
+        # H_{r+1}=H_r+beta*tanh(g_r*DeltaH_r) -- real accumulation (like
+        # PAPER-2, unlike PAPER-3), a hard bound via tanh (like PAPER-3,
+        # unlike PAPER-2), no post-update LN, no second state, and beta
+        # is a FIXED (not learned) hyperparameter -- deliberately, so a
+        # drifting learned scale (PAPER-2's alpha grew from 0.1 to 0.359
+        # during training) can't confound this specific comparison.
+        allowed_ablations = sum([bounded_residual, identity_biased, bounded_accumulating])
+        if allowed_ablations > 1:
+            raise ValueError("identity_biased, bounded_residual, and bounded_accumulating are three "
+                              "separate PAPER-2/PAPER-3/PAPER-3b ablations -- test one change at a "
+                              "time (plan section 17 Rule 2).")
+        self.bounded_accumulating = bounded_accumulating
+        self.beta = beta
 
 
 def _rms(t: torch.Tensor) -> torch.Tensor:
@@ -247,20 +269,25 @@ class HZCQReasoningWorkspace(nn.Module):
 
     def _apply_update(self, H_prev: torch.Tensor, g: torch.Tensor, delta_H: torch.Tensor,
                        H_base: torch.Tensor | None = None) -> torch.Tensor:
-        """The one real difference each PAPER-2/PAPER-3 ablation tests.
-        Default (`identity_biased=False`, `bounded_residual=False`):
-        H_{r+1}=LN(H_r+g_r*DeltaH_r), exactly the original design.
-        `identity_biased=True`: H_{r+1}=H_r+alpha*g_r*DeltaH_r -- no
-        post-update LayerNorm, small learned `alpha` (LayerScale).
-        `bounded_residual=True`: H_{r+1}=H_base+g_r*bound_scale*tanh(DeltaH_r)
-        -- every round re-anchors to the SAME fixed, evidence-
-        conditioned H_base (not H_r), and the correction is hard-capped
-        in magnitude (tanh) regardless of DeltaH_r's own scale, unlike
-        PAPER-2's uncapped `alpha*DeltaH_r`."""
+        """The one real difference each PAPER-2/PAPER-3/PAPER-3b ablation
+        tests. Default (all three False): H_{r+1}=LN(H_r+g_r*DeltaH_r),
+        exactly the original design. `identity_biased=True` (PAPER-2):
+        H_{r+1}=H_r+alpha*g_r*DeltaH_r -- no post-update LayerNorm, small
+        LEARNED `alpha`. `bounded_residual=True` (PAPER-3):
+        H_{r+1}=H_base+g_r*bound_scale*tanh(DeltaH_r) -- every round
+        re-anchors to the SAME fixed H_base, correction hard-capped via
+        tanh. `bounded_accumulating=True` (PAPER-3b): H_{r+1}=H_r+
+        beta*tanh(g_r*DeltaH_r) -- isolates exactly one variable from
+        the other two: real accumulation off H_r (like PAPER-2, unlike
+        PAPER-3) PLUS a hard tanh bound (like PAPER-3, unlike PAPER-2),
+        with a FIXED (not learned) `beta` so a drifting scale can't
+        confound the comparison."""
         if self.config.identity_biased:
             return H_prev + self.alpha * g * delta_H
         if self.config.bounded_residual:
             return H_base + g * self.config.bound_scale * torch.tanh(delta_H)
+        if self.config.bounded_accumulating:
+            return H_prev + self.config.beta * torch.tanh(g * delta_H)
         return self.ln_state(H_prev + g * delta_H)
 
     def _packed_q(self, H_prev: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:

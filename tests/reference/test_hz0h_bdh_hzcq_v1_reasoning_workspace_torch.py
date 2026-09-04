@@ -188,6 +188,47 @@ def test_bounded_residual_and_identity_biased_are_mutually_exclusive():
         HZCQReasoningWorkspaceConfig(n_embd=D, workspace_slots=M_H, identity_biased=True, bounded_residual=True)
 
 
+# PAPER-3b structural check: real accumulation (H_r->H_{r+1} builds on
+# H_r, unlike PAPER-3) PLUS a hard tanh bound (unlike PAPER-2), zero
+# new parameters, beta is a fixed hyperparameter not a learned one.
+def test_bounded_accumulating_path_is_structurally_sound():
+    torch.manual_seed(0)
+    ws = HZCQReasoningWorkspace(HZCQReasoningWorkspaceConfig(
+        n_embd=D, workspace_slots=M_H, gate_hidden=8, bounded_accumulating=True, beta=0.1))
+    ws_default = HZCQReasoningWorkspace(HZCQReasoningWorkspaceConfig(n_embd=D, workspace_slots=M_H, gate_hidden=8))
+    assert sum(p.numel() for p in ws.parameters()) == sum(p.numel() for p in ws_default.parameters())
+
+    S = _fake_s()
+    x = _fake_query()
+    x.requires_grad_(True)
+    for r in (1, 2, 4, 8, 16, 32):
+        H = ws.run(B, S, x, n_rounds=r)
+        assert H.shape == (B, M_H, D)
+        assert torch.isfinite(H).all()
+    H2 = ws.run(B, S, x, n_rounds=2)
+    H16 = ws.run(B, S, x, n_rounds=16)
+    assert not torch.allclose(H2, H16, atol=1e-6)
+
+    H_manual = ws.init_state(B)
+    for _ in range(12):
+        H_manual = ws.step(H_manual, S, x.detach())
+    H_run = ws.run(B, S, x.detach(), n_rounds=12)
+    assert torch.equal(H_manual, H_run)
+
+    H16.sum().backward()
+    assert torch.isfinite(x.grad).all()
+    for p in ws.parameters():
+        if p.grad is not None:
+            assert torch.isfinite(p.grad).all()
+
+
+def test_three_ablations_are_mutually_exclusive():
+    with pytest.raises(ValueError):
+        HZCQReasoningWorkspaceConfig(n_embd=D, workspace_slots=M_H, bounded_accumulating=True, identity_biased=True)
+    with pytest.raises(ValueError):
+        HZCQReasoningWorkspaceConfig(n_embd=D, workspace_slots=M_H, bounded_accumulating=True, bounded_residual=True)
+
+
 # Real, additional end-to-end check: H genuinely depends on S (not
 # just x) -- swapping S for a different persistent memory must change
 # H's output at a fixed R, otherwise the "S answers what the rule is"
