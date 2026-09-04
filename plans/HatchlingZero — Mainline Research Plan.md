@@ -1873,6 +1873,51 @@ full-dimensional \(D\). Test first as \(H_{r+1} = H_{base} +
 \text{bounded\_correction}(H_r, S, x)\) or an equivalent bounded
 residual formulation. One change at a time.
 
+**Real result, 2026-09-03: FAILED, same as PAPER-2, but a genuinely
+different mechanism.** Implemented as \(H_{r+1}=H_{base}+g_r\cdot
+\text{bound\_scale}\cdot\tanh(\Delta H_r)\), \(H_{base}\) = \(H_{init}\)
+cross-attended once against \(S\) (fixed every round, zero new
+parameters -- reuses `read_s`), correction hard-capped via tanh
+regardless of \(\Delta H_r\)'s own scale. Same FSM task, M_H=32, 150K
+steps, n=2000/cell, same protocol as baseline and PAPER-2. Trained
+locally on this Mac's CPU in 6320s (~105min) -- real finding from
+earlier tonight held: CPU beats a RunPod RTX 5090 for this tiny
+sequential workload, so no GPU dispatch was needed here.
+
+Mean accuracy: 0.3285, essentially indistinguishable from PAPER-2's
+0.3276 (+0.09pp, noise) and still -4.89pp below the LN baseline's
+0.3774. R still shows no real effect (depth=16 R4->R8 -0.35pp,
+R4->R12 +0.40pp, both at/below the 0.32pp noise floor).
+
+**The real mechanistic difference from PAPER-2**: the gate did NOT
+slam shut here -- it settled at a stable, moderate ~0.08-0.09 at
+every round past round 1, at every depth (vs baseline's ~1.0 and
+PAPER-2's ~0.0001). Bounded re-anchoring genuinely avoided the hard
+gate-collapse failure mode PAPER-2 produced. But this didn't help
+accuracy at all -- the most likely explanation: re-anchoring EVERY
+round to the SAME fixed \(H_{base}\) means each round's correction is
+computed relative to that fixed point, not relative to what the
+previous rounds actually wrote -- so information can't meaningfully
+compound across rounds even though the correction itself survives
+(isn't destroyed by renormalization or gate-collapse). The state
+literally cannot accumulate a multi-round computation this way; each
+round is close to an independent, small nudge away from the same
+anchor, not a chained refinement.
+
+**Verdict**: PAPER-2 and PAPER-3 have now both failed on the accuracy/
+depth-scaling axes, via two different, real, well-understood
+mechanisms (unbounded-residual gate-collapse vs bounded-but-static-
+anchor no-accumulation). Per the queue's strict order, PAPER-4 (fast
+scratch / slow integrator) is next -- and is now better motivated than
+before: it explicitly separates a fast, disposable per-round
+computation from a slow, persistent integrator that's allowed to
+actually accumulate across rounds, which PAPER-3's fixed-anchor design
+structurally prevented.
+
+Checkpoint:
+`results/local/hz0h_bdh_hzcq_v1_fsm_paper3_bounded_residual_mh32_checkpoint.pt`.
+Result: `results/local/hz0h_bdh_hzcq_v1_fsm_paper3_bounded_residual_mh32.json`.
+
 ### PAPER-4 — Fast scratch / slow integrator
 
 Inspired by the two-timescale direction in Latent Recurrent Thoughts

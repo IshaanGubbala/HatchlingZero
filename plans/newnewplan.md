@@ -4328,3 +4328,51 @@ CUDA half of priority 1 still open -- needs a RunPod dispatch (real $
 cost), not launched yet. PAPER-3 (bounded residual + evidence
 re-injection, unblocked by PAPER-2's failure) also not launched --
 both are real new-compute decisions, holding for explicit go-ahead.
+
+---
+
+## Real result, 2026-09-03 (10): PAPER-3 -- FAILED like PAPER-2, but via a genuinely different mechanism
+
+Trained locally on this Mac's CPU (105min, real -- CPU beats the RTX
+5090 for this tiny sequential workload, a finding from earlier
+tonight, so no GPU dispatch was needed). Same FSM task, M_H=32, 150K
+steps, n=2000/cell, same protocol as baseline/PAPER-2.
+H_{r+1}=H_base+g_r*bound_scale*tanh(DeltaH_r), H_base = H_init
+cross-attended once against S, fixed every round, zero new params.
+
+**Mean accuracy: 0.3285** -- essentially identical to PAPER-2's 0.3276
+(+0.09pp, pure noise), still -4.89pp below the LN baseline's 0.3774.
+R still flat (depth=16 R4->R8 -0.35pp, R4->R12 +0.40pp, both at/below
+the 0.32pp noise floor).
+
+**But the mechanism is genuinely different from PAPER-2**: the gate
+settled at a stable, moderate ~0.08-0.09 every round (not slammed to
+~0.0001 like PAPER-2, not fully open like baseline). Bounded
+re-anchoring really did fix PAPER-2's gate-collapse failure mode. It
+just didn't help accuracy -- most likely because re-anchoring EVERY
+round to the SAME fixed H_base means each round computes a correction
+relative to that fixed point, not relative to what previous rounds
+actually accumulated. The correction survives (not destroyed like
+PAPER-2), but rounds can't meaningfully chain into a compounding
+computation this way -- each one is close to an independent small
+nudge off the same anchor.
+
+**Real, useful synthesis across PAPER-0 through PAPER-3, now
+complete**: readout freezes early (PAPER-0) while H keeps moving
+(same finding); that movement contracts fast onto a correctness-blind
+trajectory (PAPER-1); removing the per-round LayerNorm without
+bounding causes gate hard-collapse (PAPER-2); bounding AND
+re-anchoring fixes the collapse but removes the ability to accumulate
+across rounds at all (PAPER-3). Two real, different, well-understood
+failure modes, same net accuracy result both times.
+
+Per the queue's strict order, PAPER-4 (fast scratch / slow
+integrator) is next, and better motivated than before -- it's the
+first design in the queue that explicitly keeps a persistent,
+accumulating state SEPARATE from the per-round disposable computation,
+which is exactly what PAPER-3's fixed-anchor design structurally
+prevented.
+
+Checkpoint and result JSON committed. Not launching PAPER-4 yet --
+same real-compute-decision discipline as every other training run
+this session.
