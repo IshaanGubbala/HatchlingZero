@@ -1216,30 +1216,46 @@ FLOPs -- the 1.125x measured for items 1/5/6 above is a CPU number and
 must not be reported as this section's cross-platform result once real
 MPS/CUDA numbers exist.
 
-**Real result, 2026-09-03: priority-1 item DONE on MPS** (real Apple
-Silicon GPU via `torch.backends.mps`, not CPU), CUDA still pending.
+**Real result, 2026-09-03: priority-1 item DONE on both MPS and CUDA.**
 `scripts/hz0h_bdh_hzcq_v1_speed_benchmark_mps_cuda.py`, M_H=32
 (confirmed Pareto point), R in {2,4,8,16}, batch in {1,16}, 50 reps
-after 5 warmup. Real equivalence check passed bit-identical
-(`torch.equal`, max_abs_diff=0.0) on-device before trusting any timing
-number, per this section's own required discipline.
+after 5 warmup, real on-device bit-identical equivalence check
+(`torch.equal`, max_abs_diff=0.0) on both platforms before trusting
+any timing number, per this section's own required discipline.
 
-Forward-only: mean 1.017x, essentially noise (min 0.952x, max 1.072x)
--- consistent with the earlier CPU finding, packing/caching barely
-moves forward latency at this D/M_H. **Full training-step** (forward +
-backward + optimizer step): mean **1.096x**, min 1.003x, max 1.162x --
-real, consistent, always \(\geq\)1.0x across all 8 (batch, R)
-combinations, never a regression. Batch size (1 vs 16) barely changes
-the ratio, matching the earlier finding that this workload's cost is
-dominated by sequential per-round overhead, not batch-parallelizable
-FLOPs. Modest but real and free -- CUDA benchmarking (needs a RunPod
-dispatch, real $ cost) is the one still-open piece of priority 1.
+**MPS** (real Apple Silicon GPU via `torch.backends.mps`): forward-only
+mean 1.017x, essentially noise (0.952x-1.072x) -- matches the earlier
+CPU finding, packing/caching barely moves forward latency at this
+D/M_H. Full training-step (forward+backward+optimizer): mean
+**1.096x**, always \(\geq\)1.0x across all 8 combinations, up to
+1.162x, batch-size-independent.
+
+**CUDA** (real RTX 5090 via RunPod): a genuinely DIFFERENT, mixed
+pattern -- worth reporting exactly as measured, not smoothed over.
+Forward-only is the consistent winner here: mean **1.104x**, always
+\(\geq\)1.04x. Training-step is **batch-dependent**: at batch=1, real
+regressions at 3 of 4 R values (0.805x-1.014x -- the packed-Q GEMM's
+backward pass doesn't amortize its own overhead at this batch size);
+at batch=16, real gains at all 4 R values (1.026x-1.115x). Mean across
+all 8 combinations is close to neutral (0.987x) -- CUDA training-step
+speedup is real only at the larger, training-relevant batch size, not
+uniformly like MPS.
+
+**Honest overall verdict**: items 1/5/6 are a small, real, free win on
+every platform tested for forward-only latency, and a real win for
+training-step latency PROVIDED batch size isn't tiny (MPS: always;
+CUDA: only at batch=16, not batch=1). Not a uniform win to report
+without the batch-size caveat -- exactly the kind of nuance 11.4's
+profiling checklist exists to surface.
+
+Both raw results: `results/local/hz0h_bdh_hzcq_v1_speed_benchmark_mps.json`,
+`results/local/hz0h_bdh_hzcq_v1_speed_benchmark_cuda.json`.
 
 ### Priority order
 
 1. finish/benchmark the already-landed semantics-preserving
    packing/caching (items 1, 5, 6) on real MPS + CUDA, not just CPU
-   -- MPS done (see above), CUDA still open;
+   -- DONE on both MPS and CUDA (see above);
 2. SPEED-A batched dual-source attention;
 3. SPEED-C post-hoc adaptive early exit;
 4. SPEED-B refresh-and-refine;

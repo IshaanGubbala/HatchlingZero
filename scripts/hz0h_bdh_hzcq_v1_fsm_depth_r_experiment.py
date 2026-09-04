@@ -77,13 +77,15 @@ def to_device(*tensors, device):
 
 
 def build_model(D: int, K: int, A: int, workspace_slots: int, gate_hidden: int, allow_ablation: bool,
-                 identity_biased: bool = False, layerscale_init: float = 0.1):
+                 identity_biased: bool = False, layerscale_init: float = 0.1,
+                 bounded_residual: bool = False, bound_scale: float = 1.0):
     state_embed = nn.Embedding(K, D)
     symbol_embed = nn.Embedding(A, D)
     mem = HZCQPersistentMemory(HZCQPersistentMemoryConfig(n_embd=D, memory_slots=8, gate_hidden=gate_hidden))
     ws = HZCQReasoningWorkspace(HZCQReasoningWorkspaceConfig(
         n_embd=D, workspace_slots=workspace_slots, gate_hidden=gate_hidden,
-        allow_ablation_slots=allow_ablation, identity_biased=identity_biased, layerscale_init=layerscale_init))
+        allow_ablation_slots=allow_ablation, identity_biased=identity_biased, layerscale_init=layerscale_init,
+        bounded_residual=bounded_residual, bound_scale=bound_scale))
     demo_encoder = nn.Linear(3 * D, D, bias=False)
     query_encoder = nn.Linear(2 * D, D, bias=False)
     rq, rk, rv = nn.Linear(D, D, bias=False), nn.Linear(D, D, bias=False), nn.Linear(D, D, bias=False)
@@ -134,7 +136,14 @@ def gate_magnitude_by_depth(model, K, A, n_demos, D, depths, n_rounds, batch=8, 
                 read_x = ws.read_x(H, q_tokens)
                 delta_H = ws.ln_read(ws.write_proj(torch.cat([read_s, read_x], dim=-1)))
                 g = ws._gate(H, delta_H, S)
-                H = ws.ln_state(H + g * delta_H)
+                # Real bug fixed 2026-09-03: this used to hardcode
+                # LN(H+g*delta_H) regardless of config, so identity_biased/
+                # bounded_residual models had their gate evaluated on an
+                # H-trajectory that didn't match what they were actually
+                # trained on. Route through the real _apply_update instead.
+                H_base = ws._compute_h_base(batch, S=S, device=H.device, dtype=H.dtype) \
+                    if ws.config.bounded_residual else None
+                H = ws._apply_update(H, g, delta_H, H_base)
                 mags.append(g.mean().item())
             out[depth] = mags
     return out
@@ -157,6 +166,14 @@ def main() -> None:
                               "Everything else (read_s/read_x/gate/M_H/readout) is unchanged.")
     parser.add_argument("--layerscale-init", type=float, default=0.1,
                          help="identity_biased only: initial value of the learned alpha scalar")
+    parser.add_argument("--bounded-residual", action="store_true",
+                         help="PAPER-3 ablation: H_{r+1}=H_base+g_r*bound_scale*tanh(DeltaH_r), where "
+                              "H_base is a FIXED evidence-conditioned anchor (H_init cross-attended once "
+                              "against S) instead of the previous round's H_r -- re-anchors every round "
+                              "and hard-caps the correction magnitude, unlike PAPER-2's unbounded alpha*DeltaH. "
+                              "Mutually exclusive with --identity-biased.")
+    parser.add_argument("--bound-scale", type=float, default=1.0,
+                         help="bounded_residual only: hard cap on tanh-squashed correction magnitude")
     parser.add_argument("--gate-hidden", type=int, default=16)
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--train-steps", type=int, default=150000)
@@ -181,7 +198,8 @@ def main() -> None:
     D, K, A = args.d_model, args.k_states, args.a_symbols
     n_demos = K * A
     model = build_model(D, K, A, args.workspace_slots, args.gate_hidden, args.allow_ablation_slots,
-                         identity_biased=args.identity_biased, layerscale_init=args.layerscale_init)
+                         identity_biased=args.identity_biased, layerscale_init=args.layerscale_init,
+                         bounded_residual=args.bounded_residual, bound_scale=args.bound_scale)
     model = tuple(m.to(device) for m in model)
     state_embed, symbol_embed, mem, ws, demo_encoder, query_encoder, rq, rk, rv, classifier = model
     print(f"[fsm_v1] device={device}", flush=True)
@@ -201,7 +219,9 @@ def main() -> None:
     n_params = sum(p.numel() for p in params)
     print(f"[fsm_v1] params={n_params} K={K} A={A} M_H={args.workspace_slots} n_demos={n_demos} "
           f"(full coverage) identity_biased={args.identity_biased} "
-          f"layerscale_init={args.layerscale_init if args.identity_biased else 'n/a'}", flush=True)
+          f"layerscale_init={args.layerscale_init if args.identity_biased else 'n/a'} "
+          f"bounded_residual={args.bounded_residual} "
+          f"bound_scale={args.bound_scale if args.bounded_residual else 'n/a'}", flush=True)
     opt = torch.optim.AdamW(params, lr=args.lr)
 
     train_rng = torch.Generator().manual_seed(args.seed + 1)

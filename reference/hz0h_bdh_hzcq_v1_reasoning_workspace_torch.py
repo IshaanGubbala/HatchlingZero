@@ -46,7 +46,8 @@ _EPS = 1e-5
 
 class HZCQReasoningWorkspaceConfig:
     def __init__(self, n_embd: int, workspace_slots: int = 8, gate_hidden: int = 16, g_init: float = 0.58,
-                 allow_ablation_slots: bool = False, identity_biased: bool = False, layerscale_init: float = 0.1):
+                 allow_ablation_slots: bool = False, identity_biased: bool = False, layerscale_init: float = 0.1,
+                 bounded_residual: bool = False, bound_scale: float = 1.0):
         """Real, deliberate exception, 2026-09-02: plan section 6.2 locked
         M_H to {4, 8} for the FIRST, "deliberately boring" v1 pass (section
         6.4). That pass is now complete -- real evidence (mainline plan
@@ -88,6 +89,28 @@ class HZCQReasoningWorkspaceConfig:
         # Default False: exact prior behavior, unchanged.
         self.identity_biased = identity_biased
         self.layerscale_init = layerscale_init
+
+        # PAPER-3 (paper-derived reasoning queue, bounded residual +
+        # evidence re-injection, arXiv:2609.01117): directly motivated
+        # by PAPER-2's real, honest FAILURE -- an unbounded identity
+        # residual (H_{r+1}=H_r+alpha*g_r*DeltaH_r) taught the model to
+        # slam the gate shut after round 1 rather than sustain useful
+        # iterative refinement, and hurt accuracy by -4.98pp. Here the
+        # correction is explicitly BOUNDED (tanh-squashed, hard-capped
+        # magnitude regardless of DeltaH_r's own scale) and every round
+        # re-anchors to the SAME evidence-conditioned base H_base
+        # (H_init cross-attended once against S) instead of the
+        # previous round's H_r -- "do not allow H to drift arbitrarily
+        # far from its evidence-conditioned starting representation"
+        # (plan's own PAPER-3 spec, verbatim). Zero new parameters:
+        # H_base reuses the existing read_s weights, nothing added.
+        # Mutually exclusive with identity_biased -- these are two
+        # separate, independently tested architecture changes (Rule 2).
+        if bounded_residual and identity_biased:
+            raise ValueError("bounded_residual and identity_biased are separate PAPER-2/PAPER-3 "
+                              "ablations -- test one change at a time (plan section 17 Rule 2).")
+        self.bounded_residual = bounded_residual
+        self.bound_scale = bound_scale
 
 
 def _rms(t: torch.Tensor) -> torch.Tensor:
@@ -204,18 +227,40 @@ class HZCQReasoningWorkspace(nn.Module):
         read_from_x = self.read_x(H_prev, x_hidden, x_mask)
         delta_H = self.ln_read(self.write_proj(torch.cat([read_from_s, read_from_x], dim=-1)))
         g = self._gate(H_prev, delta_H, S)
-        return self._apply_update(H_prev, g, delta_H)
+        H_base = self._compute_h_base(H_prev.shape[0], S, device=H_prev.device, dtype=H_prev.dtype) \
+            if self.config.bounded_residual else None
+        return self._apply_update(H_prev, g, delta_H, H_base)
 
-    def _apply_update(self, H_prev: torch.Tensor, g: torch.Tensor, delta_H: torch.Tensor) -> torch.Tensor:
-        """The one real difference PAPER-2 tests. Default
-        (`identity_biased=False`): H_{r+1}=LN(H_r+g_r*DeltaH_r), exactly
-        the original design. `identity_biased=True`:
-        H_{r+1}=H_r+alpha*g_r*DeltaH_r -- no post-update LayerNorm, so
-        the identity path H_r->H_{r+1} is preserved rather than
-        repeatedly renormalized, with a small learned `alpha`
-        (LayerScale) controlling how much of `delta_H` is ever let in."""
+    def _compute_h_base(self, batch_size: int, S: torch.Tensor | None = None,
+                         K_S: torch.Tensor | None = None, V_S: torch.Tensor | None = None,
+                         device=None, dtype=None) -> torch.Tensor:
+        """PAPER-3's evidence-conditioned anchor: H_init cross-attended
+        once against S. Fixed across every round within one run() call
+        (recomputed from the SAME H_init and S every time, so it's
+        always the identical value) -- the fixed re-anchoring target
+        that keeps H from drifting arbitrarily far from what S actually
+        says, no matter how many rounds run."""
+        H0 = self.init_state(batch_size, device=device, dtype=dtype)
+        if K_S is not None:
+            return self.read_s.attend(H0, K_S, V_S)
+        return self.read_s(H0, S)
+
+    def _apply_update(self, H_prev: torch.Tensor, g: torch.Tensor, delta_H: torch.Tensor,
+                       H_base: torch.Tensor | None = None) -> torch.Tensor:
+        """The one real difference each PAPER-2/PAPER-3 ablation tests.
+        Default (`identity_biased=False`, `bounded_residual=False`):
+        H_{r+1}=LN(H_r+g_r*DeltaH_r), exactly the original design.
+        `identity_biased=True`: H_{r+1}=H_r+alpha*g_r*DeltaH_r -- no
+        post-update LayerNorm, small learned `alpha` (LayerScale).
+        `bounded_residual=True`: H_{r+1}=H_base+g_r*bound_scale*tanh(DeltaH_r)
+        -- every round re-anchors to the SAME fixed, evidence-
+        conditioned H_base (not H_r), and the correction is hard-capped
+        in magnitude (tanh) regardless of DeltaH_r's own scale, unlike
+        PAPER-2's uncapped `alpha*DeltaH_r`."""
         if self.config.identity_biased:
             return H_prev + self.alpha * g * delta_H
+        if self.config.bounded_residual:
+            return H_base + g * self.config.bound_scale * torch.tanh(delta_H)
         return self.ln_state(H_prev + g * delta_H)
 
     def _packed_q(self, H_prev: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
@@ -233,20 +278,24 @@ class HZCQReasoningWorkspace(nn.Module):
 
     def _step_with_cache(self, H_prev: torch.Tensor, K_S: torch.Tensor, V_S: torch.Tensor,
                           K_x: torch.Tensor, V_x: torch.Tensor, s_summary: torch.Tensor,
-                          x_mask: torch.Tensor | None = None) -> torch.Tensor:
+                          x_mask: torch.Tensor | None = None, H_base: torch.Tensor | None = None) -> torch.Tensor:
         """Same computation as `step`, but reads from precomputed
         K/V/s_summary instead of re-deriving them from S/x_hidden, and
         packs the two Q projections into one GEMM (`_packed_q`). Real,
         exact equivalence to `step`: every quantity here is the same
         arithmetic `step` would produce from the same S/x_hidden on
         this round -- reusing/packing changes nothing about the
-        arithmetic, only how many times/kernels it runs."""
+        arithmetic, only how many times/kernels it runs. `H_base` (only
+        used when `bounded_residual=True`) is computed ONCE by `run()`
+        before the round loop, same discipline as items 1/5's K/V/
+        s_summary caching -- it's a fixed value across every round
+        anyway, so caching it is provably free."""
         Q_s, Q_x = self._packed_q(H_prev)
         read_from_s = self.read_s.attend_with_q(Q_s, K_S, V_S)
         read_from_x = self.read_x.attend_with_q(Q_x, K_x, V_x, x_mask)
         delta_H = self.ln_read(self.write_proj(torch.cat([read_from_s, read_from_x], dim=-1)))
         g = self._gate(H_prev, delta_H, None, s_summary=s_summary)
-        return self._apply_update(H_prev, g, delta_H)
+        return self._apply_update(H_prev, g, delta_H, H_base)
 
     def run(self, batch_size: int, S: torch.Tensor, x_hidden: torch.Tensor, n_rounds: int,
             x_mask: torch.Tensor | None = None, device=None, dtype=None) -> torch.Tensor:
@@ -266,6 +315,8 @@ class HZCQReasoningWorkspace(nn.Module):
         K_S, V_S = self.read_s.project_kv(S)
         K_x, V_x = self.read_x.project_kv(x_hidden)
         s_summary = S.mean(dim=1, keepdim=True)
+        H_base = self._compute_h_base(batch_size, K_S=K_S, V_S=V_S, device=device, dtype=dtype) \
+            if self.config.bounded_residual else None
         for _ in range(n_rounds):
-            H = self._step_with_cache(H, K_S, V_S, K_x, V_x, s_summary, x_mask)
+            H = self._step_with_cache(H, K_S, V_S, K_x, V_x, s_summary, x_mask, H_base=H_base)
         return H
