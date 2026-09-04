@@ -35,6 +35,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from reference.hz0h_bdh_hzcq_v1_persistent_memory_torch import HZCQPersistentMemory, HZCQPersistentMemoryConfig
 from reference.hz0h_bdh_hzcq_v1_reasoning_workspace_torch import HZCQReasoningWorkspace, HZCQReasoningWorkspaceConfig
+from reference.hz0h_bdh_hzcq_v1_paper4_fast_slow_torch import HZCQReasoningWorkspaceFastSlow, HZCQFastSlowConfig
 
 TRAIN_DEPTHS = [1, 2, 4, 8, 16]
 TRAIN_R_VALUES = [2, 4, 6, 8, 12, 16, 24]
@@ -80,15 +81,24 @@ def build_model(D: int, K: int, A: int, workspace_slots: int, gate_hidden: int, 
                  identity_biased: bool = False, layerscale_init: float = 0.1,
                  bounded_residual: bool = False, bound_scale: float = 1.0,
                  bounded_accumulating: bool = False, beta: float = 0.1,
-                 value_dim: int | None = None):
+                 value_dim: int | None = None, fast_slow: bool = False, alpha_init: float = 0.1):
     state_embed = nn.Embedding(K, D)
     symbol_embed = nn.Embedding(A, D)
     mem = HZCQPersistentMemory(HZCQPersistentMemoryConfig(n_embd=D, memory_slots=8, gate_hidden=gate_hidden))
-    ws = HZCQReasoningWorkspace(HZCQReasoningWorkspaceConfig(
-        n_embd=D, workspace_slots=workspace_slots, gate_hidden=gate_hidden,
-        allow_ablation_slots=allow_ablation, identity_biased=identity_biased, layerscale_init=layerscale_init,
-        bounded_residual=bounded_residual, bound_scale=bound_scale,
-        bounded_accumulating=bounded_accumulating, beta=beta, value_dim=value_dim))
+    if fast_slow:
+        # PAPER-4: genuinely different architecture (two full-D states),
+        # not a config-flag variant of the single-state class -- the
+        # other ablation flags (identity_biased/bounded_residual/
+        # bounded_accumulating/value_dim) don't apply here.
+        ws = HZCQReasoningWorkspaceFastSlow(HZCQFastSlowConfig(
+            n_embd=D, workspace_slots=workspace_slots, gate_hidden=gate_hidden,
+            alpha_init=alpha_init, allow_ablation_slots=allow_ablation))
+    else:
+        ws = HZCQReasoningWorkspace(HZCQReasoningWorkspaceConfig(
+            n_embd=D, workspace_slots=workspace_slots, gate_hidden=gate_hidden,
+            allow_ablation_slots=allow_ablation, identity_biased=identity_biased, layerscale_init=layerscale_init,
+            bounded_residual=bounded_residual, bound_scale=bound_scale,
+            bounded_accumulating=bounded_accumulating, beta=beta, value_dim=value_dim))
     demo_encoder = nn.Linear(3 * D, D, bias=False)
     query_encoder = nn.Linear(2 * D, D, bias=False)
     rq, rk, rv = nn.Linear(D, D, bias=False), nn.Linear(D, D, bias=False), nn.Linear(D, D, bias=False)
@@ -190,6 +200,14 @@ def main() -> None:
                               "Q/K stay full D -- attention SELECTION is unchanged, only the width of "
                               "what gets transported after selection narrows. Default None = current "
                               "full-D baseline, unchanged. Not combined with --bounded-residual.")
+    parser.add_argument("--fast-slow", action="store_true",
+                         help="PAPER-4 ablation: genuinely different architecture, two full-D states "
+                              "H_fast (fully overwritten every round) and H_slow (gated-residual "
+                              "accumulated, reads only from H_fast). Mutually exclusive in practice "
+                              "with --identity-biased/--bounded-residual/--bounded-accumulating/"
+                              "--value-dim, which only apply to the single-state class.")
+    parser.add_argument("--alpha-init", type=float, default=0.1,
+                         help="fast_slow only: initial value of H_slow's learned residual-write scale")
     parser.add_argument("--gate-hidden", type=int, default=16)
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--train-steps", type=int, default=150000)
@@ -217,7 +235,7 @@ def main() -> None:
                          identity_biased=args.identity_biased, layerscale_init=args.layerscale_init,
                          bounded_residual=args.bounded_residual, bound_scale=args.bound_scale,
                          bounded_accumulating=args.bounded_accumulating, beta=args.beta,
-                         value_dim=args.value_dim)
+                         value_dim=args.value_dim, fast_slow=args.fast_slow, alpha_init=args.alpha_init)
     model = tuple(m.to(device) for m in model)
     state_embed, symbol_embed, mem, ws, demo_encoder, query_encoder, rq, rk, rv, classifier = model
     print(f"[fsm_v1] device={device}", flush=True)
@@ -242,7 +260,9 @@ def main() -> None:
           f"bound_scale={args.bound_scale if args.bounded_residual else 'n/a'} "
           f"bounded_accumulating={args.bounded_accumulating} "
           f"beta={args.beta if args.bounded_accumulating else 'n/a'} "
-          f"value_dim={args.value_dim if args.value_dim is not None else 'n/a (full-D baseline)'}", flush=True)
+          f"value_dim={args.value_dim if args.value_dim is not None else 'n/a (full-D baseline)'} "
+          f"fast_slow={args.fast_slow} "
+          f"alpha_init={args.alpha_init if args.fast_slow else 'n/a'}", flush=True)
     opt = torch.optim.AdamW(params, lr=args.lr)
 
     train_rng = torch.Generator().manual_seed(args.seed + 1)
@@ -292,9 +312,17 @@ def main() -> None:
                 results[depth][r] = acc
                 print(f"[fsm_v1] eval depth={depth} R={r} accuracy={acc:.4f}", flush=True)
 
-    gate_by_depth = gate_magnitude_by_depth(model, K, A, n_demos, D, EVAL_DEPTHS, n_rounds=16, device=device)
-    for depth, mags in gate_by_depth.items():
-        print(f"[fsm_v1_gate] depth={depth} gate_magnitude_per_round: {[round(x,4) for x in mags]}", flush=True)
+    if args.fast_slow:
+        # gate_magnitude_by_depth hardcodes the single-state class's
+        # internals (read_s/read_x/ln_state/_apply_update) -- doesn't
+        # apply to HZCQReasoningWorkspaceFastSlow's different structure.
+        # Not required for the quality comparison; skip rather than crash.
+        gate_by_depth = {}
+        print("[fsm_v1_gate] skipped -- gate_magnitude_by_depth doesn't support --fast-slow", flush=True)
+    else:
+        gate_by_depth = gate_magnitude_by_depth(model, K, A, n_demos, D, EVAL_DEPTHS, n_rounds=16, device=device)
+        for depth, mags in gate_by_depth.items():
+            print(f"[fsm_v1_gate] depth={depth} gate_magnitude_per_round: {[round(x,4) for x in mags]}", flush=True)
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps({

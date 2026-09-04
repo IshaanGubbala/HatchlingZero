@@ -1364,17 +1364,37 @@ Both raw results: `results/local/hz0h_bdh_hzcq_v1_speed_benchmark_mps.json`,
 ### Priority order
 
 1. finish/benchmark the already-landed semantics-preserving
-   packing/caching (items 1, 5, 6) on real MPS + CUDA, not just CPU
-   -- DONE on both MPS and CUDA (see above);
-2. SPEED-A batched dual-source attention;
-3. SPEED-C post-hoc adaptive early exit;
-4. SPEED-B refresh-and-refine;
-5. SPEED-D value/write compression.
+   packing/caching (items 1, 5, 6) on real MPS + CUDA -- DONE;
+2. SPEED-D value/write compression (D/2) -- DONE, PASS (real result
+   above: quality preserved +0.12pp, -9.6% total params, speed neutral
+   on both platforms);
+3. **SPEED-A batched dual-source attention -- promoted to next, real,
+   deliberate re-ranking, 2026-09-04.** D/2 already showed that cutting
+   FLOPs per dispatch doesn't move latency at this tiny scale (both
+   MPS and CUDA came back noise); SPEED-A attacks the measured problem
+   directly instead -- NUMBER of dispatches, not FLOPs per dispatch --
+   so it has a real, mechanistically different chance of moving
+   wall-clock where D/2 didn't;
+4. K=2 evidence refresh (11.5's own K=2 candidate, same family as
+   SPEED-B/section 12) -- promoted ahead of SPEED-B/SPEED-C for the
+   same reason: turns 16 expensive dual evidence reads into ~8 while
+   preserving all 16 real state transitions, a bigger, more direct
+   dispatch-count win than either;
+5. SPEED-C post-hoc adaptive early exit;
+6. SPEED-B refresh-and-refine (the general two-timescale-cell version,
+   distinct from the more specific K=2 evidence-refresh candidate
+   above, which is now prioritized ahead of it).
 
-C before B: adaptive exit can potentially remove whole recurrent
-rounds without changing the trained architecture, whereas
-refresh-and-refine changes what evidence each round receives -- the
-cheaper, less invasive diagnostic goes first.
+Real, updated rationale (2026-09-04): the original priority order
+ranked these by risk/invasiveness before any real cross-platform
+numbers existed. Now that D/2 (a FLOP-reduction change) came back
+speed-neutral on both real platforms, and 11.1's diagnosis (sequential-
+dispatch overhead, not FLOP volume) has been confirmed twice
+independently (D/2 here, the earlier RunPod GPU-utilization finding),
+the real lever is dispatch COUNT -- SPEED-A and K=2 evidence refresh
+both attack that directly, so they're promoted ahead of SPEED-C/
+SPEED-B, which were ranked by a real-but-now-superseded risk ordering
+rather than by which lever the evidence says actually matters.
 
 ---
 
@@ -2132,6 +2152,49 @@ tying preferred; compare against a parameter-matched baseline.
 Hypothesis: temporary computation should not repeatedly overwrite the
 integrated reasoning state. Promotion criterion remains difficulty ->
 larger useful compute depth.
+
+**Real implementation, 2026-09-04**, `reference/hz0h_bdh_hzcq_v1_paper4_fast_slow_torch.py`
+(a genuinely separate module, not a config-flag variant of the single-
+state class -- structurally different enough to deserve its own file):
+\(H_{fast}\) fully overwritten every round (LN'd, same discipline as
+the original default single-state design, deliberately -- that's the
+one variant of the four tested so far that never showed gate
+collapse); \(F_{fast}\) reads THREE sources (\(S\), \(x\), and the
+current \(H_{slow}\)) via three separate exact cross-attention modules.
+\(H_{slow}\) gets the same gated-residual write as the original
+design, but its only input is a read against the just-updated
+\(H_{fast}\) (not raw \(S\)/\(x\)) -- the hypothesis being that keeping
+\(H_{slow}\)'s own update small and mediated through a renormalized
+scratch state, rather than reading raw evidence and drifting
+unboundedly like PAPER-2's \(H_r\) did, avoids the compounding-drift
+problem all three single-state residual variants ran into. `run()`
+returns \(H_{slow}\) only, shape \((B,M_H,D)\) -- identical contract
+to the single-state class, so the FSM harness's readout code needed
+zero changes.
+
+Real, honest parameter-count note: NOT matched to the single-state
+baseline. \(M_H\) barely affects either architecture's parameter count
+(dominated by \(D\times D\) projection matrices, not \(M_H\) -- D=80,
+M_H=16 gives 105,394 vs M_H=32's 107,954, a ~2.4% difference); the real
+driver is module COUNT (5 attention + 2 write modules here vs 2
+attention + 1 write in the single-state class), giving a genuine
+~2x parameter ratio (workspace-only: ~108K vs baseline's ~54K at
+D=80/M_H=32) that isn't reducible via \(M_H\) without either shrinking
+\(D\) (a bigger intervention affecting the whole model, not just the
+workspace) or introducing a low-dimensional bottleneck (explicitly
+forbidden). Reported honestly rather than force-matched -- if this
+shows a real accuracy/depth-scaling win, the extra parameters are a
+real, disclosed cost to weigh against it.
+
+8 real structural tests in
+`tests/reference/test_hz0h_bdh_hzcq_v1_paper4_fast_slow_torch.py`,
+matching section 7's checklist plus a PAPER-4-specific check that
+\(H_{fast}\) and \(H_{slow}\) carry genuinely different content (not
+aliased). `scripts/hz0h_bdh_hzcq_v1_fsm_depth_r_experiment.py` gains
+`--fast-slow`/`--alpha-init`, smoke-tested end to end; the script's
+built-in gate diagnostic (`gate_magnitude_by_depth`) doesn't apply to
+this architecture's different internals and is skipped with a printed
+note rather than silently wrong or crashing.
 
 ### PAPER-5 — Breadth before extreme depth
 
