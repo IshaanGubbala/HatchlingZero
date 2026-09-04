@@ -4298,3 +4298,33 @@ of what genuine iterative refinement over many rounds would need.
 Checkpoint and result JSON committed. Not launching PAPER-3 yet --
 that's a new real compute decision (another ~2-3hr training run),
 holding for explicit go-ahead same as PAPER-2 was.
+
+---
+
+## Real result, 2026-09-03 (9): real MPS speed benchmark for items 1/5/6 -- priority 1 half-done
+
+Section 11.5's own priority-1 item ("finish/benchmark the already-
+landed semantics-preserving packing/caching on real MPS + CUDA, not
+just CPU") -- did the MPS half, free and local, no compute decision
+needed.
+
+`scripts/hz0h_bdh_hzcq_v1_speed_benchmark_mps_cuda.py`: real,
+device-aware (cuda > mps > cpu), compares the naive per-round `step()`
+loop (items 1/5/6 all off) against `run()` (all on), at M_H=32, R in
+{2,4,8,16}, batch in {1,16}, both forward-only and full training-step
+(forward+backward+optimizer) latency, plus peak memory and an on-
+device bit-identical equivalence check before trusting any number.
+
+Real MPS result: equivalence bit-identical (max_abs_diff=0.0).
+Forward-only speedup is noise (mean 1.017x, 0.952x-1.072x range) --
+same as the CPU finding, packing/caching doesn't move raw forward
+latency much at this scale. **Training-step speedup is real and
+consistent: mean 1.096x, always >=1.0x across all 8 (batch,R)
+combinations, up to 1.162x.** Modest but genuinely free money on every
+training run from here on, and the equivalence check means it's
+trustworthy, not just fast-and-wrong.
+
+CUDA half of priority 1 still open -- needs a RunPod dispatch (real $
+cost), not launched yet. PAPER-3 (bounded residual + evidence
+re-injection, unblocked by PAPER-2's failure) also not launched --
+both are real new-compute decisions, holding for explicit go-ahead.

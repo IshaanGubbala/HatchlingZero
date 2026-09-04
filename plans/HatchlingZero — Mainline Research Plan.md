@@ -1216,10 +1216,30 @@ FLOPs -- the 1.125x measured for items 1/5/6 above is a CPU number and
 must not be reported as this section's cross-platform result once real
 MPS/CUDA numbers exist.
 
+**Real result, 2026-09-03: priority-1 item DONE on MPS** (real Apple
+Silicon GPU via `torch.backends.mps`, not CPU), CUDA still pending.
+`scripts/hz0h_bdh_hzcq_v1_speed_benchmark_mps_cuda.py`, M_H=32
+(confirmed Pareto point), R in {2,4,8,16}, batch in {1,16}, 50 reps
+after 5 warmup. Real equivalence check passed bit-identical
+(`torch.equal`, max_abs_diff=0.0) on-device before trusting any timing
+number, per this section's own required discipline.
+
+Forward-only: mean 1.017x, essentially noise (min 0.952x, max 1.072x)
+-- consistent with the earlier CPU finding, packing/caching barely
+moves forward latency at this D/M_H. **Full training-step** (forward +
+backward + optimizer step): mean **1.096x**, min 1.003x, max 1.162x --
+real, consistent, always \(\geq\)1.0x across all 8 (batch, R)
+combinations, never a regression. Batch size (1 vs 16) barely changes
+the ratio, matching the earlier finding that this workload's cost is
+dominated by sequential per-round overhead, not batch-parallelizable
+FLOPs. Modest but real and free -- CUDA benchmarking (needs a RunPod
+dispatch, real $ cost) is the one still-open piece of priority 1.
+
 ### Priority order
 
 1. finish/benchmark the already-landed semantics-preserving
-   packing/caching (items 1, 5, 6) on real MPS + CUDA, not just CPU;
+   packing/caching (items 1, 5, 6) on real MPS + CUDA, not just CPU
+   -- MPS done (see above), CUDA still open;
 2. SPEED-A batched dual-source attention;
 3. SPEED-C post-hoc adaptive early exit;
 4. SPEED-B refresh-and-refine;
