@@ -1250,11 +1250,52 @@ training-step speedups are all essentially noise at this scale
 (0.964x-1.058x across all 8 batch/R combinations) -- consistent with
 every other finding this session that this workload is overhead-bound,
 not FLOP-bound, so shrinking the V/write GEMMs alone doesn't move
-wall-clock much on MPS. CUDA benchmark and the controlled FSM quality
-experiment (same M_H=32/150K-step/n=2000 protocol as the LN baseline)
-dispatched to RunPod, both real results pending as of this writing.
+wall-clock much on MPS.
 
-Result: `results/local/hz0h_bdh_hzcq_v1_speed_benchmark_value_dim_mps.json`.
+**Real CUDA speed result** (RTX 5090 via RunPod, device explicitly
+verified: `cuda:NVIDIA GeForce RTX 5090`, not silently CPU): also
+essentially noise, same conclusion as MPS -- forward-only mean 0.961x
+(0.839x-1.210x), forward+backward mean 1.029x (0.960x-1.143x),
+full training-step mean 1.032x (0.790x-1.153x). No platform shows a
+real, consistent speedup from narrowing V alone at this scale.
+
+**Real controlled FSM quality result -- PASS.** Identical protocol to
+the LN baseline (M_H=32, same D/seed/train-steps/optimizer/LR/R-
+distribution/eval protocol, n=2000/cell, real CUDA dispatch, device
+verified). Mean accuracy **0.3786** vs baseline's 0.3774 --
+**+0.12pp**, essentially identical, comfortably inside the
+predeclared \(\leq\)1.0pp quality-loss promotion criterion.
+Per-depth means (0.372-0.389) show no degradation at any depth,
+including the deepest (depth=16: 0.3793). Gate magnitude is exactly
+1.0 at every round, every depth -- bit-for-bit the same signature as
+the LN baseline, confirming the narrower V didn't disturb the core
+recurrence dynamics at all. depth=16 R4->R8 shows +1.85pp (above the
+1.17pp noise floor) but R4->R12 is only +0.05pp (flat) -- non-
+monotonic, same disciplined read as every other borderline signal
+this session: not claimed as a real R-effect. Total model parameter
+count: 120,370 vs the baseline's 133,171 -- **-9.6%** at the full-
+model level (workspace-only reduction is -23.6%, diluted by the
+unaffected embeddings/readout).
+
+**PROMOTION VERDICT: PASS.** Quality preserved (+0.12pp, not a loss),
+real parameter reduction (-9.6% total model / -23.6% workspace),
+speed is neutral (not a win, not a loss, noise on both platforms at
+this scale) rather than the hoped-for \(\geq\)1.15x. Reported exactly
+as measured, not forced into the "ideal outcome" framing -- this is a
+real, clean, quality-and-memory win with a null result on wall-clock
+at the current tiny D/M_H scale (11.1's own diagnosis: this workload
+is sequential-overhead-bound, not FLOP-bound, so a GEMM-width
+reduction alone was never likely to move latency much; it might matter
+more at a larger D, not tested here). \(D/4\) is now a separately
+approved future experiment (not run in this pass) since \(D/2\)
+passed. \(K=2\) evidence refresh (below) remains the next queued
+candidate, not yet approved to run.
+
+Results:
+`results/local/hz0h_bdh_hzcq_v1_speed_benchmark_value_dim_mps.json`,
+`results/local/hz0h_bdh_hzcq_v1_speed_benchmark_value_dim_cuda.json`,
+`results/local/hz0h_bdh_hzcq_v1_fsm_speedd_value_dim_mh32.json`.
+Checkpoint: `results/local/hz0h_bdh_hzcq_v1_fsm_speedd_value_dim_mh32_checkpoint.pt`.
 
 **Next candidate efficiency experiment -- document only, NOT approved
 to run yet.** If \(D/2\) survives its promotion criterion: evidence

@@ -4422,3 +4422,47 @@ Checkpoint and result JSON committed. Also currently running in
 parallel on RunPod (not competing for this Mac's CPU): the SPEED-D
 (value_dim=D/2) controlled quality comparison, real CUDA confirmed
 (13% util), ~15K/150K steps so far.
+
+---
+
+## Real result, 2026-09-04: SPEED-D (value_dim=D/2) -- PASS, quality preserved, speed neutral
+
+Real, controlled comparison, identical protocol to the LN baseline
+(M_H=32, same everything, n=2000/cell, real CUDA dispatch on RunPod,
+device explicitly verified as `cuda:NVIDIA GeForce RTX 5090`).
+
+**Mean accuracy: 0.3786** vs baseline's 0.3774 -- **+0.12pp**,
+essentially identical, comfortably clears the predeclared <=1.0pp
+quality-loss promotion criterion. Every depth (0.372-0.389) shows no
+degradation, including the deepest (depth=16: 0.3793). Gate magnitude
+is exactly 1.0 at every round/depth -- bit-identical signature to the
+LN baseline, confirming narrowing V didn't touch the core recurrence
+dynamics at all (expected, since only the V-projection/write_proj
+widths changed, not the gate or the default update rule).
+
+Real parameter reduction: 120,370 total model params vs baseline's
+133,171 -- **-9.6%** (workspace-module-only reduction is -23.6%,
+diluted at the full-model level by unaffected embeddings/readout).
+
+**Speed is genuinely neutral, not a win** -- reported exactly as
+measured rather than forced into the hoped-for framing. MPS: all three
+timing modes (forward/forward+backward/train-step) are noise, mean
+0.96x-1.10x across 8 batch/R combos. CUDA: same conclusion, mean
+0.96x-1.03x, noisier range (0.79x-1.21x). Consistent with 11.1's own
+diagnosis that this tiny workload's cost is sequential-round overhead,
+not FLOP volume -- shrinking the V/write GEMMs alone doesn't move
+wall-clock much at this scale, though it might matter more at a larger
+D (not tested here).
+
+**PROMOTION VERDICT: PASS.** Real, clean quality-and-memory win, null
+result on wall-clock. D/4 is now a separately approved future
+experiment (not run in this pass, per the plan's own "do not run D/4
+until D/2 passes"). K=2 evidence refresh remains the next documented-
+only candidate, still not approved to run.
+
+Both benchmark results, the quality result, and the checkpoint all
+committed. This closes out the SPEED-D task cleanly -- both real
+architecture experiments running in parallel this session (PAPER-3b
+locally, SPEED-D on RunPod) are now done, with genuinely different
+outcomes: PAPER-3b failed clearly (-7.14pp), SPEED-D passed cleanly
+(+0.12pp, real param reduction).
