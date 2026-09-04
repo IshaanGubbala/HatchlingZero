@@ -48,7 +48,8 @@ class HZCQReasoningWorkspaceConfig:
     def __init__(self, n_embd: int, workspace_slots: int = 8, gate_hidden: int = 16, g_init: float = 0.58,
                  allow_ablation_slots: bool = False, identity_biased: bool = False, layerscale_init: float = 0.1,
                  bounded_residual: bool = False, bound_scale: float = 1.0,
-                 bounded_accumulating: bool = False, beta: float = 0.1):
+                 bounded_accumulating: bool = False, beta: float = 0.1,
+                 value_dim: int | None = None):
         """Real, deliberate exception, 2026-09-02: plan section 6.2 locked
         M_H to {4, 8} for the FIRST, "deliberately boring" v1 pass (section
         6.4). That pass is now complete -- real evidence (mainline plan
@@ -134,6 +135,29 @@ class HZCQReasoningWorkspaceConfig:
         self.bounded_accumulating = bounded_accumulating
         self.beta = beta
 
+        # SPEED-D (plan section 11.5, "compressed value/write pathway
+        # only"): motivated directly by section 2's locked "KEEP:
+        # value/output-side compression" finding ("high fidelity before
+        # selection, compression after selection") and by the real,
+        # measured bottleneck (11.1: sequential per-round work, many
+        # small ops, poor GPU amortization -- NOT addressing fidelity).
+        # `value_dim` narrows ONLY the V-projection output of read_s/
+        # read_x (and therefore write_proj's input width) -- Q and K
+        # stay full n_embd, so attention SCORES (the addressing/
+        # selection step section 2 calls fragile) are byte-for-byte
+        # identical in shape and computation to the default path. None
+        # (default) = current full-D baseline, unchanged. Not combined
+        # with bounded_residual in this implementation -- H_base would
+        # come out value_dim-wide while delta_H stays D-wide, a real
+        # shape mismatch; that combination is out of scope for this
+        # experiment anyway (Rule 2 -- one architecture change at a
+        # time), so it's guarded here rather than left to fail silently.
+        if value_dim is not None and bounded_residual:
+            raise ValueError("value_dim (SPEED-D) and bounded_residual (PAPER-3) are not combined in "
+                              "this implementation -- H_base would come out value_dim-wide while "
+                              "delta_H stays full n_embd-wide. Test one architecture change at a time.")
+        self.value_dim = value_dim
+
 
 def _rms(t: torch.Tensor) -> torch.Tensor:
     return (t.pow(2).mean(dim=-1, keepdim=True) + _EPS).sqrt()
@@ -144,11 +168,16 @@ class _ExactCrossAttention(nn.Module):
     keys/values from some source tensor. Factored out since H needs
     two of these (one for S, one for x) with independent weights."""
 
-    def __init__(self, n_embd: int):
+    def __init__(self, n_embd: int, value_dim: int | None = None):
         super().__init__()
         self.q_proj = nn.Linear(n_embd, n_embd, bias=False)
         self.k_proj = nn.Linear(n_embd, n_embd, bias=False)
-        self.v_proj = nn.Linear(n_embd, n_embd, bias=False)
+        # SPEED-D: V's output width is independent of Q/K's -- narrowing
+        # it (value_dim < n_embd) only changes what gets TRANSPORTED
+        # after the (unchanged) attention selection, never the selection
+        # itself. scores = Q@K^T stays exactly n_embd-dimensional either
+        # way (scale below is fixed to n_embd, not value_dim).
+        self.v_proj = nn.Linear(n_embd, value_dim or n_embd, bias=False)
         self.scale = 1.0 / math.sqrt(n_embd)
 
     def project_kv(self, source: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
@@ -195,9 +224,10 @@ class HZCQReasoningWorkspace(nn.Module):
         M_H = config.workspace_slots
 
         self.H_init = nn.Parameter(torch.randn(M_H, D) * 0.02)
-        self.read_s = _ExactCrossAttention(D)
-        self.read_x = _ExactCrossAttention(D)
-        self.write_proj = nn.Linear(2 * D, D, bias=False)
+        self.read_s = _ExactCrossAttention(D, value_dim=config.value_dim)
+        self.read_x = _ExactCrossAttention(D, value_dim=config.value_dim)
+        value_dim = config.value_dim or D
+        self.write_proj = nn.Linear(2 * value_dim, D, bias=False)
         self.ln_read = nn.LayerNorm(D)
         self.ln_state = nn.LayerNorm(D)
 

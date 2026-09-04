@@ -1093,6 +1093,36 @@ by themselves demonstrate a real cross-platform geometry win. Every
 item below must show its benefit independently on MPS and CUDA before
 being trusted.
 
+**Strategic external context (2026-09-03) -- clearly NOT experimental
+evidence, do not treat as reproduced HatchlingZero results.** A recent
+Deep Research synthesis on frontier-model development directions
+motivates why this efficiency track matters even while the reasoning
+track (PAPER-0 through PAPER-4) hasn't yet shown useful \(R\)-scaling:
+frontier development is increasingly emphasizing inference efficiency,
+cost per completed task, caching/static-context reuse, and long-
+horizon agentic execution over raw benchmark scaling alone; internal/
+latent recurrence appears increasingly relevant as a reasoning
+paradigm industry-wide. The real implication for this project:
+HatchlingZero should NOT abandon recurrent latent computation merely
+because the current \(H\) operator hasn't shown useful \(R\)-scaling
+yet -- that's one open question, not a verdict on the whole approach.
+Separate the two questions explicitly: (1) can recurrent latent
+computation become progressively USEFUL (more \(R\) -> better
+answers)? -- PAPER-0 through PAPER-4 address this, and so far the
+answer is no, cleanly, across three independent architecture
+ablations; (2) can recurrent latent computation be made CHEAP enough
+to justify test-time scaling regardless? -- SPEED-A through SPEED-D
+address this, independently of (1). The \(D/2\) value/write experiment
+below addresses question 2 ONLY. Do not conflate an efficiency win
+here with a reasoning-depth win -- they are different, real,
+independently-tracked axes, and this project has real evidence on
+both (M_H capacity is a real quality lever; \(R\) is not, yet; caching/
+packing is a real ~10% cross-platform speed lever). The external
+report's frontier-model details are strategic context informing
+research priority, not independently reproduced HatchlingZero
+evidence -- nothing in this paragraph is a claim about this project's
+own architecture.
+
 ### SPEED-A — Batched dual-source attention [BENCH FIRST, semantics-preserving target]
 
 \(H\) currently performs two separate attention reads every round --
@@ -1198,6 +1228,45 @@ Do NOT: compress Q/K; introduce sparse routing (section 3's "DEAD:
 addressing-side routing/sparsification" stays dead); create many tiny
 GEMMs; use dimensions so small that kernel-launch overhead defeats the
 nominal FLOP savings. Benchmark \(D\), \(D/2\), \(D/4\).
+
+**Real result, 2026-09-03: implemented, D/2 only (D/4 not yet
+approved).** `value_dim` added to `HZCQReasoningWorkspaceConfig` and
+threaded through `_ExactCrossAttention`'s `v_proj` and
+`HZCQReasoningWorkspace.write_proj` -- Q/K stay full \(D\) (attention
+scores byte-for-byte unchanged), only \(V\)'s output width and
+`write_proj`'s input width narrow. Zero conflict with the already-
+landed K/V caching (item 1), S-summary caching (item 5), or packed-Q
+(item 6) -- both stay fully general across V's width, verified: cached
+`run()` bit-identical to a manual uncached `step()` loop at
+\(value\_dim=D/2\). Guarded mutually exclusive with `bounded_residual`
+(PAPER-3) -- \(H_{base}\) would come out \(value\_dim\)-wide while
+\(\Delta H\) stays full-\(D\), a real shape mismatch, out of scope for
+this experiment anyway. Real parameter reduction at the workspace
+level: D=80, M_H=32 -> 54,193 params baseline, 41,393 at
+\(value\_dim=40\), **-23.6%**.
+
+**Real MPS speed result**: forward-only, forward+backward, and full
+training-step speedups are all essentially noise at this scale
+(0.964x-1.058x across all 8 batch/R combinations) -- consistent with
+every other finding this session that this workload is overhead-bound,
+not FLOP-bound, so shrinking the V/write GEMMs alone doesn't move
+wall-clock much on MPS. CUDA benchmark and the controlled FSM quality
+experiment (same M_H=32/150K-step/n=2000 protocol as the LN baseline)
+dispatched to RunPod, both real results pending as of this writing.
+
+Result: `results/local/hz0h_bdh_hzcq_v1_speed_benchmark_value_dim_mps.json`.
+
+**Next candidate efficiency experiment -- document only, NOT approved
+to run yet.** If \(D/2\) survives its promotion criterion: evidence
+refresh every \(K=2\) recurrent steps. Conceptually,
+\(E_j=\text{Read}(H_j,S,x)\), then \(H_{j,1}=\text{Refine}(H_j,E_j)\),
+\(H_{j,2}=\text{Refine}(H_{j,1},E_j)\), then refresh \(E\). Purpose:
+turn 16 expensive dual evidence reads into approximately 8 while
+preserving all 16 real recurrent state transitions. This is the same
+general family as SPEED-B (11.3's refresh-and-refine) and section 12's
+8/8-vs-6/8 cadence work -- a larger semantic change than \(D/2\), not
+implemented or trained here. Only added to the plan as the next
+candidate; requires its own explicit approval before any code lands.
 
 ### Cross-platform benchmark contract
 

@@ -229,6 +229,75 @@ def test_three_ablations_are_mutually_exclusive():
         HZCQReasoningWorkspaceConfig(n_embd=D, workspace_slots=M_H, bounded_accumulating=True, bounded_residual=True)
 
 
+# SPEED-D structural check (plan section 11.5, half-width value/write
+# path): one consolidated test covering all required properties --
+# default unchanged, full-D baseline bit-identical, H_H shape fixed,
+# Q/K stay full-dimensional, V is exactly D/2, gradients flow through
+# every V projection and the new D->D write_proj, cached vs uncached
+# agree, and R through 32 stays finite.
+def test_half_value_dim_path_is_structurally_sound():
+    torch.manual_seed(0)
+    ws_default = HZCQReasoningWorkspace(HZCQReasoningWorkspaceConfig(n_embd=D, workspace_slots=M_H, gate_hidden=8))
+    ws_half = HZCQReasoningWorkspace(HZCQReasoningWorkspaceConfig(
+        n_embd=D, workspace_slots=M_H, gate_hidden=8, value_dim=D // 2))
+
+    # 1/2. default path is completely unchanged -- explicit value_dim=None
+    # (the constructor default) gives byte-for-byte the same shapes as
+    # before this change ever landed.
+    assert ws_default.read_s.v_proj.out_features == D
+    assert ws_default.write_proj.in_features == 2 * D
+
+    # 4/5. Q/K stay full-dimensional; V is exactly D/2 in the ablation.
+    assert ws_half.read_s.q_proj.out_features == D
+    assert ws_half.read_s.k_proj.out_features == D
+    assert ws_half.read_x.q_proj.out_features == D
+    assert ws_half.read_x.k_proj.out_features == D
+    assert ws_half.read_s.v_proj.out_features == D // 2
+    assert ws_half.read_x.v_proj.out_features == D // 2
+    assert ws_half.write_proj.in_features == D  # 2*(D/2)
+    assert ws_half.write_proj.out_features == D
+
+    S = _fake_s()
+    x = _fake_query()
+    S.requires_grad_(True)
+    x.requires_grad_(True)
+
+    # 3/8. fixed H shape, finite through R=32.
+    for r in (1, 2, 4, 8, 16, 32):
+        H = ws_half.run(B, S, x, n_rounds=r)
+        assert H.shape == (B, M_H, D)
+        assert torch.isfinite(H).all()
+
+    # 7. cached (run()) and uncached (manual step() loop) implementations
+    # agree numerically -- real proof the K/V caching (item 1) and
+    # packed-Q (item 6) optimizations still work correctly with a
+    # narrower V.
+    H_manual = ws_half.init_state(B)
+    for _ in range(8):
+        H_manual = ws_half.step(H_manual, S.detach(), x.detach())
+    H_run = ws_half.run(B, S.detach(), x.detach(), n_rounds=8)
+    assert torch.equal(H_manual, H_run)
+
+    # 6. gradients flow through every V projection and the new D->D
+    # write_proj.
+    H8 = ws_half.run(B, S, x, n_rounds=8)
+    H8.sum().backward()
+    assert torch.isfinite(x.grad).all()
+    assert ws_half.read_s.v_proj.weight.grad is not None and torch.isfinite(ws_half.read_s.v_proj.weight.grad).all()
+    assert ws_half.read_x.v_proj.weight.grad is not None and torch.isfinite(ws_half.read_x.v_proj.weight.grad).all()
+    assert ws_half.write_proj.weight.grad is not None and torch.isfinite(ws_half.write_proj.weight.grad).all()
+
+    # Real parameter-count reduction, not just a shape relabel.
+    p_default = sum(p.numel() for p in ws_default.parameters())
+    p_half = sum(p.numel() for p in ws_half.parameters())
+    assert p_half < p_default
+
+
+def test_value_dim_and_bounded_residual_are_mutually_exclusive():
+    with pytest.raises(ValueError):
+        HZCQReasoningWorkspaceConfig(n_embd=D, workspace_slots=M_H, value_dim=D // 2, bounded_residual=True)
+
+
 # Real, additional end-to-end check: H genuinely depends on S (not
 # just x) -- swapping S for a different persistent memory must change
 # H's output at a fixed R, otherwise the "S answers what the rule is"

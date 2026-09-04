@@ -79,7 +79,8 @@ def to_device(*tensors, device):
 def build_model(D: int, K: int, A: int, workspace_slots: int, gate_hidden: int, allow_ablation: bool,
                  identity_biased: bool = False, layerscale_init: float = 0.1,
                  bounded_residual: bool = False, bound_scale: float = 1.0,
-                 bounded_accumulating: bool = False, beta: float = 0.1):
+                 bounded_accumulating: bool = False, beta: float = 0.1,
+                 value_dim: int | None = None):
     state_embed = nn.Embedding(K, D)
     symbol_embed = nn.Embedding(A, D)
     mem = HZCQPersistentMemory(HZCQPersistentMemoryConfig(n_embd=D, memory_slots=8, gate_hidden=gate_hidden))
@@ -87,7 +88,7 @@ def build_model(D: int, K: int, A: int, workspace_slots: int, gate_hidden: int, 
         n_embd=D, workspace_slots=workspace_slots, gate_hidden=gate_hidden,
         allow_ablation_slots=allow_ablation, identity_biased=identity_biased, layerscale_init=layerscale_init,
         bounded_residual=bounded_residual, bound_scale=bound_scale,
-        bounded_accumulating=bounded_accumulating, beta=beta))
+        bounded_accumulating=bounded_accumulating, beta=beta, value_dim=value_dim))
     demo_encoder = nn.Linear(3 * D, D, bias=False)
     query_encoder = nn.Linear(2 * D, D, bias=False)
     rq, rk, rv = nn.Linear(D, D, bias=False), nn.Linear(D, D, bias=False), nn.Linear(D, D, bias=False)
@@ -183,6 +184,12 @@ def main() -> None:
                               "exclusive with --identity-biased and --bounded-residual.")
     parser.add_argument("--beta", type=float, default=0.1,
                          help="bounded_accumulating only: fixed (not learned) update-scale hyperparameter")
+    parser.add_argument("--value-dim", type=int, default=None,
+                         help="SPEED-D ablation: narrows read_s/read_x's V-projection output (and "
+                              "write_proj's input) to this width, e.g. --value-dim 40 for D=80's D/2. "
+                              "Q/K stay full D -- attention SELECTION is unchanged, only the width of "
+                              "what gets transported after selection narrows. Default None = current "
+                              "full-D baseline, unchanged. Not combined with --bounded-residual.")
     parser.add_argument("--gate-hidden", type=int, default=16)
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--train-steps", type=int, default=150000)
@@ -209,7 +216,8 @@ def main() -> None:
     model = build_model(D, K, A, args.workspace_slots, args.gate_hidden, args.allow_ablation_slots,
                          identity_biased=args.identity_biased, layerscale_init=args.layerscale_init,
                          bounded_residual=args.bounded_residual, bound_scale=args.bound_scale,
-                         bounded_accumulating=args.bounded_accumulating, beta=args.beta)
+                         bounded_accumulating=args.bounded_accumulating, beta=args.beta,
+                         value_dim=args.value_dim)
     model = tuple(m.to(device) for m in model)
     state_embed, symbol_embed, mem, ws, demo_encoder, query_encoder, rq, rk, rv, classifier = model
     print(f"[fsm_v1] device={device}", flush=True)
@@ -233,7 +241,8 @@ def main() -> None:
           f"bounded_residual={args.bounded_residual} "
           f"bound_scale={args.bound_scale if args.bounded_residual else 'n/a'} "
           f"bounded_accumulating={args.bounded_accumulating} "
-          f"beta={args.beta if args.bounded_accumulating else 'n/a'}", flush=True)
+          f"beta={args.beta if args.bounded_accumulating else 'n/a'} "
+          f"value_dim={args.value_dim if args.value_dim is not None else 'n/a (full-D baseline)'}", flush=True)
     opt = torch.optim.AdamW(params, lr=args.lr)
 
     train_rng = torch.Generator().manual_seed(args.seed + 1)
