@@ -2022,6 +2022,58 @@ Real interpretation going in:
   iterating on residual-update variants and move to PAPER-4's
   structurally different two-state design instead.
 
+**Real result, 2026-09-03/04: FAILED, and WORSE than either PAPER-2 or
+PAPER-3, not a recovery.** Trained locally on this Mac's CPU (same
+150K steps/M_H=32/n=2000 protocol, same rationale as PAPER-3 for
+staying off GPU). Mean accuracy **0.3060** -- -7.14pp vs the LN
+baseline's 0.3774, and notably -2.16pp/-2.25pp WORSE than PAPER-2's
+0.3276 and PAPER-3's 0.3285. None of the three predeclared
+interpretations from above quite fits: this isn't a recovery (ruled
+out), and it isn't "lands around ~33% too" -- it's meaningfully below
+both. The clean hypothesis this control was built to test ("was
+PAPER-2 bad specifically because the residual was unbounded, and would
+fixing just that recover accuracy") is answered NO, directly:
+combining real accumulation with a hard bound does not simply inherit
+the best of both -- it does worse than either ablation alone.
+
+**Real, genuinely new gate signature** -- a fourth distinct pattern,
+different from all three seen so far: a staged 3-step collapse,
+~0.999 (round 1) -> ~0.75 (round 2) -> ~0.03 (round 3) -> settles at
+~0.0015-0.002 for the remaining 13 rounds, identically at every tested
+depth. Not PAPER-2's instant collapse (round 1->2 straight to
+~0.0001), not PAPER-3's stable moderate plateau (~0.08-0.09 forever).
+**Real, coherent mechanistic reading**: allowing genuine accumulation
+(unlike PAPER-3's fixed anchor) reintroduces the compounding-drift
+risk that made PAPER-2's gate slam shut -- bounding the correction's
+magnitude (via tanh) wasn't enough by itself to keep the gate open,
+because the risk PAPER-2's gate was reacting to is drift accumulating
+over MANY rounds, not any single round's correction size. The model
+still needs to shut the gate down to control that, just less abruptly
+than PAPER-2 (3 rounds of decay instead of 1). This suggests real
+accumulation and gate-openness are in real tension in this
+architecture regardless of per-round boundedness -- a sharper,
+different conclusion than either PAPER-2 or PAPER-3 gave alone.
+
+**One honest, flagged, NOT over-claimed observation**: depth=16 shows
+R4->R8 +0.85pp, R4->R12 +1.25pp -- the R4->R12 delta is technically
+inside the 1-2pp band the kill criterion cares about, and both are
+monotonically increasing with R for the first time this session
+(previous borderline signals were non-monotonic). Given this run's
+much lower overall accuracy (0.306, near the K=5 chance-ish region)
+and the single-run/no-replication caveat applied to every other
+borderline signal this session, this is noted as an open curiosity for
+whoever continues this thread, NOT claimed as a real R-effect.
+
+**Verdict**: PAPER-3b lands clearly in the "worse, not around ~33%"
+outcome -- stronger grounds than the pre-declared "~33% too" case to
+stop iterating on single-state residual-update variants and move to
+PAPER-4's structurally different two-state (fast/slow) design, per
+this section's own predeclared logic.
+
+Checkpoint:
+`results/local/hz0h_bdh_hzcq_v1_fsm_paper3b_bounded_accumulating_mh32_checkpoint.pt`.
+Result: `results/local/hz0h_bdh_hzcq_v1_fsm_paper3b_bounded_accumulating_mh32.json`.
+
 ### PAPER-4 — Fast scratch / slow integrator
 
 Inspired by the two-timescale direction in Latent Recurrent Thoughts

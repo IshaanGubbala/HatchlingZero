@@ -4376,3 +4376,49 @@ prevented.
 Checkpoint and result JSON committed. Not launching PAPER-4 yet --
 same real-compute-decision discipline as every other training run
 this session.
+
+---
+
+## Real result, 2026-09-03/04: PAPER-3b -- FAILED, worse than PAPER-2/3, not a recovery
+
+Trained locally, same protocol as PAPER-2/3. Real result:
+H_{r+1}=H_r+beta*tanh(g_r*DeltaH_r), beta=0.1 fixed.
+
+**Mean accuracy: 0.3060** -- -7.14pp vs LN baseline (0.3774), and
+-2.16pp / -2.25pp WORSE than PAPER-2 (0.3276) and PAPER-3 (0.3285).
+The clean hypothesis this control was built for -- "was PAPER-2 bad
+specifically because the residual was unbounded, and does fixing just
+that recover accuracy" -- is answered directly: NO. Real accumulation
++ a hard bound is not simply the union of what worked in PAPER-2/3; it
+does worse than either alone.
+
+**A genuinely new, fourth gate signature**: staged 3-round collapse,
+~0.999 -> ~0.75 -> ~0.03 -> settles ~0.0015-0.002, identical at every
+depth. Different from PAPER-2's instant collapse and PAPER-3's stable
+moderate plateau. Real, coherent reading: allowing genuine accumulation
+reintroduces PAPER-2's compounding-drift risk even with the correction
+bounded per-round -- the risk is drift accumulating over MANY rounds,
+not any single round's magnitude, so tanh-bounding alone doesn't keep
+the gate open. Accumulation and gate-openness seem to be in real
+tension in this architecture regardless of per-round boundedness.
+
+One flagged-not-claimed curiosity: depth=16 R4->R8 +0.85pp, R4->R12
++1.25pp, both monotonic (first time this session a borderline R signal
+was monotonic rather than noisy/non-monotonic) and R4->R12 sits inside
+the 1-2pp kill-criterion band. Given the much lower overall accuracy
+here and the single-run/no-replication standard applied to every other
+borderline signal, this is an open curiosity for later, not a claim.
+
+**Real verdict**: this lands more clearly in "stop iterating on
+residual-update variants" than even the pre-declared "~33% too" case
+(0.306 is meaningfully below 0.33, not around it). Per PAPER-3b's own
+predeclared logic, PAPER-4 (fast scratch / slow integrator) is next --
+the queue has now tested three single-state residual-update variants
+(PAPER-2, PAPER-3, PAPER-3b) and all three failed, two of them by a
+similar margin and the newest one worse. Time to test a structurally
+different two-state design rather than a fourth residual variant.
+
+Checkpoint and result JSON committed. Also currently running in
+parallel on RunPod (not competing for this Mac's CPU): the SPEED-D
+(value_dim=D/2) controlled quality comparison, real CUDA confirmed
+(13% util), ~15K/150K steps so far.
