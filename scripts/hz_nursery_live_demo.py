@@ -103,12 +103,19 @@ def update_combined(mem, S_prev, demo_hidden, tau=0.5):
 
     S_new = mem.ln_state(S_prev + g * delta_S)
     chosen_slot = int(logits.squeeze(-1).argmax(dim=-1)[0].item())
-    return S_new, chosen_slot, attn
+    mean_gate = float(g.mean().item())  # real, cheap -- how much this write actually overwrote S
+    return S_new, chosen_slot, attn, mean_gate
 
 
 def qa_forward_fixed(model, tok, teach_sentence, question_sentence, type_idx, color_idx, size_idx, pos_idx):
     """Fixed L5 QA forward pass: ingests teach and question sentences
-    whole at once, with attention-diversity loss. Returns (logits, div_loss)."""
+    whole at once, with attention-diversity loss. Returns (logits,
+    div_loss, S, H, mean_gate) -- S (final persistent-memory state) and
+    H (final reasoning-workspace state) are returned so the live
+    viewer's architecture panel can render REAL per-slot activity for
+    both, and mean_gate is the real average write-gate value across
+    this episode's actual mem.update() calls -- not decoration, the
+    exact same signal hz_nursery_l5_gate_diagnostic.py inspected."""
     B = 1
     x_objects = model.encode_objects(type_idx, color_idx, size_idx, pos_idx)
 
@@ -116,17 +123,18 @@ def qa_forward_fixed(model, tok, teach_sentence, question_sentence, type_idx, co
     S = model.mem.init_state(B)
     teach_ids = torch.tensor([tok.encode(teach_sentence)])
     teach_hidden = model.token_embed(teach_ids)  # (1, T, D)
-    S, _, teach_attn = update_combined(model.mem, S, teach_hidden)
+    S, _, teach_attn, gate_teach = update_combined(model.mem, S, teach_hidden)
     div_loss_teach = attn_diversity_loss(teach_attn)
 
     # Update memory with question sentence (whole chunk)
     question_ids = torch.tensor([tok.encode(question_sentence)])
     question_hidden = model.token_embed(question_ids)  # (1, T, D)
-    S, _, question_attn = update_combined(model.mem, S, question_hidden)
+    S, _, question_attn, gate_question = update_combined(model.mem, S, question_hidden)
     div_loss_question = attn_diversity_loss(question_attn)
 
     # Combine diversity losses
     div_loss = (div_loss_teach + div_loss_question) / 2.0
+    mean_gate = (gate_teach + gate_question) / 2.0
 
     # Run workspace and readout (unchanged from original)
     H = model.ws.run(B, S, x_objects, n_rounds=model.n_rounds_l1)
@@ -134,28 +142,33 @@ def qa_forward_fixed(model, tok, teach_sentence, question_sentence, type_idx, co
     scores = torch.matmul(q, model.qa_rk(H).transpose(-1, -2)) / (model.D ** 0.5)
     read = torch.matmul(F.softmax(scores, dim=-1), H).mean(dim=1)
     logits = model.qa_head(read)
-    return logits, div_loss
+    return logits, div_loss, S, H, mean_gate
 
 
 def stress_recall_forward_fixed(model, tok, sequence, question):
     """Fixed L5-stress forward pass: ingests each sentence whole at once,
-    accumulates attention-diversity losses. Returns (logits, div_loss)."""
+    accumulates attention-diversity losses. Returns (logits, div_loss,
+    S, H, mean_gate) -- see qa_forward_fixed's docstring; same real
+    signals, accumulated across every write event in this episode."""
     B = 1
     S = model.mem.init_state(B)
     div_losses = []
+    gate_values = []
 
     # Update memory with each sentence in the sequence
     for sentence in sequence:
         ids = torch.tensor([tok.encode(sentence)])
         hidden = model.token_embed(ids)  # (1, T, D)
-        S, _, attn = update_combined(model.mem, S, hidden)
+        S, _, attn, gate_val = update_combined(model.mem, S, hidden)
         div_losses.append(attn_diversity_loss(attn))
+        gate_values.append(gate_val)
 
     # Update memory with question
     q_ids = torch.tensor([tok.encode(question)])
     q_hidden = model.token_embed(q_ids)
-    S, _, q_attn = update_combined(model.mem, S, q_hidden)
+    S, _, q_attn, gate_val = update_combined(model.mem, S, q_hidden)
     div_losses.append(attn_diversity_loss(q_attn))
+    gate_values.append(gate_val)
 
     # Workspace reasoning and readout (same as stress_recall_forward)
     x_null = model.read_null_x.expand(B, 1, model.D)
@@ -164,8 +177,20 @@ def stress_recall_forward_fixed(model, tok, sequence, question):
     scores = torch.matmul(q, model.qa_rk(H).transpose(-1, -2)) / (model.D ** 0.5)
     read = torch.matmul(F.softmax(scores, dim=-1), H).mean(dim=1)
     logits = model.qa_head(read)
+    mean_gate = sum(gate_values) / len(gate_values)
     mean_div_loss = torch.stack(div_losses).mean() if div_losses else torch.tensor(0.0)
-    return logits, mean_div_loss
+    return logits, mean_div_loss, S, H, mean_gate
+
+
+def memory_slot_activity(S: torch.Tensor) -> list:
+    """Real, cheap per-slot L2 norm of the persistent-memory state --
+    not decorative. Normalized to [0,1] against the batch's own max so
+    the live-viewer's memory-crystal panel shows RELATIVE slot activity
+    (which slots currently hold the most "energy") rather than an
+    arbitrary raw scale."""
+    norms = S[0].norm(dim=-1)  # (M_S,)
+    max_norm = norms.max().clamp_min(1e-6)
+    return (norms / max_norm).tolist()
 
 
 def write_snapshot(path: Path, data: dict) -> None:
@@ -205,7 +230,8 @@ def base_snapshot(stage: str, stage_idx: int, n_stages: int, step: int, total_st
                    metrics_current: dict, metrics_chance: dict, metrics_baseline: dict,
                    history: dict, verb=None, consequence_true=None, consequence_pred=None,
                    tokens=None, matching_indices=None, verify_true=None, verify_pred=None,
-                   passage=None, recall_true=None, recall_pred=None) -> dict:
+                   passage=None, recall_true=None, recall_pred=None,
+                   memory_slots=None, hidden_slots=None, mean_gate=None) -> dict:
     return {
         "kind": "nursery",
         "stage": stage,
@@ -237,6 +263,16 @@ def base_snapshot(stage: str, stage_idx: int, n_stages: int, step: int, total_st
         "passage": passage,
         "recall_true": recall_true,
         "recall_pred": recall_pred,
+        # Real architecture introspection (L5/L5-stress only, where the
+        # live demo builds S/H by hand): normalized per-slot L2-norm
+        # "activity" for persistent memory (memory_slots) and the
+        # reasoning workspace (hidden_slots), and the real mean write-
+        # gate value for this step's actual mem.update() calls -- the
+        # exact signals hz_nursery_l5_gate_diagnostic.py inspected, not
+        # decoration. None for every other stage (not yet wired).
+        "memory_slots": memory_slots,
+        "hidden_slots": hidden_slots,
+        "mean_gate": mean_gate,
         "metrics": {
             "current": metrics_current,
             "chance": metrics_chance,
@@ -451,8 +487,8 @@ def run_l5(model, opt, tok, args, state_file, tracker, stage_idx, n_stages):
         # Training step with fixed memory ingestion + attention-diversity loss
         ep = generate_l5_qa_episode(train_rng, n_objects=args.l5_n_objects)
         teach_ids, question_ids, type_idx, color_idx, size_idx, pos_idx, label_idx = nt.l5_episode_tensors(tok, ep)
-        logits, div_loss = qa_forward_fixed(model, tok, ep["teach"], ep["question"],
-                                             type_idx, color_idx, size_idx, pos_idx)
+        logits, div_loss, _, _, _ = qa_forward_fixed(model, tok, ep["teach"], ep["question"],
+                                                      type_idx, color_idx, size_idx, pos_idx)
         loss = torch.nn.functional.cross_entropy(logits, label_idx)
         total_loss = loss + ATTN_DIV_LAMBDA * div_loss
         opt.zero_grad(set_to_none=True)
@@ -467,8 +503,8 @@ def run_l5(model, opt, tok, args, state_file, tracker, stage_idx, n_stages):
                 for _ in range(args.demo_eval_n):
                     e = generate_l5_qa_episode(eval_rng, n_objects=args.l5_n_objects)
                     t_ids, q_ids, t_idx, c_idx, s_idx, p_idx, l_idx = nt.l5_episode_tensors(tok, e)
-                    lg, _ = qa_forward_fixed(model, tok, e["teach"], e["question"],
-                                             t_idx, c_idx, s_idx, p_idx)
+                    lg, _, _, _, _ = qa_forward_fixed(model, tok, e["teach"], e["question"],
+                                                       t_idx, c_idx, s_idx, p_idx)
                     correct += int((lg.argmax(-1) == l_idx).item())
             tracker.push(held_out_acc=correct / args.demo_eval_n)
 
@@ -476,14 +512,15 @@ def run_l5(model, opt, tok, args, state_file, tracker, stage_idx, n_stages):
         ep = generate_l5_qa_episode(eval_rng, n_objects=args.l5_n_objects)
         teach_ids, question_ids, type_idx, color_idx, size_idx, pos_idx, label_idx = nt.l5_episode_tensors(tok, ep)
         with torch.no_grad():
-            logits, _ = qa_forward_fixed(model, tok, ep["teach"], ep["question"],
-                                         type_idx, color_idx, size_idx, pos_idx)
+            logits, _, S, H, mean_gate = qa_forward_fixed(model, tok, ep["teach"], ep["question"],
+                                                            type_idx, color_idx, size_idx, pos_idx)
             pred_idx = int(logits.argmax(-1).item())
 
         write_snapshot(state_file, base_snapshot(
             stage="L5", stage_idx=stage_idx, n_stages=n_stages, step=step + 1, total_steps=args.l5_steps,
             instruction=ep["question"], objects=ep["objects"], target_idx=ep["target_idx"], pred_idx=None,
             passage=[ep["teach"]], recall_true=ep["label"], recall_pred=NOVEL_LABELS[pred_idx],
+            memory_slots=memory_slot_activity(S), hidden_slots=memory_slot_activity(H), mean_gate=mean_gate,
             metrics_current={"held_out_acc": (tracker.history.get("held_out_acc") or [1.0 / len(NOVEL_LABELS)])[-1]},
             metrics_chance={"held_out_acc": 1.0 / len(NOVEL_LABELS)}, metrics_baseline={},
             history=tracker.snapshot()))
@@ -498,7 +535,7 @@ def run_l5_stress(model, opt, tok, args, state_file, tracker, stage_idx, n_stage
         # Training step with fixed memory ingestion + attention-diversity loss
         ep = generate_l5_stress_episode(train_rng, n_facts=n_facts, n_distractors=n_distractors)
         answer_idx = torch.tensor([ep["answer_idx"]])
-        logits, div_loss = stress_recall_forward_fixed(model, tok, ep["sequence"], ep["question"])
+        logits, div_loss, _, _, _ = stress_recall_forward_fixed(model, tok, ep["sequence"], ep["question"])
         loss = torch.nn.functional.cross_entropy(logits, answer_idx)
         total_loss = loss + ATTN_DIV_LAMBDA * div_loss
         opt.zero_grad(set_to_none=True)
@@ -513,13 +550,13 @@ def run_l5_stress(model, opt, tok, args, state_file, tracker, stage_idx, n_stage
                 for _ in range(args.demo_eval_n):
                     e = generate_l5_stress_episode(eval_rng, n_facts=n_facts, n_distractors=n_distractors)
                     a_idx = torch.tensor([e["answer_idx"]])
-                    lg, _ = stress_recall_forward_fixed(model, tok, e["sequence"], e["question"])
+                    lg, _, _, _, _ = stress_recall_forward_fixed(model, tok, e["sequence"], e["question"])
                     correct += int((lg.argmax(-1).item() == e["answer_idx"]))
             tracker.push(held_out_acc=correct / args.demo_eval_n)
 
         # Live demo
         with torch.no_grad():
-            logits, _ = stress_recall_forward_fixed(model, tok, ep["sequence"], ep["question"])
+            logits, _, S, H, mean_gate = stress_recall_forward_fixed(model, tok, ep["sequence"], ep["question"])
             pred_idx = int(logits.argmax(-1).item())
 
         write_snapshot(state_file, base_snapshot(
@@ -527,6 +564,7 @@ def run_l5_stress(model, opt, tok, args, state_file, tracker, stage_idx, n_stage
             stage_idx=stage_idx, n_stages=n_stages, step=step + 1, total_steps=args.l5_stress_steps,
             instruction=ep["question"], objects=[], target_idx=None, pred_idx=None,
             passage=ep["sequence"], recall_true=ep["answer"], recall_pred=NOVEL_LABELS[pred_idx],
+            memory_slots=memory_slot_activity(S), hidden_slots=memory_slot_activity(H), mean_gate=mean_gate,
             metrics_current={"held_out_acc": (tracker.history.get("held_out_acc") or [1.0 / len(NOVEL_LABELS)])[-1]},
             metrics_chance={"held_out_acc": 1.0 / len(NOVEL_LABELS)}, metrics_baseline={},
             history=tracker.snapshot()))
