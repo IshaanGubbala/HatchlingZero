@@ -2529,10 +2529,46 @@ per-episode training loops.
 
 ## Phase 7 — RL
 
-- [ ] Verifiable reward loop.
-- [ ] On-policy baseline.
-- [ ] Group-relative trajectory optimization.
-- [ ] Replay/off-policy later.
+- [x] Verifiable reward loop. (real +1/-1 correct/incorrect signal, computed from the generator's own ground truth — no learned reward model)
+- [x] On-policy baseline. (fresh episode sampled every step, no replay buffer)
+- [x] Group-relative trajectory optimization. (GRPO-style group-mean-reward baseline)
+- [ ] Replay/off-policy later. (deliberately deferred, per this section's own ordering)
+
+**Real result, 2026-09-05 — group-relative policy gradient (GRPO-style)
+gets close to, but does not beat, the supervised ceiling on L4-counting.**
+`scripts/hz_nursery_rlvr_counting.py` implements the first real RLVR loop:
+the model's single `verify_count_forward` logit defines a Bernoulli policy
+over {predict TRUE, predict FALSE}; each step samples a GROUP of K=8
+actions from the same episode, scores each against the real verifiable
+reward (+1 correct / -1 incorrect, from `generate_l4_counting_episode`'s
+own ground truth — no learned reward model, no human judgment), and uses
+the group-mean reward as the advantage baseline (`advantage = reward -
+group_mean`) — GRPO's own normalization, at the smallest possible scale
+(one episode, K samples). Loss: `-mean_k(log pi(a_k) * advantage_k)`. Zero
+supervised (cross-entropy/BCE) gradient anywhere in this loop.
+
+3 seeds, 5000 steps each, same L4-counting task this session's supervised
+BCE baseline was measured on (line ~1834, held-out acc 0.675):
+
+| seed | RLVR held-out acc |
+|------|--------------------|
+| 0    | 0.572 |
+| 1    | 0.658 |
+| 2    | 0.657 |
+| **mean** | **0.629** |
+
+vs. supervised BCE baseline: **0.675**. Chance: 0.500.
+
+2 of 3 seeds land within 0.02 of the supervised ceiling using a pure
+verifiable-reward signal — real evidence RLVR can train this architecture
+close to its existing capacity limit without any cross-entropy gradient.
+Seed 0's per-checkpoint curve (step 500→5000: 0.600, 0.637, 0.620, 0.653,
+0.607, 0.620, 0.583, 0.600, 0.597, 0.597) shows a real plateau by step
+1000-1500, not a still-climbing run cut short — RLVR converges faster in
+wall-clock steps here but noisier than supervised BCE (visible in the
+mean_group_reward fluctuating 0.04-0.31 with no clean upward trend), which
+tracks with policy-gradient's known higher-variance-than-supervised-loss
+character rather than indicating a bug.
 
 ## Phase 8 — Library (after Phase 0)
 

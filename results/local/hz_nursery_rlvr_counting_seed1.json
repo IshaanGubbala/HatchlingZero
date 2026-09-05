@@ -1,0 +1,46 @@
+{
+  "history": [
+    {
+      "step": 500,
+      "held_out_acc": 0.6933333333333334
+    },
+    {
+      "step": 1000,
+      "held_out_acc": 0.65
+    },
+    {
+      "step": 1500,
+      "held_out_acc": 0.69
+    },
+    {
+      "step": 2000,
+      "held_out_acc": 0.6233333333333333
+    },
+    {
+      "step": 2500,
+      "held_out_acc": 0.66
+    },
+    {
+      "step": 3000,
+      "held_out_acc": 0.69
+    },
+    {
+      "step": 3500,
+      "held_out_acc": 0.6633333333333333
+    },
+    {
+      "step": 4000,
+      "held_out_acc": 0.65
+    },
+    {
+      "step": 4500,
+      "held_out_acc": 0.64
+    },
+    {
+      "step": 5000,
+      "held_out_acc": 0.66
+    }
+  ],
+  "final_acc": 0.6583333333333333,
+  "supervised_baseline_acc": 0.675
+}

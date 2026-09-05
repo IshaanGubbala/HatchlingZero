@@ -1,0 +1,17 @@
+[rlvr-counting] step=500/5000 train_greedy_acc=0.620 mean_group_reward=+0.229 held_out_acc=0.687
+[rlvr-counting] step=1000/5000 train_greedy_acc=0.630 mean_group_reward=+0.249 held_out_acc=0.707
+[rlvr-counting] step=1500/5000 train_greedy_acc=0.660 mean_group_reward=+0.320 held_out_acc=0.643
+[rlvr-counting] step=2000/5000 train_greedy_acc=0.685 mean_group_reward=+0.356 held_out_acc=0.663
+[rlvr-counting] step=2500/5000 train_greedy_acc=0.625 mean_group_reward=+0.242 held_out_acc=0.657
+[rlvr-counting] step=3000/5000 train_greedy_acc=0.695 mean_group_reward=+0.389 held_out_acc=0.673
+[rlvr-counting] step=3500/5000 train_greedy_acc=0.720 mean_group_reward=+0.441 held_out_acc=0.630
+[rlvr-counting] step=4000/5000 train_greedy_acc=0.635 mean_group_reward=+0.279 held_out_acc=0.670
+[rlvr-counting] step=4500/5000 train_greedy_acc=0.675 mean_group_reward=+0.345 held_out_acc=0.657
+[rlvr-counting] step=5000/5000 train_greedy_acc=0.675 mean_group_reward=+0.350 held_out_acc=0.687
+
+[rlvr-counting] wrote results/local/hz_nursery_rlvr_counting_seed2.json
+
+[rlvr-counting] === SUMMARY ===
+RLVR (group-relative policy gradient) final held_out_acc: 0.657
+Supervised (BCE) baseline, this session, same task:       0.675
+Chance:                                                    0.500
