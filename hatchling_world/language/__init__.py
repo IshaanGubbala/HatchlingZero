@@ -13,6 +13,7 @@ from hatchling_world.language.nursery_generator import (
     generate_l4_logic_and_episode,
     generate_l4_counting_episode,
     generate_l5_qa_episode,
+    generate_l5_stress_episode,
     generate_l6_reading_episode,
 )
 
@@ -26,5 +27,6 @@ __all__ = [
     "generate_l4_logic_and_episode",
     "generate_l4_counting_episode",
     "generate_l5_qa_episode",
+    "generate_l5_stress_episode",
     "generate_l6_reading_episode",
 ]

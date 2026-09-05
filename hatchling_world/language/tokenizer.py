@@ -32,7 +32,11 @@ FUNCTION_WORDS = ["the", "a", "this", "touch", "and"]
 # Stage L4 -- numbers (grounded to real quantities via a verification
 # task, not just memorized as a sequence) and logic words (AND-
 # composition, phrased explicitly instead of L3's bare juxtaposition).
-NUMBERS = ["zero", "one", "two", "three", "four"]
+# Extended zero..four -> zero..eight for School-0 arithmetic (section 8.2)
+# -- NUMBERS[k] names the value k directly by list position throughout
+# this codebase (L4 counting relied on this already), so appending new
+# words after "four" is a safe, purely additive extension.
+NUMBERS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight"]
 LOGIC_WORDS = ["how", "many", "are", "there", "that"]
 # Stage L5 -- teacher/student QA loop, section 6's one-shot novel-word
 # test realized concretely: NOVEL_LABELS are meaningless synthetic
@@ -43,9 +47,15 @@ LOGIC_WORDS = ["how", "many", "are", "there", "that"]
 # across many episodes, only from real within-episode recall via S.
 NOVEL_LABELS = ["dax", "wug", "blicket", "fep"]
 QA_WORDS = ["what", "called"]
+# School-0 (plan section 8.2): the natural continuation of L4's numbers/
+# logic words into real arithmetic and conditional-rule reasoning --
+# "if an object is {color} then it is {size}" is a GENERAL rule, applied
+# to a query about a specific instance, not a fact about one object
+# (the distinction from L5's fact recall).
+SCHOOL_WORDS = ["plus", "equals", "if", "then"]
 
 VOCAB = (SPECIALS + NOUNS + COLORS + SIZES + POSITIONS + VERBS_STATE + VERBS_ACTION
-         + FUNCTION_WORDS + NUMBERS + LOGIC_WORDS + NOVEL_LABELS + QA_WORDS)
+         + FUNCTION_WORDS + NUMBERS + LOGIC_WORDS + NOVEL_LABELS + QA_WORDS + SCHOOL_WORDS)
 
 
 class NurseryTokenizer:

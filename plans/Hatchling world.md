@@ -1450,6 +1450,12 @@ Do **not** kill Hatchling World after one disappointing number. Park/kill only a
       real sub-task losses summed every step: L0 LM + L1 ground + L2
       select/consequence + L3 relation + L4 logic-AND + L4 counting +
       L5 QA + L6 reading. No curriculum ordering at all)
+- [x] L5 memory stress test (multi-fact + distractor interference).
+      (`generate_l5_stress_episode` + `HZLanguageModel.stress_recall_forward`
+      — 2-4 distinct facts taught, interleaved in random order with
+      plain distractor sentences, one question about a randomly chosen
+      fact; `query_idx` vs `fact_position` separate "forgetting because
+      taught long ago" from "forgetting because buried under later turns")
 
 **Real result, 2026-09-04**: `scripts/hz_nursery_train.py`, `d_model=64`,
 `M_H=32` (D/2 value/write), same architecture as the room-navigation
@@ -1817,6 +1823,46 @@ had none), so this result says "joint vs. isolated is roughly neutral,"
 not yet "curriculum vs. no-curriculum is neutral" — that comparison
 remains real, open follow-up work.
 
+**Real result, 2026-09-05 — L5 memory stress test, a sharp, mechanistic
+capacity limit found.** Explicit user request: "teach 2-4 novel facts,
+insert distractor sentences, then ask about one later" to find the real
+capacity/interference properties of \(S\), beyond L5's original single-
+fact test. `generate_l5_stress_episode` + `HZLanguageModel.
+stress_recall_forward` (generalizes `qa_forward`'s 2-turn chain to
+however many facts/distractors are interleaved). Swept 7 configs
+(`n_facts` in {2,3,4}, `n_distractors` in {0,2,4}), 2500 steps each:
+
+| n_facts | n_distractors | held-out acc | chance |
+|---|---|---|---|
+| 2 | 0 | 0.525 | 0.250 |
+| 3 | 0 | 0.240 | 0.250 |
+| 4 | 0 | 0.265 | 0.250 |
+| 2 | 2 | 0.505 | 0.250 |
+| 3 | 2 | 0.270 | 0.250 |
+| 4 | 2 | 0.233 | 0.250 |
+| 3 | 4 | 0.233 | 0.250 |
+
+**A sharp cliff at n_facts=2->3**, not a gradual decline: 2 simultaneous
+facts land around 50-52% (roughly 2x chance, clearly above it but well
+below L5's original single-fact 100%), while 3 or 4 facts collapse to
+EXACTLY chance regardless of distractor count (24.0%/27.0%/23.3% for
+n_facts=3 with 0/2/4 distractors — statistically indistinguishable from
+each other). **The real, useful finding: fact COUNT is the dominant
+capacity constraint, not distractor interference** — adding more
+distractor sentences barely changes accuracy at any fixed `n_facts`,
+because once retention has already failed structurally at 3+ facts,
+there is nothing left for a distractor to interfere WITH. This
+localizes \(S\)'s real capacity for this novel-label-recall task to
+roughly 2 simultaneous facts (and even that isn't clean — 50% is a
+long way from L5's 1-fact 100%, meaning degradation sets in immediately
+past a single fact, not just at the 3-fact cliff). 2 new tests
+(`test_l5_stress_episode_facts_are_distinct_and_answer_is_correct`,
+`test_stress_recall_forward_shapes_and_gradients`) added (20/20 passing
+in `test_hz_nursery_grounding.py`). **Real, disclosed limitation**: not
+root-caused — `memory_slots=8` (\(M_S\)) is the obvious first thing to
+sweep (does capacity scale with slot count, or is the bottleneck
+elsewhere in `mem.update`'s gating), not yet done.
+
 ## Phase 1 — environment (HZ-World-0, infrastructure validation)
 
 - [x] Create `hatchling_world/`. (commit a20bc30, 2026-09-04)
@@ -1918,9 +1964,52 @@ document's real thesis.
 
 ## Phase 9 — School subjects (after Phase 0)
 
-- [ ] Mathematics/Logic task generator.
+- [x] Mathematics/Logic task generator (School-0, minimal first slice).
+      (`hatchling_world/school/generator.py` — `generate_arithmetic_episode`
+      with a real held-out operand-pair split (`ARITH_HELD_OUT_PAIRS`),
+      `generate_rule_episode` (general conditional -> apply to a query,
+      a real deduction test, not fact recall); `HZLanguageModel.
+      arithmetic_forward` (new head) + `rule_forward` (reuses L6's
+      `read_head`, zero new parameters); `scripts/hz_school0_train.py`.
+      A simplified Teach->Quiz->Apply slice of section 8.3's full 8-step
+      pipeline, not the whole thing yet)
 - [ ] Computer Science (code reading/debugging/unit tests) task generator.
 - [ ] Physics/Biology/Chemistry task generators (progressive, one at a time).
+
+**Real result, 2026-09-05 — School-0, two very different outcomes,
+directly connecting to the Nursery's own open questions.** Explicit
+user request: "not just language tasks anymore: simple arithmetic,
+logic, causal rules, then teach -> quiz -> apply."
+
+**Rule/logic (conditional application)**: teach a general rule ("if an
+object is {color} then it is {size}"), then ask about a specific
+instance identified by the rule's premise — the answer is never stated
+directly, it must be DERIVED (rule + observation -> conclusion, modus
+ponens), a genuine step beyond L5's verbatim fact recall. Result: held-
+out accuracy reaches **100% by step 500** and stays there (chance =
+50%) — a clean, real deduction win, same saturating signature as
+L1/L2/L5.
+
+**Arithmetic** ("{a} plus {b} equals" -> the sum, real held-out operand-
+pair split matching L3's own methodology): held-out SEEN-pair accuracy
+climbs cleanly to 96% by step 2500 (near-ceiling, as expected — this is
+just interpolation). Held-out UNSEEN-pair accuracy shows the EXACT SAME
+noisy, non-converging signature already seen in L3's and L4-logic's
+unseen-combo tests: 0%, 0%, 34.5%, 15.5%, 38.0%, 21.0%, 40.5%, 62.5%,
+41.5%, 61.5% across training — never settling, well above the ~11%
+chance floor (9-way classification) but nowhere near the 96% seen-pair
+ceiling. **This is a real, valuable cross-domain confirmation**: the
+same partial-generalization-to-unseen-combinations pattern shows up in
+a completely different domain (symbolic arithmetic, not object
+properties), strengthening the case that this is a general property of
+how the architecture generalizes to unseen SYMBOL COMBINATIONS, not a
+color/size-specific quirk — worth testing whether the
+`FactorizedSumEncoder`-style fix (separate per-attribute embeddings,
+summed) has an arithmetic analogue (e.g. separate embeddings for each
+operand digit, summed or otherwise combined, instead of encoding the
+whole "{a} plus {b} equals" string as one token sequence through a
+single shared pathway) once the encoder-promotion check (in progress)
+concludes. 5 new tests (`tests/test_hz_school0.py`, 5/5 passing).
 
 ## Phase 10 — Labs
 

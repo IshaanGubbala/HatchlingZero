@@ -50,7 +50,7 @@ from reference.hz0h_bdh_hzcq_v1_reasoning_workspace_torch import HZCQReasoningWo
 class HZLanguageModel(nn.Module):
     def __init__(self, vocab_size: int, d_model: int = 64, memory_slots: int = 8,
                  workspace_slots: int = 32, gate_hidden: int = 16, n_rounds_l1: int = 8, n_qa_labels: int = 4,
-                 n_read_labels: int = 2):
+                 n_read_labels: int = 2, n_arith_labels: int = 9):
         super().__init__()
         self.D = d_model
         self.vocab_size = vocab_size
@@ -124,6 +124,12 @@ class HZLanguageModel(nn.Module):
         # over what accumulated in S from reading the passage.
         self.read_null_x = nn.Parameter(torch.randn(1, 1, d_model) * 0.02)
         self.read_head = nn.Linear(d_model, n_read_labels, bias=True)
+
+        # School-0 (section 8.2): arithmetic gets its own head (a
+        # different label space, sums 0-8); the logic/causal-rule task
+        # reuses read_head as-is (same SIZES label space, see
+        # rule_forward) -- no new parameters needed for that one.
+        self.arithmetic_head = nn.Linear(d_model, n_arith_labels, bias=True)
 
     # ---- Stage L0: pure self-supervised next-token LM ----
 
@@ -303,3 +309,67 @@ class HZLanguageModel(nn.Module):
         H = self.ws.run(B, S, x_null, n_rounds=self.n_rounds_l1)  # (B, M_H, D)
         pooled = H.mean(dim=1)
         return self.read_head(pooled)  # (B, n_read_labels)
+
+    # ---- L5 memory stress test: multi-fact recall + distractor interference ----
+
+    def stress_recall_forward(self, sequence_ids_list: list[torch.Tensor], question_ids: torch.Tensor) -> torch.Tensor:
+        """Generalizes qa_forward's 2-turn (teach, question) chain to
+        len(sequence_ids_list)+1 turns -- some of those turns are real
+        taught facts, some are plain distractor sentences carrying no
+        fact at all (see generate_l5_stress_episode), and S sees them in
+        the SAME interleaved order a real multi-turn interaction would.
+        Reuses qa_forward's readout (qa_rq/qa_rk/qa_head, same label
+        space) and read_forward's turn-chaining + null-x mechanism
+        (no object-feature-set input -- every fact is language read
+        through S, same as L6)."""
+        B = question_ids.shape[0]
+        S = self.mem.init_state(B, device=question_ids.device)
+        for sentence_ids in sequence_ids_list:
+            for t in range(sentence_ids.shape[1]):
+                S = self.mem.update(S, self.token_embed(sentence_ids[:, t]).unsqueeze(1))
+        for t in range(question_ids.shape[1]):
+            S = self.mem.update(S, self.token_embed(question_ids[:, t]).unsqueeze(1))
+
+        x_null = self.read_null_x.expand(B, 1, self.D)
+        H = self.ws.run(B, S, x_null, n_rounds=self.n_rounds_l1)  # (B, M_H, D)
+        q = self.qa_rq(H).mean(dim=1, keepdim=True)
+        scores = torch.matmul(q, self.qa_rk(H).transpose(-1, -2)) / (self.D ** 0.5)
+        read = torch.matmul(F.softmax(scores, dim=-1), H).mean(dim=1)
+        return self.qa_head(read)  # (B, n_qa_labels)
+
+    # ---- School-0: arithmetic and conditional-rule reasoning ----
+
+    def arithmetic_forward(self, instruction_ids: torch.Tensor) -> torch.Tensor:
+        """instruction_ids encode "{a} plus {b} equals". Single-turn
+        ingestion into S (no teach/question split -- the whole problem
+        is one utterance), reasoning over S and a null placeholder (no
+        object-feature-set input, same as L6/L5-stress), classified into
+        the sum via arithmetic_head."""
+        B = instruction_ids.shape[0]
+        S = self.mem.init_state(B, device=instruction_ids.device)
+        for t in range(instruction_ids.shape[1]):
+            S = self.mem.update(S, self.token_embed(instruction_ids[:, t]).unsqueeze(1))
+        x_null = self.read_null_x.expand(B, 1, self.D)
+        H = self.ws.run(B, S, x_null, n_rounds=self.n_rounds_l1)
+        pooled = H.mean(dim=1)
+        return self.arithmetic_head(pooled)  # (B, n_arith_labels)
+
+    def rule_forward(self, rule_ids: torch.Tensor, question_ids: torch.Tensor) -> torch.Tensor:
+        """rule_ids encode a GENERAL conditional ("if an object is
+        {color} then it is {size}"), question_ids ask about a specific
+        instance identified by the rule's own premise. Structurally
+        identical to qa_forward's 2-turn chain (teach, then question)
+        -- the difference is semantic, not architectural: this is a
+        RULE to apply to a query, not a FACT to retrieve verbatim.
+        Reuses read_head (the same SIZES label space L6 already uses),
+        no new parameters."""
+        B = question_ids.shape[0]
+        S = self.mem.init_state(B, device=question_ids.device)
+        for t in range(rule_ids.shape[1]):
+            S = self.mem.update(S, self.token_embed(rule_ids[:, t]).unsqueeze(1))
+        for t in range(question_ids.shape[1]):
+            S = self.mem.update(S, self.token_embed(question_ids[:, t]).unsqueeze(1))
+        x_null = self.read_null_x.expand(B, 1, self.D)
+        H = self.ws.run(B, S, x_null, n_rounds=self.n_rounds_l1)
+        pooled = H.mean(dim=1)
+        return self.read_head(pooled)  # (B, n_read_labels) -- same space as SIZES

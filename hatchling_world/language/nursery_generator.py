@@ -273,3 +273,44 @@ def generate_l6_reading_episode(rng: random.Random, n_sentences: int = 3) -> dic
     answer = sizes[query_idx]
     return {"sentences": sentences, "question": question, "query_idx": query_idx,
             "answer": answer, "answer_idx": SIZES.index(answer), "colors": colors, "sizes": sizes}
+
+
+def generate_l5_stress_episode(rng: random.Random, n_facts: int = 3, n_distractors: int = 2) -> dict:
+    """L5 memory stress test, explicit user request 2026-09-05: L5's
+    original episode taught exactly ONE fact with no interference at
+    all -- this tests the REAL capacity/interference properties of S.
+    `n_facts` distinct novel-label facts are taught (up to
+    len(NOVEL_LABELS)=4, distinct colors AND distinct labels so no two
+    facts are confusable with each other), interleaved in RANDOM order
+    with `n_distractors` plain, label-free L0-style sentences that carry
+    no fact at all (real "noise" turns -- do they corrupt S's retained
+    facts just by being additional sequential mem.update() calls?), then
+    a question about exactly ONE of the taught facts, chosen uniformly
+    (not always the most recent). `query_idx` records which of the
+    n_facts teachings (0 = taught first, most turns ago; n_facts-1 =
+    taught last) is being asked about, and `fact_position` records where
+    THAT teaching actually landed in the full interleaved sequence
+    (0-indexed from the start of the whole passage) -- together these
+    let evaluation separate "does accuracy degrade for early-TAUGHT
+    facts" from "does accuracy degrade for facts buried further back in
+    the passage," which are different possible causes of forgetting."""
+    if n_facts > len(NOVEL_LABELS):
+        raise ValueError(f"needs distinct labels per fact, only {len(NOVEL_LABELS)} labels available")
+    if n_facts > len(COLORS):
+        raise ValueError(f"needs unique colors per fact, only {len(COLORS)} colors available")
+    colors = rng.sample(COLORS, k=n_facts)
+    labels = rng.sample(NOVEL_LABELS, k=n_facts)
+    fact_sentences = [f"the {c} object is called {l}" for c, l in zip(colors, labels)]
+    distractor_sentences = [generate_l0_sentence(rng) for _ in range(n_distractors)]
+
+    tagged = [("fact", i) for i in range(n_facts)] + [("distractor", i) for i in range(n_distractors)]
+    rng.shuffle(tagged)
+    sequence = [fact_sentences[i] if kind == "fact" else distractor_sentences[i] for kind, i in tagged]
+    fact_positions = {i: pos for pos, (kind, i) in enumerate(tagged) if kind == "fact"}
+
+    query_idx = rng.randrange(n_facts)
+    question = f"what is the {colors[query_idx]} object called"
+    return {"sequence": sequence, "question": question, "query_idx": query_idx,
+            "fact_position": fact_positions[query_idx], "n_turns": len(sequence),
+            "answer": labels[query_idx], "answer_idx": NOVEL_LABELS.index(labels[query_idx]),
+            "colors": colors, "labels": labels}
