@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import random
 
-from hatchling_world.language.tokenizer import COLORS, NOUNS, NUMBERS, POSITIONS, SIZES, VERBS_ACTION
+from hatchling_world.language.tokenizer import COLORS, NOUNS, NOVEL_LABELS, NUMBERS, POSITIONS, SIZES, VERBS_ACTION
 
 
 def generate_l0_sentence(rng: random.Random) -> str:
@@ -210,3 +210,38 @@ def generate_l4_counting_episode(rng: random.Random, n_objects: int = 4) -> dict
     return {"objects": objects, "instruction": instruction, "label": label,
             "true_count": true_count, "stated_count": stated_count,
             "property_kind": property_kind, "value": value}
+
+
+def generate_l5_qa_episode(rng: random.Random, n_objects: int = 4) -> dict:
+    """Stage L5: teacher/student QA loop, realized as section 6's
+    one-shot novel-word test. Objects get UNIQUE colors (L1's trick) so
+    "the {color} object" always names exactly one real target. The
+    TEACHER assigns it a synthetic label ONCE ("the {color} object is
+    called {label}") that carries no meaning from co-occurrence
+    statistics across episodes -- `label` is drawn fresh per episode --
+    then the STUDENT is asked to recall it ("what is the {color} object
+    called"). Unlike every earlier stage, the correct answer is not
+    encoded anywhere in the object's own features (color/size/type/
+    position) at all: it exists ONLY in the teach utterance, so
+    answering correctly requires real within-episode recall via
+    persistent memory, not grounding to a visible feature."""
+    colors = rng.sample(COLORS, k=min(n_objects, len(COLORS)))
+    while len(colors) < n_objects:
+        colors.append(rng.choice(COLORS))
+    rng.shuffle(colors)
+
+    objects = [{
+        "type": rng.choice(NOUNS),
+        "color": color,
+        "size": rng.choice(SIZES),
+        "position": rng.choice(POSITIONS),
+    } for color in colors]
+
+    target_idx = rng.randrange(len(objects))
+    target_color = objects[target_idx]["color"]
+    label = rng.choice(NOVEL_LABELS)
+
+    teach = f"the {target_color} object is called {label}"
+    question = f"what is the {target_color} object called"
+    return {"objects": objects, "teach": teach, "question": question,
+            "target_idx": target_idx, "label": label, "label_idx": NOVEL_LABELS.index(label)}

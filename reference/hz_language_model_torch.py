@@ -49,7 +49,7 @@ from reference.hz0h_bdh_hzcq_v1_reasoning_workspace_torch import HZCQReasoningWo
 
 class HZLanguageModel(nn.Module):
     def __init__(self, vocab_size: int, d_model: int = 64, memory_slots: int = 8,
-                 workspace_slots: int = 32, gate_hidden: int = 16, n_rounds_l1: int = 8):
+                 workspace_slots: int = 32, gate_hidden: int = 16, n_rounds_l1: int = 8, n_qa_labels: int = 4):
         super().__init__()
         self.D = d_model
         self.vocab_size = vocab_size
@@ -106,6 +106,14 @@ class HZLanguageModel(nn.Module):
         # needs no new object features, just a different readout that
         # AGGREGATES over the object set instead of pointing at one object.
         self.count_head = nn.Linear(d_model, 1, bias=True)
+
+        # L5 teacher/student QA: recall a synthetic label that exists
+        # ONLY in the teach utterance, never in encode_objects' features.
+        # Reuses L1's object encoder (the question still needs to
+        # resolve WHICH object) -- only the readout is new.
+        self.qa_rq = nn.Linear(d_model, d_model, bias=False)
+        self.qa_rk = nn.Linear(d_model, d_model, bias=False)
+        self.qa_head = nn.Linear(d_model, n_qa_labels, bias=True)
 
     # ---- Stage L0: pure self-supervised next-token LM ----
 
@@ -233,3 +241,31 @@ class HZLanguageModel(nn.Module):
         _, H = self.encode_and_reason(instruction_ids, type_idx, color_idx, size_idx, position_idx)
         pooled_h = H.mean(dim=1)  # (B, D)
         return self.count_head(pooled_h).squeeze(-1)  # (B,)
+
+    # ---- Stage L5: teacher/student QA (one-shot novel-word recall) ----
+
+    def qa_forward(self, teach_ids: torch.Tensor, question_ids: torch.Tensor, type_idx: torch.Tensor,
+                    color_idx: torch.Tensor, size_idx: torch.Tensor, position_idx: torch.Tensor) -> torch.Tensor:
+        """teach_ids/question_ids: (B, T) each, two REAL SEPARATE turns.
+        Chains them into S via two sequential mem.update() calls (not one
+        concatenated update_sequence call) so there is a genuine turn
+        boundary: S after the teach utterance is exactly what a "student"
+        would carry into the question, and the question's own tokens
+        update that already-taught S further before H ever reads it.
+        Returns label logits (B, n_qa_labels) -- the correct label exists
+        ONLY in teach_ids, never in the object features, so this can only
+        be solved by real recall through S, not grounding to x_objects."""
+        B = teach_ids.shape[0]
+        x_objects = self.encode_objects(type_idx, color_idx, size_idx, position_idx)
+
+        S = self.mem.init_state(B, device=teach_ids.device)
+        for t in range(teach_ids.shape[1]):
+            S = self.mem.update(S, self.token_embed(teach_ids[:, t]).unsqueeze(1))
+        for t in range(question_ids.shape[1]):
+            S = self.mem.update(S, self.token_embed(question_ids[:, t]).unsqueeze(1))
+
+        H = self.ws.run(B, S, x_objects, n_rounds=self.n_rounds_l1)  # (B, M_H, D)
+        q = self.qa_rq(H).mean(dim=1, keepdim=True)  # (B, 1, D)
+        scores = torch.matmul(q, self.qa_rk(H).transpose(-1, -2)) / (self.D ** 0.5)
+        read = torch.matmul(F.softmax(scores, dim=-1), H).mean(dim=1)  # (B, D)
+        return self.qa_head(read)  # (B, n_qa_labels)

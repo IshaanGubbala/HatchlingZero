@@ -19,10 +19,11 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from reference.hz_language_model_torch import HZLanguageModel
-from hatchling_world.language.tokenizer import NurseryTokenizer, NOUNS, COLORS, SIZES, POSITIONS
+from hatchling_world.language.tokenizer import NurseryTokenizer, NOUNS, COLORS, SIZES, POSITIONS, NOVEL_LABELS
 from hatchling_world.language.nursery_generator import (
     generate_l0_sentence, generate_l1_grounding_episode, generate_l2_verb_episode,
     generate_l3_relation_episode, generate_l4_logic_and_episode, generate_l4_counting_episode,
+    generate_l5_qa_episode,
 )
 
 TEST_SEED_OFFSET = 10_000_000
@@ -220,9 +221,44 @@ def l4_counting_eval(model, tok, rng, n_objects, n_episodes):
     return correct / n_episodes
 
 
+def l5_episode_tensors(tok: NurseryTokenizer, ep: dict):
+    teach_ids = torch.tensor([tok.encode(ep["teach"])])
+    question_ids = torch.tensor([tok.encode(ep["question"])])
+    type_idx = torch.tensor([[NOUNS.index(o["type"]) for o in ep["objects"]]])
+    color_idx = torch.tensor([[COLORS.index(o["color"]) for o in ep["objects"]]])
+    size_idx = torch.tensor([[SIZES.index(o["size"]) for o in ep["objects"]]])
+    pos_idx = torch.tensor([[POSITIONS.index(o["position"]) for o in ep["objects"]]])
+    label_idx = torch.tensor([ep["label_idx"]])
+    return teach_ids, question_ids, type_idx, color_idx, size_idx, pos_idx, label_idx
+
+
+def l5_train_step(model, opt, tok, rng, n_objects):
+    ep = generate_l5_qa_episode(rng, n_objects=n_objects)
+    teach_ids, question_ids, type_idx, color_idx, size_idx, pos_idx, label_idx = l5_episode_tensors(tok, ep)
+    logits = model.qa_forward(teach_ids, question_ids, type_idx, color_idx, size_idx, pos_idx)
+    loss = F.cross_entropy(logits, label_idx)
+    opt.zero_grad(set_to_none=True)
+    loss.backward()
+    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+    opt.step()
+    acc = (logits.argmax(-1) == label_idx).float().item()
+    return loss.item(), acc
+
+
+def l5_eval(model, tok, rng, n_objects, n_episodes):
+    correct = 0
+    with torch.no_grad():
+        for _ in range(n_episodes):
+            ep = generate_l5_qa_episode(rng, n_objects=n_objects)
+            teach_ids, question_ids, type_idx, color_idx, size_idx, pos_idx, label_idx = l5_episode_tensors(tok, ep)
+            logits = model.qa_forward(teach_ids, question_ids, type_idx, color_idx, size_idx, pos_idx)
+            correct += int((logits.argmax(-1) == label_idx).item())
+    return correct / n_episodes
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--stage", choices=["l0", "l1", "l2", "l3", "l4", "both"], default="both")
+    parser.add_argument("--stage", choices=["l0", "l1", "l2", "l3", "l4", "l5", "both"], default="both")
     parser.add_argument("--d-model", type=int, default=64)
     parser.add_argument("--memory-slots", type=int, default=8)
     parser.add_argument("--workspace-slots", type=int, default=32)
@@ -239,6 +275,8 @@ def main() -> None:
     parser.add_argument("--l4-logic-steps", type=int, default=2500)
     parser.add_argument("--l4-counting-steps", type=int, default=2500)
     parser.add_argument("--l4-n-objects", type=int, default=4)
+    parser.add_argument("--l5-steps", type=int, default=3000)
+    parser.add_argument("--l5-n-objects", type=int, default=4)
     parser.add_argument("--eval-every", type=int, default=300)
     parser.add_argument("--eval-episodes", type=int, default=200)
     parser.add_argument("--seed", type=int, default=0)
@@ -248,7 +286,8 @@ def main() -> None:
     torch.manual_seed(args.seed)
     tok = NurseryTokenizer()
     model = HZLanguageModel(vocab_size=tok.vocab_size, d_model=args.d_model, memory_slots=args.memory_slots,
-                             workspace_slots=args.workspace_slots, n_rounds_l1=args.n_rounds_l1)
+                             workspace_slots=args.workspace_slots, n_rounds_l1=args.n_rounds_l1,
+                             n_qa_labels=len(NOVEL_LABELS))
     n_params = sum(p.numel() for p in model.parameters())
     print(f"[nursery] vocab_size={tok.vocab_size} n_params={n_params}", flush=True)
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr)
@@ -353,6 +392,21 @@ def main() -> None:
                 print(f"[nursery][L4-counting] step={step+1}/{args.l4_counting_steps} "
                       f"train_acc={sum(recent_acc)/len(recent_acc):.3f} "
                       f"held_out_acc={held_out_acc:.3f} (chance=0.500)", flush=True)
+
+    if args.stage in ("l5",):
+        train_rng = random.Random(args.seed + 7)
+        eval_rng = random.Random(args.seed + 7 + TEST_SEED_OFFSET)
+        recent_acc = []
+        for step in range(args.l5_steps):
+            loss, acc = l5_train_step(model, opt, tok, train_rng, args.l5_n_objects)
+            recent_acc.append(acc)
+            recent_acc[:] = recent_acc[-200:]
+            if (step + 1) % args.eval_every == 0:
+                held_out_acc = l5_eval(model, tok, eval_rng, args.l5_n_objects, args.eval_episodes)
+                chance = 1.0 / len(NOVEL_LABELS)
+                print(f"[nursery][L5] step={step+1}/{args.l5_steps} "
+                      f"train_acc={sum(recent_acc)/len(recent_acc):.3f} "
+                      f"held_out_acc={held_out_acc:.3f} (chance={chance:.3f})", flush=True)
 
     if args.save_checkpoint is not None:
         args.save_checkpoint.parent.mkdir(parents=True, exist_ok=True)

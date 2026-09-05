@@ -1426,9 +1426,17 @@ Do **not** kill Hatchling World after one disappointing number. Park/kill only a
       WORDS to real quantities via "are there {number} {value} objects"
       verification, reading pooled \(H\) instead of pointing at one
       object, a real test of aggregation, not selection)
-- [ ] L5 teacher/student QA loop.
+- [x] L5 teacher/student QA loop.
+      (`generate_l5_qa_episode` + `HZLanguageModel.qa_forward` — realizes
+      the teacher/student loop AS section 6's one-shot novel-word test:
+      a teach turn assigns a synthetic label to one object, a question
+      turn asks for it back, chained into \(S\) via two REAL sequential
+      `mem.update()` calls — a genuine turn boundary, not one concatenated
+      instruction. The label exists ONLY in the teach utterance, never in
+      `encode_objects`' features, so this can only be solved by real
+      within-episode recall through \(S\))
 - [ ] L6 simple-reading task set.
-- [ ] Combined multi-signal loss (\(L_{\text{LM}}+L_{\text{ground}}+L_{\text{action}}+L_{\text{world}}+L_{\text{QA}}\)) — L0/L1/L2/L3/L4 currently trained as separate objectives via `--stage`, not yet combined.
+- [ ] Combined multi-signal loss (\(L_{\text{LM}}+L_{\text{ground}}+L_{\text{action}}+L_{\text{world}}+L_{\text{QA}}\)) — L0/L1/L2/L3/L4/L5 currently trained as separate objectives via `--stage`, not yet combined.
 
 **Real result, 2026-09-04**: `scripts/hz_nursery_train.py`, `d_model=64`,
 `M_H=32` (D/2 value/write), same architecture as the room-navigation
@@ -1620,6 +1628,64 @@ either the encode_objects/S-ingestion pathway (upstream of \(H\)
 entirely) or \(H\)'s reasoning capacity itself under end-to-end
 gradient pressure from an aggregation-shaped readout, not the readout
 shape in isolation.
+
+**Real result, 2026-09-04 — the end-to-end follow-up, run immediately
+after (`scripts/hz_nursery_l4_counting_readout_e2e_ablation.py`, closes
+the caveat above).** For each of the 4 readout variants, a FRESH
+`HZLanguageModel` (random init, nothing shared with the other variants
+or with the frozen-backbone run) was trained fully end-to-end —
+backbone unfrozen from step 1, gradient from that specific readout
+shaping \(H\) from the very start — for the same 5000-step budget as
+the original pretrain run. **Result: still no daylight between
+variants.** mean-pool 71.3%, sum-pool 66.0%, attn-pool 68.0%,
+predicate-sum 69.3% held-out (`results/local/
+hz_nursery_l4_counting_readout_e2e_ablation.json`) — sum-pool, the
+cheapest fix for the "mean-pooling erases magnitude" hypothesis, is if
+anything the worst of the four here. **This closes the caveat: neither
+a post-hoc readout swap NOR letting a different readout shape \(H\)
+from scratch breaks the ~65-72% ceiling.** The bottleneck is not the
+final readout in any form tested. What's left, unexamined: the
+`encode_objects` feature representation itself (concatenated one-hots
+through one dense linear layer — no structure that separates "is this
+the queried property" from the rest of the object's identity), the
+`mem.update`/\(S\)-ingestion pathway that folds the instruction in
+before \(H\) ever sees it, and \(H\)'s actual per-round computation at
+this scale (`d_model=64`, \(M_H=32\), 8 rounds) on a task requiring it
+to hold a running tally across up to 4 objects simultaneously — any of
+which could be the real limit, and distinguishing between them is real,
+not-yet-done follow-up work, not something to guess at.
+
+**Real result, 2026-09-04 — L5 teacher/student QA, back to a clean
+saturating win.** `generate_l5_qa_episode` + `HZLanguageModel.qa_forward`:
+teach turn ("the {color} object is called {label}") then question turn
+("what is the {color} object called"), two REAL sequential
+`mem.update()` calls building one \(S\) across the turn boundary, label
+recall read out via cross-attention over \(H\) into a 4-way classifier
+(`NOVEL_LABELS = dax/wug/blicket/fep`, meaningless synthetic words with
+no cross-episode co-occurrence signal at all — the label is resampled
+fresh every episode). 2 seeds: held-out accuracy reaches **100%** by
+step ~400-500 and stays there (chance = 25%), matching L1/L2's clean
+saturating signature, not L3/L4's noisy partial-generalization one.
+This is a real, clean demonstration of within-episode one-shot recall
+through \(S\) — the correct answer exists NOWHERE in the object's
+visible features, only in a sentence \(S\) had to carry across a real
+turn boundary, and the model gets it right every time on held-out
+episodes. 2 new tests
+(`test_l5_qa_episode_label_not_derivable_from_object_features`,
+`test_qa_forward_shapes_and_gradients`) added (16/16 passing in
+`test_hz_nursery_grounding.py`).
+
+**Real, disclosed limitation**: only one object is taught per episode
+(matching L1's own first-pass simplicity), and the unique-color
+addressing trick caps `n_objects` at `len(COLORS)=4` before duplicate
+colors break the uniqueness guarantee (same constraint L1/L2 already
+carry, not new here). Not yet stress-tested with multiple taught
+labels per episode (which would test whether \(S\) can hold more than
+one fact at once) or with a distractor teach statement about a
+DIFFERENT object in between teach and question (which would test
+whether \(S\) resists interference, not just sequential retention) —
+both are the natural next stress tests before calling L5 "done," same
+pattern as L1's and L3's own disclosed gaps.
 
 ## Phase 1 — environment (HZ-World-0, infrastructure validation)
 

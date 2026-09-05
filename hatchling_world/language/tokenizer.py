@@ -34,9 +34,18 @@ FUNCTION_WORDS = ["the", "a", "this", "touch", "and"]
 # composition, phrased explicitly instead of L3's bare juxtaposition).
 NUMBERS = ["zero", "one", "two", "three", "four"]
 LOGIC_WORDS = ["how", "many", "are", "there", "that"]
+# Stage L5 -- teacher/student QA loop, section 6's one-shot novel-word
+# test realized concretely: NOVEL_LABELS are meaningless synthetic
+# words (classic psycholinguistic fast-mapping style: "wug", "dax")
+# that carry NO meaning until a teacher utterance assigns one to a
+# specific object, ONCE, within the episode -- unlike every other
+# Nursery word, their meaning cannot come from co-occurrence statistics
+# across many episodes, only from real within-episode recall via S.
+NOVEL_LABELS = ["dax", "wug", "blicket", "fep"]
+QA_WORDS = ["what", "called"]
 
 VOCAB = (SPECIALS + NOUNS + COLORS + SIZES + POSITIONS + VERBS_STATE + VERBS_ACTION
-         + FUNCTION_WORDS + NUMBERS + LOGIC_WORDS)
+         + FUNCTION_WORDS + NUMBERS + LOGIC_WORDS + NOVEL_LABELS + QA_WORDS)
 
 
 class NurseryTokenizer:

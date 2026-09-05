@@ -10,9 +10,11 @@ import torch
 from hatchling_world.language.nursery_generator import (
     apply_verb, generate_l0_sentence, generate_l1_grounding_episode, generate_l2_verb_episode,
     generate_l3_relation_episode, HELD_OUT_COMBOS, TRAIN_COMBOS,
-    generate_l4_logic_and_episode, generate_l4_counting_episode,
+    generate_l4_logic_and_episode, generate_l4_counting_episode, generate_l5_qa_episode,
 )
-from hatchling_world.language.tokenizer import COLORS, NOUNS, NUMBERS, NurseryTokenizer, POSITIONS, SIZES
+from hatchling_world.language.tokenizer import (
+    COLORS, NOUNS, NOVEL_LABELS, NUMBERS, NurseryTokenizer, POSITIONS, SIZES,
+)
 from reference.hz_language_model_torch import HZLanguageModel
 
 
@@ -191,6 +193,40 @@ def test_verify_count_forward_shapes_and_gradients():
     logit.sum().backward()
     assert model.count_head.weight.grad is not None
     assert torch.isfinite(model.count_head.weight.grad).all()
+
+
+def test_l5_qa_episode_label_not_derivable_from_object_features():
+    rng = random.Random(0)
+    for _ in range(50):
+        ep = generate_l5_qa_episode(rng, n_objects=4)
+        target = ep["objects"][ep["target_idx"]]
+        assert ep["label"] in NOVEL_LABELS
+        assert ep["label"] not in (target["type"], target["color"], target["size"], target["position"])
+        assert target["color"] in ep["teach"] and ep["label"] in ep["teach"]
+        assert target["color"] in ep["question"] and ep["label"] not in ep["question"]
+        matches = [i for i, o in enumerate(ep["objects"]) if o["color"] == target["color"]]
+        assert matches == [ep["target_idx"]]
+
+
+def test_qa_forward_shapes_and_gradients():
+    tok = NurseryTokenizer()
+    model = HZLanguageModel(vocab_size=tok.vocab_size, d_model=32, memory_slots=8, workspace_slots=16,
+                             n_rounds_l1=4, n_qa_labels=len(NOVEL_LABELS))
+    rng = random.Random(4)
+    ep = generate_l5_qa_episode(rng, n_objects=4)
+    teach_ids = torch.tensor([tok.encode(ep["teach"])])
+    question_ids = torch.tensor([tok.encode(ep["question"])])
+    type_idx = torch.tensor([[NOUNS.index(o["type"]) for o in ep["objects"]]])
+    color_idx = torch.tensor([[COLORS.index(o["color"]) for o in ep["objects"]]])
+    size_idx = torch.tensor([[SIZES.index(o["size"]) for o in ep["objects"]]])
+    pos_idx = torch.tensor([[POSITIONS.index(o["position"]) for o in ep["objects"]]])
+    logits = model.qa_forward(teach_ids, question_ids, type_idx, color_idx, size_idx, pos_idx)
+    assert logits.shape == (1, len(NOVEL_LABELS))
+    loss = logits.sum()
+    loss.backward()
+    assert model.qa_head.weight.grad is not None
+    assert torch.isfinite(model.qa_head.weight.grad).all()
+    assert model.mem.q_proj.weight.grad is not None, "qa_forward must actually exercise mem.update, not bypass it"
 
 
 def test_model_uses_default_ln_recurrence_and_d_over_2_value_write():
