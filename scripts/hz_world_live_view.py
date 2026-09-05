@@ -166,6 +166,7 @@ PAGE = r"""<!doctype html>
   .obj-shape.ring-target { box-shadow: 0 0 0 3px var(--amber), 0 0 18px rgba(255,184,77,0.55); }
   .obj-shape.ring-pred { box-shadow: 0 0 0 3px var(--accent), 0 0 16px var(--accent-glow); outline: 3px dashed rgba(47,227,198,0.5); outline-offset: 3px; }
   .obj-shape.ring-correct { box-shadow: 0 0 0 3px var(--success), 0 0 20px rgba(69,224,143,0.6); }
+  .obj-shape.ring-match { outline: 2px dashed var(--accent); outline-offset: 3px; }
   .obj-label { font-size: 10px; color: var(--dim); text-transform: uppercase; letter-spacing: .03em; text-align: center; max-width: 92px; }
   .obj-tag {
     font-size: 9px; font-weight: 800; letter-spacing: .06em; padding: 2px 7px; border-radius: 999px;
@@ -185,6 +186,16 @@ PAGE = r"""<!doctype html>
   .cons-chip { padding: 6px 10px; border-radius: 8px; font-size: 11px; border: 1px solid var(--border); background: rgba(255,255,255,0.02); }
   .cons-chip.match { border-color: rgba(69,224,143,0.4); color: var(--success); }
   .cons-chip.mismatch { border-color: rgba(255,107,107,0.4); color: var(--danger); }
+
+  .verify-banner {
+    display: flex; align-items: center; gap: 12px; margin-top: 14px; padding: 10px 14px;
+    border-radius: 10px; border: 1px solid var(--border); background: rgba(255,255,255,0.02); font-size: 13px;
+  }
+  .verify-banner.match { border-color: rgba(69,224,143,0.4); }
+  .verify-banner.mismatch { border-color: rgba(255,107,107,0.4); }
+  .verify-verdict { font-weight: 800; letter-spacing: .04em; padding: 3px 10px; border-radius: 999px; font-size: 11px; }
+  .verify-verdict.yes { background: rgba(69,224,143,0.14); color: var(--success); }
+  .verify-verdict.no { background: rgba(255,107,107,0.14); color: var(--danger); }
 
   #nursery-chart { width: 100%; height: 90px; display: block; }
   .nursery-legend { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; font-size: 11px; color: var(--dim); }
@@ -260,6 +271,7 @@ PAGE = r"""<!doctype html>
         <div class="obj-grid" id="nursery-objects"></div>
         <div class="token-row" id="nursery-tokens"></div>
         <div class="consequence-row" id="nursery-consequence"></div>
+        <div class="verify-banner" id="nursery-verify" style="display:none"></div>
       </div>
     </div>
 
@@ -421,7 +433,7 @@ function drawChart(returns) {
 const NURSERY_COLOR_HEX = { red: '#ff6b6b', blue: '#4d9dff', green: '#45e08f', yellow: '#ffd166' };
 const NURSERY_SHAPE_RADIUS = { ball: '50%', box: '8px', block: '8px', object: '8px' };
 const NURSERY_PALETTE = ['#2fe3c6', '#ffb84d', '#ff6b6b', '#c77dff', '#45e08f'];
-const NURSERY_STAGES = ['L0', 'L1', 'L2', 'L3'];
+const NURSERY_STAGES = ['L0', 'L1', 'L2', 'L3', 'L4-logic', 'L4-count'];
 
 function renderStageTrack(s) {
   const track = document.getElementById('stage-track');
@@ -436,6 +448,7 @@ function renderStageTrack(s) {
 function renderNurseryObjects(s) {
   const wrap = document.getElementById('nursery-objects');
   wrap.innerHTML = '';
+  const matching = s.matching_indices || [];
   (s.objects || []).forEach((o, i) => {
     const isTarget = i === s.target_idx;
     const isPred = i === s.pred_idx;
@@ -443,6 +456,7 @@ function renderNurseryObjects(s) {
     if (isTarget && isPred) ringClass = 'ring-correct';
     else if (isTarget) ringClass = 'ring-target';
     else if (isPred) ringClass = 'ring-pred';
+    else if (matching.includes(i)) ringClass = 'ring-match';
     const size = o.size === 'large' ? 74 : 46;
     const rotate = o.type === 'object' ? 'transform:rotate(45deg);' : '';
     const div = document.createElement('div');
@@ -474,6 +488,17 @@ function renderNurseryConsequence(s) {
       const match = s.consequence_true[k] === s.consequence_pred[k];
       return `<div class="cons-chip ${match ? 'match' : 'mismatch'}">${label} true=${s.consequence_true[k]} pred=${s.consequence_pred[k]}</div>`;
     }).join('');
+}
+
+function renderNurseryVerification(s) {
+  const banner = document.getElementById('nursery-verify');
+  if (s.verify_true === null || s.verify_true === undefined) { banner.style.display = 'none'; return; }
+  const match = s.verify_true === s.verify_pred;
+  banner.style.display = 'flex';
+  banner.className = 'verify-banner ' + (match ? 'match' : 'mismatch');
+  const chip = (label, val) => `<span class="verify-verdict ${val ? 'yes' : 'no'}">${label}: ${val ? 'YES' : 'NO'}</span>`;
+  banner.innerHTML = `<span style="color:var(--dim)">verify statement:</span> ${chip('actual', s.verify_true)} ${chip('model', s.verify_pred)}` +
+    `<span style="margin-left:auto;color:${match ? 'var(--success)' : 'var(--danger)'}">${match ? '&#10003; match' : '&#10007; mismatch'}</span>`;
 }
 
 function renderNurseryStats(s) {
@@ -545,6 +570,7 @@ function renderNursery(s) {
   renderNurseryObjects(s);
   renderNurseryTokens(s);
   renderNurseryConsequence(s);
+  renderNurseryVerification(s);
   renderNurseryStats(s);
   drawNurseryChart(s.metrics);
 }

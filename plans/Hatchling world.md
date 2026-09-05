@@ -1577,6 +1577,50 @@ patched over. 3 new tests
 `test_verify_count_forward_shapes_and_gradients`) added (14/14 passing
 in `test_hz_nursery_grounding.py`).
 
+**Real diagnostic, 2026-09-04 — counting-readout ablation, a clean
+negative result.** Before touching `HZCQReasoningWorkspace`'s
+recurrence at all, tested the cheap hypothesis first: is the 65-72%
+ceiling caused by the READOUT (mean-pooling \(H\) down to one vector,
+then one linear verify head) being the wrong shape for aggregation,
+rather than \(H\)'s own reasoning capacity? `reference/
+hz_nursery_counting_readouts.py` + `scripts/
+hz_nursery_l4_counting_readout_ablation.py` implement a genuinely
+controlled comparison: pretrain one backbone (token_embed, mem, ws,
+object_encoder) end-to-end with the existing mean-pool head to the
+known plateau (reproduced: 65.7% held-out after 5000 steps), **freeze
+it completely**, then train 4 different readout heads on the identical
+frozen \((x_{\text{objects}}, H)\) for an equal head-only budget (3000
+steps each, same task, same BCE loss, no auxiliary supervision): plain
+mean-pool (control), sum-pool (tests whether mean-normalization erases
+magnitude/cardinality signal), learned attention-pool (lets training
+pick which workspace slots matter), and per-object predicate-sum
+(scores each object individually via attention, sums the soft
+per-object match probabilities into a differentiable count estimate
+\(\sum_i P(\text{object}_i\text{ matches})\), then verifies against
+that). **Result: all four converge to statistically indistinguishable
+accuracy** — mean-pool 69.3%, sum-pool 71.3%, attn-pool 69.7%,
+predicate-sum 70.0% (`results/local/
+hz_nursery_l4_counting_readout_ablation.json`). Swapping the readout,
+including the one purpose-built for aggregation, did not move the
+ceiling at all.
+
+**Real, disclosed caveat before over-concluding**: this rules out "a
+readout swapped in AFTER the fact fixes it," but not "a readout trained
+END-TO-END from scratch would." The frozen backbone was only ever
+shaped by the mean-pool head's own gradient during pretraining, so
+\(H\) may have been pressured to discard exactly the per-object
+information a different readout would need — a real confound. The
+clean follow-up, not yet run: retrain each variant fully end-to-end
+(backbone unfrozen, fresh init) and see if a different gradient signal
+from the start produces a more count-friendly \(H\). Until that's run,
+the honest conclusion is narrower than "the architecture can't count":
+it's "post-hoc readout choice isn't the bottleneck for THIS backbone,"
+which is still useful — it means the next thing worth checking is
+either the encode_objects/S-ingestion pathway (upstream of \(H\)
+entirely) or \(H\)'s reasoning capacity itself under end-to-end
+gradient pressure from an aggregation-shaped readout, not the readout
+shape in isolation.
+
 ## Phase 1 — environment (HZ-World-0, infrastructure validation)
 
 - [x] Create `hatchling_world/`. (commit a20bc30, 2026-09-04)

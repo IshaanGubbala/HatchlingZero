@@ -202,6 +202,21 @@ class HZLanguageModel(nn.Module):
 
     # ---- Stage L4: numbers (counting verification) ----
 
+    def encode_and_reason(self, instruction_ids: torch.Tensor, type_idx: torch.Tensor, color_idx: torch.Tensor,
+                           size_idx: torch.Tensor, position_idx: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """Shared backbone computation for any task needing (x_objects, H)
+        -- everything EXCEPT the final readout. Factored out so a readout
+        ablation (see reference/hz_nursery_counting_readouts.py) can hold
+        the backbone (token_embed/mem/ws/object_encoder) completely fixed
+        and swap only what reads H, without touching this method or the
+        underlying HZCQReasoningWorkspace recurrence at all."""
+        B = instruction_ids.shape[0]
+        x_objects = self.encode_objects(type_idx, color_idx, size_idx, position_idx)
+        instr_hiddens = [self.token_embed(instruction_ids[:, t]).unsqueeze(1) for t in range(instruction_ids.shape[1])]
+        S = self.mem.update_sequence(B, instr_hiddens)
+        H = self.ws.run(B, S, x_objects, n_rounds=self.n_rounds_l1)  # (B, M_H, D)
+        return x_objects, H
+
     def verify_count_forward(self, instruction_ids: torch.Tensor, type_idx: torch.Tensor, color_idx: torch.Tensor,
                               size_idx: torch.Tensor, position_idx: torch.Tensor) -> torch.Tensor:
         """instruction_ids encode "are there {number} {value} objects".
@@ -211,13 +226,10 @@ class HZLanguageModel(nn.Module):
         pattern as ground_forward, but the readout AGGREGATES over the
         whole object set via pooled H instead of pointing at one object --
         a real test of whether the reasoning workspace can accumulate a
-        quantity, not just select."""
-        B = instruction_ids.shape[0]
-        x_objects = self.encode_objects(type_idx, color_idx, size_idx, position_idx)
-
-        instr_hiddens = [self.token_embed(instruction_ids[:, t]).unsqueeze(1) for t in range(instruction_ids.shape[1])]
-        S = self.mem.update_sequence(B, instr_hiddens)
-
-        H = self.ws.run(B, S, x_objects, n_rounds=self.n_rounds_l1)  # (B, M_H, D)
+        quantity, not just select. This IS the "mean-pool" readout variant
+        (see the counting-readout ablation) -- kept as the default/baseline
+        head on the model itself since it's the one plans/Hatchling world.md
+        already reports a real result for."""
+        _, H = self.encode_and_reason(instruction_ids, type_idx, color_idx, size_idx, position_idx)
         pooled_h = H.mean(dim=1)  # (B, D)
         return self.count_head(pooled_h).squeeze(-1)  # (B,)

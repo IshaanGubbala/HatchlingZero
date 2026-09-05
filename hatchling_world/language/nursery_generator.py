@@ -208,4 +208,5 @@ def generate_l4_counting_episode(rng: random.Random, n_objects: int = 4) -> dict
 
     instruction = f"are there {NUMBERS[stated_count]} {value} objects"
     return {"objects": objects, "instruction": instruction, "label": label,
-            "true_count": true_count, "stated_count": stated_count}
+            "true_count": true_count, "stated_count": stated_count,
+            "property_kind": property_kind, "value": value}
