@@ -16,8 +16,10 @@ Runs REAL L1 grounding training steps (the same generator + forward/
 backward/optimizer-step hz_nursery_train.py's l1_train_step performs,
 reimplemented here standalone so tensors can be explicitly placed on
 each device without touching that production script) on CPU and, if
-available, MPS, and reports real wall-clock time and steps/sec for
-each -- no isolated op-level microbenchmark, no assumption.
+available, MPS and/or CUDA, and reports real wall-clock time and
+steps/sec for each -- no isolated op-level microbenchmark, no
+assumption. CUDA reference dispatched via RunPod (no local GPU on this
+Mac) per plans/Hatchling world.md Phase 6's own checklist item.
 """
 from __future__ import annotations
 
@@ -62,6 +64,8 @@ def run_benchmark(device: str, tok: NurseryTokenizer, args) -> dict:
         opt.step()
     if device == "mps":
         torch.mps.synchronize()
+    elif device == "cuda":
+        torch.cuda.synchronize()
 
     start = time.perf_counter()
     for _ in range(args.timed_steps):
@@ -79,6 +83,8 @@ def run_benchmark(device: str, tok: NurseryTokenizer, args) -> dict:
         opt.step()
     if device == "mps":
         torch.mps.synchronize()
+    elif device == "cuda":
+        torch.cuda.synchronize()
     elapsed = time.perf_counter() - start
 
     return {"device": device, "timed_steps": args.timed_steps, "elapsed_s": elapsed,
@@ -100,8 +106,10 @@ def main() -> None:
     devices = ["cpu"]
     if torch.backends.mps.is_available():
         devices.append("mps")
-    else:
-        print("[bench] MPS not available on this machine -- CPU only", flush=True)
+    if torch.cuda.is_available():
+        devices.append("cuda")
+    if len(devices) == 1:
+        print("[bench] no MPS or CUDA available on this machine -- CPU only", flush=True)
 
     results = {}
     for device in devices:
@@ -114,11 +122,12 @@ def main() -> None:
     print("\n[bench] === SUMMARY ===")
     for device, r in results.items():
         print(f"{device:>6}: {r['elapsed_s']:>8.2f}s  ({r['steps_per_sec']:.1f} steps/sec)")
-    if "mps" in results:
-        ratio = results["cpu"]["elapsed_s"] / results["mps"]["elapsed_s"]
-        verdict = "MPS faster" if ratio > 1 else "CPU faster"
-        print(f"\n[bench] {verdict} -- CPU took {ratio:.2f}x {'more' if ratio > 1 else 'less'} time than MPS "
-              f"for this workload.")
+    for other in ("mps", "cuda"):
+        if other in results:
+            ratio = results["cpu"]["elapsed_s"] / results[other]["elapsed_s"]
+            verdict = f"{other.upper()} faster" if ratio > 1 else "CPU faster"
+            print(f"\n[bench] {verdict} -- CPU took {ratio:.2f}x {'more' if ratio > 1 else 'less'} time than "
+                  f"{other.upper()} for this workload.")
 
 
 if __name__ == "__main__":
