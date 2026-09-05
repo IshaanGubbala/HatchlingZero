@@ -490,6 +490,14 @@ function renderStageTrack(s) {
 function renderNurseryObjects(s) {
   const wrap = document.getElementById('nursery-objects');
   wrap.innerHTML = '';
+  // Pure-language stages (L5-stress, L6, School0-arith/rule) have no
+  // object set at all -- collapse the "desk surface" backdrop entirely
+  // instead of showing it empty, which reads as a broken lopsided gap.
+  if (!s.objects || s.objects.length === 0) {
+    wrap.style.display = 'none';
+    return;
+  }
+  wrap.style.display = 'flex';
   const matching = s.matching_indices || [];
   (s.objects || []).forEach((o, i) => {
     const isTarget = i === s.target_idx;
