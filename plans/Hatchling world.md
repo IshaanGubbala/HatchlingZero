@@ -2108,7 +2108,24 @@ document's real thesis.
 
 - [ ] Frozen-weight lifetime evaluation.
 - [ ] \(S\) reset/zero ablations.
-- [ ] Delayed-use tasks.
+- [x] Delayed-use tasks (real, went further than originally scoped here).
+      L5's stress test (section 30's Phase 0, `generate_l5_stress_episode`)
+      IS a delayed-use task (teach, then query later, with distractors
+      interleaved) and produced a full root-cause diagnostic chain, not
+      just a pass/fail result: a sharp 2->3-fact capacity cliff
+      (`hz_nursery_l5_memory_stress.py`); ruled out slot count as the
+      cause via an \(M_S\in\{4,8,12,16\}\) sweep and localized a real
+      storage failure (not \(H\)-retrieval) via a direct linear probe on
+      \(S\) (`hz_nursery_l5_memory_cliff_diagnostic.py`); found the root
+      cause -- a content-blind write gate (\(g\approx0.46\) regardless of
+      whether content is redundant or novel) -- via direct gate-value
+      inspection (`hz_nursery_l5_gate_diagnostic.py`); and tried one fix
+      (an auxiliary slot-diversity loss), which broke slot collapse
+      (participation ratio ~1.1 -> ~7.6-8.0) but did NOT fix recall
+      (`hz_nursery_l5_diversity_loss_fix.py`) -- a clean negative result
+      separating slot geometry from selective-write capability. Frozen-
+      weight lifetime evaluation and \(S\) reset/zero ablations remain
+      genuinely different, not-yet-run experiments.
 
 ## Phase 5 — depth
 
