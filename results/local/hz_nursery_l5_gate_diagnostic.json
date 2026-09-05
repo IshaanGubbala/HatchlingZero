@@ -1,0 +1,21 @@
+{
+  "part_a_fact_boundary": {
+    "1": {
+      "mean_gate_at_last_token": 0.46357292532920835,
+      "mean_cos_sim_pre_post": 0.49712430462241175
+    },
+    "2": {
+      "mean_gate_at_last_token": 0.46419208496809006,
+      "mean_cos_sim_pre_post": 0.5880416150391102
+    },
+    "3": {
+      "mean_gate_at_last_token": 0.46457068890333175,
+      "mean_cos_sim_pre_post": 0.6319392317533493
+    }
+  },
+  "part_b_repeat_vs_novel": {
+    "mean_gate_repeat": 0.4587197217345238,
+    "mean_gate_novel": 0.46286596268415453,
+    "difference": 0.004146240949630731
+  }
+}

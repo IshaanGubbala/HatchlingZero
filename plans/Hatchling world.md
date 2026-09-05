@@ -1954,6 +1954,57 @@ being written alongside it. Per the user's explicit ordering ("only
 then alter memory writing"), no changes to `mem.update` or the gate
 have been made yet — this is diagnosis only.
 
+**Real diagnostic, 2026-09-05 — the gate itself, root cause found.**
+Direct follow-up, explicit user request: "inspect the gate value \(g\)
+across successive fact-teaching updates -- does it stay uniformly high
+regardless of whether the new content is genuinely novel." `scripts/
+hz_nursery_l5_gate_diagnostic.py` calls the exact same submodules
+`mem.update` already uses internally (`q_proj`/`k_proj`/`v_proj`/
+`write_proj`/`ln_read`/`ln_state`/`_gate`) to capture \(g\), which
+`update()` computes but discards — read-only introspection, no source
+changes. Real structural fact worth knowing first:
+`HZCQPersistentMemory`'s gate is a "protected zero init" (`gate_w2`
+starts at exactly zero, `gate_b2` set so \(\sigma(\text{gate\_b2}) =
+g_{\text{init}} = 0.58\)) — the gate STARTS completely content-blind
+by construction (a constant, until training moves `gate_w1`/`gate_w2`
+away from zero) and must LEARN to become content-sensitive; nothing
+guarantees it does.
+
+**Part A — gate value at each fact boundary**: 0.4636 / 0.4642 / 0.4646
+for facts 1/2/3 (200 held-out episodes) — statistically identical, no
+dependence on how much is already stored in \(S\).
+
+**Part B — repeat vs novel (the decisive test)**: teach a fact, then
+either re-teach the EXACT SAME sentence (redundant, a well-functioning
+gate should write little to nothing) or a genuinely NEW fact (should
+write substantially) into the same \(S\). Result: mean
+\(g(\text{repeat}) = 0.4587\), mean \(g(\text{novel}) = 0.4629\) —
+difference **+0.0041**, indistinguishable from noise. **The gate
+applies almost exactly the same ~46% overwrite strength whether the
+incoming content is already fully redundant or brand new.** It never
+learned the one distinction that would matter: protect what's already
+there when nothing new is being said.
+
+**This completes the causal chain from the storage-failure diagnostic
+above.** With \(g \approx 0.46\) essentially constant and content-
+blind, every subsequent fact-teaching event blends ~46% new content
+into every slot uniformly, with nothing selectively preserving earlier
+writes. After facts 2 and 3 are taught, fact 1's original contribution
+to \(S\) has been diluted to roughly \((1-0.46)^2 \approx 29\%\) of its
+initial weight — directly consistent with the fact-decoding probe's
+finding that even fact #1 was barely recoverable (31.5%, near chance)
+after 3 facts were taught. **Root cause, not just a symptom**: not a
+capacity limit, not an \(H\)-retrieval failure, but a gate that never
+learned "already known, don't overwrite" as a distinct signal from
+"new, please write." Real candidates for an actual fix, per the user's
+own ordering NOT YET ATTEMPTED (diagnosis stops here): an explicit
+slot-routing/selection mechanism so different facts are written to
+different slots rather than blended into all of them; an auxiliary
+loss term penalizing overwrite of still-relevant content; or gate
+input features that let it detect "this slot's content is still being
+asked about" rather than only comparing \(S_{\text{prev}}\) to
+\(\Delta S\) in isolation.
+
 - [x] Create `hatchling_world/`. (commit a20bc30, 2026-09-04)
 - [x] Fixed-shape world schema. (`state.py`: batched WorldState/WorldConfig)
 - [x] Batched vectorized transition engine. (`transition.py`, `vector_env.py`)
