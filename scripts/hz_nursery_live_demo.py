@@ -37,6 +37,8 @@ import time
 from pathlib import Path
 
 import torch
+import torch.nn.functional as F
+import math
 
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -45,6 +47,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))  # for `import hz_nurse
 import hz_nursery_train as nt  # noqa: E402  -- reuse its tensor-packing + train-step helpers verbatim
 import hz_school0_train as sc0  # noqa: E402
 from reference.hz_language_model_torch import HZLanguageModel  # noqa: E402
+from reference.hz0h_bdh_hzcq_v1_persistent_memory_torch import _rms  # noqa: E402
 from hatchling_world.language.tokenizer import NurseryTokenizer  # noqa: E402
 from hatchling_world.language.nursery_generator import (  # noqa: E402
     generate_l0_sentence, generate_l1_grounding_episode, generate_l2_verb_episode,
@@ -56,6 +59,113 @@ from hatchling_world.school.generator import generate_arithmetic_episode, genera
 
 HISTORY_LEN = 60
 L2_COPY_BASELINE = 0.8045  # real, measured (see plans/Hatchling world.md's L2 writeup) -- "copy pre-state, ignore verb"
+ATTN_DIV_LAMBDA = 0.5  # attention-diversity loss weight (proven to work in hz_nursery_l5_combined_fix.py)
+
+
+def gate_logit(mem, S_prev, delta_S):
+    """Compute gate logit for memory slot selection. Used by update_combined."""
+    q = torch.cat([
+        _rms(S_prev), _rms(delta_S),
+        F.cosine_similarity(S_prev, delta_S, dim=-1).unsqueeze(-1),
+        _rms(S_prev - delta_S),
+    ], dim=-1)
+    hid = F.silu(q @ mem.gate_w1 + mem.gate_b1)
+    return hid @ mem.gate_w2 + mem.gate_b2
+
+
+def attn_diversity_loss(attn: torch.Tensor) -> torch.Tensor:
+    """Attention diversity loss: encourages per-slot attention distributions
+    to be diverse (low cosine similarity). Works only with T_demo>1
+    (whole-sentence chunks); degenerate under token-by-token ingestion."""
+    a = attn.squeeze(0)  # (M_S, T_demo)
+    normed = F.normalize(a, dim=-1)
+    sim = normed @ normed.T
+    off_diag = ~torch.eye(sim.shape[0], dtype=torch.bool, device=sim.device)
+    return (sim[off_diag] ** 2).mean()
+
+
+def update_combined(mem, S_prev, demo_hidden, tau=0.5):
+    """Fixed memory update: ingest demo_hidden (whole sentence, T_demo>1)
+    instead of token-by-token. Computes cross-attention per slot, applies
+    gating based on query similarity. Returns updated S, chosen slot, and
+    per-slot attention for diversity loss."""
+    Q = mem.q_proj(S_prev)
+    K = mem.k_proj(demo_hidden)
+    V = mem.v_proj(demo_hidden)
+    scale = 1.0 / math.sqrt(Q.size(-1))
+    scores = torch.matmul(Q, K.transpose(-1, -2)) * scale
+    attn = F.softmax(scores, dim=-1)  # (B, M_S, T_demo)
+    read = torch.matmul(attn, V)
+    delta_S = mem.ln_read(mem.write_proj(read))
+
+    logits = gate_logit(mem, S_prev, delta_S)
+    g = torch.sigmoid(logits)
+
+    S_new = mem.ln_state(S_prev + g * delta_S)
+    chosen_slot = int(logits.squeeze(-1).argmax(dim=-1)[0].item())
+    return S_new, chosen_slot, attn
+
+
+def qa_forward_fixed(model, tok, teach_sentence, question_sentence, type_idx, color_idx, size_idx, pos_idx):
+    """Fixed L5 QA forward pass: ingests teach and question sentences
+    whole at once, with attention-diversity loss. Returns (logits, div_loss)."""
+    B = 1
+    x_objects = model.encode_objects(type_idx, color_idx, size_idx, pos_idx)
+
+    # Initialize and update memory with teach sentence (whole chunk)
+    S = model.mem.init_state(B)
+    teach_ids = torch.tensor([tok.encode(teach_sentence)])
+    teach_hidden = model.token_embed(teach_ids)  # (1, T, D)
+    S, _, teach_attn = update_combined(model.mem, S, teach_hidden)
+    div_loss_teach = attn_diversity_loss(teach_attn)
+
+    # Update memory with question sentence (whole chunk)
+    question_ids = torch.tensor([tok.encode(question_sentence)])
+    question_hidden = model.token_embed(question_ids)  # (1, T, D)
+    S, _, question_attn = update_combined(model.mem, S, question_hidden)
+    div_loss_question = attn_diversity_loss(question_attn)
+
+    # Combine diversity losses
+    div_loss = (div_loss_teach + div_loss_question) / 2.0
+
+    # Run workspace and readout (unchanged from original)
+    H = model.ws.run(B, S, x_objects, n_rounds=model.n_rounds_l1)
+    q = model.qa_rq(H).mean(dim=1, keepdim=True)
+    scores = torch.matmul(q, model.qa_rk(H).transpose(-1, -2)) / (model.D ** 0.5)
+    read = torch.matmul(F.softmax(scores, dim=-1), H).mean(dim=1)
+    logits = model.qa_head(read)
+    return logits, div_loss
+
+
+def stress_recall_forward_fixed(model, tok, sequence, question):
+    """Fixed L5-stress forward pass: ingests each sentence whole at once,
+    accumulates attention-diversity losses. Returns (logits, div_loss)."""
+    B = 1
+    S = model.mem.init_state(B)
+    div_losses = []
+
+    # Update memory with each sentence in the sequence
+    for sentence in sequence:
+        ids = torch.tensor([tok.encode(sentence)])
+        hidden = model.token_embed(ids)  # (1, T, D)
+        S, _, attn = update_combined(model.mem, S, hidden)
+        div_losses.append(attn_diversity_loss(attn))
+
+    # Update memory with question
+    q_ids = torch.tensor([tok.encode(question)])
+    q_hidden = model.token_embed(q_ids)
+    S, _, q_attn = update_combined(model.mem, S, q_hidden)
+    div_losses.append(attn_diversity_loss(q_attn))
+
+    # Workspace reasoning and readout (same as stress_recall_forward)
+    x_null = model.read_null_x.expand(B, 1, model.D)
+    H = model.ws.run(B, S, x_null, n_rounds=model.n_rounds_l1)
+    q = model.qa_rq(H).mean(dim=1, keepdim=True)
+    scores = torch.matmul(q, model.qa_rk(H).transpose(-1, -2)) / (model.D ** 0.5)
+    read = torch.matmul(F.softmax(scores, dim=-1), H).mean(dim=1)
+    logits = model.qa_head(read)
+    mean_div_loss = torch.stack(div_losses).mean() if div_losses else torch.tensor(0.0)
+    return logits, mean_div_loss
 
 
 def write_snapshot(path: Path, data: dict) -> None:
@@ -338,16 +448,36 @@ def run_l5(model, opt, tok, args, state_file, tracker, stage_idx, n_stages):
     train_rng = random.Random(args.seed + 7)
     eval_rng = random.Random(args.seed + 7 + nt.TEST_SEED_OFFSET)
     for step in range(args.l5_steps):
-        nt.l5_train_step(model, opt, tok, train_rng, args.l5_n_objects)
+        # Training step with fixed memory ingestion + attention-diversity loss
+        ep = generate_l5_qa_episode(train_rng, n_objects=args.l5_n_objects)
+        teach_ids, question_ids, type_idx, color_idx, size_idx, pos_idx, label_idx = nt.l5_episode_tensors(tok, ep)
+        logits, div_loss = qa_forward_fixed(model, tok, ep["teach"], ep["question"],
+                                             type_idx, color_idx, size_idx, pos_idx)
+        loss = torch.nn.functional.cross_entropy(logits, label_idx)
+        total_loss = loss + ATTN_DIV_LAMBDA * div_loss
+        opt.zero_grad(set_to_none=True)
+        total_loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+        opt.step()
 
         if (step + 1) % args.eval_every == 0:
-            held_out_acc = nt.l5_eval(model, tok, eval_rng, args.l5_n_objects, args.demo_eval_n)
-            tracker.push(held_out_acc=held_out_acc)
+            # Eval: use the fixed forward pass, no diversity loss applied during eval
+            correct = 0
+            with torch.no_grad():
+                for _ in range(args.demo_eval_n):
+                    e = generate_l5_qa_episode(eval_rng, n_objects=args.l5_n_objects)
+                    t_ids, q_ids, t_idx, c_idx, s_idx, p_idx, l_idx = nt.l5_episode_tensors(tok, e)
+                    lg, _ = qa_forward_fixed(model, tok, e["teach"], e["question"],
+                                             t_idx, c_idx, s_idx, p_idx)
+                    correct += int((lg.argmax(-1) == l_idx).item())
+            tracker.push(held_out_acc=correct / args.demo_eval_n)
 
+        # Live demo on one held-out episode
         ep = generate_l5_qa_episode(eval_rng, n_objects=args.l5_n_objects)
         teach_ids, question_ids, type_idx, color_idx, size_idx, pos_idx, label_idx = nt.l5_episode_tensors(tok, ep)
         with torch.no_grad():
-            logits = model.qa_forward(teach_ids, question_ids, type_idx, color_idx, size_idx, pos_idx)
+            logits, _ = qa_forward_fixed(model, tok, ep["teach"], ep["question"],
+                                         type_idx, color_idx, size_idx, pos_idx)
             pred_idx = int(logits.argmax(-1).item())
 
         write_snapshot(state_file, base_snapshot(
@@ -365,30 +495,32 @@ def run_l5_stress(model, opt, tok, args, state_file, tracker, stage_idx, n_stage
     eval_rng = random.Random(args.seed + 8 + nt.TEST_SEED_OFFSET)
     n_facts, n_distractors = args.l5_stress_facts, args.l5_stress_distractors
     for step in range(args.l5_stress_steps):
+        # Training step with fixed memory ingestion + attention-diversity loss
         ep = generate_l5_stress_episode(train_rng, n_facts=n_facts, n_distractors=n_distractors)
-        sequence_ids_list = [torch.tensor([tok.encode(s)]) for s in ep["sequence"]]
-        question_ids = torch.tensor([tok.encode(ep["question"])])
         answer_idx = torch.tensor([ep["answer_idx"]])
-        logits = model.stress_recall_forward(sequence_ids_list, question_ids)
+        logits, div_loss = stress_recall_forward_fixed(model, tok, ep["sequence"], ep["question"])
         loss = torch.nn.functional.cross_entropy(logits, answer_idx)
+        total_loss = loss + ATTN_DIV_LAMBDA * div_loss
         opt.zero_grad(set_to_none=True)
-        loss.backward()
+        total_loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         opt.step()
 
         if (step + 1) % args.eval_every == 0:
+            # Eval: use the fixed forward pass
             correct = 0
             with torch.no_grad():
                 for _ in range(args.demo_eval_n):
                     e = generate_l5_stress_episode(eval_rng, n_facts=n_facts, n_distractors=n_distractors)
-                    seq_ids = [torch.tensor([tok.encode(s)]) for s in e["sequence"]]
-                    q_ids = torch.tensor([tok.encode(e["question"])])
-                    lg = model.stress_recall_forward(seq_ids, q_ids)
+                    a_idx = torch.tensor([e["answer_idx"]])
+                    lg, _ = stress_recall_forward_fixed(model, tok, e["sequence"], e["question"])
                     correct += int((lg.argmax(-1).item() == e["answer_idx"]))
             tracker.push(held_out_acc=correct / args.demo_eval_n)
 
+        # Live demo
         with torch.no_grad():
-            pred_idx = int(model.stress_recall_forward(sequence_ids_list, question_ids).argmax(-1).item())
+            logits, _ = stress_recall_forward_fixed(model, tok, ep["sequence"], ep["question"])
+            pred_idx = int(logits.argmax(-1).item())
 
         write_snapshot(state_file, base_snapshot(
             stage=f"L5-stress (facts={n_facts}, distractors={n_distractors})",

@@ -2300,8 +2300,8 @@ document's real thesis.
 
 ## Phase 4 — memory
 
-- [ ] Frozen-weight lifetime evaluation.
-- [ ] \(S\) reset/zero ablations.
+- [x] Frozen-weight lifetime evaluation. (`hz_nursery_l5_memory_ablations.py` Part 2 — see result below)
+- [x] \(S\) reset/zero ablations. (`hz_nursery_l5_memory_ablations.py` Part 1 — see result below)
 - [x] Delayed-use tasks (real, went further than originally scoped here).
       L5's stress test (section 30's Phase 0, `generate_l5_stress_episode`)
       IS a delayed-use task (teach, then query later, with distractors
@@ -2330,9 +2330,77 @@ document's real thesis.
       killed per instruction (`hz_nursery_l5_load_balanced_routing.py`).
       Standing result: ~0.354 mean 3-fact recall (chance 0.25), still
       far from the ~100% ceiling elsewhere — a real, substantial, but
-      incomplete improvement, not a solved problem. Frozen-weight
-      lifetime evaluation and \(S\) reset/zero ablations remain
-      genuinely different, not-yet-run experiments.
+      incomplete improvement, not a solved problem.
+
+**Real result, 2026-09-05 — S reset/zero ablations, the first direct
+confirmation that \(S\) actually carries the taught information.**
+Explicit user request ("both"), closing out Phase 4. Every experiment
+in this whole memory-diagnostic thread ASSUMED \(S\) was the thing
+carrying the taught fact — none had directly ablated it to confirm.
+`scripts/hz_nursery_l5_memory_ablations.py` Part 1, three conditions
+trained separately on L5's single-fact recall task:
+
+| condition | held-out acc |
+|---|---|
+| normal (S flows teach -> question) | 1.000 |
+| **S reset to learned init right before the question** | **0.247** |
+| S's learned init replaced with zeros for the whole episode | 1.000 |
+
+**Resetting \(S\) immediately before the question — destroying
+whatever the teach turn wrote while keeping the model's own learned
+starting point — collapses accuracy to EXACTLY chance (0.247 vs
+0.250).** This is the direct confirmation this project's whole \(S\)-
+carries-the-fact framing had never explicitly tested: it isn't
+retrieving from anywhere else, the information really is only in
+\(S\). **Zeroing the learned `S_init` entirely has NO effect at all**
+(1.000, identical to normal) — the specific learned initial state
+isn't load-bearing; an arbitrary zero start works exactly as well once
+the real write mechanism populates it. This cleanly rules out
+`S_init`'s specific values as any kind of bottleneck anywhere in this
+thread's diagnostics.
+
+**Real result, 2026-09-05 — frozen-weight lifetime evaluation, a
+genuinely new finding: strong recency bias that itself breaks down at
+long horizons.** Part 2 of the same script: train once, freeze every
+parameter (no further gradient updates), then run \(S\)
+CONTINUOUSLY — never reset — across a real long lifetime of \(K\)
+sequential taught facts about \(K\) different objects, and ask about
+each fact by its position in that one continuous lifetime. This is a
+different experimental design from the L5-stress cliff above: that one
+used bounded, always-reset, TRAINED-ON episode structures (2-4 facts
+per episode, matching how the model was actually trained); this one
+tests a genuinely continuous, frozen, never-reset lifetime, closer to
+section 3's actual \(\theta\)/\(S\)/\(H\) framing, and — critically —
+one the model was never trained on at all (training only ever used
+short, reset-per-episode structures).
+
+| \(K\) facts in lifetime | overall acc | earliest position acc | latest position acc |
+|---|---|---|---|
+| 1 | 1.000 | 1.000 | 1.000 |
+| 2 | 0.585 | 0.21 | 0.96 |
+| 3 | 0.493 | 0.28 | 0.85 |
+| 5 | 0.390 | 0.30 | 0.81 |
+| 10 | 0.331 | 0.16 | 0.54 |
+| 20 | 0.251 | 0.24 | 0.32 |
+
+**A clear, strong recency bias at small-to-medium \(K\)**: the most
+recently taught fact stays well-preserved (96%, 85%, 81% at \(K\)=2,
+3, 5) while earlier facts decay toward chance quickly — consistent
+with the gate-diagnostic finding that each write blends ~46% new
+content into \(S\), so the newest write has simply had the least
+subsequent overwriting. **But the recency advantage itself
+disappears by \(K\)=20** — even the LATEST position only reaches
+32%, barely above chance, a sharp qualitative change from the 80-96%
+range seen at smaller \(K\). Real, sensible explanation, not yet
+confirmed: the model was only ever trained on short single-fact (or
+2-4 fact, always reset) episodes — a 20-fact continuous never-reset
+lifetime is genuinely out-of-training-distribution, not merely
+"harder," so behavior this far from anything seen during training is
+not expected to degrade gracefully. **Real, disclosed next step, not
+yet tried**: training directly on longer, never-reset lifetimes (not
+just longer bounded episodes) to see whether the recency-preservation
+mechanism can be extended by exposure rather than assumed to be a
+fixed architectural ceiling.
 
 ## Phase 5 — depth
 
