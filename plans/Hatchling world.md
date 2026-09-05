@@ -2202,6 +2202,42 @@ literature, e.g. penalizing uneven long-run slot-selection frequency)
 would be the natural way to make top-\(k\) routing usable at all,
 independent of whatever content signal is available.
 
+**Real result, 2026-09-05 — ONE decisive, pre-committed evaluation of
+that load-balancing idea, and a clean kill.** Explicit user directive:
+test a Switch-Transformer-style load-balancing auxiliary loss (an EMA
+buffer tracking recent per-slot usage across all training steps,
+penalizing routing probability toward recently-overused slots — see
+`scripts/hz_nursery_l5_load_balanced_routing.py`) against the current
+best, 3 seeds each, with the success criterion PRE-COMMITTED before
+running anything: 3-fact recall must exceed 0.345 reproducibly
+(min-across-seeds, not just mean) AND the fact-decoding probe must
+improve. Not open-ended tuning — one controlled comparison, decided by
+the script's own verdict logic.
+
+| condition | mean acc | min acc | max acc |
+|---|---|---|---|
+| whole_sentence+attn_div (re-verified, 3 seeds) | **0.354** | 0.323 | 0.395 |
+| + load-balanced top-1 | 0.302 | 0.240 | 0.343 |
+| + load-balanced top-2 | 0.289 | 0.263 | 0.323 |
+
+**Both load-balanced routing variants are worse than the baseline on
+every metric — mean, min, and max.** Neither clears the pre-committed
+bar (top-1's best seed, 0.343, doesn't even reach 0.345 on its own,
+let alone reproducibly). **Verdict: killed, no further routing tuning**
+— per instruction, not renegotiated after seeing the result.
+
+**Real bonus finding from re-verifying the baseline across seeds for
+the first time**: the current best's TRUE performance is higher than
+previously reported — mean 0.354 across 3 seeds (up to 0.395 on seed
+1), not the single-seed 0.345 this thread had been comparing against.
+The original number understated it. **Standing best as of this
+diagnostic thread's conclusion: whole-sentence ingestion + attention-
+diversity loss, ~0.354 mean held-out 3-fact recall (chance = 0.25),
+still well short of the ~100% ceiling every single-turn task in this
+project reaches, and this specific routing avenue is now closed.**
+Systems/CUDA work follows next, per explicit instruction, independent
+of this outcome.
+
 ## Phase 1 — environment (HZ-World-0, infrastructure validation)
 
 - [x] Create `hatchling_world/`. (commit a20bc30, 2026-09-04)
@@ -2281,8 +2317,21 @@ document's real thesis.
       (an auxiliary slot-diversity loss), which broke slot collapse
       (participation ratio ~1.1 -> ~7.6-8.0) but did NOT fix recall
       (`hz_nursery_l5_diversity_loss_fix.py`) -- a clean negative result
-      separating slot geometry from selective-write capability. Frozen-
-      weight lifetime evaluation and \(S\) reset/zero ablations remain
+      separating slot geometry from selective-write capability; caught
+      a real structural bug (softmax over `T_demo=1` is always exactly
+      1.0, so `delta_S` was identical across slots by construction
+      under token-by-token ingestion) and fixed it by ingesting whole
+      sentences instead (`hz_nursery_l5_whole_sentence_write_fix.py`,
+      0.245 -> 0.333); combined that with an attention-diversity loss
+      for the standing best (`hz_nursery_l5_combined_fix.py`, then
+      re-verified across 3 seeds: mean 0.354, range 0.323-0.395); ran
+      ONE pre-committed decisive test of load-balanced top-k routing on
+      top of that best, which failed cleanly on every metric and was
+      killed per instruction (`hz_nursery_l5_load_balanced_routing.py`).
+      Standing result: ~0.354 mean 3-fact recall (chance 0.25), still
+      far from the ~100% ceiling elsewhere — a real, substantial, but
+      incomplete improvement, not a solved problem. Frozen-weight
+      lifetime evaluation and \(S\) reset/zero ablations remain
       genuinely different, not-yet-run experiments.
 
 ## Phase 5 — depth
