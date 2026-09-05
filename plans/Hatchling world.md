@@ -2101,6 +2101,60 @@ than to \(S\) directly — the earlier diversity-loss fix pushed \(S\)'s
 raw VALUES apart post-hoc but never touched what determines whether
 different slots actually READ different things in the first place.
 
+**Real result, 2026-09-05 — third attempted fix finally moves the
+needle, and it was caught by inspecting the math before running
+anything.** Before building an attention-diversity loss to test the
+"next candidate" above, a hard mathematical fact killed that plan
+before it ran: every fact sentence in this codebase is ingested ONE
+TOKEN AT A TIME (`mem.update()` called once per token, `T_demo=1`
+always). **Softmax over a length-1 dimension is mathematically always
+exactly 1.0, regardless of the scores** — verified directly (`F.
+softmax(torch.randn(1,8,1)*100, dim=-1)` returns all-ones exactly, not
+approximately). This means `read = attn @ V` reduces to exactly \(V\)
+for EVERY slot on every single-token update, so `delta_S` is IDENTICAL
+across all \(M_S\) slots BY CONSTRUCTION, regardless of \(Q\). Neither
+prior fix could ever have worked: slot diversity in \(S\) and gate
+competition both operate strictly downstream of a `delta_S` that was
+already forced identical across every slot before either intervention
+touched anything.
+
+The actual fix, `scripts/hz_nursery_l5_whole_sentence_write_fix.py`:
+ingest each WHOLE FACT SENTENCE as one multi-token chunk (`T_demo` =
+sentence length) instead of looping token-by-token — not a change to
+`HZCQPersistentMemory`'s code (`update` already accepts any `T_demo`),
+a change in how the language model CALLS it. With `T_demo>1`, cross-
+attention finally has multiple real positions to discriminate over, so
+different slots' queries CAN, for the first time in this whole
+diagnostic thread, receive genuinely different `delta_S` values.
+Compared directly against the existing token-by-token behavior, same
+`n_facts=3` config: **held-out accuracy 0.245 (token-by-token, matching
+every earlier result exactly) vs 0.333 (whole-sentence)** — the
+whole-sentence variant was ABOVE the token-by-token baseline at every
+single eval checkpoint (0.320/0.305/0.280/0.340/0.340), never dipping
+into the baseline's chance-level range. The fact-decoding probe also
+improved for all 3 facts (0.265/0.32/0.355 -> 0.32/0.34/0.375), and
+participation ratio ticked up too (1.10 -> 1.24) — this time as a
+correlate of a REAL task-performance gain, not a dissociated side
+effect like the earlier diversity-loss fix.
+
+**Honest assessment**: this is the first of four attempted
+interventions (diversity loss on \(S\), top-1 routing, top-2 routing,
+whole-sentence ingestion) to move held-out recall at all — but the
+improvement is modest (0.245 -> 0.333, chance is 0.25), nowhere near
+the ~100% ceiling every single-fact/single-turn task in this project
+reaches, and \(S\)'s participation ratio (1.24 of a max 8) shows the
+slots are still mostly collapsed even with real multi-token attention
+available. **Real, disclosed next steps, not yet tried**: whether
+whole-sentence chunking ALSO needs to be applied to distractor
+sentences and the question turn (already is, in this experiment) for
+consistency; whether COMBINING whole-sentence ingestion with the
+earlier diversity-loss or routing fixes now produces a larger effect,
+since those interventions previously had no real per-slot signal to
+work with and might behave completely differently now that `delta_S`
+can genuinely vary by slot; and whether the improvement holds or grows
+with more training steps (2500 steps may not be enough for a change
+this structural to fully play out).
+
 ## Phase 1 — environment (HZ-World-0, infrastructure validation)
 
 - [x] Create `hatchling_world/`. (commit a20bc30, 2026-09-04)

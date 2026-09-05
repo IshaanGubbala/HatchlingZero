@@ -1,0 +1,20 @@
+{
+  "token_by_token (existing)": {
+    "held_out_acc": 0.245,
+    "mean_participation_ratio": 1.1024517488479615,
+    "fact_probe_by_query_idx": {
+      "0": 0.265,
+      "1": 0.32,
+      "2": 0.355
+    }
+  },
+  "whole_sentence (fix)": {
+    "held_out_acc": 0.3325,
+    "mean_participation_ratio": 1.2346836814284325,
+    "fact_probe_by_query_idx": {
+      "0": 0.32,
+      "1": 0.34,
+      "2": 0.375
+    }
+  }
+}
