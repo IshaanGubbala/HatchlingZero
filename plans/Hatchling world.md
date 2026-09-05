@@ -1445,7 +1445,11 @@ Do **not** kill Hatchling World after one disappointing number. Park/kill only a
       read, so `ws.run` reasons over \(S\) and a small learned
       placeholder (`read_null_x`) standing in for the required but
       otherwise-unused `x_hidden` argument)
-- [ ] Combined multi-signal loss (\(L_{\text{LM}}+L_{\text{ground}}+L_{\text{action}}+L_{\text{world}}+L_{\text{QA}}\)) — L0/L1/L2/L3/L4/L5/L6 currently trained as separate objectives via `--stage`, not yet combined.
+- [x] Combined multi-signal loss (\(L_{\text{LM}}+L_{\text{ground}}+L_{\text{action}}+L_{\text{world}}+L_{\text{QA}}\)).
+      (`scripts/hz_nursery_combined_train.py` — one shared model, all 8
+      real sub-task losses summed every step: L0 LM + L1 ground + L2
+      select/consequence + L3 relation + L4 logic-AND + L4 counting +
+      L5 QA + L6 reading. No curriculum ordering at all)
 
 **Real result, 2026-09-04**: `scripts/hz_nursery_train.py`, `d_model=64`,
 `M_H=32` (D/2 value/write), same architecture as the room-navigation
@@ -1765,6 +1769,53 @@ retaining 1 (L5) regardless of readout — the counting-ablation
 methodology (swap the readout on a frozen backbone, then retrain
 end-to-end) is the natural template to reapply here if this is worth
 digging into further.
+
+**Real result, 2026-09-04 — combined multi-signal training, no
+detectable catastrophic interference.** `scripts/
+hz_nursery_combined_train.py`: ONE shared `HZLanguageModel`, ONE
+optimizer, every step computes all 8 real sub-task losses (L0 LM, L1
+ground, L2 select+consequence, L3 relation, L4 logic-AND, L4 counting,
+L5 QA, L6 reading) and backprops their SUM in a single step — no
+curriculum ordering, no stage gating, literally the plan's own
+\(L_{\text{LM}}+L_{\text{ground}}+L_{\text{action}}+L_{\text{world}}+L_{\text{QA}}\)
+formula realized at the granularity the actual generators support.
+4000 steps, directly compared against the sequential per-stage numbers
+already recorded above:
+
+| metric | combined | sequential |
+|---|---|---|
+| L0 held-out perplexity | 2.080 | 2.080 |
+| L1 held-out acc | 1.000 | 1.000 |
+| L2 held-out sel acc | 1.000 | 1.000 |
+| L2 held-out consequence acc | 0.953 | 0.945 |
+| L3 held-out seen-combo acc | 1.000 | 1.000 |
+| L3 held-out unseen-combo acc | 0.195 (final step) / **0.493 (run mean)** | 0.550 |
+| L4-logic held-out seen-combo acc | 1.000 | 1.000 |
+| L4-logic held-out unseen-combo acc | 0.570 (final) / **0.430 (run mean)** | 0.500 |
+| L4-counting held-out acc | 0.675 | 0.690 |
+| L5 held-out acc | 1.000 | 1.000 |
+| L6 held-out acc | 0.775 | 0.750 |
+
+Every clean-saturating task (L0/L1/L2-sel/L3-seen/L4logic-seen/L5)
+matches its sequential number almost exactly. The two already-noisy
+partial-generalization metrics (L3/L4-logic unseen-combo) show a
+misleading single final-step number (0.195, well below baseline) that
+disappears once averaged over the run's own eval history (0.493 and
+0.430 respectively) — both land right on top of the sequential
+baselines; the full trajectory swings from 0.725 down to 0.195 and
+back, the SAME instability these two metrics already showed in every
+standalone L3/L4-logic run, not a joint-training-specific regression.
+L4-counting and L6 — the two genuine capacity-ceiling tasks — also land
+within a few points of their sequential numbers. **Conclusion: sharing
+one backbone across all 8 objectives, with zero curriculum ordering
+and equal-weighted summed losses, shows no measurable negative
+transfer and no measurable positive transfer either** — each task
+performs about as well jointly as it does alone, at this scale. This
+directly answers the plan's own "measure, don't assume" instruction:
+structured curriculum ordering was not compared against here (this run
+had none), so this result says "joint vs. isolated is roughly neutral,"
+not yet "curriculum vs. no-curriculum is neutral" — that comparison
+remains real, open follow-up work.
 
 ## Phase 1 — environment (HZ-World-0, infrastructure validation)
 
