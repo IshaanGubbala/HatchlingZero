@@ -49,3 +49,24 @@ def generate_rule_episode(rng: random.Random) -> dict:
     question = f"what size is the {premise_color} object"
     return {"rule": rule, "question": question, "premise_color": premise_color,
             "conclusion_size": conclusion_size, "answer_idx": SIZES.index(conclusion_size)}
+
+
+def generate_cs_program_episode(rng: random.Random) -> dict:
+    """School-0, Computer Science: "program execution" -- a genuinely
+    different skill from raw arithmetic (`generate_arithmetic_episode`
+    states both operands directly in one instruction). Here, two
+    variable assignments ("x is {a}", "y is {b}") must first be tracked
+    as a real symbol table -- TWO simultaneous bindings, directly
+    connecting to this session's own L5 memory-stress finding that 2
+    simultaneous facts sit right at the edge of what S can reliably
+    hold -- before the values can be substituted and added. Real,
+    disclosed test: does correct execution require MORE than the
+    2-fact edge this project's own persistent memory already struggles
+    with, or does composing retrieval with arithmetic change the
+    picture?"""
+    a, b = rng.randrange(5), rng.randrange(5)
+    program = [f"x is {NUMBERS[a]}", f"y is {NUMBERS[b]}"]
+    question = "what is x plus y"
+    total = a + b
+    return {"program": program, "question": question, "x": a, "y": b,
+            "sum": total, "sum_idx": total}

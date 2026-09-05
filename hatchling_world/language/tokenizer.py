@@ -53,9 +53,17 @@ QA_WORDS = ["what", "called"]
 # to a query about a specific instance, not a fact about one object
 # (the distinction from L5's fact recall).
 SCHOOL_WORDS = ["plus", "equals", "if", "then"]
+# Phase 9 continuation -- School-0's first Computer Science task (plan
+# section 8.2): "program execution" -- x/y are variable NAMES, "is"
+# (already in VERBS_STATE) doubles as assignment, so "x is four" reads
+# naturally as both English and code. Real CS skill under test: track
+# TWO simultaneous variable bindings (a symbol table) then compose them
+# arithmetically -- directly connects to this session's own 2-fact
+# near-cliff finding (L5 memory-stress), not an arbitrary new task.
+CS_WORDS = ["x", "y"]
 
 VOCAB = (SPECIALS + NOUNS + COLORS + SIZES + POSITIONS + VERBS_STATE + VERBS_ACTION
-         + FUNCTION_WORDS + NUMBERS + LOGIC_WORDS + NOVEL_LABELS + QA_WORDS + SCHOOL_WORDS)
+         + FUNCTION_WORDS + NUMBERS + LOGIC_WORDS + NOVEL_LABELS + QA_WORDS + SCHOOL_WORDS + CS_WORDS)
 
 
 class NurseryTokenizer:

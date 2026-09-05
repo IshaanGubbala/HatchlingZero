@@ -9,7 +9,8 @@ import random
 import torch
 
 from hatchling_world.school.generator import (
-    generate_arithmetic_episode, generate_rule_episode, ARITH_TRAIN_PAIRS, ARITH_HELD_OUT_PAIRS,
+    generate_arithmetic_episode, generate_rule_episode, generate_cs_program_episode,
+    ARITH_TRAIN_PAIRS, ARITH_HELD_OUT_PAIRS,
 )
 from hatchling_world.language.tokenizer import NurseryTokenizer, NUMBERS, SIZES
 from reference.hz_language_model_torch import HZLanguageModel
@@ -74,3 +75,29 @@ def test_rule_forward_shapes_and_gradients_reuses_read_head():
     loss = logits.sum()
     loss.backward()
     assert model.read_head.weight.grad is not None, "rule_forward must route through the shared read_head"
+
+
+def test_cs_program_episode_sum_is_correct():
+    rng = random.Random(5)
+    for _ in range(50):
+        ep = generate_cs_program_episode(rng)
+        assert ep["sum"] == ep["x"] + ep["y"]
+        assert ep["sum"] < len(NUMBERS)
+        assert NUMBERS[ep["x"]] in ep["program"][0] and "x" in ep["program"][0]
+        assert NUMBERS[ep["y"]] in ep["program"][1] and "y" in ep["program"][1]
+
+
+def test_cs_program_forward_shapes_and_gradients_reuses_arithmetic_head():
+    tok = NurseryTokenizer()
+    model = HZLanguageModel(vocab_size=tok.vocab_size, d_model=32, memory_slots=8, workspace_slots=16,
+                             n_rounds_l1=4, n_arith_labels=len(NUMBERS))
+    rng = random.Random(6)
+    ep = generate_cs_program_episode(rng)
+    statement_ids_list = [torch.tensor([tok.encode(s)]) for s in ep["program"]]
+    question_ids = torch.tensor([tok.encode(ep["question"])])
+    logits = model.cs_program_forward(statement_ids_list, question_ids)
+    assert logits.shape == (1, len(NUMBERS))
+    loss = logits.sum()
+    loss.backward()
+    assert model.arithmetic_head.weight.grad is not None, "cs_program_forward must route through the shared arithmetic_head"
+    assert model.mem.q_proj.weight.grad is not None

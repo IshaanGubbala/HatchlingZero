@@ -401,3 +401,28 @@ class HZLanguageModel(nn.Module):
         H = self.ws.run(B, S, x_null, n_rounds=self.n_rounds_l1)
         pooled = H.mean(dim=1)
         return self.read_head(pooled)  # (B, n_read_labels) -- same space as SIZES
+
+    def cs_program_forward(self, statement_ids_list: list[torch.Tensor], question_ids: torch.Tensor) -> torch.Tensor:
+        """School-0 Computer Science: "program execution" -- a real
+        symbol table (2 variable assignments, "x is {a}", "y is {b}")
+        must be tracked before their values can be substituted into
+        "what is x plus y". Each statement is ingested as ONE WHOLE-
+        SENTENCE chunk (T_demo = statement length, not token-by-token)
+        -- applying this session's own real finding (a fixed
+        mathematical fact: softmax over T_demo=1 is always exactly
+        1.0, so token-by-token ingestion structurally forces delta_S
+        identical across every slot) from the start here, rather than
+        repeating the bug. Classifies via arithmetic_head (same label
+        space as arithmetic_forward -- program execution's answer is
+        also a sum)."""
+        B = question_ids.shape[0]
+        S = self.mem.init_state(B, device=question_ids.device)
+        for stmt_ids in statement_ids_list:
+            hidden = self.token_embed(stmt_ids)  # (B, T, D) -- whole statement, one mem.update call
+            S = self.mem.update(S, hidden)
+        question_hidden = self.token_embed(question_ids)
+        S = self.mem.update(S, question_hidden)
+        x_null = self.read_null_x.expand(B, 1, self.D)
+        H = self.ws.run(B, S, x_null, n_rounds=self.n_rounds_l1)
+        pooled = H.mean(dim=1)
+        return self.arithmetic_head(pooled)  # (B, n_arith_labels)
