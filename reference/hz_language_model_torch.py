@@ -47,6 +47,40 @@ from reference.hz0h_bdh_hzcq_v1_persistent_memory_torch import HZCQPersistentMem
 from reference.hz0h_bdh_hzcq_v1_reasoning_workspace_torch import HZCQReasoningWorkspace, HZCQReasoningWorkspaceConfig
 
 
+class FactorizedObjectEncoder(nn.Module):
+    """The promoted default object representation (plans/Hatchling
+    world.md, composition-encoder ablation, 2026-09-04/05): each
+    attribute gets its OWN embedding table, and the object's
+    representation is their SUM -- composing "small" and "red" is
+    structurally just vector addition, not something a single shared
+    Linear layer (the old approach: concatenate one-hots, mix with one
+    Linear) has to learn to keep separable on its own.
+
+    Promotion rationale, from real experiments, not assumption: in
+    ISOLATED L3 training this beat the old concat+Linear encoder by a
+    wide, reproducible margin on held-out UNSEEN (size, color) combos
+    (2 seeds: 92.3% vs 58.0%, and 55.7% vs 0.0% -- the old encoder
+    sometimes converged to a systematic wrong answer, below its own
+    chance floor). A follow-up 5-seed regression check training BOTH
+    encoders jointly with L1/L4-logic/L5 found no difference at all --
+    both reach 1.000 on every metric, every seed -- so joint training
+    with L1 may independently close the same gap. Promoted anyway
+    because it never underperforms the old encoder in either setting
+    and was the deciding factor in the harder, isolated one."""
+
+    def __init__(self, d_model: int):
+        super().__init__()
+        self.type_embed = nn.Embedding(4, d_model)
+        self.color_embed = nn.Embedding(4, d_model)
+        self.size_embed = nn.Embedding(2, d_model)
+        self.position_embed = nn.Embedding(2, d_model)
+
+    def forward(self, type_idx: torch.Tensor, color_idx: torch.Tensor,
+                size_idx: torch.Tensor, position_idx: torch.Tensor) -> torch.Tensor:
+        return (self.type_embed(type_idx) + self.color_embed(color_idx)
+                + self.size_embed(size_idx) + self.position_embed(position_idx))
+
+
 class HZLanguageModel(nn.Module):
     def __init__(self, vocab_size: int, d_model: int = 64, memory_slots: int = 8,
                  workspace_slots: int = 32, gate_hidden: int = 16, n_rounds_l1: int = 8, n_qa_labels: int = 4,
@@ -76,10 +110,10 @@ class HZLanguageModel(nn.Module):
         self.lm_rv = nn.Linear(d_model, d_model, bias=False)
         self.lm_head = nn.Linear(d_model, vocab_size, bias=False)
 
-        # L1 object encoder + selection readout.
-        # Feature layout: type(4) + color(4) + size(2) + position(2) = 12,
-        # matches hatchling_world.language.tokenizer's NOUNS/COLORS/SIZES/POSITIONS.
-        self.object_encoder = nn.Linear(4 + 4 + 2 + 2, d_model, bias=False)
+        # L1 object encoder + selection readout. FactorizedObjectEncoder
+        # (promoted default, see its docstring) -- one embedding per
+        # attribute (type/color/size/position), summed.
+        self.object_encoder = FactorizedObjectEncoder(d_model)
         self.sel_rq = nn.Linear(d_model, d_model, bias=False)
         self.sel_rk = nn.Linear(d_model, d_model, bias=False)
 
@@ -154,13 +188,7 @@ class HZLanguageModel(nn.Module):
     def encode_objects(self, type_idx: torch.Tensor, color_idx: torch.Tensor,
                         size_idx: torch.Tensor, position_idx: torch.Tensor) -> torch.Tensor:
         """Each *_idx: (B, N_obj) long. Returns (B, N_obj, D)."""
-        feat = torch.cat([
-            F.one_hot(type_idx, 4).float(),
-            F.one_hot(color_idx, 4).float(),
-            F.one_hot(size_idx, 2).float(),
-            F.one_hot(position_idx, 2).float(),
-        ], dim=-1)
-        return self.object_encoder(feat)
+        return self.object_encoder(type_idx, color_idx, size_idx, position_idx)
 
     def ground_forward(self, instruction_ids: torch.Tensor, type_idx: torch.Tensor, color_idx: torch.Tensor,
                         size_idx: torch.Tensor, position_idx: torch.Tensor) -> torch.Tensor:

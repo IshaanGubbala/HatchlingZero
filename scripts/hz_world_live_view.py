@@ -197,6 +197,13 @@ PAGE = r"""<!doctype html>
   .verify-verdict.yes { background: rgba(69,224,143,0.14); color: var(--success); }
   .verify-verdict.no { background: rgba(255,107,107,0.14); color: var(--danger); }
 
+  .passage-list { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+  .passage-line {
+    font-size: 12.5px; padding: 7px 11px; border-radius: 8px; color: var(--dim);
+    background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-left: 2px solid var(--border);
+  }
+  .passage-line .idx { color: var(--text-dim); margin-right: 8px; font-weight: 700; }
+
   #nursery-chart { width: 100%; height: 90px; display: block; }
   .nursery-legend { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; font-size: 11px; color: var(--dim); }
 </style></head>
@@ -267,11 +274,13 @@ PAGE = r"""<!doctype html>
           <span class="badge" id="nursery-stage-badge">-</span>
         </div>
         <div class="stage-track" id="stage-track"></div>
+        <div class="passage-list" id="nursery-passage"></div>
         <div class="instruction-banner" id="nursery-instruction">-</div>
         <div class="obj-grid" id="nursery-objects"></div>
         <div class="token-row" id="nursery-tokens"></div>
         <div class="consequence-row" id="nursery-consequence"></div>
         <div class="verify-banner" id="nursery-verify" style="display:none"></div>
+        <div class="verify-banner" id="nursery-recall" style="display:none"></div>
       </div>
     </div>
 
@@ -433,7 +442,8 @@ function drawChart(returns) {
 const NURSERY_COLOR_HEX = { red: '#ff6b6b', blue: '#4d9dff', green: '#45e08f', yellow: '#ffd166' };
 const NURSERY_SHAPE_RADIUS = { ball: '50%', box: '8px', block: '8px', object: '8px' };
 const NURSERY_PALETTE = ['#2fe3c6', '#ffb84d', '#ff6b6b', '#c77dff', '#45e08f'];
-const NURSERY_STAGES = ['L0', 'L1', 'L2', 'L3', 'L4-logic', 'L4-count'];
+const NURSERY_STAGES = ['L0', 'L1', 'L2', 'L3', 'L4-logic', 'L4-count',
+                         'L5', 'L5-stress', 'L6', 'Sch-arith', 'Sch-rule'];
 
 function renderStageTrack(s) {
   const track = document.getElementById('stage-track');
@@ -498,6 +508,27 @@ function renderNurseryVerification(s) {
   banner.className = 'verify-banner ' + (match ? 'match' : 'mismatch');
   const chip = (label, val) => `<span class="verify-verdict ${val ? 'yes' : 'no'}">${label}: ${val ? 'YES' : 'NO'}</span>`;
   banner.innerHTML = `<span style="color:var(--dim)">verify statement:</span> ${chip('actual', s.verify_true)} ${chip('model', s.verify_pred)}` +
+    `<span style="margin-left:auto;color:${match ? 'var(--success)' : 'var(--danger)'}">${match ? '&#10003; match' : '&#10007; mismatch'}</span>`;
+}
+
+function renderNurseryPassage(s) {
+  const wrap = document.getElementById('nursery-passage');
+  if (!s.passage || !s.passage.length) { wrap.innerHTML = ''; return; }
+  wrap.innerHTML = s.passage.map((line, i) =>
+    `<div class="passage-line"><span class="idx">${i + 1}.</span>${line}</div>`
+  ).join('');
+}
+
+function renderNurseryRecall(s) {
+  const banner = document.getElementById('nursery-recall');
+  if (s.recall_true === null || s.recall_true === undefined) { banner.style.display = 'none'; return; }
+  const match = s.recall_true === s.recall_pred;
+  banner.style.display = 'flex';
+  banner.className = 'verify-banner ' + (match ? 'match' : 'mismatch');
+  banner.innerHTML =
+    `<span style="color:var(--dim)">recall:</span> ` +
+    `<span class="verify-verdict yes">actual: ${s.recall_true}</span> ` +
+    `<span class="verify-verdict ${match ? 'yes' : 'no'}">model: ${s.recall_pred}</span>` +
     `<span style="margin-left:auto;color:${match ? 'var(--success)' : 'var(--danger)'}">${match ? '&#10003; match' : '&#10007; mismatch'}</span>`;
 }
 
@@ -566,11 +597,13 @@ function renderNursery(s) {
   document.getElementById('nursery-stage-badge').textContent = s.stage;
   document.getElementById('nursery-step-badge').textContent = s.step + ' / ' + s.total_steps;
   renderStageTrack(s);
+  renderNurseryPassage(s);
   document.getElementById('nursery-instruction').textContent = s.instruction || '-';
   renderNurseryObjects(s);
   renderNurseryTokens(s);
   renderNurseryConsequence(s);
   renderNurseryVerification(s);
+  renderNurseryRecall(s);
   renderNurseryStats(s);
   drawNurseryChart(s.metrics);
 }

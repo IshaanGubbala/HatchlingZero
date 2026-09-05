@@ -1703,10 +1703,43 @@ wide and reproducible margin, on both seeds. **Real, disclosed caveat**:
 the factorized encoder's own absolute ceiling is itself seed-dependent
 (55.7% to 92.3%) — the fix substantially helps but doesn't yet fully
 close the gap to the ~100% every other grounding task reaches, and 2
-seeds isn't enough to pin down its true ceiling precisely. Worth
-promoting to the default `object_encoder` once stress-tested further
-(more seeds, and checking it doesn't regress L1/L2's already-clean
-results, since those tasks would also route through it).
+seeds isn't enough to pin down its true ceiling precisely.
+
+**Real result, 2026-09-05 — 5-seed promotion check, a genuine
+complication, then a decision.** Explicit user request: "run 5+ seeds
+and verify it doesn't hurt L1/L2/L5. If clean, make it the new default
+object representation." `scripts/hz_nursery_encoder_promotion_check.py`
+trains ONE fresh model per (seed, encoder) pair jointly on L1 + L3 +
+L4-logic + L5 (the four tasks that route through this encoder; L2 uses
+a separate `object_state_encoder`, untouched), 5 seeds x 2 encoders.
+**Result: both encoders reach 1.000 on every metric, every seed** — L1,
+L3 seen/unseen, L4-logic seen/unseen, L5 all saturate regardless of
+which encoder is used, once trained JOINTLY with L1. This is a real,
+useful complication to the isolated-L3 result above: the earlier
+finding (factorized decisively beats concat_linear) was real and
+reproduced, but it does not mean the factorized encoder is NECESSARY —
+joint training with L1's own (much easier) grounding pressure appears
+to independently close the same unseen-combo gap, for either encoder.
+Both experiments are true at once: in isolation, encoder structure
+matters a lot; jointly with L1, it stops mattering (at least at this
+scale, this vocabulary size).
+
+**Decision: promoted anyway.** `FactorizedObjectEncoder` (reference/
+hz_language_model_torch.py) is now the default `object_encoder` for
+`HZLanguageModel` — `encode_objects` calls straight through to it, no
+more one-hot-concatenate-then-Linear. Rationale, honestly stated: it
+satisfies the literal promotion criterion (never underperforms the old
+encoder in either experiment — ties in the joint setting, wins outright
+in isolation) and isolated-task training is closer to how most Nursery
+stages are actually run individually via `hz_nursery_train.py --stage`,
+where the joint-training safety net isn't present. Not a claim that
+factorization is what makes composition generalize in general — the
+honest claim is narrower: it is a strict, no-regret improvement over
+the old encoder given everything measured so far. Full test suite
+re-verified after the swap (1005 passed, same 2 pre-existing unrelated
+failures) — L0-L6 and School-0 all still function correctly through
+the new encoder (confirmed live via `scripts/hz_nursery_live_demo.py`,
+which now runs the entire curriculum through it).
 
 **Real result, 2026-09-04 — L5 teacher/student QA, back to a clean
 saturating win.** `generate_l5_qa_episode` + `HZLanguageModel.qa_forward`:

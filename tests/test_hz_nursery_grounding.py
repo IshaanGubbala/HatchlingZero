@@ -70,8 +70,8 @@ def test_ground_forward_shapes_and_gradients():
     assert logits.shape == (1, 4)
     loss = logits.sum()
     loss.backward()
-    assert model.object_encoder.weight.grad is not None
-    assert torch.isfinite(model.object_encoder.weight.grad).all()
+    assert model.object_encoder.color_embed.weight.grad is not None
+    assert torch.isfinite(model.object_encoder.color_embed.weight.grad).all()
 
 
 def test_apply_verb_changes_exactly_the_relevant_attribute():

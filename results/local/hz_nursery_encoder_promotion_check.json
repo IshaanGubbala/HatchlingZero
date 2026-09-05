@@ -1,0 +1,86 @@
+{
+  "concat_linear": {
+    "0": {
+      "l1": 1.0,
+      "l3_seen": 1.0,
+      "l3_unseen": 1.0,
+      "l4logic_seen": 1.0,
+      "l4logic_unseen": 1.0,
+      "l5": 1.0
+    },
+    "1": {
+      "l1": 1.0,
+      "l3_seen": 1.0,
+      "l3_unseen": 1.0,
+      "l4logic_seen": 1.0,
+      "l4logic_unseen": 1.0,
+      "l5": 1.0
+    },
+    "2": {
+      "l1": 1.0,
+      "l3_seen": 1.0,
+      "l3_unseen": 1.0,
+      "l4logic_seen": 1.0,
+      "l4logic_unseen": 1.0,
+      "l5": 1.0
+    },
+    "3": {
+      "l1": 1.0,
+      "l3_seen": 1.0,
+      "l3_unseen": 1.0,
+      "l4logic_seen": 1.0,
+      "l4logic_unseen": 1.0,
+      "l5": 1.0
+    },
+    "4": {
+      "l1": 1.0,
+      "l3_seen": 1.0,
+      "l3_unseen": 1.0,
+      "l4logic_seen": 1.0,
+      "l4logic_unseen": 1.0,
+      "l5": 1.0
+    }
+  },
+  "factorized_sum": {
+    "0": {
+      "l1": 1.0,
+      "l3_seen": 1.0,
+      "l3_unseen": 1.0,
+      "l4logic_seen": 1.0,
+      "l4logic_unseen": 1.0,
+      "l5": 1.0
+    },
+    "1": {
+      "l1": 1.0,
+      "l3_seen": 1.0,
+      "l3_unseen": 1.0,
+      "l4logic_seen": 1.0,
+      "l4logic_unseen": 1.0,
+      "l5": 1.0
+    },
+    "2": {
+      "l1": 1.0,
+      "l3_seen": 1.0,
+      "l3_unseen": 1.0,
+      "l4logic_seen": 1.0,
+      "l4logic_unseen": 1.0,
+      "l5": 1.0
+    },
+    "3": {
+      "l1": 1.0,
+      "l3_seen": 1.0,
+      "l3_unseen": 1.0,
+      "l4logic_seen": 1.0,
+      "l4logic_unseen": 1.0,
+      "l5": 1.0
+    },
+    "4": {
+      "l1": 1.0,
+      "l3_seen": 1.0,
+      "l3_unseen": 1.0,
+      "l4logic_seen": 1.0,
+      "l4logic_unseen": 1.0,
+      "l5": 1.0
+    }
+  }
+}
