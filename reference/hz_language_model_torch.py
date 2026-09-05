@@ -101,6 +101,12 @@ class HZLanguageModel(nn.Module):
         # not real verb-consequence learning).
         self.consequence_head = nn.Linear(d_model * 2, 3, bias=True)  # [position_after, held_after, opened_after] logits
 
+        # L4 numbers: verification head over pooled H. Reuses L1's
+        # encode_objects (type/color/size/position) unchanged -- counting
+        # needs no new object features, just a different readout that
+        # AGGREGATES over the object set instead of pointing at one object.
+        self.count_head = nn.Linear(d_model, 1, bias=True)
+
     # ---- Stage L0: pure self-supervised next-token LM ----
 
     def lm_forward(self, token_ids: torch.Tensor) -> torch.Tensor:
@@ -193,3 +199,25 @@ class HZLanguageModel(nn.Module):
 
         consequence_logits = self.consequence_head(torch.cat([selected, pooled_h], dim=-1))  # (B, 3)
         return sel_scores.squeeze(1), consequence_logits
+
+    # ---- Stage L4: numbers (counting verification) ----
+
+    def verify_count_forward(self, instruction_ids: torch.Tensor, type_idx: torch.Tensor, color_idx: torch.Tensor,
+                              size_idx: torch.Tensor, position_idx: torch.Tensor) -> torch.Tensor:
+        """instruction_ids encode "are there {number} {value} objects".
+        Returns a single verification logit per batch element (B,) --
+        does the stated number match the true count of matching objects?
+        Uses the SAME S-ingests-instruction / H-reasons-over-S-and-objects
+        pattern as ground_forward, but the readout AGGREGATES over the
+        whole object set via pooled H instead of pointing at one object --
+        a real test of whether the reasoning workspace can accumulate a
+        quantity, not just select."""
+        B = instruction_ids.shape[0]
+        x_objects = self.encode_objects(type_idx, color_idx, size_idx, position_idx)
+
+        instr_hiddens = [self.token_embed(instruction_ids[:, t]).unsqueeze(1) for t in range(instruction_ids.shape[1])]
+        S = self.mem.update_sequence(B, instr_hiddens)
+
+        H = self.ws.run(B, S, x_objects, n_rounds=self.n_rounds_l1)  # (B, M_H, D)
+        pooled_h = H.mean(dim=1)  # (B, D)
+        return self.count_head(pooled_h).squeeze(-1)  # (B,)

@@ -29,8 +29,14 @@ VERBS_STATE = ["is", "moves", "still"]
 # cover section 5's example verbs without colliding with that.
 VERBS_ACTION = ["push", "pickup", "drop", "open", "close"]
 FUNCTION_WORDS = ["the", "a", "this", "touch", "and"]
+# Stage L4 -- numbers (grounded to real quantities via a verification
+# task, not just memorized as a sequence) and logic words (AND-
+# composition, phrased explicitly instead of L3's bare juxtaposition).
+NUMBERS = ["zero", "one", "two", "three", "four"]
+LOGIC_WORDS = ["how", "many", "are", "there", "that"]
 
-VOCAB = SPECIALS + NOUNS + COLORS + SIZES + POSITIONS + VERBS_STATE + VERBS_ACTION + FUNCTION_WORDS
+VOCAB = (SPECIALS + NOUNS + COLORS + SIZES + POSITIONS + VERBS_STATE + VERBS_ACTION
+         + FUNCTION_WORDS + NUMBERS + LOGIC_WORDS)
 
 
 class NurseryTokenizer:

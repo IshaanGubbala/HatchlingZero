@@ -10,8 +10,9 @@ import torch
 from hatchling_world.language.nursery_generator import (
     apply_verb, generate_l0_sentence, generate_l1_grounding_episode, generate_l2_verb_episode,
     generate_l3_relation_episode, HELD_OUT_COMBOS, TRAIN_COMBOS,
+    generate_l4_logic_and_episode, generate_l4_counting_episode,
 )
-from hatchling_world.language.tokenizer import COLORS, NOUNS, NurseryTokenizer, POSITIONS, SIZES
+from hatchling_world.language.tokenizer import COLORS, NOUNS, NUMBERS, NurseryTokenizer, POSITIONS, SIZES
 from reference.hz_language_model_torch import HZLanguageModel
 
 
@@ -148,6 +149,48 @@ def test_l3_train_and_held_out_combos_are_disjoint():
         ep = generate_l3_relation_episode(rng, n_objects=4, split="train")
         target = ep["objects"][ep["target_idx"]]
         assert (target["size"], target["color"]) in TRAIN_COMBOS
+
+
+def test_l4_logic_and_episode_needs_both_properties():
+    rng = random.Random(0)
+    for split in ("train", "test"):
+        for _ in range(50):
+            ep = generate_l4_logic_and_episode(rng, n_objects=4, split=split)
+            target = ep["objects"][ep["target_idx"]]
+            matches = [i for i, o in enumerate(ep["objects"])
+                       if o["size"] == target["size"] and o["color"] == target["color"]]
+            assert matches == [ep["target_idx"]]
+            assert "and" in ep["instruction"] and "that is" in ep["instruction"]
+
+
+def test_l4_counting_episode_label_matches_true_count():
+    rng = random.Random(0)
+    for _ in range(100):
+        ep = generate_l4_counting_episode(rng, n_objects=4)
+        property_kind = "color" if any(w in ep["instruction"].split() for w in COLORS) else "size"
+        value = next(w for w in ep["instruction"].split() if w in (COLORS if property_kind == "color" else SIZES))
+        real_count = sum(1 for o in ep["objects"] if o[property_kind] == value)
+        assert real_count == ep["true_count"]
+        stated_word = NUMBERS[ep["stated_count"]]
+        assert stated_word in ep["instruction"]
+        assert ep["label"] == (ep["stated_count"] == ep["true_count"])
+
+
+def test_verify_count_forward_shapes_and_gradients():
+    tok = NurseryTokenizer()
+    model = HZLanguageModel(vocab_size=tok.vocab_size, d_model=32, memory_slots=8, workspace_slots=16, n_rounds_l1=4)
+    rng = random.Random(3)
+    ep = generate_l4_counting_episode(rng, n_objects=4)
+    instr_ids = torch.tensor([tok.encode(ep["instruction"])])
+    type_idx = torch.tensor([[NOUNS.index(o["type"]) for o in ep["objects"]]])
+    color_idx = torch.tensor([[COLORS.index(o["color"]) for o in ep["objects"]]])
+    size_idx = torch.tensor([[SIZES.index(o["size"]) for o in ep["objects"]]])
+    pos_idx = torch.tensor([[POSITIONS.index(o["position"]) for o in ep["objects"]]])
+    logit = model.verify_count_forward(instr_ids, type_idx, color_idx, size_idx, pos_idx)
+    assert logit.shape == (1,)
+    logit.sum().backward()
+    assert model.count_head.weight.grad is not None
+    assert torch.isfinite(model.count_head.weight.grad).all()
 
 
 def test_model_uses_default_ln_recurrence_and_d_over_2_value_write():

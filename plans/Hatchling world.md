@@ -1417,10 +1417,18 @@ Do **not** kill Hatchling World after one disappointing number. Park/kill only a
       their COMBINATION is unique. `HELD_OUT_COMBOS`/`TRAIN_COMBOS` is a
       fixed, non-reseeded split of the 8 possible (size, color) pairs —
       2 pairs are never the supervised target during training at all)
-- [ ] L4 numbers/logic-word task set.
+- [x] L4 numbers/logic-word task set.
+      (`generate_l4_logic_and_episode` — reuses L3's `_build_compositional_episode`
+      + `ground_forward` UNCHANGED, just phrased with an explicit logic
+      word ("touch the object that is {color} and {size}") instead of
+      bare juxtaposition; `generate_l4_counting_episode` +
+      `HZLanguageModel.verify_count_forward` — new: grounds numeral
+      WORDS to real quantities via "are there {number} {value} objects"
+      verification, reading pooled \(H\) instead of pointing at one
+      object, a real test of aggregation, not selection)
 - [ ] L5 teacher/student QA loop.
 - [ ] L6 simple-reading task set.
-- [ ] Combined multi-signal loss (\(L_{\text{LM}}+L_{\text{ground}}+L_{\text{action}}+L_{\text{world}}+L_{\text{QA}}\)) — L0/L1/L2/L3 currently trained as separate objectives via `--stage`, not yet combined.
+- [ ] Combined multi-signal loss (\(L_{\text{LM}}+L_{\text{ground}}+L_{\text{action}}+L_{\text{world}}+L_{\text{QA}}\)) — L0/L1/L2/L3/L4 currently trained as separate objectives via `--stage`, not yet combined.
 
 **Real result, 2026-09-04**: `scripts/hz_nursery_train.py`, `d_model=64`,
 `M_H=32` (D/2 value/write), same architecture as the room-navigation
@@ -1526,6 +1534,48 @@ where the held-out number did NOT approach ceiling — a real, useful
 negative result about how far "reuse the same readout, just harder
 data" carries compositional generalization before something in the
 architecture or training signal needs to change.
+
+**Real result, 2026-09-04 — L4 numbers/logic-words, two different
+outcomes**: **Logic-AND** reused L3's `_build_compositional_episode` +
+`ground_forward` completely unchanged, only rephrasing the instruction
+with an explicit logic word ("touch the object that is {color} and
+{size}" instead of L3's bare "touch the {size} {color} object").
+Result cross-validates L3's finding under a different surface form:
+held-out seen-combo accuracy saturates 100% by step 500; held-out
+UNSEEN-combo accuracy is noisy and well below ceiling — 17%→51%
+across 2000 steps, non-monotonic, landing in roughly the same 30-50%
+band L3 itself showed. Same partial-generalization signature, same
+open question, now confirmed independent of exact phrasing.
+
+**Counting-verification is a genuinely different, worse result.**
+`generate_l4_counting_episode` ("are there {number} {value} objects")
++ `HZLanguageModel.verify_count_forward` (pooled \(H\) → single
+verification logit, aggregating over the whole object set instead of
+pointing at one object) never converges the way any earlier stage did
+— and critically, this shows up on **training accuracy itself**, not
+just a held-out gap: a 5000-step run (seed 3) plateaus at
+**65-72% train accuracy** with no upward trend from step 500 onward
+(held-out tracks it closely, 63-71%), against a 50% chance floor. This
+is a real, disclosed **capacity ceiling, not a generalization gap** —
+the model cannot even fit its own training distribution well, unlike
+every other Nursery task so far (L0/L1/L2/L3's *seen* metrics all
+reached ~100%). Plausible real causes, none yet confirmed:
+mean-pooling \(H\) over workspace slots discards the accumulation
+structure a real "count" needs (the object-level match signal gets
+mixed across slots during `ws.run()`'s reasoning rounds rather than
+summed); the single-instruction-in-\(S\) + single-pooled-readout
+design may just be the wrong readout shape for an aggregation task,
+as opposed to the selection/transform readouts that worked for
+L1/L2/L3. **This is the most useful negative result the Nursery has
+produced yet** — it isolates aggregation (counting) as a real
+capability gap distinct from selection (L1/L3) and transformation
+(L2), both of which the same architecture handled cleanly. Not yet
+root-caused or fixed; flagged as a real open problem rather than
+patched over. 3 new tests
+(`test_l4_logic_and_episode_needs_both_properties`,
+`test_l4_counting_episode_label_matches_true_count`,
+`test_verify_count_forward_shapes_and_gradients`) added (14/14 passing
+in `test_hz_nursery_grounding.py`).
 
 ## Phase 1 — environment (HZ-World-0, infrastructure validation)
 
