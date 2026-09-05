@@ -1,0 +1,22 @@
+{
+  "0.0": {
+    "held_out_acc": 0.245,
+    "mean_participation_ratio": 1.1139995497465134
+  },
+  "0.1": {
+    "held_out_acc": 0.2475,
+    "mean_participation_ratio": 1.2586770221590995
+  },
+  "0.5": {
+    "held_out_acc": 0.2525,
+    "mean_participation_ratio": 7.574897880554199
+  },
+  "1.0": {
+    "held_out_acc": 0.2425,
+    "mean_participation_ratio": 7.961150258779526
+  },
+  "2.0": {
+    "held_out_acc": 0.24,
+    "mean_participation_ratio": 7.984376150369644
+  }
+}

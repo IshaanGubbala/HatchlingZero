@@ -2005,6 +2005,47 @@ input features that let it detect "this slot's content is still being
 asked about" rather than only comparing \(S_{\text{prev}}\) to
 \(\Delta S\) in isolation.
 
+**Real result, 2026-09-05 — first attempted fix, a clean negative
+result.** Explicit user request ("try") after both diagnoses above.
+`scripts/hz_nursery_l5_diversity_loss_fix.py`: an auxiliary DIVERSITY
+LOSS on \(S\)'s slot vectors (mean squared pairwise cosine similarity,
+pushed toward 0) added to the task loss, motivated directly by Part 2's
+finding that slots were nearly collapsed to one effective dimension
+even when recall worked. No changes to `HZCQPersistentMemory` or
+`HZCQReasoningWorkspace` -- the forward pass is replicated externally
+(same non-invasive pattern as the gate diagnostic), just with an extra
+loss term. 5 seeds of \(\lambda \in \{0, 0.1, 0.5, 1.0, 2.0\}\), same
+`n_facts=3` config.
+
+**Mechanically, it worked exactly as intended**: mean participation
+ratio climbs from ~1.1 (collapsed, \(\lambda{=}0\), matching the
+earlier diagnostic exactly) to **~7.6-8.0** (essentially fully
+orthogonal, out of a max of 8) at \(\lambda \geq 0.5\). Slot collapse
+is genuinely broken.
+
+**But held-out recall does not move at all**: 0.245 / 0.247 / 0.253 /
+0.242 / 0.240 across all five \(\lambda\) values — statistically
+identical, and all still at the 25% chance floor, regardless of
+whether slots are collapsed or maximally diverse. **A clean
+dissociation, and a real, useful negative result**: slot collapse and
+the actual multi-fact overwrite failure are SEPARATE phenomena. Making
+\(S\)'s basis vectors geometrically diverse does not, by itself, give
+the addressing/gating computation any new ability or pressure to
+ROUTE different facts to different slots — the model was never
+required to actually USE that diversity for selective writing, only
+pushed to make the raw vectors different. This redirects the real
+problem specifically to the cross-attention/gate's SELECTIVITY (does
+\(Q = q_{\text{proj}}(S_{\text{prev}})\) actually produce
+differentiated per-slot attention over incoming content, and does the
+gate act on that differentiation) rather than to \(S\)'s raw geometric
+structure. The next fix attempt, if pursued, should target selectivity
+directly — e.g. an explicit hard/sparse write (route new content to
+its single most-relevant slot rather than a soft blend across all of
+them) or an auxiliary loss that specifically rewards low overwrite of
+slots still relevant to a later query, not merely orthogonal slots.
+
+## Phase 1 — environment (HZ-World-0, infrastructure validation)
+
 - [x] Create `hatchling_world/`. (commit a20bc30, 2026-09-04)
 - [x] Fixed-shape world schema. (`state.py`: batched WorldState/WorldConfig)
 - [x] Batched vectorized transition engine. (`transition.py`, `vector_env.py`)
