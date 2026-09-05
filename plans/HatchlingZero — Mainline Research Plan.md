@@ -2196,6 +2196,55 @@ built-in gate diagnostic (`gate_magnitude_by_depth`) doesn't apply to
 this architecture's different internals and is skipped with a printed
 note rather than silently wrong or crashing.
 
+**Real result, 2026-09-04: FAILED -- and the WORST of all five
+variants tested so far, despite being the most structurally different
+and having ~40% more total parameters.** Same FSM task, M_H=32, 150K
+steps, n=2000/cell, trained locally (real, verified separately this
+session: MPS is also slower than CPU for this full pipeline, not just
+CUDA -- `sample_episode`'s data generation is CPU-only regardless of
+device, and the per-step host-to-device transfer cost for a workload
+this tiny erases any compute-side GPU advantage; see the real
+CPU-vs-MPS timing check: 107s vs 116s for 2000 steps).
+
+\[
+\begin{array}{lr}
+\text{LN baseline (default)} & 0.3774 \\
+\text{PAPER-2 (identity-biased)} & 0.3276 \\
+\text{PAPER-3 (bounded, fixed-anchor)} & 0.3285 \\
+\text{PAPER-3b (bounded, accumulating)} & 0.3060 \\
+\text{PAPER-4 (fast/slow, two states)} & \mathbf{0.2841}
+\end{array}
+\]
+
+**-9.33pp vs baseline** -- worse than PAPER-2 (-4.35pp further),
+PAPER-3 (-4.44pp further), and even PAPER-3b (-2.19pp further, the
+previous worst result). \(R\) still shows no real effect: depth=16
+R4->R8 -0.05pp, R4->R12 +0.85pp, both at/below the 0.80pp noise floor.
+No gate diagnostic available for this architecture (see above), so no
+mechanistic read on WHY this one failed worse -- a real, disclosed gap
+for whoever continues this thread.
+
+**Real, important pattern now established across four consecutive
+architecture ablations**: every attempt to change how \(H\) evolves
+round-to-round -- unbounded residual (PAPER-2), bounded-but-static
+(PAPER-3), bounded-and-accumulating (PAPER-3b), and now a genuinely
+different two-state split (PAPER-4) -- has made accuracy WORSE than
+the original "deliberately boring" default \(H_{r+1}=\operatorname{LN}
+(H_r+g_r\Delta H_r)\), and the more structurally different the change,
+the worse the result got (PAPER-4, the most novel, is also the worst).
+The original design remains the best-performing recurrence mechanism
+found across all five variants tested. This is a real, honest signal
+that the update-RULE mechanics are not where this task's remaining
+headroom lives -- worth weighing seriously before spending further
+compute on PAPER-5/PAPER-6 (which change \(H\)'s update rule further
+still, via breadth/search rather than a different residual form) versus
+stepping back to question a different part of the pipeline entirely
+(the persistent memory \(S\), the readout, or the task itself).
+
+Checkpoint:
+`results/local/hz0h_bdh_hzcq_v1_fsm_paper4_fast_slow_mh32_checkpoint.pt`.
+Result: `results/local/hz0h_bdh_hzcq_v1_fsm_paper4_fast_slow_mh32.json`.
+
 ### PAPER-5 — Breadth before extreme depth
 
 Source: "Generative Recursive Reasoning" / GRAM (2026,

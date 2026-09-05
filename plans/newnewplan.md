@@ -4466,3 +4466,48 @@ architecture experiments running in parallel this session (PAPER-3b
 locally, SPEED-D on RunPod) are now done, with genuinely different
 outcomes: PAPER-3b failed clearly (-7.14pp), SPEED-D passed cleanly
 (+0.12pp, real param reduction).
+
+---
+
+## Real result, 2026-09-04: PAPER-4 -- FAILED, the WORST of all five variants, real pattern now established
+
+Trained locally (CPU confirmed genuinely faster than MPS too for this
+full pipeline, not just CUDA -- real side-by-side check this session:
+2000 steps, 107s CPU vs 116s MPS, while CPU was concurrently sharing
+load with this very run; sample_episode's data generation is CPU-only
+regardless of device, and per-step host-to-device transfer erases any
+compute-side GPU win at this tiny scale). Same FSM task, M_H=32, 150K
+steps, n=2000/cell, same protocol as every other variant this session.
+
+**Mean accuracy: 0.2841** -- -9.33pp vs the LN baseline (0.3774), and
+WORSE than every other ablation tried: -4.35pp vs PAPER-2 (0.3276),
+-4.44pp vs PAPER-3 (0.3285), -2.19pp vs PAPER-3b (0.3060, the previous
+worst). R still flat (depth=16 R4->R8 -0.05pp, R4->R12 +0.85pp, both
+at/below the 0.80pp noise floor). No gate diagnostic available for
+this architecture (the script's built-in one hardcodes single-state
+internals) -- a real, disclosed gap, no mechanistic read on WHY this
+one failed worse than the others.
+
+**The real, important pattern, now visible across four consecutive
+architecture ablations**: PAPER-2 (unbounded residual), PAPER-3
+(bounded, fixed-anchor), PAPER-3b (bounded, accumulating), and now
+PAPER-4 (genuinely different two-state split) all made things WORSE
+than the plain default LN recurrence -- and the more structurally
+different the change, the worse the result got. PAPER-4, the most
+novel of the four (different architecture entirely, ~40% more total
+params, most compute-expensive), is also the worst performer. The
+original "deliberately boring" design remains undefeated across five
+real, controlled comparisons.
+
+This is a real, honest, significant finding worth taking seriously
+before mechanically continuing to PAPER-5/PAPER-6 (which are further
+variations on changing H's update rule, via breadth/search rather than
+residual form). The update-rule-mechanics direction has now had four
+real, clean, independent shots and gone 0-for-4, each worse than the
+last as novelty increased. Worth a real pause-and-think before
+spending more compute on more update-rule variants versus questioning
+a different part of the pipeline (persistent memory S, the readout, or
+the task's own information structure).
+
+Checkpoint and result JSON committed. Not launching PAPER-5 without
+explicit direction, given this pattern.
