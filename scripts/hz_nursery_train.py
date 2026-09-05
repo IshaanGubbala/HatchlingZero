@@ -20,7 +20,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from reference.hz_language_model_torch import HZLanguageModel
 from hatchling_world.language.tokenizer import NurseryTokenizer, NOUNS, COLORS, SIZES, POSITIONS
-from hatchling_world.language.nursery_generator import generate_l0_sentence, generate_l1_grounding_episode
+from hatchling_world.language.nursery_generator import (
+    generate_l0_sentence, generate_l1_grounding_episode, generate_l2_verb_episode,
+)
 
 TEST_SEED_OFFSET = 10_000_000
 
@@ -86,9 +88,58 @@ def l1_eval(model, tok, rng, n_objects, n_episodes):
     return correct / n_episodes
 
 
+def l2_episode_tensors(tok: NurseryTokenizer, ep: dict):
+    instr_ids = torch.tensor([tok.encode(ep["instruction"])])
+    type_idx = torch.tensor([[NOUNS.index(o["type"]) for o in ep["objects"]]])
+    color_idx = torch.tensor([[COLORS.index(o["color"]) for o in ep["objects"]]])
+    size_idx = torch.tensor([[SIZES.index(o["size"]) for o in ep["objects"]]])
+    pos_idx = torch.tensor([[POSITIONS.index(o["position"]) for o in ep["objects"]]])
+    held = torch.tensor([[float(o["held"]) for o in ep["objects"]]])
+    opened = torch.tensor([[float(o["opened"]) for o in ep["objects"]]])
+    target = torch.tensor([ep["target_idx"]])
+    consequence_target = torch.tensor([[
+        1.0 if ep["position_after"] == "right" else 0.0,
+        float(ep["held_after"]),
+        float(ep["opened_after"]),
+    ]])
+    return instr_ids, type_idx, color_idx, size_idx, pos_idx, held, opened, target, consequence_target
+
+
+def l2_train_step(model, opt, tok, rng, n_objects):
+    ep = generate_l2_verb_episode(rng, n_objects=n_objects)
+    instr_ids, type_idx, color_idx, size_idx, pos_idx, held, opened, target, cons_target = \
+        l2_episode_tensors(tok, ep)
+    sel_logits, cons_logits = model.verb_forward(instr_ids, type_idx, color_idx, size_idx, pos_idx, held, opened)
+    sel_loss = F.cross_entropy(sel_logits, target)
+    cons_loss = F.binary_cross_entropy_with_logits(cons_logits, cons_target)
+    loss = sel_loss + cons_loss
+    opt.zero_grad(set_to_none=True)
+    loss.backward()
+    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+    opt.step()
+    with torch.no_grad():
+        sel_acc = (sel_logits.argmax(-1) == target).float().item()
+        cons_acc = ((cons_logits > 0).float() == cons_target).float().mean().item()
+    return loss.item(), sel_acc, cons_acc
+
+
+def l2_eval(model, tok, rng, n_objects, n_episodes):
+    sel_correct, cons_correct, cons_total = 0, 0, 0
+    with torch.no_grad():
+        for _ in range(n_episodes):
+            ep = generate_l2_verb_episode(rng, n_objects=n_objects)
+            instr_ids, type_idx, color_idx, size_idx, pos_idx, held, opened, target, cons_target = \
+                l2_episode_tensors(tok, ep)
+            sel_logits, cons_logits = model.verb_forward(instr_ids, type_idx, color_idx, size_idx, pos_idx, held, opened)
+            sel_correct += int((sel_logits.argmax(-1) == target).item())
+            cons_correct += int(((cons_logits > 0).float() == cons_target).float().sum().item())
+            cons_total += cons_target.numel()
+    return sel_correct / n_episodes, cons_correct / cons_total
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--stage", choices=["l0", "l1", "both"], default="both")
+    parser.add_argument("--stage", choices=["l0", "l1", "l2", "both"], default="both")
     parser.add_argument("--d-model", type=int, default=64)
     parser.add_argument("--memory-slots", type=int, default=8)
     parser.add_argument("--workspace-slots", type=int, default=32)
@@ -98,6 +149,8 @@ def main() -> None:
     parser.add_argument("--l0-batch-size", type=int, default=16)
     parser.add_argument("--l1-steps", type=int, default=3000)
     parser.add_argument("--l1-n-objects", type=int, default=4)
+    parser.add_argument("--l2-steps", type=int, default=3000)
+    parser.add_argument("--l2-n-objects", type=int, default=4)
     parser.add_argument("--eval-every", type=int, default=300)
     parser.add_argument("--eval-episodes", type=int, default=200)
     parser.add_argument("--seed", type=int, default=0)
@@ -147,6 +200,23 @@ def main() -> None:
                 chance = 1.0 / args.l1_n_objects
                 print(f"[nursery][L1] step={step+1}/{args.l1_steps} train_acc={sum(recent_acc)/len(recent_acc):.3f} "
                       f"held_out_acc={held_out_acc:.3f} (chance={chance:.3f})", flush=True)
+
+    if args.stage in ("l2",):
+        train_rng = random.Random(args.seed + 3)
+        eval_rng = random.Random(args.seed + 3 + TEST_SEED_OFFSET)
+        recent_sel_acc, recent_cons_acc = [], []
+        for step in range(args.l2_steps):
+            loss, sel_acc, cons_acc = l2_train_step(model, opt, tok, train_rng, args.l2_n_objects)
+            recent_sel_acc.append(sel_acc); recent_cons_acc.append(cons_acc)
+            recent_sel_acc[:] = recent_sel_acc[-200:]; recent_cons_acc[:] = recent_cons_acc[-200:]
+            if (step + 1) % args.eval_every == 0:
+                held_out_sel_acc, held_out_cons_acc = l2_eval(model, tok, eval_rng, args.l2_n_objects, args.eval_episodes)
+                chance_sel = 1.0 / args.l2_n_objects
+                print(f"[nursery][L2] step={step+1}/{args.l2_steps} "
+                      f"train_sel_acc={sum(recent_sel_acc)/len(recent_sel_acc):.3f} "
+                      f"train_cons_acc={sum(recent_cons_acc)/len(recent_cons_acc):.3f} "
+                      f"held_out_sel_acc={held_out_sel_acc:.3f} (chance={chance_sel:.3f}) "
+                      f"held_out_cons_acc={held_out_cons_acc:.3f} (chance=0.500)", flush=True)
 
     if args.save_checkpoint is not None:
         args.save_checkpoint.parent.mkdir(parents=True, exist_ok=True)

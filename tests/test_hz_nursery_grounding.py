@@ -7,7 +7,9 @@ import random
 
 import torch
 
-from hatchling_world.language.nursery_generator import generate_l0_sentence, generate_l1_grounding_episode
+from hatchling_world.language.nursery_generator import (
+    apply_verb, generate_l0_sentence, generate_l1_grounding_episode, generate_l2_verb_episode,
+)
 from hatchling_world.language.tokenizer import COLORS, NOUNS, NurseryTokenizer, POSITIONS, SIZES
 from reference.hz_language_model_torch import HZLanguageModel
 
@@ -65,6 +67,58 @@ def test_ground_forward_shapes_and_gradients():
     loss.backward()
     assert model.object_encoder.weight.grad is not None
     assert torch.isfinite(model.object_encoder.weight.grad).all()
+
+
+def test_apply_verb_changes_exactly_the_relevant_attribute():
+    """The whole point of L2: each verb changes ONE attribute and
+    leaves the others exactly as they were -- a sharp, checkable
+    definition of "verb meaning" as a state transition."""
+    held, opened, pos = apply_verb("push", held=False, opened=False, position="left")
+    assert (held, opened, pos) == (False, False, "right")
+    held, opened, pos = apply_verb("pickup", held=False, opened=True, position="left")
+    assert (held, opened, pos) == (True, True, "left")
+    held, opened, pos = apply_verb("drop", held=True, opened=False, position="right")
+    assert (held, opened, pos) == (False, False, "right")
+    held, opened, pos = apply_verb("open", held=True, opened=False, position="right")
+    assert (held, opened, pos) == (True, True, "right")
+    held, opened, pos = apply_verb("close", held=False, opened=True, position="left")
+    assert (held, opened, pos) == (False, False, "left")
+
+
+def test_l2_episode_has_exactly_one_matching_object_and_consistent_consequence():
+    rng = random.Random(0)
+    for _ in range(50):
+        ep = generate_l2_verb_episode(rng, n_objects=4)
+        target_color = ep["objects"][ep["target_idx"]]["color"]
+        matches = [i for i, o in enumerate(ep["objects"]) if o["color"] == target_color]
+        assert matches == [ep["target_idx"]]
+        target = ep["objects"][ep["target_idx"]]
+        held_after, opened_after, position_after = apply_verb(
+            ep["verb"], target["held"], target["opened"], target["position"])
+        assert (held_after, opened_after, position_after) == (
+            ep["held_after"], ep["opened_after"], ep["position_after"])
+
+
+def test_verb_forward_shapes_and_gradients():
+    tok = NurseryTokenizer()
+    model = HZLanguageModel(vocab_size=tok.vocab_size, d_model=32, memory_slots=8, workspace_slots=16, n_rounds_l1=4)
+    rng = random.Random(2)
+    ep = generate_l2_verb_episode(rng, n_objects=4)
+    instr_ids = torch.tensor([tok.encode(ep["instruction"])])
+    type_idx = torch.tensor([[NOUNS.index(o["type"]) for o in ep["objects"]]])
+    color_idx = torch.tensor([[COLORS.index(o["color"]) for o in ep["objects"]]])
+    size_idx = torch.tensor([[SIZES.index(o["size"]) for o in ep["objects"]]])
+    pos_idx = torch.tensor([[POSITIONS.index(o["position"]) for o in ep["objects"]]])
+    held = torch.tensor([[float(o["held"]) for o in ep["objects"]]])
+    opened = torch.tensor([[float(o["opened"]) for o in ep["objects"]]])
+    sel_logits, cons_logits = model.verb_forward(instr_ids, type_idx, color_idx, size_idx, pos_idx, held, opened)
+    assert sel_logits.shape == (1, 4)
+    assert cons_logits.shape == (1, 3)
+    loss = sel_logits.sum() + cons_logits.sum()
+    loss.backward()
+    assert model.object_state_encoder.weight.grad is not None
+    assert torch.isfinite(model.object_state_encoder.weight.grad).all()
+    assert model.consequence_head.weight.grad is not None
 
 
 def test_model_uses_default_ln_recurrence_and_d_over_2_value_write():

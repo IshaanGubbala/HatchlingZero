@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import random
 
-from hatchling_world.language.tokenizer import COLORS, NOUNS, POSITIONS, SIZES
+from hatchling_world.language.tokenizer import COLORS, NOUNS, POSITIONS, SIZES, VERBS_ACTION
 
 
 def generate_l0_sentence(rng: random.Random) -> str:
@@ -45,3 +45,70 @@ def generate_l1_grounding_episode(rng: random.Random, n_objects: int = 4) -> dic
     instruction = f"touch the {target['color']} object"
 
     return {"objects": objects, "instruction": instruction, "target_idx": target_idx}
+
+
+def apply_verb(verb: str, held: bool, opened: bool, position: str) -> tuple[bool, bool, str]:
+    """Stage L2's real "verb meaning": each verb is a real, distinct
+    state transition function, not a text label. This is the ONE place
+    that defines what push/pickup/drop/open/close actually do -- both
+    the generator and any future oracle/env reuse of these verbs must
+    call through here so meaning stays a single source of truth.
+
+    Returns the post-action (held, opened, position). Verbs a real
+    world would reject in the given pre-state (e.g. "open" on an
+    already-open object) are still applied deterministically (no-op /
+    idempotent) -- the point of L2 is a CORRECT resulting state, not
+    modeling failure semantics yet (that's a later-stage concern)."""
+    if verb == "push":
+        position = "right" if position == "left" else "left"
+    elif verb == "pickup":
+        held = True
+    elif verb == "drop":
+        held = False
+    elif verb == "open":
+        opened = True
+    elif verb == "close":
+        opened = False
+    else:
+        raise ValueError(f"unknown verb: {verb}")
+    return held, opened, position
+
+
+def generate_l2_verb_episode(rng: random.Random, n_objects: int = 4) -> dict:
+    """Stage L2: verbs through consequences. Objects again get UNIQUE
+    colors (same trick as L1) so "push the {color} object" always names
+    exactly one real target -- isolates "did it learn what push DOES"
+    from "did it find the right object" (already validated by L1)."""
+    colors = rng.sample(COLORS, k=min(n_objects, len(COLORS)))
+    while len(colors) < n_objects:
+        colors.append(rng.choice(COLORS))
+    rng.shuffle(colors)
+
+    objects = []
+    for color in colors:
+        objects.append({
+            "type": rng.choice(NOUNS),
+            "color": color,
+            "size": rng.choice(SIZES),
+            "position": rng.choice(POSITIONS),
+            "held": rng.random() < 0.5,
+            "opened": rng.random() < 0.5,
+        })
+
+    target_idx = rng.randrange(len(objects))
+    target = objects[target_idx]
+    verb = rng.choice(VERBS_ACTION)
+    instruction = f"{verb} the {target['color']} object"
+
+    held_after, opened_after, position_after = apply_verb(
+        verb, target["held"], target["opened"], target["position"])
+
+    return {
+        "objects": objects,
+        "instruction": instruction,
+        "target_idx": target_idx,
+        "verb": verb,
+        "held_after": held_after,
+        "opened_after": opened_after,
+        "position_after": position_after,
+    }

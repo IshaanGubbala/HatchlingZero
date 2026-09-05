@@ -20,9 +20,17 @@ COLORS = ["red", "blue", "green", "yellow"]
 SIZES = ["small", "large"]
 POSITIONS = ["left", "right"]
 VERBS_STATE = ["is", "moves", "still"]
+# Stage L2 -- action verbs, each with a REAL, distinct state-transition
+# meaning in hatchling_world.language.nursery_generator.apply_verb.
+# "move" is deliberately absent from VERBS_ACTION: this project's own
+# room-navigation action space already gave MOVE a specific meaning
+# (change agent_room), and L2 tests a different mechanism (attribute
+# transitions on a referenced object) -- push/pickup/drop/open/close
+# cover section 5's example verbs without colliding with that.
+VERBS_ACTION = ["push", "pickup", "drop", "open", "close"]
 FUNCTION_WORDS = ["the", "a", "this", "touch", "and"]
 
-VOCAB = SPECIALS + NOUNS + COLORS + SIZES + POSITIONS + VERBS_STATE + FUNCTION_WORDS
+VOCAB = SPECIALS + NOUNS + COLORS + SIZES + POSITIONS + VERBS_STATE + VERBS_ACTION + FUNCTION_WORDS
 
 
 class NurseryTokenizer:

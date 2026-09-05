@@ -26,6 +26,16 @@ distribution over WHICH object matches -- naturally scale-invariant to
 the number of objects, and forces the model to use "the instruction I
 just read" (S) to select from "what I'm looking at" (x), the exact
 same S-vs-x semantic split as everywhere else in this project.
+
+Stage L2 (verbs through consequences): same S/H split as L1, but the
+readout now also PREDICTS THE VERB'S EFFECT -- the referenced object's
+post-action (position, held, opened) -- from a soft-attention read over
+its own real pre-action state. "Verb meaning" here is literally defined
+as "the transition this instruction causes," per section 5: getting the
+right object (L1's job) is necessary but not sufficient; L2 additionally
+scores whether the model predicts the CORRECT resulting state, matching
+plans/Hatchling world.md's "verb meaning is a learned state transition,
+not co-occurrence in text."
 """
 from __future__ import annotations
 
@@ -72,6 +82,25 @@ class HZLanguageModel(nn.Module):
         self.sel_rq = nn.Linear(d_model, d_model, bias=False)
         self.sel_rk = nn.Linear(d_model, d_model, bias=False)
 
+        # L2 object+state encoder + selection/consequence readout.
+        # Deliberately a SEPARATE encoder from L1's object_encoder rather
+        # than widening it -- L2 adds held(2)+opened(2) to the feature
+        # layout (16 total) and this keeps L1's already-validated weights
+        # untouched (one change at a time). sel_rq/sel_rk are REUSED from
+        # L1 (same "which object does the instruction mean" mechanism);
+        # sel_rv + consequence_head are new, L2-only.
+        self.object_state_encoder = nn.Linear(4 + 4 + 2 + 2 + 2 + 2, d_model, bias=False)
+        self.sel_rv = nn.Linear(d_model, d_model, bias=False)
+        # Takes [selected_pre_state ; pooled_H] -- pre-state ALONE can only
+        # ever express "copy the object as-is"; pooled_H is what actually
+        # carries the verb (it reasoned over S, which ingested the
+        # instruction). Concatenating both is what makes "verb-conditioned
+        # transform of pre-state" expressible at all, real fix for a real
+        # bug (see hz_nursery_train.py run 2026-09-04: without this, the
+        # model converged to the copy-pre-state baseline, 0.80 accuracy,
+        # not real verb-consequence learning).
+        self.consequence_head = nn.Linear(d_model * 2, 3, bias=True)  # [position_after, held_after, opened_after] logits
+
     # ---- Stage L0: pure self-supervised next-token LM ----
 
     def lm_forward(self, token_ids: torch.Tensor) -> torch.Tensor:
@@ -117,3 +146,50 @@ class HZLanguageModel(nn.Module):
         q = self.sel_rq(H).mean(dim=1, keepdim=True)  # (B, 1, D) -- pooled query over the reasoning workspace
         scores = torch.matmul(q, self.sel_rk(x_objects).transpose(-1, -2)) / (self.D ** 0.5)  # (B, 1, N_obj)
         return scores.squeeze(1)
+
+    # ---- Stage L2: verbs through consequences ----
+
+    def encode_objects_with_state(self, type_idx: torch.Tensor, color_idx: torch.Tensor, size_idx: torch.Tensor,
+                                   position_idx: torch.Tensor, held: torch.Tensor, opened: torch.Tensor) -> torch.Tensor:
+        """Like encode_objects but with two extra real object-state bits
+        (held, opened) that verbs actually change. held/opened: (B, N_obj)
+        bool/long. Returns (B, N_obj, D)."""
+        feat = torch.cat([
+            F.one_hot(type_idx, 4).float(),
+            F.one_hot(color_idx, 4).float(),
+            F.one_hot(size_idx, 2).float(),
+            F.one_hot(position_idx, 2).float(),
+            F.one_hot(held.long(), 2).float(),
+            F.one_hot(opened.long(), 2).float(),
+        ], dim=-1)
+        return self.object_state_encoder(feat)
+
+    def verb_forward(self, instruction_ids: torch.Tensor, type_idx: torch.Tensor, color_idx: torch.Tensor,
+                      size_idx: torch.Tensor, position_idx: torch.Tensor, held: torch.Tensor,
+                      opened: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """instruction_ids encode "{verb} the {color} object". Returns
+        (selection_logits (B, N_obj), consequence_logits (B, 3)) where
+        consequence_logits are [position_after, held_after, opened_after],
+        each a binary logit -- a real, structured prediction of the verb's
+        EFFECT on the referenced object's pre-action state, not a fixed
+        classifier over verb identity. Reuses the exact S-ingests-
+        instruction / H-reasons-over-S-and-objects pattern as ground_forward:
+        S carries "what the instruction said" (which verb, which object),
+        x_objects carries "what's actually there right now" (the object's
+        real pre-action state), and H fuses the two."""
+        B = instruction_ids.shape[0]
+        x_objects = self.encode_objects_with_state(type_idx, color_idx, size_idx, position_idx, held, opened)
+
+        instr_hiddens = [self.token_embed(instruction_ids[:, t]).unsqueeze(1) for t in range(instruction_ids.shape[1])]
+        S = self.mem.update_sequence(B, instr_hiddens)
+
+        H = self.ws.run(B, S, x_objects, n_rounds=self.n_rounds_l1)  # (B, M_H, D)
+
+        q = self.sel_rq(H).mean(dim=1, keepdim=True)  # (B, 1, D)
+        sel_scores = torch.matmul(q, self.sel_rk(x_objects).transpose(-1, -2)) / (self.D ** 0.5)  # (B, 1, N_obj)
+        attn = F.softmax(sel_scores, dim=-1)  # (B, 1, N_obj) -- soft pointer at the referenced object
+        selected = torch.matmul(attn, self.sel_rv(x_objects)).squeeze(1)  # (B, D) -- its pre-action representation
+        pooled_h = H.mean(dim=1)  # (B, D) -- carries the verb: H reasoned over S, which ingested the instruction
+
+        consequence_logits = self.consequence_head(torch.cat([selected, pooled_h], dim=-1))  # (B, 3)
+        return sel_scores.squeeze(1), consequence_logits

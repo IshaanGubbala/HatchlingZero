@@ -1388,7 +1388,7 @@ Do **not** kill Hatchling World after one disappointing number. Park/kill only a
 
 ## Phase 0 — Language Nursery
 
-**Honest retrospective note**: Phases 1-3 below were built and landed BEFORE this amendment recognized that Language Nursery should have come first. That work is not wasted — it is exactly the infrastructure-validation role section 7 now assigns it. L0/L1 are now real and landed (2026-09-04); L2-L6 remain open.
+**Honest retrospective note**: Phases 1-3 below were built and landed BEFORE this amendment recognized that Language Nursery should have come first. That work is not wasted — it is exactly the infrastructure-validation role section 7 now assigns it. L0/L1/L2 are now real and landed (2026-09-04); L3-L6 remain open.
 
 - [x] Fixed tokenizer / byte-subword pipeline. (`hatchling_world/language/tokenizer.py`,
       fixed word-level, closed vocabulary — real, honest choice for a closed
@@ -1403,12 +1403,17 @@ Do **not** kill Hatchling World after one disappointing number. Park/kill only a
       instruction ingested into persistent \(S\) via `mem.update_sequence`,
       \(H\) reasons over \(S\) + the object set via `ws.run()`, real
       cross-attention readout over the object set, not a fixed classifier)
-- [ ] L2 verb-through-consequence task set.
+- [x] L2 verb-through-consequence task set.
+      (`generate_l2_verb_episode` + `apply_verb` — the ONE real definition
+      of what push/pickup/drop/open/close DO; `HZLanguageModel.verb_forward`
+      — reuses L1's S-ingests-instruction / H-reasons-over-S-and-objects
+      pattern, adds a structured 3-way consequence readout: predicts the
+      referenced object's real post-action (position, held, opened))
 - [ ] L3 relation/composition procedural generator + held-out combination test.
 - [ ] L4 numbers/logic-word task set.
 - [ ] L5 teacher/student QA loop.
 - [ ] L6 simple-reading task set.
-- [ ] Combined multi-signal loss (\(L_{\text{LM}}+L_{\text{ground}}+L_{\text{action}}+L_{\text{world}}+L_{\text{QA}}\)) — L0+L1 currently trained as two separate objectives, not yet combined.
+- [ ] Combined multi-signal loss (\(L_{\text{LM}}+L_{\text{ground}}+L_{\text{action}}+L_{\text{world}}+L_{\text{QA}}\)) — L0/L1/L2 currently trained as three separate objectives via `--stage`, not yet combined.
 
 **Real result, 2026-09-04**: `scripts/hz_nursery_train.py`, `d_model=64`,
 `M_H=32` (D/2 value/write), same architecture as the room-navigation
@@ -1434,6 +1439,47 @@ more objects, colliding properties requiring true compositional
 reference (e.g. "the small red ball" when multiple objects share
 color), or combined with L0 into one multi-task model — those are the
 real next steps before calling L1 "done."
+
+**Real result, 2026-09-04 — L2 verb-through-consequence, INCLUDING a
+real caught-and-fixed bug**: first training run (2000 steps, seed 0)
+looked plausible at a glance — held-out consequence accuracy plateaued
+at **~80%**, well above the naive 50% per-bit chance floor — but this
+project's own discipline (compare against a real baseline, don't trust
+a number that merely beats chance) caught that 80% exactly matches a
+**"copy the object's pre-action state and ignore the verb entirely"**
+baseline, computed directly from the held-out generator: **0.8045**.
+Root cause, found by inspection: `consequence_head` originally read
+only `selected` (a linear projection of the target object's raw
+pre-action features) — there was no path in the readout for the verb
+identity (which only exists in \(S\)/H via the instruction) to reach
+the prediction at all, so the architecture could *only* express "copy
+the object," never "transform it." **Fix**: `consequence_head` now
+reads `[selected ; pooled_H]` — concatenating the pre-action object
+features with pooled \(H\) (which reasoned over \(S\), and therefore
+has seen the verb). Re-run after the fix, same 2000 steps: held-out
+consequence accuracy reaches **~94-95%** (two seeds: 94.8% seed 0,
+93.7% seed 7), clearly and reproducibly above the 80.45% copy
+baseline — real evidence the model is using the verb, not just
+memorizing the object. Held-out object-selection accuracy (same
+mechanism as L1) is 100% in both runs, as expected. 3 new tests
+(`test_apply_verb_changes_exactly_the_relevant_attribute`,
+`test_l2_episode_has_exactly_one_matching_object_and_consistent_consequence`,
+`test_verb_forward_shapes_and_gradients`) added to
+`tests/test_hz_nursery_grounding.py` (9/9 passing). **Methodological
+note worth keeping for L3-L6**: always compute the naive/shortcut
+baseline for a NEW held-out metric before trusting "beats chance" —
+"beats chance" and "beats the easy shortcut" are different claims, and
+this is the second time in the project's history (after the FSM
+recurrence-ablation series) that a plausible-looking number turned out
+to be a shortcut baseline in disguise.
+
+**Real, disclosed limitation**: L2's ~94-95% consequence accuracy is
+not yet 100% — the residual gap has not been root-caused (could be
+optimization noise, could be a harder subset of verb/attribute
+combinations); and like L1, this is tested on an easy configuration
+(4 objects, unique colors, single verb per instruction, no verb
+composition or multi-step consequences) — not yet stress-tested or
+combined with L0/L1 into one multi-task model.
 
 ## Phase 1 — environment (HZ-World-0, infrastructure validation)
 
