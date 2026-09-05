@@ -1896,7 +1896,63 @@ root-caused — `memory_slots=8` (\(M_S\)) is the obvious first thing to
 sweep (does capacity scale with slot count, or is the bottleneck
 elsewhere in `mem.update`'s gating), not yet done.
 
-## Phase 1 — environment (HZ-World-0, infrastructure validation)
+**Real diagnostic, 2026-09-05 — the memory cliff is a real storage
+failure in \(S\), localized before touching anything.** Explicit user
+request, PAPER-0 discipline: "don't immediately enlarge \(S\) and
+declare victory. First determine why its nominal slots aren't actually
+functioning like independent facts." `scripts/
+hz_nursery_l5_memory_cliff_diagnostic.py`, three real experiments on
+the exact `n_facts=3, n_distractors=0` config that showed the cliff:
+
+**Part 1 — memory-slot sweep.** \(M_S \in \{4, 8, 12, 16\}\)
+(`HZCQPersistentMemoryConfig` hard-validates \(M_S\) into [4,16], "the
+plan's stated 4-16 range" — 32 is not reachable within the validated
+architecture at all, a real ceiling on this diagnostic, not a choice).
+Result: 24.0% / 24.5% / 32.8% / 23.8% held-out — all at or barely above
+the 25% chance floor, no monotonic trend (the \(M_S{=}12\) bump doesn't
+hold at 16). **The cliff does not move with slot count.** Capacity is
+ruled out as the bottleneck.
+
+**Part 2 — slot-diversity probe.** Mean pairwise cosine similarity
+across \(S\)'s \(M_S\) slot vectors and participation ratio (effective
+rank) after teaching \(k\) facts: \(k{=}1\): sim=0.9977, rank=1.24;
+\(k{=}2\): sim=0.9988, rank=1.17; \(k{=}3\): sim=0.9994, rank=1.11 (max
+possible rank = 8). **The slots are already almost fully collapsed to
+one effective dimension even at \(k{=}1\)**, where end-to-end recall is
+a clean 100% — collapse only worsens slightly and gradually from there,
+not sharply between \(k{=}2\) and \(k{=}3\). This rules out slot
+collapse as THE explanation for the cliff (it can't explain a sharp
+discontinuity when the collapse itself is graded and already present
+in the successful case), though it is a real, separate, disclosed
+property of this architecture worth keeping in mind.
+
+**Part 3 — fact-decoding probe directly on \(S\) (the decisive
+result).** After teaching all 3 facts, froze the entire backbone and
+trained a small linear probe PER taught fact to predict that fact's
+label straight from \(S\), bypassing \(H\)/`qa_head`/`ws.run` entirely.
+Result: 31.5% / 26.0% / 34.5% for the fact taught 1st/2nd/3rd — all
+barely above the 25% chance floor, including the FIRST fact taught.
+**This is what separates storage failure from retrieval failure, and
+the answer is storage.** If \(H\) simply couldn't find already-present
+information, a probe reading \(S\) directly (no \(H\), no readout
+mechanism at all) should recover it far above chance. It doesn't — not
+even for the earliest fact. **The information itself is gone from
+\(S\)** by the time a 3rd fact has been taught, not merely hard to
+retrieve. Writing new facts into \(S\) via `mem.update`'s gated write
+appears to destructively overwrite earlier facts' contribution rather
+than allocating them to distinct, preserved slots.
+
+**Conclusion, matching the user's own stated discipline**: this
+localizes the cliff to `mem.update`'s WRITE/gating mechanism itself,
+not \(H\)'s reasoning, not nominal slot count, and only weakly (and
+non-discontinuously) to slot-vector diversity. The natural next
+diagnostic, not yet run: inspect the gate value \(g\) (`mem._gate`)
+across successive fact-teaching updates — does it stay uniformly high
+regardless of whether the new content is genuinely novel, which would
+directly explain why teaching fact 2 overwrites fact 1 instead of
+being written alongside it. Per the user's explicit ordering ("only
+then alter memory writing"), no changes to `mem.update` or the gate
+have been made yet — this is diagnosis only.
 
 - [x] Create `hatchling_world/`. (commit a20bc30, 2026-09-04)
 - [x] Fixed-shape world schema. (`state.py`: batched WorldState/WorldConfig)
