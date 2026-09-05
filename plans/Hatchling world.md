@@ -1,14 +1,20 @@
 # Hatchling World
 
-**Status:** Proposed HatchlingZero mainline branch  
-**Date:** 2026-09-04  
-**Purpose:** Test whether HatchlingZero's persistent-memory + recurrent-workspace design becomes substantially more useful when it learns through interaction, consequences, retrieval, curriculum, and verifiable reward — while redesigning the hot loop for efficient training and inference on both Apple MPS and NVIDIA CUDA.
+**Status:** Proposed HatchlingZero mainline branch
+**Date:** 2026-09-04 (amended same day)
+**Purpose:** Teach HatchlingZero language, knowledge, reasoning, experimentation, and autonomous learning through a progressive interactive curriculum — while redesigning the hot loop for efficient training and inference on both Apple MPS and NVIDIA CUDA. Navigation/interaction plumbing (HZ-World-0) is infrastructure validation, not the intelligence objective.
 
 ---
 
 # 0. North Star
 
-Hatchling World is **not** "put HZ in a game and hope intelligence emerges." It is a controlled research program around one hypothesis:
+Hatchling World is **not** "put HZ in a game and hope intelligence emerges," and it is **not** primarily an escape-room/navigation benchmark. It is a controlled research program around one engineering hypothesis, stated without biological claims — "progressive, like a child becoming educated" is used only as an engineering analogy for staged learning from instruction, examples, interaction, mistakes, and increasingly difficult tasks:
+
+\[
+\boxed{\textbf{Teach HatchlingZero language, knowledge, reasoning, experimentation, and autonomous learning through a progressive interactive curriculum.}}
+\]
+
+This sits on top of, and does not replace, the original stateful-learning hypothesis:
 
 \[
 \boxed{\text{HZ may be better matched to interactive, stateful learning than static one-shot supervision.}}
@@ -32,23 +38,59 @@ to:
 o_t \rightarrow \text{reason} \rightarrow a_t \rightarrow o_{t+1} \rightarrow \text{update memory} \rightarrow \text{reason again}.
 \]
 
+**The single biggest conceptual mistake in the original version of this plan**: it assumed HatchlingZero already understands language, instructions, books, and library queries. If HZ begins from randomly initialized or weakly pretrained weights, words like `red`, `door`, `open`, `because`, `cell`, `force`, `enzyme` are initially just token IDs. School, Library, and Labs as originally specified all silently assumed a competent language user was already sitting inside the loop. That competence has to be built first.
+
+The corrected overall shape of the program is:
+
+\[
+\boxed{
+\text{Language Nursery}
+\rightarrow
+\text{School}
+\rightarrow
+\text{Library}
+\rightarrow
+\text{Labs}
+\rightarrow
+\text{Projects}
+\rightarrow
+\text{Autonomous Learning}
+}
+\]
+
+\[
+\boxed{
+\text{navigation is infrastructure validation, not the intelligence objective}
+}
+\]
+
+The room/key environment (HZ-World-0, section 7) remains, but only as interaction plumbing: it is where observations, actions, rewards, persistent memory, recurrent reasoning, and MPS/CUDA execution get verified end to end, cheaply, before any of that machinery is trusted with language or knowledge tasks.
+
 Long-term success means a better **quality-compute Pareto frontier**:
 
-- higher task success,
-- better action efficiency,
-- fewer environment interactions needed to learn,
+- higher task success (navigation, language, and knowledge tasks alike),
+- better action/interaction efficiency,
+- fewer environment interactions or examples needed to learn,
 - useful recurrent-depth scaling,
-- persistent within-lifetime learning,
+- persistent within-lifetime learning (vocabulary, facts, world rules alike),
 - lower training wall-clock,
 - lower inference latency,
 - lower memory/VRAM,
 - good performance on both MPS and CUDA.
 
+The ultimate research question this whole branch answers:
+
+\[
+\boxed{
+\textbf{Can HatchlingZero progressively learn language, knowledge, reasoning, experimentation, and self-directed learning while remaining smaller and more compute-efficient than conventional approaches?}
+}
+\]
+
 ---
 
 # 1. Do Not Abandon Hatchling World After One Bad Run
 
-Recent HZ work showed that a single architecture result can be misleading, but repeated controlled failures are meaningful. Hatchling World therefore gets a **bounded rescue ladder**.
+Recent HZ work showed that a single architecture result can be misleading, but repeated controlled failures are meaningful. Hatchling World therefore gets a **bounded rescue ladder** — now extended to cover language and educational failures, not just navigation failures.
 
 A first negative result does **not** mean:
 
@@ -65,9 +107,9 @@ Every serious experiment receives one of four verdicts:
 3. **FAIL-DIAGNOSE** — fails, but a concrete plausible confound gets a bounded rescue attempt.
 4. **KILL / PARK** — fails after the rescue ladder and matched controls.
 
-## 1.2 Rescue ladder
+## 1.2 Rescue ladder — interaction/navigation failures
 
-Before killing a major Hatchling World hypothesis, test failure classes in this order.
+Before killing a major Hatchling World hypothesis on the interaction side, test failure classes in this order.
 
 ### A. Environment validity
 
@@ -100,7 +142,36 @@ Before killing a major Hatchling World hypothesis, test failure classes in this 
 - Does the environment force persistent memory to matter?
 - Do later rounds receive information that could change the action?
 
-## 1.3 Anti-rationalization kill rule
+## 1.3 Rescue ladder — language failures
+
+Before concluding a Language Nursery stage has failed, diagnose in this order:
+
+1. tokenizer / data validity,
+2. language-model loss actually learning (does perplexity on held-out simple text fall at all),
+3. grounding alignment (do word embeddings actually separate by referent),
+4. instruction-following (does the model act correctly on the SIMPLEST possible instruction),
+5. \(S\) storage (is the taught fact/word actually present in \(S\) right after teaching),
+6. readout (can a probe recover the fact from \(S\) even if the policy doesn't use it),
+7. curriculum difficulty (was this stage attempted before the previous one was solid),
+8. optimization exposure (enough examples/steps at this stage),
+9. only then architecture.
+
+## 1.4 Rescue ladder — educational/school failures
+
+Before concluding a School/Library/Lab task has failed:
+
+1. verify the lesson contains enough information to answer the question at all,
+2. verify the oracle/reference answer is actually correct,
+3. verify a simple baseline (e.g. a small Transformer with the same data) can learn it,
+4. test direct recall of the taught fact,
+5. test direct application to the exact taught scenario,
+6. test delayed use (same fact, later in the episode/lifetime),
+7. test transfer to a genuinely new scenario,
+8. inspect \(S\) directly (probe for the fact/rule),
+9. inspect \(H\) directly (is reasoning happening at all, per section 16's diagnostic),
+10. only then blame architecture.
+
+## 1.5 Anti-rationalization kill rule
 
 A major Hatchling World hypothesis may be parked only after:
 
@@ -111,13 +182,13 @@ A major Hatchling World hypothesis may be parked only after:
 - after one bounded optimization/curriculum rescue pass,
 - and HZ shows no meaningful advantage in quality, sample efficiency, persistent memory use, depth scaling, or compute efficiency.
 
-This prevents premature abandonment **without** turning the project into an endless rescue loop.
+This prevents premature abandonment **without** turning the project into an endless rescue loop. This rule, and the rescue ladders above, apply identically whether the failing hypothesis is about navigation, vocabulary, or knowledge.
 
 ---
 
 # 2. Inherited HZ Findings
 
-Hatchling World starts from the current best-supported architecture. Do not redesign recurrence in the first world phases.
+Hatchling World starts from the current best-supported architecture. Do not redesign recurrence in the first world phases, and do not use the Language Nursery amendment as an excuse to start another recurrence redesign either — the corrected core change in this document is **how the model is educated**, not another rewrite of \(H\).
 
 ## KEEP: original LN recurrence
 
@@ -135,7 +206,7 @@ Current controlled sequence:
 | PAPER-3b bounded accumulating | 0.3060 |
 | PAPER-4 fast/slow | 0.2841 |
 
-The update-rule branch has now gone 0-for-4. **Do not change the H update rule inside early Hatchling World experiments.**
+The update-rule branch has now gone 0-for-4. **Do not change the H update rule inside Hatchling World experiments, language or otherwise.**
 
 ## KEEP: \(M_H=32\)
 
@@ -186,13 +257,71 @@ So:
 \boxed{\text{reduce dispatch count before chasing tiny FLOP reductions}}
 \]
 
+## Do not overpivot the architecture
+
+Keep the current best HatchlingZero architecture throughout every phase below: persistent \(S\), recurrent \(H\), the original LN update, adaptive gating, \(M_H=32\), exact Q/K, D/2 value/write, and the existing speed improvements. The core change this document makes is:
+
+\[
+\boxed{\text{how the model is educated}}
+\]
+
+not:
+
+\[
+\boxed{\text{rewrite } H \text{ again}}
+\]
+
 ---
 
-# 3. The Hatchling World Learning Model
+# 3. Three Memory Levels
+
+This distinction is central to everything that follows, especially the Language Nursery and Vocabulary-via-\(S\) sections. It is an engineering analogy, not a biological claim.
+
+## Long-term weights
+
+\[
+\boxed{
+\theta = \text{knowledge consolidated across many lifetimes}
+}
+\]
+
+Examples: common vocabulary, arithmetic, basic physics, common facts — anything that has been seen enough times, across enough lifetimes, to be worth baking into the weights via replay/consolidation (section 12).
+
+## Persistent state
+
+\[
+\boxed{
+S_t = \text{knowledge acquired during the current lifetime}
+}
+\]
+
+Examples: new vocabulary just taught this episode, newly discovered world rules, library facts just retrieved, experimental outcomes just observed, task-specific knowledge. \(\theta\) is frozen while \(S\) adapts.
+
+## Recurrent workspace
+
+\[
+\boxed{
+H_{t,r} = \text{current reasoning state}
+}
+\]
+
+Examples: interpreting an instruction, solving a problem, comparing hypotheses, planning an action. \(H\) is reinitialized fresh every reasoning episode (section 4.2) — it never persists across world steps the way \(S\) does.
+
+The engineering analogy, stated once and not repeated as a biological claim elsewhere in this document:
+
+```text
+theta = long-term knowledge
+S     = what I learned recently
+H     = what I'm thinking about now
+```
+
+---
+
+# 4. The Hatchling World Learning Model
 
 There are two timescales.
 
-## 3.1 World time
+## 4.1 World time
 
 \[
 W_{t+1}=T(W_t,a_t)
@@ -218,7 +347,7 @@ Environment returns:
 
 where \(d_t\) is termination.
 
-## 3.2 Reasoning time
+## 4.2 Reasoning time
 
 Before each external action:
 
@@ -244,7 +373,7 @@ Thus:
 \boxed{\text{world steps }t \neq \text{reasoning steps }r}
 \]
 
-## 3.3 Persistent within-lifetime memory
+## 4.3 Persistent within-lifetime memory
 
 After observing consequences:
 
@@ -264,15 +393,236 @@ During lifetime-memory evaluations:
 \theta \text{ is frozen}
 \]
 
-and only state may adapt.
+and only state may adapt. This same mechanism is exactly what the Language Nursery's "vocabulary via \(S\)" experiments (section 6) exercise — a taught word is just another consequence the agent observes and stores in \(S_t\).
 
 ---
 
-# 4. HZ-World-0: Minimal Procedural Sandbox
+# 5. Language Nursery
 
-Do **not** start with Minecraft, 3D vision, unrestricted language, or robotics simulation.
+This is the corrected first phase of Hatchling World, and it must happen **before** broad School, Library, Labs, or book-reading. Its job is to teach vocabulary, object grounding, verbs, relations, numbers, sentence structure, simple instructions, compositional language, question answering, and basic conversation — enough that words are no longer just token IDs before HZ is asked to read a lesson or answer a library query.
 
-W0 should be:
+The progression is staged L0 through L6. Each stage assumes the previous one is solid (section 1.3's rescue ladder governs "solid enough to move on").
+
+## Stage L0 — Token / representation bootstrapping
+
+Do not make HZ reinvent bytes or Unicode. Use a fixed tokenizer or byte/subword tokenizer. Initially `"ball"`, `"red"`, `"push"` map to token IDs with no meaning at all.
+
+Train a simple self-supervised language-model objective on extremely simple text:
+
+```text
+the ball is red
+the box is blue
+the red ball moves
+the blue box is still
+```
+
+\[
+L_{\text{LM}}
+=
+-\log p(x_{t+1}\mid x_{\le t})
+\]
+
+Purpose: basic token embeddings, word co-occurrence, sentence structure, primitive syntax.
+
+**Do NOT claim this creates grounded meaning yet.** L0 produces textual statistics only.
+
+## Stage L1 — Grounded nouns and properties
+
+Connect words to structured world state. Example world state:
+
+```text
+OBJECT_1:
+type = BALL
+color = RED
+size = SMALL
+position = LEFT
+```
+
+Present language: *"This is a red ball."* Train the model to align words with environment features. Teach object names, colors, sizes, shapes, quantities, directions, simple attributes.
+
+Then test **behaviorally**, not just via text loss. Example: *"Touch the red object."* The model must select the correct object. This makes "red" behaviorally associated with the RED feature, not just co-occurring with other red-related words.
+
+\[
+\boxed{
+\text{textual association}
+\neq
+\text{grounded understanding}
+}
+\]
+
+Use both L0's textual signal and L1's behavioral grounding signal — neither alone is sufficient.
+
+## Stage L2 — Verbs through consequences
+
+Teach action words through real state changes, not text co-occurrence.
+
+*"Push the box"* -> `PUSH(box)` -> box position changes.
+*"Pick up the box"* -> box enters inventory.
+
+Teach: move, push, pull, pick up, drop, open, close, activate, combine, inspect, measure.
+
+\[
+\boxed{
+\text{verb meaning}
+\approx
+\text{learned state transition}
+}
+\]
+
+not merely co-occurrence in text.
+
+## Stage L3 — Relations and composition
+
+Teach: left of, right of, above, below, inside, beside, before, after, larger than, equal to. Then progressively combine known concepts:
+
+*"Pick up the ball."* -> *"Pick up the red ball."* -> *"Pick up the red ball beside the blue box."* -> *"After opening the door, place the red ball inside the room."*
+
+Procedurally generate large numbers of examples. This tests whether the model learns compositional language rather than memorizing complete sentences — the same "generalization to unseen combinations" discipline section 27's Experiment 2 uses.
+
+## Stage L4 — Numbers and basic symbolic language
+
+Teach: one/two/three..., counting, more/less, equal, simple arithmetic words, ordering, first/second/third, logical terms `and`/`or`/`not`/`if`/`then`.
+
+Examples: *"Pick up two red objects."* *"Which group has more blocks?"* *"If the switch is on, the light turns on."*
+
+This is the bridge from basic language to reasoning, and the natural entry point into School's Mathematics/Logic domains (section 8.2).
+
+## Stage L5 — Questions and answers
+
+Introduce structured teacher/student interaction:
+
+```text
+Teacher: What color is this?        HZ: red
+Teacher: Where is the ball?         HZ: beside the box
+Teacher: What happens if you push it?  HZ: it moves
+Teacher: Why did the door not open?    HZ: the wrong key was used
+```
+
+Progression:
+
+\[
+\text{description}
+\rightarrow
+\text{prediction}
+\rightarrow
+\text{explanation}
+\]
+
+## Stage L6 — Simple reading
+
+Only after basic vocabulary and sentence comprehension work should books begin. Start with extremely simple text:
+
+```text
+A key opens a lock.
+Some locks need a matching key.
+```
+
+Then test direct recall, instruction following, application. The language distribution then becomes progressively more natural:
+
+| Level | Example |
+|---|---|
+| Early | The ball is red. |
+| Elementary | A magnet can attract some metals. |
+| Intermediate | Magnets exert forces on certain magnetic materials. |
+| Advanced | Real educational text. |
+
+This is the on-ramp into the Books phase (section 11).
+
+## Multiple training signals
+
+Do NOT expect pure RL to teach language efficiently. Use a combined training objective throughout the Nursery:
+
+\[
+L
+=
+\lambda_{\text{LM}}L_{\text{LM}}
++
+\lambda_{\text{ground}}L_{\text{ground}}
++
+\lambda_{\text{action}}L_{\text{action}}
++
+\lambda_{\text{world}}L_{\text{world}}
++
+\lambda_{\text{QA}}L_{\text{QA}}
+\]
+
+- **LM loss** — basic language prediction (L0).
+- **Grounding loss** — associate text with world concepts (L1).
+- **Action imitation loss** — follow demonstrations/instructions (L2/L3).
+- **World-prediction loss** — predict consequences of actions (L2, same mechanism as section 14's W1).
+- **QA/reasoning loss** — answer questions with verifiable targets (L4/L5).
+
+\(L_{\text{RLVR}}\) (section 14's W5) is added later. **Do not start with RLVR from random language competence** — it will not work and will waste compute establishing that fact.
+
+---
+
+# 6. Vocabulary Acquisition via \(S\)
+
+This is especially important for HatchlingZero specifically, and is one of the cleanest tests of \(S\) this whole project has.
+
+## One-shot vocabulary acquisition
+
+If the model encounters an unfamiliar word during an episode:
+
+> Teacher: "Flammable means something can catch fire easily."
+
+the model should be able to temporarily store `flammable ~= catches fire easily` inside persistent state \(S_t\), **without an immediate gradient update**. Later in the same lifetime:
+
+> "Which material should be kept away from the flame?"
+
+HZ should use the newly learned meaning. This becomes a dedicated benchmark, testing:
+
+- immediate use,
+- delayed use,
+- compositional use,
+- use in a novel context,
+- retention after distractor tasks.
+
+Compared across: normal \(S\), reset \(S\), zeroed \(S\) — same ablation discipline as section 15's persistent-memory challenge, applied specifically to a taught word instead of a world rule.
+
+## Synthetic novel words
+
+To prevent hidden memorization, generate arbitrary new vocabulary the model cannot have seen in pretraining:
+
+> "A `dax` is an object that activates blue machines."
+> "`mepo` means move something two spaces left."
+
+Then test direct recall, action following, reasoning, delayed use. Since the words are synthetic and unseen before the episode, success strongly indicates real within-lifetime learning via \(S\), not memorization via \(\theta\) — this is the cleanest possible test of the "persistent state" hypothesis this whole branch is built around.
+
+## Vocabulary consolidation
+
+Differentiate the two real learning modes explicitly (section 3's memory levels, applied to words specifically):
+
+- **Immediate learning**: \(S_t\) stores newly learned words/concepts during the current lifetime.
+- **Long-term learning**: repeated exposures and replay eventually update \(\theta\).
+
+\[
+\boxed{
+\text{new word}
+\rightarrow
+S
+\rightarrow
+\text{successful use}
+\rightarrow
+\text{replay}
+\rightarrow
+\theta
+}
+\]
+
+Explicitly measure how many exposures are needed before a concept remains usable without the original episode's memory present — i.e. before it has genuinely moved from \(S\) into \(\theta\). See section 12 for the replay mechanism this depends on.
+
+---
+
+# 7. HZ-World-0: Minimal Procedural Sandbox
+
+\[
+\boxed{\text{navigation is infrastructure validation, not the intelligence objective}}
+\]
+
+This section is unchanged from the original plan and remains real, useful, and already partially implemented (section 22's Phase 1-3 checklist) — but its ROLE in the program has been corrected. It exists to verify observations, actions, rewards, persistent memory, recurrent reasoning, and MPS/CUDA execution work end to end, cheaply, in a fully symbolic and verifiable setting, before any of that machinery is trusted with language or knowledge. It is not where "intelligence" is expected to show up.
+
+Do **not** start with Minecraft, 3D vision, unrestricted language, or robotics simulation. W0 should be:
 
 - symbolic,
 - deterministic where possible,
@@ -281,22 +631,9 @@ W0 should be:
 - fixed-shape/tensorizable,
 - vectorizable across many parallel worlds.
 
-## 4.1 World state
+## 7.1 World state
 
-Represent each world with fixed-shape tensors describing:
-
-- agent location,
-- rooms/nodes,
-- object locations,
-- inventory,
-- doors/locks,
-- machines,
-- switches,
-- resources,
-- hidden rule table,
-- goal,
-- discovered facts,
-- library state later.
+Represent each world with fixed-shape tensors describing: agent location, rooms/nodes, object locations, inventory, doors/locks, machines, switches, resources, hidden rule table, goal, discovered facts, library state later.
 
 Conceptually:
 
@@ -304,108 +641,132 @@ Conceptually:
 W_t=(P_t,I_t,O_t,D_t,M_t,R_{\text{hidden}},G)
 \]
 
-## 4.2 Initial actions
+## 7.2 Initial actions
 
-Keep the action vocabulary small:
+Keep the action vocabulary small: `MOVE(destination)`, `PICKUP(object)`, `DROP(object)`, `USE(object, target)`, `PRESS(target)`, `INSPECT(target)`, later `READ(query)`. No free-form language actions in W0 — that is deliberately deferred to after the Language Nursery.
 
-- `MOVE(destination)`
-- `PICKUP(object)`
-- `DROP(object)`
-- `USE(object, target)`
-- `PRESS(target)`
-- `INSPECT(target)`
-- later: `READ(query)`
+## 7.3 Procedural rules
 
-No free-form language actions in W0.
+Rules change between episodes: colored keys open different door classes, two ingredients create a tool, switches power particular machines, tokens activate specific portals, machines require different resources, object effects change across worlds. The same surface objects support different mappings across episodes so model weights alone cannot simply memorize the solution.
 
-## 4.3 Procedural rules
-
-Rules change between episodes.
-
-Examples:
-
-- colored keys open different door classes,
-- two ingredients create a tool,
-- switches power particular machines,
-- tokens activate specific portals,
-- machines require different resources,
-- object effects change across worlds.
-
-The same surface objects should support different mappings across episodes so model weights alone cannot simply memorize the solution.
+**Real status (2026-09-04)**: this environment, its oracle, its reward verifier, a real HZ adapter, behavior cloning, and a live visualizer are already implemented and produce genuine, reproducible learning (section 22, Phase 1-3). That result validates the plumbing — it is not yet evidence about language or knowledge, which this document's real center of gravity now is.
 
 ---
 
-# 5. School: Curriculum Generator
+# 8. School: Broad Curriculum
 
-School is not just a place containing text. It is the controlled difficulty generator.
+School has two real, distinct jobs, previously conflated: (1) a controlled interaction-difficulty ladder for HZ-World-0 itself, and (2) real subject-matter education once language competence exists. Both matter; they are not the same thing.
 
-## S0 — Cause/effect
+## 8.1 Interaction-difficulty ladder (HZ-World-0)
 
-Horizon: 1–2 meaningful actions.
+This is the original School content — a controlled difficulty generator for the room/key sandbox, useful for the infrastructure-validation role in section 7, not a claim about knowledge.
 
-Examples:
+### S0 — Cause/effect
 
-- press switch -> light activates,
-- pick up key -> inventory changes,
-- use key -> door opens.
+Horizon: 1–2 meaningful actions. Examples: press switch -> light activates, pick up key -> inventory changes, use key -> door opens.
 
-## S1 — Short composition
+### S1 — Short composition
 
-Horizon: 2–4 actions.
+Horizon: 2–4 actions. \(\text{key}\rightarrow\text{door}\rightarrow\text{goal object}\)
 
-\[
-\text{key}\rightarrow\text{door}\rightarrow\text{goal object}
-\]
+### S2 — Multi-step planning
 
-## S2 — Multi-step planning
+Horizon: 5–8 actions. \(\text{resource}\rightarrow\text{tool}\rightarrow\text{room}\rightarrow\text{machine}\rightarrow\text{goal}\)
 
-Horizon: 5–8 actions.
+### S3 — Hidden rules
 
-\[
-\text{resource}\rightarrow\text{tool}\rightarrow\text{room}\rightarrow\text{machine}\rightarrow\text{goal}
-\]
+Episode-specific rules must be inferred. World A: purple keys open triangle doors. World B: green keys open triangle doors. This is where persistent \(S\) should become necessary.
 
-## S3 — Hidden rules
+### S4 — Experiment-driven learning
 
-Episode-specific rules must be inferred.
+Some rules are not given at all. The agent must try an action and learn from the result. Example: \(\operatorname{USE}(\text{red crystal},\text{machine})\rightarrow\text{failure}\). Later behavior should depend on remembering that failed experiment. (Real, disclosed status: HZ-World-0 as currently implemented has no experimentable/failable action to hang this on yet — tracked as a real gap, see section 22.)
 
-World A:
+### S5 — Long-horizon planning
 
-- purple keys open triangle doors.
+Horizon: 10–30+ meaningful actions. Use dependency chains with multiple subgoals. This is the primary candidate for useful \(R\)-scaling on the interaction side.
 
-World B:
+## 8.2 Academic domains
 
-- green keys open triangle doors.
+Once the Language Nursery (section 5) has produced a real language-competent agent, School's real job begins: broad knowledge, taught progressively, not all at once.
 
-This is where persistent \(S\) should become necessary.
+- **Mathematics** — arithmetic, algebra, geometry, probability, functions, symbolic reasoning.
+- **Logic** — deduction, constraints, conditionals, contradictions, compositional reasoning.
+- **Computer Science** — algorithms, code reading, debugging, documentation, program execution, unit tests.
+- **Physics** — motion, force, energy, circuits, simple thermodynamics.
+- **Biology** — cells, pathways, genetics, physiology, perturbation reasoning.
+- **Chemistry** — symbolic reactions, properties, transformations, simple lab systems.
+- **General knowledge** — geography, history, technology, science facts.
 
-## S4 — Experiment-driven learning
+Do not implement all subjects immediately. The plan should support progressive expansion — start with Mathematics/Logic (the natural continuation of L4's numbers/logic words), add others as the curriculum and infrastructure justify it.
 
-Some rules are not given at all.
+## 8.3 How each concept is taught
 
-The agent must try an action and learn from the result.
-
-Example:
+Every important concept, in every domain above, should ideally pass through the same real pipeline:
 
 \[
-\operatorname{USE}(\text{red crystal},\text{machine})\rightarrow\text{failure}
+\boxed{
+\text{Teach}
+\rightarrow
+\text{Demonstrate}
+\rightarrow
+\text{Recall}
+\rightarrow
+\text{Reason}
+\rightarrow
+\text{Apply}
+\rightarrow
+\text{Experiment}
+\rightarrow
+\text{Correct}
+\rightarrow
+\text{Generalize}
+}
 \]
 
-Later behavior should depend on remembering that failed experiment.
+Example — lesson: *"Greater mass requires more force for the same acceleration."*
 
-## S5 — Long-horizon planning
+1. direct question,
+2. worked example,
+3. prediction,
+4. simulated experiment (section 9's Labs),
+5. observed consequence,
+6. new problem,
+7. transfer to a different setup.
 
-Horizon: 10–30+ meaningful actions.
-
-Use dependency chains with multiple subgoals.
-
-This is the primary candidate for useful \(R\)-scaling.
+This pipeline is what makes School more than a text corpus — every concept gets a real behavioral and experimental checkpoint, not just a language-modeling loss.
 
 ---
 
-# 6. Library: Paid External Knowledge
+# 9. Laboratories
 
-Introduce Library only after basic interactive competence works.
+Labs are symbolic/low-dimensional environments purpose-built for the Experiment step in section 8.3's pipeline, and for School's Physics/Biology/Chemistry/CS domains specifically.
+
+- **Physics Lab** — manipulate mass, force, velocity, circuits.
+- **Biology Lab** — manipulate pathway activation, inhibition, symbolic genes, concentrations.
+- **Chemistry Lab** — manipulate reagents, catalysts, temperatures, reaction conditions.
+- **Programming Lab** — code execution, compiler output, unit tests, documentation.
+
+Labs provide the real causal-inference loop this whole program depends on:
+
+\[
+\boxed{
+\text{prediction}
+\rightarrow
+\text{intervention}
+\rightarrow
+\text{observation}
+\rightarrow
+\text{belief update}
+}
+\]
+
+The "belief update" step is the same \(S_{t+1}=U_\theta(S_t,o_t,a_t,r_t,o_{t+1})\) mechanism as everywhere else in this document (section 4.3) — a lab experiment's outcome is just another consequence stored in \(S\).
+
+---
+
+# 10. Library: Paid External Knowledge
+
+**Library comes only after language competence exists** — the original version of this section implicitly assumed a `READ(query)` action was already meaningful to the model; it only becomes meaningful once Stage L5/L6 (section 5) are solid.
 
 Add:
 
@@ -413,25 +774,13 @@ Add:
 a_t=\operatorname{READ}(q)
 \]
 
-which returns a bounded fact/document fragment.
-
-Reading has a small cost:
+which returns a bounded fact/document fragment. Reading has a small cost:
 
 \[
 r_{\text{read}}<0
 \]
 
-so the agent learns when to:
-
-- act from memory,
-- experiment,
-- or retrieve information.
-
-Example facts:
-
-- "Generators require charged power cells."
-- "Triangle tokens unlock laboratory doors."
-- "Copper and resin form a conductor."
+so the agent learns when to rely on long-term knowledge (\(\theta\)), use \(S\), reason, experiment (Labs), or retrieve external information. Example facts: "Generators require charged power cells." "Triangle tokens unlock laboratory doors." "Copper and resin form a conductor."
 
 ## Library metrics
 
@@ -450,268 +799,251 @@ Long-term behavior:
 
 ---
 
-# 7. Learning Curriculum
+# 11. Books / Pretraining
 
-## W0 — Environment validation
+Do not force HatchlingZero to rediscover all human knowledge experimentally. Create a real Books phase: textbooks, synthetic lessons, factual corpora, worked examples, code, documentation.
 
-Before serious HZ training:
-
-- procedural generator,
-- deterministic transition engine,
-- oracle solver,
-- reward verifier,
-- train/test seeds,
-- horizon/difficulty labels,
-- solvability tests.
-
-## W1 — World prediction
-
-Auxiliary objective:
+Conceptually:
 
 \[
-(o_t,a_t)\rightarrow\hat{o}_{t+1}
+\text{text}
+\rightarrow
+\theta
 \]
 
-or a compact latent transition target.
-
-Purpose:
-
-- teach causal structure,
-- test whether state contains action-relevant information.
-
-Do **not** treat prediction accuracy as the final intelligence metric.
-
-## W2 — Behavior cloning warm-start
-
-Use oracle trajectories.
-
-Train:
+This is the direct continuation of Stage L6 (section 5) once basic reading works, and it is deliberately combined with, not substituted for, the experiential side of the program:
 
 \[
-\pi(a_t\mid o_t,S_t,H_t)
+\boxed{
+\text{instructional learning}
++
+\text{experiential learning}
+}
 \]
 
-before sparse-reward RL.
-
-## W3 — Persistent-memory challenge
-
-Freeze weights during an episode.
-
-Construct tasks where a rule is learned early and required much later.
-
-Ablate:
-
-- normal \(S\),
-- zeroed \(S\),
-- reset \(S\),
-- optionally shuffled \(S\).
-
-Promotion requires a real drop when memory is destroyed.
-
-## W4 — Recurrent-depth challenge
-
-Sweep:
-
-\[
-R\in\{1,2,4,8,16\}
-\]
-
-by task horizon and dependency depth.
-
-Target:
-
-\[
-\boxed{\text{longer/harder tasks show larger useful }R}
-\]
-
-Use task success, not just loss.
-
-## W5 — RL with verifiable rewards
-
-After BC establishes competence, optimize actual outcomes.
-
-Base reward:
-
-\[
-r_{\text{goal}}=\mathbb{1}[\text{goal achieved}]
-\]
-
-plus carefully bounded shaping such as:
-
-- small action cost,
-- invalid-action penalty,
-- optional subgoal rewards only if they cannot shortcut the real objective.
-
-No reward for "looking thoughtful."
-
-## W6 — Group-relative trajectory optimization
-
-For one starting world state, sample:
-
-\[
-\tau_1,\dots,\tau_G
-\]
-
-and score them with the verifier.
-
-Optimize relative trajectory quality.
-
-Track:
-
-\[
-\boxed{\text{reward gain per environment step and GPU-second}}
-\]
-
-not merely final success.
-
-## W7 — Library curriculum
-
-Add paid retrieval.
-
-## W8 — Off-policy replay
-
-Store:
-
-\[
-(o_t,S_t,a_t,r_t,o_{t+1},\text{world id},R,\text{success})
-\]
-
-Only test replay after the on-policy loop is stable.
-
-## W9 — PAPER-5 revived in the right setting
-
-PAPER-5 remains **parked, not killed**.
-
-Revive stochastic breadth only when the environment creates meaningful competing plans.
-
-Then breadth means:
-
-\[
-\boxed{\text{candidate plans/action strategies}}
-\]
-
-rather than arbitrary branching on a static FSM benchmark.
-
-## W10 — PAPER-6 value-guided search
-
-Only after PAPER-5 proves useful diversity.
-
-Learn:
-
-\[
-Q(H,S,o,a)\approx P(\text{eventual success})
-\]
-
-and allocate compute to promising branches.
+Books moves knowledge into \(\theta\) directly (pretraining-style); Labs and interaction move it through \(S\) first, then into \(\theta\) via replay (section 12). Both paths are real and both are used.
 
 ---
 
-# 8. Frozen-Trajectory Readout Diagnostic
+# 12. Experience Consolidation
 
-Run this in parallel with HZ-World.
-
-Freeze the current good LN recurrence.
-
-Collect:
+During one lifetime, \(\theta\) should normally remain frozen. HZ learns through \(S_t\). After collecting experiences — successful trajectories, mistakes, newly learned vocabulary, useful experiments, solved tasks — selected experiences can be replayed to update \(\theta\).
 
 \[
-H_1,H_2,\dots,H_R
+\boxed{
+\text{new word/rule/experience}
+\rightarrow
+S
+\rightarrow
+\text{successful use}
+\rightarrow
+\text{replay}
+\rightarrow
+\theta
+}
 \]
 
-from the same trajectory.
+This must remain experimentally separable from within-lifetime memory: any claim that "HZ learned X" must specify whether X lives in \(S\) (this lifetime only) or has genuinely consolidated into \(\theta\) (usable in a fresh lifetime with \(S\) reset). Section 6's vocabulary-consolidation experiments are the concrete first instance of this; the same discipline applies to world rules, lab findings, and library facts.
 
-Train only probes/readouts:
+---
+
+# 13. The Full Developmental Curriculum
+
+The complete stage list, all engineering curriculum stages — **not literal ages, and not a calendar**:
+
+```text
+Stage 0   Tokenizer + basic statistical language
+            |
+Stage 1   Grounded nouns / colors / objects
+            |
+Stage 2   Verbs / actions / consequences
+            |
+Stage 3   Relations + compositional instructions
+            |
+Stage 4   Numbers + logic words
+            |
+Stage 5   Questions / conversation
+            |
+Stage 6   Simple reading
+            |
+Stage 7   Vocabulary acquisition via S
+            |
+Stage 8   School subjects
+            |
+Stage 9   Labs / experiments
+            |
+Stage 10  Library / research
+            |
+Stage 11  Long-horizon projects
+            |
+Stage 12  Autonomous learning
+```
+
+Stages 0-6 are the Language Nursery (section 5). Stage 7 is section 6. Stage 8 is section 8. Stage 9 is section 9. Stage 10 is section 10. Stage 11 is projects (long-horizon tasks combining everything above, using HZ-World-0-style verifiable environments per section 7 but now with real language/knowledge content). Stage 12 is section 15's autonomous-learning endgame.
+
+---
+
+# 14. Learning Curriculum (Interaction-Track Detail)
+
+This is the detailed phase-by-phase interaction-track curriculum from the original plan. It executes on top of, and after, the Language Nursery stages above — a fresh HZ-World-0 W0-style environment validation pass (section 7) is still real, cheap, and worth doing first regardless of curriculum stage, since it is infrastructure, not intelligence content.
+
+## W0 — Environment validation
+
+Before serious HZ training: procedural generator, deterministic transition engine, oracle solver, reward verifier, train/test seeds, horizon/difficulty labels, solvability tests.
+
+## W1 — World prediction
+
+Auxiliary objective: \((o_t,a_t)\rightarrow\hat{o}_{t+1}\), or a compact latent transition target. Purpose: teach causal structure, test whether state contains action-relevant information. Do **not** treat prediction accuracy as the final intelligence metric.
+
+## W2 — Behavior cloning warm-start
+
+Use oracle trajectories. Train \(\pi(a_t\mid o_t,S_t,H_t)\) before sparse-reward RL.
+
+## W3 — Persistent-memory challenge
+
+Freeze weights during an episode. Construct tasks where a rule is learned early and required much later. Ablate: normal \(S\), zeroed \(S\), reset \(S\), optionally shuffled \(S\). Promotion requires a real drop when memory is destroyed.
+
+## W4 — Recurrent-depth challenge
+
+Sweep \(R\in\{1,2,4,8,16\}\) by task horizon and dependency depth. Target: \(\boxed{\text{longer/harder tasks show larger useful }R}\). Use task success, not just loss.
+
+## W5 — RL with verifiable rewards
+
+After BC establishes competence, optimize actual outcomes. Base reward: \(r_{\text{goal}}=\mathbb{1}[\text{goal achieved}]\), plus carefully bounded shaping such as small action cost, invalid-action penalty, optional subgoal rewards only if they cannot shortcut the real objective. No reward for "looking thoughtful."
+
+## W6 — Group-relative trajectory optimization
+
+For one starting world state, sample \(\tau_1,\dots,\tau_G\) and score them with the verifier. Optimize relative trajectory quality. Track \(\boxed{\text{reward gain per environment step and GPU-second}}\), not merely final success.
+
+## W7 — Library curriculum
+
+Add paid retrieval, per section 10.
+
+## W8 — Off-policy replay
+
+Store \((o_t,S_t,a_t,r_t,o_{t+1},\text{world id},R,\text{success})\). Only test replay after the on-policy loop is stable. This is the same mechanism section 12 depends on for \(\theta\) consolidation.
+
+## W9 — PAPER-5 revived in the right setting
+
+PAPER-5 remains **parked, not killed**. Revive stochastic breadth only when the environment creates meaningful competing plans. Then breadth means \(\boxed{\text{candidate plans/action strategies}}\) rather than arbitrary branching on a static FSM benchmark.
+
+## W10 — PAPER-6 value-guided search
+
+Only after PAPER-5 proves useful diversity. Learn \(Q(H,S,o,a)\approx P(\text{eventual success})\) and allocate compute to promising branches.
+
+---
+
+# 15. Autonomous Learning Endgame
+
+Stage 12 (section 13). Eventually give HZ: an unfamiliar subject, unfamiliar vocabulary, a library, tools, experiments, a project goal, limited interaction/retrieval budget. Example:
+
+> Learn enough about this unknown symbolic system to control it successfully.
+
+Measure whether it can: (1) learn vocabulary, (2) acquire facts, (3) form hypotheses, (4) retrieve information, (5) run experiments, (6) remember failures, (7) solve the final task. This is the ultimate Hatchling World benchmark — it exercises every mechanism in this document (\(\theta\)/\(S\)/\(H\), Nursery, School, Library, Labs, consolidation) in one verifiable task.
+
+---
+
+# 16. Frozen-Trajectory Readout Diagnostic
+
+Run this in parallel with HZ-World, before another recurrence redesign, regardless of which curriculum stage produced the failure.
+
+Freeze the current good LN recurrence. Collect \(H_1,H_2,\dots,H_R\) from the same trajectory. Train only probes/readouts:
 
 1. current readout on \(H_r\),
 2. linear probe per \(H_r\),
 3. small MLP probe,
 4. trajectory pooling over \(H_1\dots H_r\).
 
-Interpretation:
-
-If late states become more decodable:
-
-\[
-\boxed{\text{useful information exists; the readout is failing to exploit it}}
-\]
-
-If not:
-
-\[
-\boxed{\text{later recurrence itself is not adding solution information}}
-\]
-
-Do this before another recurrence redesign.
+Interpretation: if late states become more decodable, \(\boxed{\text{useful information exists; the readout is failing to exploit it}}\). If not, \(\boxed{\text{later recurrence itself is not adding solution information}}\). Do this before another recurrence redesign.
 
 ---
 
-# 9. Baselines
+# 17. Baselines
 
-HZ-World needs matched controls.
+HZ-World needs matched controls, on both the interaction and the language side.
 
 ## Baseline A — Current best HZ
 
-- original LN recurrence,
-- \(M_H=32\),
-- D/2 value/write,
-- exact Q/K.
+Original LN recurrence, \(M_H=32\), D/2 value/write, exact Q/K.
 
 ## Baseline B — Small Transformer policy
 
-Match approximately on:
-
-- params,
-- training interactions,
-- observation access,
-- inference compute.
+Match approximately on: params, training interactions, observation access, inference compute.
 
 ## Baseline C — Simple recurrent control
 
-A GRU/LSTM-style agent or similarly cheap recurrent baseline.
+A GRU/LSTM-style agent or similarly cheap recurrent baseline. Purpose: distinguish "interactive tasks help any recurrent model" from a real advantage of HZ's \(S+H\) structure.
 
-Purpose: distinguish "interactive tasks help any recurrent model" from a real advantage of HZ's \(S+H\) structure.
+## Baseline D — Small language model, matched
+
+For every Language Nursery stage: a small Transformer LM matched approximately on params and training tokens/examples, with no persistent \(S\). Purpose: distinguish "any model can learn L0-L6 statistically" from "HZ's \(S+H\) structure gives a real advantage on grounding, verbs-via-consequence, or one-shot vocabulary acquisition specifically" (section 6's whole point).
 
 ---
 
-# 10. Metrics
+# 18. Scoreboard
 
-## Intelligence / behavior
+## Vocabulary
 
-- task success,
-- success vs horizon,
-- success vs hidden-rule count,
-- success vs \(R\),
+- known-word accuracy,
+- one-shot novel-word acquisition,
+- delayed recall,
+- compositional use of new words.
+
+## Language
+
+- instruction following,
+- relation understanding,
+- sentence composition,
+- QA.
+
+## Knowledge
+
+- factual recall,
+- concept application,
+- transfer.
+
+## Reasoning / intelligence / behavior
+
+- multi-step verified problem solving, success vs \(R\),
+- task success, success vs horizon, success vs hidden-rule count,
 - action efficiency,
 - recovery after failed experiments,
 - generalization to unseen rule combinations.
 
 ## Persistent learning
 
-- normal \(S\),
-- reset \(S\),
-- zeroed \(S\),
-- delayed use of learned facts,
-- facts retained across long episodes.
+- performance with normal \(S\) / reset \(S\) / zeroed \(S\),
+- delayed use of newly learned facts or words,
+- facts/words retained across long episodes.
+
+## Experimentation
+
+- causal inference accuracy,
+- failed-hypothesis correction.
+
+## Retrieval
+
+- reads/task,
+- useful reads,
+- unnecessary reads,
+- retrieval efficiency.
 
 ## Sample efficiency
 
-- environment steps to threshold success,
+- environment steps / examples to threshold success,
 - trajectories required,
 - reward per 1M interactions.
 
 ## Compute
 
-- train steps/sec,
-- environment steps/sec,
-- trajectories/sec,
+- train steps/sec, environment steps/sec, trajectories/sec,
 - inference latency/action,
 - latency vs \(R\),
-- peak memory,
-- parameter count,
+- peak memory, parameter count,
 - GPU utilization,
 - GPU-seconds per successful task.
 
-Core Pareto metrics:
+Core Pareto metrics, unchanged:
 
 \[
 \boxed{\text{success per GPU-second}}
@@ -725,16 +1057,9 @@ and
 
 ---
 
-# 11. Systems Objective: Make Hatchling World Faster Than the Current Pipeline
+# 19. Systems Objective: Make Hatchling World Faster Than the Current Pipeline
 
-Current evidence indicates HZ's tiny pipeline is often dominated by:
-
-- Python overhead,
-- many small launches,
-- sequential recurrence,
-- CPU-side episode generation,
-- host-to-device transfers,
-- poor accelerator amortization.
+Current evidence indicates HZ's tiny pipeline is often dominated by: Python overhead, many small launches, sequential recurrence, CPU-side episode generation, host-to-device transfers, poor accelerator amortization.
 
 A critical existing observation is that MPS can be slower than CPU when each step generates CPU-side data and transfers it to the GPU.
 
@@ -744,29 +1069,15 @@ Therefore:
 \boxed{\text{the environment itself must be designed as an accelerator-friendly system}}
 \]
 
+This applies identically to Language Nursery data generation (batched vocabulary/grounding examples), School (batched symbolic worlds, arithmetic questions), and Labs (batched simulated experiments) — not just HZ-World-0's room graphs.
+
 ---
 
-# 12. Shared MPS + CUDA Speed Architecture
+# 20. Shared MPS + CUDA Speed Architecture
 
 ## SPEED-W0 — Vectorized worlds
 
-Never run one Python environment per agent.
-
-Represent many worlds as batched tensors:
-
-\[
-W_t\in\mathbb{R}^{B\times\cdots}
-\]
-
-and apply transitions in parallel.
-
-Initial batch sweep:
-
-\[
-B_{\text{env}}\in\{32,128,512\}
-\]
-
-subject to memory.
+Never run one Python environment per agent. Represent many worlds as batched tensors \(W_t\in\mathbb{R}^{B\times\cdots}\) and apply transitions in parallel. Initial batch sweep: \(B_{\text{env}}\in\{32,128,512\}\), subject to memory. Language-nursery-specific: this includes batching thousands of vocabulary-grounding examples, batched arithmetic questions, and batched simulated lab experiments the same way.
 
 ## SPEED-W1 — Eliminate per-step host/device copies
 
@@ -790,166 +1101,57 @@ world tensors already on device
 → repeat
 ```
 
-If full device-side transitions are initially impractical:
-
-- pre-generate large rollout chunks,
-- transfer batches rather than individual steps,
-- reuse persistent buffers,
-- avoid Python tensor construction inside the hot loop.
-
-This is especially important for MPS because current HZ measurements already exposed host-to-device overhead as a real limiter.
+If full device-side transitions are initially impractical: pre-generate large rollout chunks, transfer batches rather than individual steps, reuse persistent buffers, avoid Python tensor construction inside the hot loop. This is especially important for MPS because current HZ measurements already exposed host-to-device overhead as a real limiter.
 
 ## SPEED-W2 — Fixed-shape world buckets
 
-Use a few fixed configurations:
-
-- small,
-- medium,
-- long-horizon.
-
-Keep observation/action shapes static and \(R\) drawn from a small fixed set.
-
-Benefits:
-
-- fewer recompiles,
-- easier kernel fusion,
-- easier graph replay,
-- predictable memory.
+Use a few fixed configurations: small, medium, long-horizon. Keep observation/action shapes static and \(R\) drawn from a small fixed set. Benefits: fewer recompiles, easier kernel fusion, easier graph replay, predictable memory. Fixed-shape document chunks apply the same idea to Books/Library text.
 
 ## SPEED-W3 — Parallelize across worlds, not time
 
-World time is inherently sequential within one episode.
-
-Parallelize:
-
-\[
-\{W_t^{(1)},W_t^{(2)},\dots,W_t^{(B)}\}
-\]
-
-across independent worlds.
-
-This preserves causal interaction while creating accelerator-sized work.
+World time is inherently sequential within one episode. Parallelize \(\{W_t^{(1)},W_t^{(2)},\dots,W_t^{(B)}\}\) across independent worlds. This preserves causal interaction while creating accelerator-sized work.
 
 ## SPEED-W4 — Keep D/2 value/write
 
-It already preserved quality and reduced memory/params.
-
-It did not accelerate the tiny FSM workload, but larger batched world training may move HZ toward a compute regime where smaller projection matrices matter more.
-
-Do not claim a speed win until measured.
+It already preserved quality and reduced memory/params. It did not accelerate the tiny FSM workload, but larger batched world/language training may move HZ toward a compute regime where smaller projection matrices matter more. Do not claim a speed win until measured.
 
 ## SPEED-W5 — SPEED-A: batched dual-source attention
 
-Current H reads separately from:
-
-- persistent memory \(S\),
-- current observation/query \(x\).
-
-Implement one batched backend operation **while preserving separate softmax normalization domains**.
-
-Do not concatenate \(S\) and \(x\) into a single softmax.
-
-Goal:
-
-\[
-\boxed{\text{fewer dispatches without changing addressing semantics}}
-\]
-
-Promotion requires:
-
-- output equivalence,
-- gradient equivalence,
-- fewer launches,
-- real MPS + CUDA speedup,
-- no quality regression.
+Current \(H\) reads separately from persistent memory \(S\) and the current observation/query \(x\). Implement one batched backend operation **while preserving separate softmax normalization domains**. Do not concatenate \(S\) and \(x\) into a single softmax. Goal: \(\boxed{\text{fewer dispatches without changing addressing semantics}}\). Promotion requires output equivalence, gradient equivalence, fewer launches, real MPS + CUDA speedup, no quality regression.
 
 ## SPEED-W6 — K=2 evidence refresh
 
-Test an architecture that performs one expensive evidence read, then two cheap refinements:
-
-\[
-E_j=\operatorname{Read}(H_j,S,o_t)
-\]
-
-\[
-H_{j,1}=F(H_j,E_j)
-\]
-
-\[
-H_{j,2}=F(H_{j,1},E_j)
-\]
-
-then refresh evidence.
-
-At \(R=16\):
-
-\[
-16 \text{ expensive reads}\rightarrow 8
-\]
-
-Test \(K=2\) only first.
-
-Kill/revise if:
-
-- task success drops materially,
-- or wall-clock improvement is negligible.
+Test an architecture that performs one expensive evidence read, then two cheap refinements: \(E_j=\operatorname{Read}(H_j,S,o_t)\), \(H_{j,1}=F(H_j,E_j)\), \(H_{j,2}=F(H_{j,1},E_j)\), then refresh evidence. At \(R=16\): \(16\text{ expensive reads}\rightarrow 8\). Test \(K=2\) only first. Kill/revise if task success drops materially, or wall-clock improvement is negligible.
 
 ## SPEED-W7 — Adaptive early exit
 
-Only after useful depth actually exists.
+Only after useful depth actually exists. Do not use gate magnitude alone. Candidate signals: action-distribution KL, action margin, hidden-state displacement, value confidence, consecutive-round agreement. Promotion: same task success within noise, with substantial reduction in \(\mathbb{E}[R]\).
 
-Do not use gate magnitude alone.
+## Measure, do not assume, whether education is cheaper than raw tokens
 
-Candidate signals:
-
-- action-distribution KL,
-- action margin,
-- hidden-state displacement,
-- value confidence,
-- consecutive-round agreement.
-
-Promotion:
+Explicitly ask whether structured educational experience (Nursery -> School -> Labs, staged, verified) can become:
 
 \[
-\text{same task success within noise}
+\boxed{
+\text{more compute-efficient than extremely token-heavy training}
+}
 \]
 
-with substantial reduction in:
-
-\[
-\mathbb{E}[R]
-\]
+**Do not assume it — measure it**, using the same GPU-seconds/task and success-per-GPU-second metrics as everything else in section 18.
 
 ---
 
-# 13. CUDA-Specific Plan
+# 21. CUDA-Specific Plan
 
 CUDA has an additional high-value lever: graph replay.
 
 ## CUDA-1 — Compile stable model sections
 
-Benchmark:
-
-- eager,
-- `torch.compile(..., mode="default")`,
-- `mode="reduce-overhead"`,
-- `mode="max-autotune"`.
-
-Do not assume one mode wins everywhere.
-
-Current PyTorch documentation explicitly describes `reduce-overhead` as a mode intended to reduce Python overhead using CUDA Graphs where applicable, and `max-autotune` as another GPU-oriented optimization mode.
+Benchmark eager, `torch.compile(..., mode="default")`, `mode="reduce-overhead"`, `mode="max-autotune"`. Do not assume one mode wins everywhere. Current PyTorch documentation explicitly describes `reduce-overhead` as a mode intended to reduce Python overhead using CUDA Graphs where applicable, and `max-autotune` as another GPU-oriented optimization mode.
 
 ## CUDA-2 — CUDA Graph capture
 
-HZ-World should intentionally use static buffers/shapes so repeated rollout/model steps can be captured and replayed.
-
-This is particularly aligned with HZ's current bottleneck:
-
-\[
-\boxed{\text{many small repeated kernels + CPU launch overhead}}
-\]
-
-Candidate capture unit:
+HZ-World should intentionally use static buffers/shapes so repeated rollout/model steps can be captured and replayed. This is particularly aligned with HZ's current bottleneck: \(\boxed{\text{many small repeated kernels + CPU launch overhead}}\). Candidate capture unit:
 
 ```text
 recurrent reasoning
@@ -958,87 +1160,37 @@ recurrent reasoning
 → training forward/backward region where safe
 ```
 
-Measure:
-
-- launches/action,
-- CPU launch time,
-- latency/action,
-- throughput,
-- graph memory overhead.
+Measure: launches/action, CPU launch time, latency/action, throughput, graph memory overhead.
 
 ## CUDA-3 — Persistent rollout buffers
 
-Preallocate on device:
-
-- observations,
-- \(S\),
-- \(H\),
-- actions,
-- rewards,
-- dones,
-- trajectory metadata.
-
-Avoid allocation inside the hot loop.
+Preallocate on device: observations, \(S\), \(H\), actions, rewards, dones, trajectory metadata. Avoid allocation inside the hot loop.
 
 ## CUDA-4 — Separate inference and training benchmarks
 
-Report separately:
-
-- batch-1 action latency,
-- batch 8/16,
-- rollout-training batch,
-- large vectorized environment batch.
-
-A training optimization is not automatically an inference optimization.
+Report separately: batch-1 action latency, batch 8/16, rollout-training batch, large vectorized environment batch. A training optimization is not automatically an inference optimization.
 
 ---
 
-# 14. Apple MPS-Specific Plan
+# 22. Apple MPS-Specific Plan
 
-MPS requires a different strategy from CUDA.
-
-The MPS backend maps PyTorch operations onto Metal Performance Shaders / MPS Graph and tuned Metal kernels. The first priority is therefore to give MPS **large, stable, device-resident work** rather than repeatedly moving tiny tensors from CPU.
+MPS requires a different strategy from CUDA. The MPS backend maps PyTorch operations onto Metal Performance Shaders / MPS Graph and tuned Metal kernels. The first priority is therefore to give MPS **large, stable, device-resident work** rather than repeatedly moving tiny tensors from CPU.
 
 ## MPS-1 — Device-side or chunked environment transitions
 
-Highest priority.
-
-Test:
-
-1. tensorized transitions directly on MPS,
-2. versus large pre-generated chunks transferred infrequently.
+Highest priority. Test tensorized transitions directly on MPS versus large pre-generated chunks transferred infrequently.
 
 ## MPS-2 — Larger vectorized world batches
 
-Increase world count until:
-
-- GPU utilization rises,
-- per-world throughput stops improving,
-- memory becomes limiting.
-
-Report:
-
-- total env steps/sec,
-- env steps/sec/world,
-- action latency,
-- model steps/sec.
+Increase world count until GPU utilization rises, per-world throughput stops improving, or memory becomes limiting. Report total env steps/sec, env steps/sec/world, action latency, model steps/sec.
 
 ## MPS-3 — Profile before custom kernels
 
-Use MPS profiling to identify:
-
-- recurrent-cell hotspots,
-- launch fragmentation,
-- host/device synchronization,
-- allocator overhead.
-
-Only then consider custom Metal-backed PyTorch operations.
+Use MPS profiling to identify recurrent-cell hotspots, launch fragmentation, host/device synchronization, allocator overhead. Only then consider custom Metal-backed PyTorch operations.
 
 ## MPS-4 — Custom fused recurrent op only if justified
 
-Apple supports custom PyTorch operations backed by Metal kernels.
-
-If profiling shows standard MPS Graph execution still fragments a stable recurrent sequence into too many tiny launches, prototype one fused operation covering a narrow hot region such as:
+Apple supports custom PyTorch operations backed by Metal kernels. If profiling shows standard MPS Graph execution still fragments a stable recurrent sequence into too many tiny launches, prototype one fused operation covering a narrow hot region such as:
 
 ```text
 packed Q
@@ -1048,38 +1200,17 @@ packed Q
 → gate/residual pieces
 ```
 
-Promotion requires:
-
-- numerical equivalence,
-- backward correctness,
-- >15% repeated-step speed improvement,
-- manageable implementation complexity.
-
-Do not prematurely rewrite the whole model in Metal.
+Promotion requires numerical equivalence, backward correctness, >15% repeated-step speed improvement, manageable implementation complexity. Do not prematurely rewrite the whole model in Metal.
 
 ## MPS-5 — Synchronization discipline
 
-Use `torch.mps.synchronize()` around timing boundaries.
-
-Avoid synchronization inside the hot loop unless correctness requires it.
+Use `torch.mps.synchronize()` around timing boundaries. Avoid synchronization inside the hot loop unless correctness requires it.
 
 ---
 
-# 15. Train-Time Pipeline Redesign
+# 23. Train-Time Pipeline Redesign
 
-Interactive learning introduces rollout generation, which may become more expensive than gradient updates.
-
-Separate:
-
-\[
-\text{rollout generation}
-\]
-
-from:
-
-\[
-\text{gradient training}
-\]
+Interactive learning introduces rollout generation, which may become more expensive than gradient updates. Separate rollout generation from gradient training.
 
 ## Phase A — synchronous reference
 
@@ -1087,23 +1218,15 @@ Start with one correct, reproducible process.
 
 ## Phase B — batched rollout/training
 
-Once correct:
-
-- collect many vectorized trajectories,
-- stack into training batches,
-- perform several optimizer updates per rollout window.
-
-Measure accelerator idle time.
+Once correct: collect many vectorized trajectories, stack into training batches, perform several optimizer updates per rollout window. Measure accelerator idle time.
 
 ## Phase C — asynchronous only later
 
-Only after the reference system works should rollout workers and trainer be decoupled.
-
-Do not introduce distributed/off-policy complexity before the single-node signal is established.
+Only after the reference system works should rollout workers and trainer be decoupled. Do not introduce distributed/off-policy complexity before the single-node signal is established.
 
 ---
 
-# 16. Inference-Time Speed Target
+# 24. Inference-Time Speed Target
 
 Interactive inference is measured in **time per action**, not tokens/sec.
 
@@ -1111,28 +1234,11 @@ Interactive inference is measured in **time per action**, not tokens/sec.
 T_{\text{action}}=T_{\text{observe}}+T_S+T_{H,R}+T_{\text{policy}}
 \]
 
-Measure each component.
-
-Report:
-
-- batch-1 latency,
-- p50/p95,
-- latency vs \(R\),
-- realized \(R\) under early exit,
-- successful actions/sec,
-- memory footprint.
-
-Target:
-
-\[
-\boxed{\text{maximum verified task success per unit latency}}
-\]
-
-not minimum latency at any cost.
+Measure each component. Report batch-1 latency, p50/p95, latency vs \(R\), realized \(R\) under early exit, successful actions/sec, memory footprint. Target: \(\boxed{\text{maximum verified task success per unit latency}}\), not minimum latency at any cost.
 
 ---
 
-# 17. Speed Experiment Order
+# 25. Speed Experiment Order
 
 Do not combine all optimizations at once.
 
@@ -1147,57 +1253,33 @@ Do not combine all optimizations at once.
 9. MPS: profile; custom Metal fusion only if justified.
 10. Adaptive early exit only after useful depth exists.
 
-Each step gets an ablation table.
-
-No cumulative speed claim without individual measurements.
+Each step gets an ablation table. No cumulative speed claim without individual measurements.
 
 ---
 
-# 18. Cross-Platform Benchmark Contract
+# 26. Cross-Platform Benchmark Contract
 
 Every performance result must report:
 
 ## Hardware
 
-- device,
-- exact GPU/Apple chip,
-- PyTorch version,
-- dtype.
+Device, exact GPU/Apple chip, PyTorch version, dtype.
 
 ## Workload
 
-- environment batch,
-- observation shape,
-- \(M_H\),
-- \(D\),
-- value_dim,
-- \(R\),
-- horizon,
-- library size if applicable.
+Environment batch, observation shape, \(M_H\), \(D\), value_dim, \(R\), horizon, library size if applicable, vocabulary/curriculum stage if applicable.
 
 ## Training
 
-- environment transition time,
-- forward,
-- backward,
-- optimizer,
-- total step,
-- env steps/sec,
-- trajectories/sec.
+Environment transition time, forward, backward, optimizer, total step, env steps/sec, trajectories/sec.
 
 ## Inference
 
-- batch-1 action latency,
-- batch-N latency,
-- p50/p95,
-- success/task,
-- actions/task.
+Batch-1 action latency, batch-N latency, p50/p95, success/task, actions/task.
 
 ## Memory
 
-- peak device memory,
-- params,
-- rollout-buffer memory.
+Peak device memory, params, rollout-buffer memory.
 
 ## Correctness
 
@@ -1205,105 +1287,75 @@ Every semantics-preserving optimized path must pass numerical/behavioral equival
 
 ---
 
-# 19. First Critical Experiments
+# 27. Experiments
 
-## EXP-HW-0 — Is the benchmark learnable?
+## 27.1 Language Nursery experiments (run first)
 
-Train a simple reference agent and oracle-backed baseline.
+### Experiment 1 — Language Nursery 0
 
-If nobody learns, fix the environment before blaming HZ.
+Teach 20-50 object nouns, 10 colors/properties, 10 verbs, spatial relations, numbers 1-10, via procedural synthetic examples (L0-L1).
 
-## EXP-HW-1 — Can HZ learn basic world operation?
+### Experiment 2 — Grounding
 
-Current best HZ only.
+Commands such as "touch the red ball", "pick up the object left of the box." Test held-out combinations (L1/L3) — the real compositional-generalization check.
 
-Promotion:
+### Experiment 3 — Novel vocabulary via \(S\)
 
-- well above random,
-- improving with training,
-- held-out procedural-world generalization.
+Generate synthetic new words (e.g. "`dax` means blue triangle"). Teach once. Test delayed use without a gradient update. **This is a critical, HZ-specific experiment** — see section 6.
 
-Initial failure triggers rescue ladder, not branch death.
+### Experiment 4 — Simple reading
 
-## EXP-HW-2 — Does persistent \(S\) matter?
+Teach short facts (L6). Test recall and application.
 
-Compare:
+### Experiment 5 — School-0
 
-- normal \(S\),
-- reset \(S\),
-- zeroed \(S\),
-- optionally shuffled memory.
+Arithmetic + simple logic + causal rules (section 8.2's Mathematics/Logic domains, minimal version).
 
-Success:
+### Experiment 6 — Tiny Lab
 
-\[
-\boxed{\text{real performance loss when persistent memory is destroyed}}
-\]
+Use one symbolic causal system (section 9).
 
-on tasks designed to require past experience.
+### Experiment 7 — Depth test
 
-## EXP-HW-3 — Does horizon create useful \(R\)?
+Increase reasoning difficulty and sweep \(R=1,2,4,8,16\) — same protocol as W4/EXP-HW-3, now run on language/knowledge tasks instead of only room navigation.
 
-Sweep:
+### Experiment 8 — RLVR
 
-\[
-R=1,2,4,8,16
-\]
+Only after language + basic competence exist (section 5's own explicit ordering rule).
 
-for each horizon bucket.
+## 27.2 Interaction/systems experiments (HZ-World-0, infrastructure validation)
 
-Primary target:
+### EXP-HW-0 — Is the benchmark learnable?
 
-\[
-\boxed{R^*_{\text{long}}>R^*_{\text{short}}}
-\]
+Train a simple reference agent and oracle-backed baseline. If nobody learns, fix the environment before blaming HZ.
 
-with reproducible task-success gains beyond noise.
+### EXP-HW-1 — Can HZ learn basic world operation?
 
-## EXP-HW-4 — Interaction vs static supervision
+Current best HZ only. Promotion: well above random, improving with training, held-out procedural-world generalization. Initial failure triggers the rescue ladder (section 1.2), not branch death. **Real status**: already PASSED, section 22 Phase 1-3 — this validates infrastructure, not language or knowledge.
 
-Create matched information in two forms.
+### EXP-HW-2 — Does persistent \(S\) matter?
 
-### Static
+Compare normal \(S\), reset \(S\), zeroed \(S\), optionally shuffled memory. Success: \(\boxed{\text{real performance loss when persistent memory is destroyed}}\) on tasks designed to require past experience.
 
-All relevant transitions/facts supplied as input.
+### EXP-HW-3 — Does horizon create useful \(R\)?
 
-### Interactive
+Sweep \(R=1,2,4,8,16\) for each horizon bucket. Primary target: \(\boxed{R^*_{\text{long}}>R^*_{\text{short}}}\) with reproducible task-success gains beyond noise.
 
-Agent must act, observe consequences, and update \(S\).
+### EXP-HW-4 — Interaction vs static supervision
 
-Compare:
+Create matched information in two forms — static (all relevant transitions/facts supplied as input) vs interactive (agent must act, observe consequences, and update \(S\)). Compare task success, sample efficiency, adaptation to changed rules, compute. This directly tests Hatchling World's central hypothesis.
 
-- task success,
-- sample efficiency,
-- adaptation to changed rules,
-- compute.
+### EXP-HW-5 — RLVR after imitation
 
-This directly tests Hatchling World's central hypothesis.
+Only after EXP-HW-1 works. Test whether verified-reward exploration improves held-out success, recovery after mistakes, long-horizon planning.
 
-## EXP-HW-5 — RLVR after imitation
+### EXP-HW-6 — Systems pass
 
-Only after EXP-HW-1 works.
-
-Test whether verified-reward exploration improves:
-
-- held-out success,
-- recovery after mistakes,
-- long-horizon planning.
-
-## EXP-HW-6 — Systems pass
-
-Repeat the same workload on:
-
-- CPU,
-- MPS,
-- CUDA,
-
-then apply the speed ladder in order.
+Repeat the same workload on CPU, MPS, CUDA, then apply the speed ladder (section 25) in order.
 
 ---
 
-# 20. Early Success Does Not Require Immediately Beating Every Transformer
+# 28. Early Success Does Not Require Immediately Beating Every Transformer
 
 Hatchling World survives early phases if it produces any reproducible, distinctive useful signal such as:
 
@@ -1311,9 +1363,10 @@ Hatchling World survives early phases if it produces any reproducible, distincti
 2. HZ generalizes better to changed hidden rules.
 3. Harder tasks benefit from larger \(R\).
 4. HZ learns from failed actions within an episode.
-5. HZ needs fewer interactions to adapt to a new world.
+5. HZ needs fewer interactions/examples to adapt to a new world or a new word.
 6. HZ reaches a better quality/memory Pareto point.
 7. HZ matches success with lower inference compute.
+8. HZ acquires a novel word or fact in one shot and uses it correctly later (section 6).
 
 Long-term promotion still requires:
 
@@ -1325,25 +1378,29 @@ not merely interesting behavior.
 
 ---
 
-# 21. What Finally Counts as Failure?
+# 29. What Finally Counts as Failure?
 
-Do **not** kill Hatchling World after one disappointing number.
-
-Park/kill only after:
-
-- environment validity is proven,
-- baseline learnability is proven,
-- reward/curriculum bugs are ruled out,
-- one bounded optimization rescue is completed,
-- at least three task families are tested,
-- persistent-memory and depth-specific tasks are included,
-- and HZ still shows no useful advantage or distinctive useful behavior.
+Do **not** kill Hatchling World after one disappointing number. Park/kill only after: environment validity is proven, baseline learnability is proven, reward/curriculum bugs are ruled out, one bounded optimization rescue is completed, at least three task families are tested, persistent-memory and depth-specific tasks are included, and HZ still shows no useful advantage or distinctive useful behavior. This applies identically to a Language Nursery stage as to a navigation task.
 
 ---
 
-# 22. Immediate Implementation Checklist
+# 30. Immediate Implementation Checklist
 
-## Phase 1 — environment
+## Phase 0 — Language Nursery (real gap, not yet started)
+
+**Honest retrospective note**: Phases 1-3 below were built and landed BEFORE this amendment recognized that Language Nursery should have come first. That work is not wasted — it is exactly the infrastructure-validation role section 7 now assigns it — but no language or vocabulary work exists yet. This is the real next phase.
+
+- [ ] Fixed tokenizer / byte-subword pipeline.
+- [ ] L0 procedural synthetic text generator + LM loss.
+- [ ] L1 grounded-noun world state + behavioral grounding test.
+- [ ] L2 verb-through-consequence task set.
+- [ ] L3 relation/composition procedural generator + held-out combination test.
+- [ ] L4 numbers/logic-word task set.
+- [ ] L5 teacher/student QA loop.
+- [ ] L6 simple-reading task set.
+- [ ] Combined multi-signal loss (\(L_{\text{LM}}+L_{\text{ground}}+L_{\text{action}}+L_{\text{world}}+L_{\text{QA}}\)).
+
+## Phase 1 — environment (HZ-World-0, infrastructure validation)
 
 - [x] Create `hatchling_world/`. (commit a20bc30, 2026-09-04)
 - [x] Fixed-shape world schema. (`state.py`: batched WorldState/WorldConfig)
@@ -1357,13 +1414,11 @@ Park/kill only after:
 - [x] Unit tests for transitions and solvability. (16 tests, 4 files, incl. a
       real 400/400 solvability stress sweep and oracle-plan-replay-through-
       the-real-env checks)
-- [x] Real-time live viewer, added on top of the plan's own checklist per
-      explicit request: `scripts/hz_world_live_view.py` (local HTTP server,
-      stdlib only, SVG room-graph render) + `scripts/hz_world_rollout_demo.py`
-      (feeds it -- oracle-driven today, verified live end to end). Phase 2's
-      real HZ policy will plug into the identical snapshot schema.
+- [x] Real-time live viewer: `scripts/hz_world_live_view.py` (local HTTP server,
+      stdlib only, SVG room-graph render, redesigned for legibility 2026-09-04)
+      + `scripts/hz_world_rollout_demo.py` (oracle-driven demo feed).
 
-## Phase 2 — HZ adapter
+## Phase 2 — HZ adapter (infrastructure validation)
 
 - [x] Original LN recurrence only. (`reference/hz_world_agent_torch.py`'s
       `HZWorldAgent` uses `HZCQReasoningWorkspaceConfig` with
@@ -1373,13 +1428,13 @@ Park/kill only after:
 - [x] D/2 value/write. (`value_dim = d_model // 2`, verified by test)
 - [x] Exact Q/K. (unchanged from the validated `HZCQReasoningWorkspace`)
 - [x] Persistent \(S\) update after action consequences.
-      (`update_memory()`, real section-3.3 \(S_{t+1}=U_\theta(S_t,o_t,a_t,r_t,o_{t+1})\))
+      (`update_memory()`, real section-4.3 \(S_{t+1}=U_\theta(S_t,o_t,a_t,r_t,o_{t+1})\))
 - [x] Fixed action head. (`rq/rk/rv` cross-attention readout + `action_head`
       Linear, same pattern as the FSM harness's readout)
 - [x] No new recurrence experiments. (zero architecture changes to
       `HZCQPersistentMemory`/`HZCQReasoningWorkspace`, only new glue code)
 
-## Phase 3 — behavior cloning
+## Phase 3 — behavior cloning (infrastructure validation)
 
 - [x] Oracle trajectories. (`hatchling_world.oracle.solve`, real BFS plans)
 - [ ] World-prediction auxiliary target. (not implemented -- BC alone
@@ -1398,18 +1453,12 @@ whole episode. Per-step action accuracy (train split): ~42% at episode
 50 -> ~56% at episode 200 -> ~88-93% by episode 3000. Real, self-driven
 held-out (`split="test"`) evaluation episodes -- the agent's OWN
 argmax actions, no oracle forcing -- reach a 90% success rate over the
-last 10 live evals by the end of training (seed 1: 9/10 successes,
-climbing from the first eval already at 100% on this easy level to a
-stable ~90% band). This is the first real evidence that Hatchling
-World's actual pipeline (environment -> HZWorldAgent -> live viewer)
-produces genuine, watchable learning, not just a working demo of the
-oracle.
-
-Real, disclosed limitation: this result is on S0 (the easiest level,
-horizon 1-2 actions) only, with `--eval-step-delay 0` for the speed of
-this initial check -- the real EXP-HW-1/EXP-HW-3 questions (does this
-generalize to S1-S5, does horizon create useful \(R\)) are still open,
-not yet run at scale, and are the natural next real experiments.
+last 10 live evals by the end of training. **Real, important caveat
+this amendment adds**: this result is real evidence the infrastructure
+(environment -> HZWorldAgent -> live viewer -> BC training) works end
+to end. It is a navigation-competence result, not a language or
+knowledge result — Phase 0 above is what actually tests this
+document's real thesis.
 
 ## Phase 4 — memory
 
@@ -1443,16 +1492,34 @@ not yet run at scale, and are the natural next real experiments.
 - [ ] Group-relative trajectory optimization.
 - [ ] Replay/off-policy later.
 
-## Phase 8 — Library
+## Phase 8 — Library (after Phase 0)
 
 - [ ] `READ(query)` action.
 - [ ] Retrieval cost.
 - [ ] Bounded fact response.
 - [ ] Long-delay memory evaluation.
 
+## Phase 9 — School subjects (after Phase 0)
+
+- [ ] Mathematics/Logic task generator.
+- [ ] Computer Science (code reading/debugging/unit tests) task generator.
+- [ ] Physics/Biology/Chemistry task generators (progressive, one at a time).
+
+## Phase 10 — Labs
+
+- [ ] Physics Lab.
+- [ ] Biology Lab.
+- [ ] Chemistry Lab.
+- [ ] Programming Lab.
+
+## Phase 11 — Projects / Autonomous Learning
+
+- [ ] Long-horizon project tasks combining language + knowledge + interaction.
+- [ ] Autonomous-learning endgame benchmark (section 15).
+
 ---
 
-# 23. Suggested Repository Structure
+# 31. Suggested Repository Structure
 
 ```text
 hatchling_world/
@@ -1466,6 +1533,17 @@ hatchling_world/
     vector_env.py
     curriculum.py
     library.py
+    language/
+        __init__.py
+        tokenizer.py
+        nursery_generator.py      # L0-L6 procedural example generation
+        vocabulary_bench.py       # one-shot novel-word acquisition via S
+    labs/
+        __init__.py
+        physics_lab.py
+        biology_lab.py
+        chemistry_lab.py
+        programming_lab.py
 
 reference/
     hz_world_agent_torch.py
@@ -1478,40 +1556,54 @@ scripts/
     hz_world_rlvr.py
     hz_world_grpo.py
     hz_world_speed_benchmark.py
+    hz_world_live_view.py
+    hz_world_rollout_demo.py
+    hz_nursery_train.py           # L0-L6 training loop
+    hz_nursery_vocab_oneshot.py   # Experiment 3, the critical S-specific test
 
 tests/
     test_hz_world_transition.py
     test_hz_world_oracle.py
     test_hz_world_vector_env.py
-    test_hz_world_memory.py
+    test_hz_world_curriculum.py
     test_hz_world_agent.py
+    test_hz_nursery_grounding.py
+    test_hz_nursery_vocab_oneshot.py
 
 results/
     hatchling_world/
+    hatchling_nursery/
 ```
 
 ---
 
-# 24. Commit Discipline
+# 32. Commit Discipline
 
 Suggested sequence:
 
-1. `Add deterministic vectorized Hatchling World environment`
-2. `Add oracle solver and verifiable rewards`
-3. `Connect HZ persistent memory and policy to Hatchling World`
-4. `Establish behavior-cloning and held-out-world baseline`
-5. `Measure persistent-memory ablations in Hatchling World`
-6. `Measure horizon-by-recurrent-depth scaling`
-7. `Vectorize Hatchling World for MPS and CUDA`
-8. `Reduce Hatchling World dispatch and evidence-refresh cost`
-9. `Add verifiable-reward post-training`
-10. `Add paid Library retrieval curriculum`
+1. `Add deterministic vectorized Hatchling World environment` (real, done, a20bc30)
+2. `Add oracle solver and verifiable rewards` (real, done, part of a20bc30)
+3. `Connect HZ persistent memory and policy to Hatchling World` (real, done, 5d4fbe6)
+4. `Establish behavior-cloning and held-out-world baseline` (real, done, part of 5d4fbe6)
+5. `Add Language Nursery L0-L1 (tokenizer, grounded nouns/properties)`
+6. `Add Language Nursery L2-L3 (verbs through consequences, relations/composition)`
+7. `Add Language Nursery L4-L6 (numbers/logic, QA, simple reading)`
+8. `Add one-shot vocabulary acquisition via S benchmark`
+9. `Measure persistent-memory ablations in Hatchling World`
+10. `Measure horizon-by-recurrent-depth scaling`
+11. `Vectorize Hatchling World for MPS and CUDA`
+12. `Reduce Hatchling World dispatch and evidence-refresh cost`
+13. `Add School subject-matter task generators`
+14. `Add symbolic Labs (physics/biology/chemistry/programming)`
+15. `Add paid Library retrieval curriculum`
+16. `Add verifiable-reward post-training`
+17. `Add long-horizon Projects and the autonomous-learning endgame benchmark`
 
-Do not bundle environment design, RL, recurrence redesign, and systems optimization into one commit.
+Do not bundle environment design, language curriculum, RL, recurrence redesign, and systems optimization into one commit.
 
 ---
 
-# 25. External Systems Notes
+# 33. External Systems Notes
 
 Current platform documentation supports the following systems directions:
 
@@ -1530,58 +1622,98 @@ References:
 
 ---
 
-# 26. Final Thesis
+# 34. Final Thesis
 
 Hatchling World tests a different explanation for HZ's repeated flat-\(R\) results:
 
 > Maybe the state machinery is not fundamentally incapable of useful recurrent reasoning. Maybe the static tasks used so far reward one-shot function approximation strongly enough that extra latent computation has little reason to become useful.
 
-Hatchling World creates a setting where:
+But that explanation only becomes testable once the model can understand what it is being asked — which is why this amendment inserts a real Language Nursery before School, Library, or Labs are asked to do anything. Hatchling World is not an escape-room benchmark. It is a progressive education system for a small persistent/recurrent model:
 
-- information arrives over time,
-- actions have consequences,
-- mistakes reveal information,
-- persistent memory can matter,
-- retrieval has a cost,
-- future observations depend on previous decisions,
-- and long-horizon success is objectively verifiable.
+```text
+LANGUAGE NURSERY
+       |
+words gain meaning
+       |
+BOOKS / TEACHER
+       |
+knowledge
+       |
+SCHOOL
+       |
+questions + reasoning
+       |
+LABS
+       |
+experiment + consequences
+       |
+persistent learning in S
+       |
+LIBRARY / TOOLS
+       |
+new information
+       |
+PROJECTS
+       |
+verified success / failure
+       |
+REPLAY / CONSOLIDATION
+       |
+theta improves
+       |
+harder curriculum
+```
 
-The branch answers two independent questions:
+Architectural interpretation, restated once more since it governs every section above:
 
 \[
-\boxed{\textbf{Q1: Does interaction make HZ's stateful architecture more useful?}}
+\boxed{
+\theta = \text{long-term learned knowledge}
+}
 \]
 
-and
+\[
+\boxed{
+S = \text{knowledge learned during the current lifetime}
+}
+\]
+
+\[
+\boxed{
+H = \text{current reasoning}
+}
+\]
+
+Hatchling World creates a setting where information arrives over time, actions have consequences, mistakes reveal information, persistent memory can matter, retrieval has a cost, future observations depend on previous decisions, and long-horizon success is objectively verifiable — now layered on top of a real, staged path from "words are token IDs" to "the model can use language to learn."
+
+The branch answers three independent questions:
+
+\[
+\boxed{\textbf{Q1: Does interaction make HZ's stateful architecture more useful than static one-shot supervision?}}
+\]
 
 \[
 \boxed{\textbf{Q2: Can that interaction loop be made accelerator-efficient enough to matter?}}
 \]
 
-Q1 is measured by:
+\[
+\boxed{\textbf{Q3: Can HZ progressively acquire language, knowledge, and reasoning through a staged curriculum, with real evidence for each stage before the next begins?}}
+\]
 
-- task success,
-- within-lifetime learning,
-- memory ablations,
-- horizon-vs-\(R\) scaling,
-- verified-reward improvement.
+Q1 is measured by: task success, within-lifetime learning, memory ablations, horizon-vs-\(R\) scaling, verified-reward improvement (section 18). Q2 is measured by: vectorized worlds, device-resident rollout state, reduced dispatch, fewer evidence refreshes, CUDA Graph replay, MPS-specific profiling/fusion, real wall-clock benchmarks (sections 19-26). Q3 is measured by the Language/Knowledge Scoreboard (section 18) applied stage by stage, with the rescue ladders (section 1) governing every failure before anything is killed or parked.
 
-Q2 is measured by:
-
-- vectorized worlds,
-- device-resident rollout state,
-- reduced dispatch,
-- fewer evidence refreshes,
-- CUDA Graph replay,
-- MPS-specific profiling/fusion,
-- real wall-clock benchmarks.
-
-Do not claim success until both axes are measured.
-
-But equally:
+Do not claim success until all three axes are measured. But equally:
 
 \[
 \boxed{\textbf{one weak initial experiment is a diagnostic, not the end of Hatchling World.}}
+\]
+
+The ultimate research question remains:
+
+\[
+\boxed{
+\textbf{Can HatchlingZero progressively learn language, knowledge, reasoning, experimentation, and self-directed learning while remaining smaller and more compute-efficient than conventional approaches?}
+}
 \]
 
 The branch earns multiple controlled, falsifiable attempts before it is killed.
