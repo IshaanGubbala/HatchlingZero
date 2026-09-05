@@ -23,24 +23,13 @@ import torch
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from hatchling_world.actions import decode_action
 from hatchling_world.curriculum import SCHOOL_LEVELS, generate_school_worlds
 from hatchling_world.oracle import solve
 from hatchling_world.state import WorldConfig, WorldState
 from hatchling_world.transition import step as env_step
 
 HISTORY_LEN = 60
-
-
-def decode_action(a: int, config: WorldConfig) -> dict:
-    if a < config.n_rooms:
-        return {"type": "move", "text": f"MOVE to room {a}", "target_room": a, "color": None}
-    if a < config.n_rooms + config.n_colors * config.n_rooms:
-        color, target = config.decode_use_key(a)
-        return {"type": "use_key", "text": f"USE key {chr(65 + color)} on door -> room {target}",
-                "target_room": target, "color": color}
-    if a == config.action_pickup:
-        return {"type": "pickup", "text": "PICK UP keys in this room", "target_room": None, "color": None}
-    return {"type": "inspect", "text": "INSPECT surroundings", "target_room": None, "color": None}
 
 
 def snapshot(state: WorldState, config: WorldConfig, episode: int, step_idx: int, plan_len: int,
