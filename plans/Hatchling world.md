@@ -2155,6 +2155,53 @@ can genuinely vary by slot; and whether the improvement holds or grows
 with more training steps (2500 steps may not be enough for a change
 this structural to fully play out).
 
+**Real result, 2026-09-05 — combining fixes, and a real (if modest)
+new best.** Explicit user request ("yes combine"). `scripts/
+hz_nursery_l5_combined_fix.py`, 4 conditions all built on top of the
+now-working whole-sentence ingestion: alone (control), + an attention-
+diversity loss (mean squared pairwise cosine similarity across
+per-slot attention distributions, pushed toward 0 — abandoned earlier
+as mathematically dead under token-by-token ingestion, now meaningful
+since `T_demo>1`), + top-1 routing on the gate logit, + top-2 routing.
+
+| condition | held-out acc | participation ratio | probe (facts 1/2/3) |
+|---|---|---|---|
+| whole_sentence (control) | 0.333 | 1.235 | 0.32 / 0.34 / 0.375 |
+| **+ attention-diversity** | **0.345** | **2.542** | **0.345 / 0.35 / 0.34** |
+| + top-1 routing | 0.320 | 7.388 | 0.225 / 0.355 / 0.255 |
+| + top-2 routing | 0.323 | 6.617 | 0.335 / 0.34 / 0.275 |
+
+**Attention-diversity is the best result in this entire diagnostic
+thread**: highest held-out accuracy, the most BALANCED fact-probe
+result across all three facts (0.345/0.35/0.34, unlike every other
+condition's uneven per-fact recovery), and participation ratio roughly
+doubled (1.24 -> 2.54) as a correlate of a real performance gain this
+time, not a dissociated side effect like the original S-diversity fix.
+Still modest — nowhere near the ~100% ceiling other single-turn tasks
+reach — but the most complete, mutually-reinforcing signal (accuracy,
+balance, and diversity all moving together) of any fix tried so far.
+
+**Routing does not help even with real per-slot signal now available
+— and top-1's total collapse is exposed as a DEEPER pathology than
+first thought.** Under the combined setup, top-1 STILL routes all 3
+facts to slot 0 in literally every one of 400 held-out episodes
+(`{0: 400}` for every fact), identical to its behavior under the
+degenerate token-by-token setup. This rules out the earlier
+explanation (that top-1 collapsed only because there was no real
+content signal to route on) — collapse persists even now that
+whole-sentence ingestion gives cross-attention real content to
+discriminate over. This is a robust rich-get-richer pathology of naive
+top-\(k\)/argmax competition itself (the same load-imbalance failure
+well documented in real mixture-of-experts literature), not a symptom
+specific to this project's earlier `T_demo=1` bug. Top-2 avoids total
+collapse but still shows no clean per-fact allocation (heavy slot
+overlap between facts, as before) and does not beat the simpler
+whole-sentence-alone baseline. **Real, disclosed next step, not yet
+tried**: an explicit load-balancing auxiliary loss (standard in MoE
+literature, e.g. penalizing uneven long-run slot-selection frequency)
+would be the natural way to make top-\(k\) routing usable at all,
+independent of whatever content signal is available.
+
 ## Phase 1 — environment (HZ-World-0, infrastructure validation)
 
 - [x] Create `hatchling_world/`. (commit a20bc30, 2026-09-04)
