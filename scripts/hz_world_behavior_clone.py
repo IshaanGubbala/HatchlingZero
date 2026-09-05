@@ -53,6 +53,7 @@ def snapshot(state: WorldState, config: WorldConfig, episode: int, step_idx: int
                 doors.append({"a": a, "b": b, "locked": bool(state.door_locked[0, a, b]),
                               "color": int(state.door_key_color[0, a, b].item())})
     return {
+        "kind": "room",
         "episode": episode, "step": step_idx, "plan_len": plan_len, "school_level": school_level,
         "n_rooms": R, "n_colors": config.n_colors,
         "agent_room": int(state.agent_room[0].item()), "prev_room": prev_room,

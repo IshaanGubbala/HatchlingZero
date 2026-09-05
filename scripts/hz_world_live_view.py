@@ -143,6 +143,51 @@ PAGE = r"""<!doctype html>
   @keyframes fadein { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: translateY(0); } }
 
   .badge { font-size: 10px; padding: 2px 8px; border-radius: 999px; background: rgba(47,227,198,0.12); color: var(--accent); border: 1px solid rgba(47,227,198,0.3); }
+
+  /* -- Language Nursery view -- */
+  .stage-track { display: flex; gap: 8px; margin-bottom: 4px; }
+  .stage-pip {
+    flex: 1; text-align: center; padding: 7px 4px; border-radius: 8px; font-size: 11px; font-weight: 700;
+    letter-spacing: .04em; background: rgba(255,255,255,0.02); border: 1px solid var(--border); color: var(--dim);
+  }
+  .stage-pip.done { color: var(--success); border-color: rgba(69,224,143,0.35); background: rgba(69,224,143,0.06); }
+  .stage-pip.active {
+    color: var(--bg); background: var(--accent); border-color: var(--accent);
+    box-shadow: 0 0 16px var(--accent-glow);
+  }
+  .instruction-banner {
+    font-size: 19px; font-weight: 700; color: var(--text); padding: 14px 16px; border-radius: 10px;
+    background: rgba(47,227,198,0.06); border: 1px solid rgba(47,227,198,0.22); margin: 14px 0 2px;
+    text-shadow: 0 0 14px var(--accent-glow);
+  }
+  .obj-grid { display: flex; flex-wrap: wrap; gap: 22px; padding: 20px 6px 8px; justify-content: flex-start; }
+  .nursery-obj { display: flex; flex-direction: column; align-items: center; gap: 6px; position: relative; }
+  .obj-shape { transition: box-shadow .25s, transform .25s; box-shadow: 0 6px 16px -6px rgba(0,0,0,0.6); }
+  .obj-shape.ring-target { box-shadow: 0 0 0 3px var(--amber), 0 0 18px rgba(255,184,77,0.55); }
+  .obj-shape.ring-pred { box-shadow: 0 0 0 3px var(--accent), 0 0 16px var(--accent-glow); outline: 3px dashed rgba(47,227,198,0.5); outline-offset: 3px; }
+  .obj-shape.ring-correct { box-shadow: 0 0 0 3px var(--success), 0 0 20px rgba(69,224,143,0.6); }
+  .obj-label { font-size: 10px; color: var(--dim); text-transform: uppercase; letter-spacing: .03em; text-align: center; max-width: 92px; }
+  .obj-tag {
+    font-size: 9px; font-weight: 800; letter-spacing: .06em; padding: 2px 7px; border-radius: 999px;
+  }
+  .tag-target { background: rgba(255,184,77,0.16); color: var(--amber); border: 1px solid rgba(255,184,77,0.4); }
+  .tag-pred { background: rgba(47,227,198,0.16); color: var(--accent); border: 1px solid rgba(47,227,198,0.4); }
+
+  .token-row { display: flex; flex-wrap: wrap; gap: 6px; padding: 16px 4px 4px; }
+  .token-chip {
+    font-size: 13px; padding: 4px 9px; border-radius: 6px; background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border);
+  }
+  .token-chip.ok { color: var(--success); border-color: rgba(69,224,143,0.35); }
+  .token-chip.bad { color: var(--danger); border-color: rgba(255,107,107,0.35); }
+
+  .consequence-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+  .cons-chip { padding: 6px 10px; border-radius: 8px; font-size: 11px; border: 1px solid var(--border); background: rgba(255,255,255,0.02); }
+  .cons-chip.match { border-color: rgba(69,224,143,0.4); color: var(--success); }
+  .cons-chip.mismatch { border-color: rgba(255,107,107,0.4); color: var(--danger); }
+
+  #nursery-chart { width: 100%; height: 90px; display: block; }
+  .nursery-legend { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; font-size: 11px; color: var(--dim); }
 </style></head>
 <body>
   <div class="topbar">
@@ -158,7 +203,7 @@ PAGE = r"""<!doctype html>
     </div>
   </div>
 
-  <div class="layout">
+  <div class="layout" id="room-view">
     <div>
       <div class="card">
         <div class="card-title">
@@ -199,6 +244,35 @@ PAGE = r"""<!doctype html>
       <div class="card">
         <div class="card-title">ACTION LOG</div>
         <div id="log"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="layout" id="nursery-view" style="display:none">
+    <div>
+      <div class="card">
+        <div class="card-title">
+          <span>LANGUAGE NURSERY</span>
+          <span class="badge" id="nursery-stage-badge">-</span>
+        </div>
+        <div class="stage-track" id="stage-track"></div>
+        <div class="instruction-banner" id="nursery-instruction">-</div>
+        <div class="obj-grid" id="nursery-objects"></div>
+        <div class="token-row" id="nursery-tokens"></div>
+        <div class="consequence-row" id="nursery-consequence"></div>
+      </div>
+    </div>
+
+    <div>
+      <div class="card">
+        <div class="card-title">PROGRESS <span class="badge" id="nursery-step-badge">-</span></div>
+        <div class="stat-grid" id="nursery-stats"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">HELD-OUT METRICS</div>
+        <svg id="nursery-chart" viewBox="0 0 300 90" preserveAspectRatio="none"></svg>
+        <div class="nursery-legend" id="nursery-chart-legend"></div>
       </div>
     </div>
   </div>
@@ -344,7 +418,140 @@ function drawChart(returns) {
   svg.appendChild(el('path', {d:path, fill:'none', stroke:'var(--accent)', 'stroke-width':2}));
 }
 
+const NURSERY_COLOR_HEX = { red: '#ff6b6b', blue: '#4d9dff', green: '#45e08f', yellow: '#ffd166' };
+const NURSERY_SHAPE_RADIUS = { ball: '50%', box: '8px', block: '8px', object: '8px' };
+const NURSERY_PALETTE = ['#2fe3c6', '#ffb84d', '#ff6b6b', '#c77dff', '#45e08f'];
+const NURSERY_STAGES = ['L0', 'L1', 'L2', 'L3'];
+
+function renderStageTrack(s) {
+  const track = document.getElementById('stage-track');
+  track.innerHTML = NURSERY_STAGES.map((name, i) => {
+    let cls = '';
+    if (i < s.stage_idx) cls = 'done';
+    else if (i === s.stage_idx) cls = 'active';
+    return `<div class="stage-pip ${cls}">${name}</div>`;
+  }).join('');
+}
+
+function renderNurseryObjects(s) {
+  const wrap = document.getElementById('nursery-objects');
+  wrap.innerHTML = '';
+  (s.objects || []).forEach((o, i) => {
+    const isTarget = i === s.target_idx;
+    const isPred = i === s.pred_idx;
+    let ringClass = '';
+    if (isTarget && isPred) ringClass = 'ring-correct';
+    else if (isTarget) ringClass = 'ring-target';
+    else if (isPred) ringClass = 'ring-pred';
+    const size = o.size === 'large' ? 74 : 46;
+    const rotate = o.type === 'object' ? 'transform:rotate(45deg);' : '';
+    const div = document.createElement('div');
+    div.className = 'nursery-obj';
+    let tags = '';
+    if (isTarget) tags += '<div class="obj-tag tag-target">TARGET</div>';
+    if (isPred) tags += `<div class="obj-tag tag-pred">${isTarget ? 'MODEL &#10003;' : 'MODEL'}</div>`;
+    const stateBits = [o.held ? 'held' : '', o.opened ? 'open' : ''].filter(Boolean).join(', ');
+    div.innerHTML =
+      `<div class="obj-shape ${ringClass}" style="width:${size}px;height:${size}px;background:${NURSERY_COLOR_HEX[o.color] || '#888'};border-radius:${NURSERY_SHAPE_RADIUS[o.type] || '8px'};${rotate}"></div>` +
+      `<div class="obj-label">${o.size} ${o.color} ${o.type}${stateBits ? ' &middot; ' + stateBits : ''}</div>` +
+      tags;
+    wrap.appendChild(div);
+  });
+}
+
+function renderNurseryTokens(s) {
+  const row = document.getElementById('nursery-tokens');
+  if (!s.tokens) { row.innerHTML = ''; return; }
+  row.innerHTML = s.tokens.map(t => `<span class="token-chip ${t.correct ? 'ok' : 'bad'}">${t.word}</span>`).join('');
+}
+
+function renderNurseryConsequence(s) {
+  const row = document.getElementById('nursery-consequence');
+  if (!s.consequence_true || !s.consequence_pred) { row.innerHTML = ''; return; }
+  const keys = [['position_right', 'position: right?'], ['held', 'held?'], ['opened', 'opened?']];
+  row.innerHTML = `<div class="cons-chip">verb: <b style="color:var(--text)">${s.verb}</b></div>` +
+    keys.map(([k, label]) => {
+      const match = s.consequence_true[k] === s.consequence_pred[k];
+      return `<div class="cons-chip ${match ? 'match' : 'mismatch'}">${label} true=${s.consequence_true[k]} pred=${s.consequence_pred[k]}</div>`;
+    }).join('');
+}
+
+function renderNurseryStats(s) {
+  const grid = document.getElementById('nursery-stats');
+  const cur = s.metrics.current || {};
+  const entries = Object.entries(cur);
+  grid.innerHTML = entries.map(([name, val]) => `
+    <div class="stat"><div class="stat-label">${name}</div><div class="stat-val accent">${(val*100).toFixed(1)}%</div></div>
+  `).join('') || '<div class="stat"><div class="stat-label">metrics</div><div class="stat-val">-</div></div>';
+}
+
+function drawNurseryChart(metrics) {
+  const svg = document.getElementById('nursery-chart');
+  svg.innerHTML = '';
+  const history = metrics.history || {};
+  const names = Object.keys(history).filter(k => (history[k] || []).length > 0);
+  const allVals = [];
+  names.forEach(k => allVals.push(...history[k]));
+  Object.values(metrics.chance || {}).forEach(v => allVals.push(v));
+  Object.values(metrics.baseline || {}).forEach(v => allVals.push(v));
+  if (!allVals.length) return;
+  const min = Math.min(...allVals, 0), max = Math.max(...allVals);
+  const range = (max - min) || 1;
+  const w = 300, h = 90;
+
+  const refs = [];
+  Object.values(metrics.chance || {}).forEach(v => refs.push({ v, color: '#707893', dash: '4,4' }));
+  Object.values(metrics.baseline || {}).forEach(v => refs.push({ v, color: '#ff6b6b', dash: '2,3' }));
+  refs.forEach(r => {
+    const y = h - ((r.v - min) / range) * h;
+    svg.appendChild(el('line', { x1: 0, y1: y, x2: w, y2: y, stroke: r.color, 'stroke-width': 1, 'stroke-dasharray': r.dash, opacity: 0.7 }));
+  });
+
+  names.forEach((name, idx) => {
+    const data = history[name];
+    const n = data.length;
+    const pts = data.map((v, i) => { const x = n === 1 ? w : (i / (n - 1)) * w; const y = h - ((v - min) / range) * h; return [x, y]; });
+    const path = 'M ' + pts.map(p => p.join(',')).join(' L ');
+    svg.appendChild(el('path', { d: path, fill: 'none', stroke: NURSERY_PALETTE[idx % NURSERY_PALETTE.length], 'stroke-width': 2 }));
+  });
+
+  const legend = document.getElementById('nursery-chart-legend');
+  let html = '';
+  names.forEach((name, idx) => {
+    const data = history[name];
+    const cur = data[data.length - 1];
+    html += `<div class="legend-item"><span class="swatch line" style="background:${NURSERY_PALETTE[idx % NURSERY_PALETTE.length]}"></span>${name}: <b style="color:var(--text)">${(cur*100).toFixed(1)}%</b></div>`;
+  });
+  Object.entries(metrics.chance || {}).forEach(([k, v]) => {
+    html += `<div class="legend-item" style="opacity:.65">chance: ${(v*100).toFixed(1)}%</div>`;
+  });
+  Object.entries(metrics.baseline || {}).forEach(([k, v]) => {
+    html += `<div class="legend-item" style="opacity:.85;color:var(--danger)">shortcut baseline: ${(v*100).toFixed(1)}%</div>`;
+  });
+  legend.innerHTML = html;
+}
+
+function renderNursery(s) {
+  lastFetchOk = Date.now();
+  document.getElementById('dot').className = 'dot on';
+  document.getElementById('live-text').textContent = 'live';
+  document.getElementById('room-view').style.display = 'none';
+  document.getElementById('nursery-view').style.display = 'grid';
+
+  document.getElementById('nursery-stage-badge').textContent = s.stage;
+  document.getElementById('nursery-step-badge').textContent = s.step + ' / ' + s.total_steps;
+  renderStageTrack(s);
+  document.getElementById('nursery-instruction').textContent = s.instruction || '-';
+  renderNurseryObjects(s);
+  renderNurseryTokens(s);
+  renderNurseryConsequence(s);
+  renderNurseryStats(s);
+  drawNurseryChart(s.metrics);
+}
+
 function render(s) {
+  document.getElementById('room-view').style.display = 'grid';
+  document.getElementById('nursery-view').style.display = 'none';
   lastFetchOk = Date.now();
   document.getElementById('dot').className = 'dot on';
   document.getElementById('live-text').textContent = 'live';
@@ -391,10 +598,14 @@ async function poll() {
     if (res.ok) {
       const s = await res.json();
       if (!s.error) {
-        const key = s.episode + ':' + s.step;
-        s._new_step = key !== lastKey;
-        lastKey = key;
-        render(s);
+        if (s.kind === 'nursery') {
+          renderNursery(s);
+        } else {
+          const key = s.episode + ':' + s.step;
+          s._new_step = key !== lastKey;
+          lastKey = key;
+          render(s);
+        }
       }
     }
   } catch (e) {}
