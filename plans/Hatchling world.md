@@ -2044,6 +2044,63 @@ its single most-relevant slot rather than a soft blend across all of
 them) or an auxiliary loss that specifically rewards low overwrite of
 slots still relevant to a later query, not merely orthogonal slots.
 
+**Real result, 2026-09-05 — second attempted fix (slot routing), also
+a clean negative result, but a more revealing one.** Explicit user
+proposal, implemented directly: replace the existing independent-
+per-slot sigmoid gate with a top-\(k\) softmax over the SAME gate
+logits (\(z_j=g_{\text{logit},j}\), no new parameters — the routing
+signal already existed, only the competition between slots was
+missing), forcing slots to compete for who stores new content instead
+of each deciding independently. `scripts/
+hz_nursery_l5_slot_routing_fix.py`, three conditions (baseline
+unmodified / top-1 / top-2), same `n_facts=3` config, instrumented with
+per-fact slot-choice logging and the same fact-decoding probe used in
+the storage-failure diagnostic.
+
+**Baseline reproduces the known result** (0.245, matching the earlier
+diagnostic almost exactly) with slot choices spread but undifferentiated
+by fact (fact 1: mostly slots {0,1,6}; fact 2: {0,1,3,6,7}; fact 3:
+similar spread — no fact consistently claims a distinct slot).
+
+**Top-1 shows a striking, total collapse**: all 3 facts, all 400 held-
+out episodes, route to slot 0 — every single time, no exceptions.
+Held-out accuracy 0.240, statistically identical to baseline (and if
+anything this is a MORE total overwrite than the soft baseline: one
+fact now fully overwrites another in a single winning slot rather than
+blending fractionally across 8). This is a real, disclosable failure
+mode of naive top-\(k\) competition on an unprepared logit: whichever
+slot has a marginally higher initial logit gets 100% of the gradient
+(since it is the only slot ever selected), a rich-get-richer dynamic
+that converges to a degenerate always-pick-the-same-slot solution
+regardless of content.
+
+**Top-2 avoids total collapse but does not achieve differentiated
+allocation**: slot choices spread across up to 8 slots, but with heavy
+OVERLAP between different facts (slot 6 dominant for both facts 1 and
+2; slot 3 dominant for both facts 2 and 3) rather than each fact
+claiming a distinct slot. Held-out accuracy 0.240 — still exactly
+chance, and the fact-decoding probe (0.22/0.35/0.24) shows no
+improvement over baseline (0.265/0.32/0.355) either.
+
+**Both attempted fixes now share the same signature: no combination of
+write-side interventions (diversity pressure on \(S\), or competition
+on the existing gate logit) moves held-out recall at all.** This
+points to a real, deeper, UPSTREAM cause than either fix targeted: both
+interventions operate on \(S_{\text{prev}}\) or on the gate logit
+derived from it, but the actual per-slot READ that produces
+\(\Delta S\) is driven by \(Q=q_{\text{proj}}(S_{\text{prev}})\)'s
+per-slot cross-attention over the incoming content — and if those
+per-slot QUERIES are themselves nearly identical (the same collapse
+Part 2 of the storage-failure diagnostic found in \(S\) itself), then
+every slot attends to and reads almost the SAME content regardless of
+which slot "wins" the gate's competition, meaning top-\(k\) routing was
+selecting among near-noise, not genuine per-slot content differences.
+**Real, not-yet-tried next candidate**: apply diversity pressure to
+\(Q\) (or to the per-slot attention distributions themselves) rather
+than to \(S\) directly — the earlier diversity-loss fix pushed \(S\)'s
+raw VALUES apart post-hoc but never touched what determines whether
+different slots actually READ different things in the first place.
+
 ## Phase 1 — environment (HZ-World-0, infrastructure validation)
 
 - [x] Create `hatchling_world/`. (commit a20bc30, 2026-09-04)
@@ -2136,15 +2193,34 @@ document's real thesis.
 
 ## Phase 6 — systems
 
-- [ ] CPU baseline.
-- [ ] MPS reference.
-- [ ] CUDA reference.
+- [x] CPU baseline. (Nursery-specific, see result below)
+- [x] MPS reference. (Nursery-specific, see result below)
+- [ ] CUDA reference. (no local CUDA on this Mac; needs RunPod/RTX3060 dispatch, not yet run for the Nursery codepath)
 - [ ] Remove per-step transfers.
 - [ ] Device/vectorized worlds.
 - [ ] SPEED-A.
 - [ ] K=2 evidence refresh.
 - [ ] CUDA Graph benchmark.
 - [ ] MPS profiler pass.
+
+**Real result, 2026-09-05 — CPU vs MPS on the Nursery's own training
+loop, extending an earlier finding rather than assuming it still
+holds.** This project already found, earlier this session, that MPS
+was slower than CPU for the FSM harness and room-navigation BC
+training (tiny, sequential, small-batch workloads where CPU-side
+Python data generation dominates and per-step host-to-device transfer
+overhead erases any GPU compute advantage) — but that result predates
+the entire Language Nursery pivot and was never re-checked against the
+Nursery's own per-token/per-episode training loops, which are a
+different codepath even though architecturally similar in scale.
+`scripts/hz_nursery_device_benchmark.py` runs 2000 REAL L1 grounding
+training steps (real forward/backward/optimizer-step, 50 warmup steps
+excluded from the timed region) on CPU and MPS. Result: **CPU 116.1
+steps/sec vs MPS 25.5 steps/sec — CPU is ~4.55x faster**, confirming
+the earlier finding carries over unchanged to this new codepath, not
+assumed. This governs where Nursery training should keep running
+(locally on CPU, matching every real run this session already did) --
+MPS offers no benefit at this scale and a real, measured cost.
 
 ## Phase 7 — RL
 
