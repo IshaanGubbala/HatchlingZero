@@ -4511,3 +4511,50 @@ the task's own information structure).
 
 Checkpoint and result JSON committed. Not launching PAPER-5 without
 explicit direction, given this pattern.
+
+---
+
+## Real pivot, 2026-09-04: Hatchling World -- Phase 1 environment + live viewer landed
+
+New plan doc dropped in: `plans/Hatchling world.md`, proposed HatchlingZero
+mainline branch. Direct response to the real pattern just found (PAPER-2
+through PAPER-4, four consecutive update-rule redesigns, all worse than
+the original LN baseline, worse as they got more novel): instead of
+continuing to redesign H's update rule on static one-shot tasks, test
+a different explanation -- that static supervision itself never rewards
+extra recurrent computation, and an interactive, consequence-based,
+persistent-memory-relevant world might.
+
+Real, concrete Phase 1 delivered today (commit a20bc30): a deterministic,
+procedurally-generated, fixed-shape, batched room-graph environment
+(colored keys/doors, re-randomized mapping every episode), a real BFS
+oracle (searches the exact transition semantics, used for both
+solvability verification and future behavior-cloning trajectories), a
+reward verifier, 5 School difficulty levels with a real train/test
+seed split, and 16 real tests (400/400 solvability stress sweep, oracle-
+plan-replay-through-the-real-env checks, invalid-action handling,
+determinism).
+
+Real bug found and fixed during testing: the first USE_KEY(color)
+design (no explicit target) was ambiguous whenever two locked doors
+adjacent to one room needed the same color -- the oracle's search model
+and the real transition function silently disagreed on which door
+actually got unlocked. Fixed by making the target room explicit in the
+action (USE_KEY(color, target_room)), same design language as MOVE.
+
+Also built, per explicit request ("so i can see the model learning in
+the world"): a real-time live viewer. scripts/hz_world_live_view.py is
+a small local HTTP server (stdlib only) serving an auto-polling page
+that renders the room graph as SVG (agent position, door lock states/
+colors, inventory) plus live stats. scripts/hz_world_rollout_demo.py
+drives the oracle through real episodes and writes a snapshot after
+every step -- verified live and working end to end (100% success
+across the first several episodes, watched in a real browser tab at
+localhost:8765). The real HZ policy (Phase 2) will plug into the
+identical snapshot schema with zero viewer changes needed.
+
+Next: Phase 2 (HZ adapter) -- wire the actual S+H architecture
+(original LN recurrence, M_H=32, D/2 value/write, exact Q/K -- per the
+plan's own "KEEP" list, explicitly no new recurrence experiments here)
+to read observations from this environment and act, so the live viewer
+can show the REAL model learning, not just the oracle.
