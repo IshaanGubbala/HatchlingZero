@@ -112,3 +112,51 @@ def generate_l2_verb_episode(rng: random.Random, n_objects: int = 4) -> dict:
         "opened_after": opened_after,
         "position_after": position_after,
     }
+
+
+# Stage L3: fixed size x color combination split. Deliberately a FIXED,
+# non-random split (not reseeded per call) so "train" and "test" mean
+# the same thing across every run -- the whole point is that these two
+# combos are NEVER the supervised target during training, so a good
+# held-out score is genuine compositional generalization to an unseen
+# (size, color) PAIR, not just a new episode of a pair already seen.
+ALL_SIZE_COLOR_COMBOS = [(s, c) for s in SIZES for c in COLORS]
+HELD_OUT_COMBOS = [("small", "yellow"), ("large", "green")]
+TRAIN_COMBOS = [combo for combo in ALL_SIZE_COLOR_COMBOS if combo not in HELD_OUT_COMBOS]
+
+
+def generate_l3_relation_episode(rng: random.Random, n_objects: int = 4, split: str = "train") -> dict:
+    """Stage L3: relations/composition. Neither color nor size alone
+    identifies the target -- both individually collide with a decoy on
+    purpose -- so "touch the {size} {color} object" is only solvable by
+    COMBINING two words, real compositional reference instead of L1's
+    single distinguishing property. `split="test"` forces the target's
+    (size, color) pair to be one never used as a target during
+    `split="train"` generation -- a real held-out COMBINATION test
+    (each property individually is seen constantly; the pairing is
+    not), not just a held-out episode of a familiar pairing."""
+    if n_objects < 3:
+        raise ValueError("generate_l3_relation_episode needs at least 3 objects "
+                          "(target + one same-color decoy + one same-size decoy)")
+    combo_pool = TRAIN_COMBOS if split == "train" else HELD_OUT_COMBOS
+    target_size, target_color = rng.choice(combo_pool)
+
+    decoys = [
+        {"size": rng.choice([s for s in SIZES if s != target_size]), "color": target_color},
+        {"size": target_size, "color": rng.choice([c for c in COLORS if c != target_color])},
+    ]
+    while len(decoys) < n_objects - 1:
+        size, color = rng.choice(TRAIN_COMBOS)
+        if (size, color) != (target_size, target_color):
+            decoys.append({"size": size, "color": color})
+
+    objects = [{"type": rng.choice(NOUNS), "size": d["size"], "color": d["color"],
+                "position": rng.choice(POSITIONS)} for d in decoys]
+    objects.append({"type": rng.choice(NOUNS), "size": target_size, "color": target_color,
+                     "position": rng.choice(POSITIONS)})
+    rng.shuffle(objects)
+    target_idx = next(i for i, o in enumerate(objects)
+                       if o["size"] == target_size and o["color"] == target_color)
+
+    instruction = f"touch the {target_size} {target_color} object"
+    return {"objects": objects, "instruction": instruction, "target_idx": target_idx}

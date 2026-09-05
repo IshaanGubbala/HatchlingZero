@@ -9,6 +9,7 @@ import torch
 
 from hatchling_world.language.nursery_generator import (
     apply_verb, generate_l0_sentence, generate_l1_grounding_episode, generate_l2_verb_episode,
+    generate_l3_relation_episode, HELD_OUT_COMBOS, TRAIN_COMBOS,
 )
 from hatchling_world.language.tokenizer import COLORS, NOUNS, NurseryTokenizer, POSITIONS, SIZES
 from reference.hz_language_model_torch import HZLanguageModel
@@ -119,6 +120,34 @@ def test_verb_forward_shapes_and_gradients():
     assert model.object_state_encoder.weight.grad is not None
     assert torch.isfinite(model.object_state_encoder.weight.grad).all()
     assert model.consequence_head.weight.grad is not None
+
+
+def test_l3_episode_has_exactly_one_matching_object_and_needs_both_properties():
+    rng = random.Random(0)
+    for split in ("train", "test"):
+        for _ in range(50):
+            ep = generate_l3_relation_episode(rng, n_objects=4, split=split)
+            target = ep["objects"][ep["target_idx"]]
+            matches = [i for i, o in enumerate(ep["objects"])
+                       if o["size"] == target["size"] and o["color"] == target["color"]]
+            assert matches == [ep["target_idx"]], "instruction must uniquely identify exactly one object"
+            same_color = [o for i, o in enumerate(ep["objects"]) if i != ep["target_idx"] and o["color"] == target["color"]]
+            same_size = [o for i, o in enumerate(ep["objects"]) if i != ep["target_idx"] and o["size"] == target["size"]]
+            assert same_color, "color alone must collide with a decoy -- composition must be necessary"
+            assert same_size, "size alone must collide with a decoy -- composition must be necessary"
+
+
+def test_l3_train_and_held_out_combos_are_disjoint():
+    assert set(HELD_OUT_COMBOS).isdisjoint(TRAIN_COMBOS)
+    rng = random.Random(1)
+    for _ in range(50):
+        ep = generate_l3_relation_episode(rng, n_objects=4, split="test")
+        target = ep["objects"][ep["target_idx"]]
+        assert (target["size"], target["color"]) in HELD_OUT_COMBOS
+    for _ in range(50):
+        ep = generate_l3_relation_episode(rng, n_objects=4, split="train")
+        target = ep["objects"][ep["target_idx"]]
+        assert (target["size"], target["color"]) in TRAIN_COMBOS
 
 
 def test_model_uses_default_ln_recurrence_and_d_over_2_value_write():

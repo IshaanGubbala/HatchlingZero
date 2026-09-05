@@ -22,6 +22,7 @@ from reference.hz_language_model_torch import HZLanguageModel
 from hatchling_world.language.tokenizer import NurseryTokenizer, NOUNS, COLORS, SIZES, POSITIONS
 from hatchling_world.language.nursery_generator import (
     generate_l0_sentence, generate_l1_grounding_episode, generate_l2_verb_episode,
+    generate_l3_relation_episode,
 )
 
 TEST_SEED_OFFSET = 10_000_000
@@ -137,9 +138,33 @@ def l2_eval(model, tok, rng, n_objects, n_episodes):
     return sel_correct / n_episodes, cons_correct / cons_total
 
 
+def l3_train_step(model, opt, tok, rng, n_objects):
+    ep = generate_l3_relation_episode(rng, n_objects=n_objects, split="train")
+    instr_ids, type_idx, color_idx, size_idx, pos_idx, target = l1_episode_tensors(tok, ep)
+    logits = model.ground_forward(instr_ids, type_idx, color_idx, size_idx, pos_idx)
+    loss = F.cross_entropy(logits, target)
+    opt.zero_grad(set_to_none=True)
+    loss.backward()
+    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+    opt.step()
+    acc = (logits.argmax(-1) == target).float().item()
+    return loss.item(), acc
+
+
+def l3_eval(model, tok, rng, n_objects, n_episodes, split):
+    correct = 0
+    with torch.no_grad():
+        for _ in range(n_episodes):
+            ep = generate_l3_relation_episode(rng, n_objects=n_objects, split=split)
+            instr_ids, type_idx, color_idx, size_idx, pos_idx, target = l1_episode_tensors(tok, ep)
+            logits = model.ground_forward(instr_ids, type_idx, color_idx, size_idx, pos_idx)
+            correct += int((logits.argmax(-1) == target).item())
+    return correct / n_episodes
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--stage", choices=["l0", "l1", "l2", "both"], default="both")
+    parser.add_argument("--stage", choices=["l0", "l1", "l2", "l3", "both"], default="both")
     parser.add_argument("--d-model", type=int, default=64)
     parser.add_argument("--memory-slots", type=int, default=8)
     parser.add_argument("--workspace-slots", type=int, default=32)
@@ -151,6 +176,8 @@ def main() -> None:
     parser.add_argument("--l1-n-objects", type=int, default=4)
     parser.add_argument("--l2-steps", type=int, default=3000)
     parser.add_argument("--l2-n-objects", type=int, default=4)
+    parser.add_argument("--l3-steps", type=int, default=3000)
+    parser.add_argument("--l3-n-objects", type=int, default=4)
     parser.add_argument("--eval-every", type=int, default=300)
     parser.add_argument("--eval-episodes", type=int, default=200)
     parser.add_argument("--seed", type=int, default=0)
@@ -217,6 +244,23 @@ def main() -> None:
                       f"train_cons_acc={sum(recent_cons_acc)/len(recent_cons_acc):.3f} "
                       f"held_out_sel_acc={held_out_sel_acc:.3f} (chance={chance_sel:.3f}) "
                       f"held_out_cons_acc={held_out_cons_acc:.3f} (chance=0.500)", flush=True)
+
+    if args.stage in ("l3",):
+        train_rng = random.Random(args.seed + 4)
+        eval_seen_rng = random.Random(args.seed + 4 + TEST_SEED_OFFSET)
+        eval_unseen_rng = random.Random(args.seed + 4 + 2 * TEST_SEED_OFFSET)
+        recent_acc = []
+        for step in range(args.l3_steps):
+            loss, acc = l3_train_step(model, opt, tok, train_rng, args.l3_n_objects)
+            recent_acc.append(acc)
+            recent_acc[:] = recent_acc[-200:]
+            if (step + 1) % args.eval_every == 0:
+                seen_combo_acc = l3_eval(model, tok, eval_seen_rng, args.l3_n_objects, args.eval_episodes, split="train")
+                unseen_combo_acc = l3_eval(model, tok, eval_unseen_rng, args.l3_n_objects, args.eval_episodes, split="test")
+                chance = 1.0 / args.l3_n_objects
+                print(f"[nursery][L3] step={step+1}/{args.l3_steps} train_acc={sum(recent_acc)/len(recent_acc):.3f} "
+                      f"held_out_seen_combo_acc={seen_combo_acc:.3f} "
+                      f"held_out_UNSEEN_combo_acc={unseen_combo_acc:.3f} (chance={chance:.3f})", flush=True)
 
     if args.save_checkpoint is not None:
         args.save_checkpoint.parent.mkdir(parents=True, exist_ok=True)

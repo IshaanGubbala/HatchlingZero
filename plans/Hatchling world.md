@@ -1409,11 +1409,18 @@ Do **not** kill Hatchling World after one disappointing number. Park/kill only a
       — reuses L1's S-ingests-instruction / H-reasons-over-S-and-objects
       pattern, adds a structured 3-way consequence readout: predicts the
       referenced object's real post-action (position, held, opened))
-- [ ] L3 relation/composition procedural generator + held-out combination test.
+- [x] L3 relation/composition procedural generator + held-out combination test.
+      (`generate_l3_relation_episode` — no new model code needed at all;
+      it reuses `ground_forward` UNCHANGED because L3 is still "select the
+      object the instruction means," just with a harder instruction: size
+      AND color individually collide with a decoy on purpose, so only
+      their COMBINATION is unique. `HELD_OUT_COMBOS`/`TRAIN_COMBOS` is a
+      fixed, non-reseeded split of the 8 possible (size, color) pairs —
+      2 pairs are never the supervised target during training at all)
 - [ ] L4 numbers/logic-word task set.
 - [ ] L5 teacher/student QA loop.
 - [ ] L6 simple-reading task set.
-- [ ] Combined multi-signal loss (\(L_{\text{LM}}+L_{\text{ground}}+L_{\text{action}}+L_{\text{world}}+L_{\text{QA}}\)) — L0/L1/L2 currently trained as three separate objectives via `--stage`, not yet combined.
+- [ ] Combined multi-signal loss (\(L_{\text{LM}}+L_{\text{ground}}+L_{\text{action}}+L_{\text{world}}+L_{\text{QA}}\)) — L0/L1/L2/L3 currently trained as separate objectives via `--stage`, not yet combined.
 
 **Real result, 2026-09-04**: `scripts/hz_nursery_train.py`, `d_model=64`,
 `M_H=32` (D/2 value/write), same architecture as the room-navigation
@@ -1480,6 +1487,45 @@ combinations); and like L1, this is tested on an easy configuration
 (4 objects, unique colors, single verb per instruction, no verb
 composition or multi-step consequences) — not yet stress-tested or
 combined with L0/L1 into one multi-task model.
+
+**Real result, 2026-09-04 — L3 relation/composition, a genuinely
+partial win**: `generate_l3_relation_episode` needed zero new model
+code — `ground_forward` already reasons over `(type, color, size,
+position)` per object, so making color AND size individually collide
+with a decoy (only their combination is unique) is purely a harder
+generator, not a new architecture. Two metrics, both real held-out
+episodes: **held-out SEEN-combo accuracy** (new episodes, but the
+target's (size, color) pair was used as a training target before) and
+**held-out UNSEEN-combo accuracy** (the target's pair is one of the 2
+of 8 pairs in `HELD_OUT_COMBOS`, never once the supervised target
+during training). Seen-combo accuracy reaches **100%** by step 500 in
+both seeds tested — pure interpolation is trivial, as expected.
+Unseen-combo accuracy is the real test: it clears chance (25%) by a
+wide, reproducible margin but plateaus far below ceiling and stays
+noisy rather than converging cleanly — seed 0: fluctuates **49-60%**
+from step 750 onward; seed 11: fluctuates **51-58%** from step 1000
+onward. This is a **different signature than L0/L1/L2**, which all
+converged to a stable near-100% plateau — L3 shows the model has
+learned *some* real, reproducible systematic generalization to unseen
+property combinations (roughly 2x chance, not noise), but has not
+learned to generalize the composition cleanly the way it generalized
+single properties. 2 new tests
+(`test_l3_episode_has_exactly_one_matching_object_and_needs_both_properties`,
+`test_l3_train_and_held_out_combos_are_disjoint`) added (11/11 passing
+in `test_hz_nursery_grounding.py`).
+
+**Real, disclosed limitation**: the unseen-combo plateau's cause is
+not root-caused — candidates worth checking before calling L3 "done"
+include too few held-out combos (2 of 8) to measure cleanly, no
+architectural bias toward disentangling size/color (the object encoder
+concatenates one-hot features into a single dense vector with no
+explicit factorization), and too little training signal per
+combination (`n_objects=4` gives only 2 decoys' worth of contrastive
+pressure per episode). Unlike L1/L2, this is the first Nursery stage
+where the held-out number did NOT approach ceiling — a real, useful
+negative result about how far "reuse the same readout, just harder
+data" carries compositional generalization before something in the
+architecture or training signal needs to change.
 
 ## Phase 1 — environment (HZ-World-0, infrastructure validation)
 
