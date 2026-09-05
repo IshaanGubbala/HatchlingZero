@@ -2345,7 +2345,7 @@ document's real thesis.
 
 - [x] CPU baseline. (Nursery-specific, see result below)
 - [x] MPS reference. (Nursery-specific, see result below)
-- [ ] CUDA reference. (no local CUDA on this Mac; needs RunPod/RTX3060 dispatch, not yet run for the Nursery codepath)
+- [x] CUDA reference. (Nursery-specific, RTX 5090 via RunPod dispatch, see result below)
 - [ ] Remove per-step transfers.
 - [ ] Device/vectorized worlds.
 - [ ] SPEED-A.
@@ -2371,6 +2371,41 @@ the earlier finding carries over unchanged to this new codepath, not
 assumed. This governs where Nursery training should keep running
 (locally on CPU, matching every real run this session already did) --
 MPS offers no benefit at this scale and a real, measured cost.
+
+**Real result, 2026-09-05 — CUDA reference, dispatched to a real RTX
+5090 via `scripts/runpod_run.sh`** (this Mac has no local CUDA; the
+pod was created by this dispatch and auto-terminated on completion,
+confirmed via `runpodctl pod list` returning empty afterward — no
+lingering billed resources). Same script, same 2000 real L1 steps,
+run on the pod itself so CPU and CUDA are compared on identical
+hardware:
+
+| device | steps/sec |
+|---|---|
+| Mac CPU (local) | 116.1 |
+| Mac MPS (local) | 25.5 |
+| RunPod pod's CPU (remote vCPU) | 3.2 |
+| RunPod RTX 5090 (CUDA) | 26.3 |
+
+The pod's own CPU (3.2 steps/sec) is a weak/shared cloud vCPU and not
+a meaningful cross-machine comparison on its own — the real question
+is whether dispatching to a genuine, powerful GPU helps at all, and
+the answer is a clean **no**: even the RTX 5090 (26.3 steps/sec) is
+**~4.4x SLOWER than this Mac's local CPU** (116.1 steps/sec) for this
+workload. This is the strongest version of the finding this project
+has now measured three times (FSM harness, room-navigation BC
+training, and now the Language Nursery): at this tiny, sequential,
+Python-data-generation-dominated scale, no accelerator helps — local,
+MPS, or dispatched CUDA — because the bottleneck is per-step Python
+overhead, not tensor compute, and dispatching adds real additional
+overhead (rsync, SSH, network round-trips) on top for no benefit.
+**Real, actionable conclusion**: keep running Nursery training locally
+on Mac CPU, as every real run this whole session already did; do not
+dispatch this class of workload to RunPod GPUs. Dispatch remains the
+right call for workloads this session hasn't run yet that are
+genuinely compute-bound at larger batch/model scale (e.g. a real
+CUDA Graph benchmark, still unchecked below) — not for the current
+per-episode training loops.
 
 ## Phase 7 — RL
 
