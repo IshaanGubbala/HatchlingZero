@@ -3,139 +3,405 @@
 serves a live-updating page rendering whatever a running rollout
 (scripts/hz_world_rollout_demo.py today, the real HZ policy once
 Phase 2 lands) is currently doing in the world. No external
-dependencies beyond the standard library.
+dependencies beyond the standard library (the page itself pulls one
+Google Font over the network, same as any normal webpage would).
 
 How it works: the rollout script writes one JSON snapshot to
 --state-file after every environment step (see hz_world_rollout_demo.py
 for the exact schema). This server just serves that file's current
 content at GET /state, and a single static HTML/JS page that polls
-/state every --poll-ms milliseconds and redraws an SVG of the room
-graph (agent position, doors, lock colors, inventory) plus a small
-recent-reward/success sparkline. Open http://localhost:<port> in a
+/state every --poll-ms milliseconds, animates the agent smoothly
+between rooms, flashes doors when they unlock, and keeps a running
+success/return history chart. Open http://localhost:<port> in a
 browser while a rollout is running.
 """
 from __future__ import annotations
 
 import argparse
 import http.server
-import json
 import socketserver
 from pathlib import Path
 
-PAGE = """<!doctype html>
+PAGE = r"""<!doctype html>
 <html><head><meta charset="utf-8"><title>Hatchling World -- live</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
-  body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #0f1115; color: #e8e8ec; margin: 0; padding: 24px; }
-  h1 { font-size: 18px; font-weight: 600; margin: 0 0 4px; }
-  .sub { color: #8a8f98; font-size: 13px; margin-bottom: 20px; }
-  .row { display: flex; gap: 24px; flex-wrap: wrap; }
-  .card { background: #171a21; border: 1px solid #262b36; border-radius: 10px; padding: 16px; }
-  .stat { font-size: 12px; color: #8a8f98; text-transform: uppercase; letter-spacing: .04em; }
-  .val { font-size: 22px; font-weight: 600; margin-top: 2px; }
-  svg { background: #10131a; border-radius: 8px; }
-  .legend { font-size: 12px; color: #8a8f98; margin-top: 8px; line-height: 1.6; }
-  .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
-  #log { font-size: 12px; color: #b8bcc4; white-space: pre-wrap; max-height: 160px; overflow-y: auto; }
+  :root {
+    --bg: #08090d;
+    --bg-grid: #0d1017;
+    --panel: #10141c;
+    --panel-2: #141a24;
+    --border: #1e2530;
+    --text: #dde3ee;
+    --text-dim: #6b7690;
+    --dim: #707893;
+    --accent: #2fe3c6;
+    --accent-glow: rgba(47,227,198,0.45);
+    --amber: #ffb84d;
+    --danger: #ff6b6b;
+    --success: #45e08f;
+    --lock-colors: #ff6b6b,#4d9dff,#ffd166,#c77dff,#45e08f,#ff9f4d;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    background:
+      radial-gradient(circle at 15% -10%, rgba(47,227,198,0.06), transparent 40%),
+      radial-gradient(circle at 100% 10%, rgba(255,184,77,0.05), transparent 35%),
+      var(--bg);
+    background-attachment: fixed;
+    color: var(--text);
+    margin: 0;
+    padding: 28px 32px 48px;
+    min-height: 100vh;
+  }
+  .topbar { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 22px; }
+  .brand { display: flex; align-items: center; gap: 14px; }
+  h1 {
+    font-size: 22px; font-weight: 800; letter-spacing: 0.14em; margin: 0;
+    text-transform: uppercase; color: var(--text);
+    text-shadow: 0 0 18px var(--accent-glow);
+  }
+  h1 span { color: var(--accent); }
+  .live-pill {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 5px 12px; border-radius: 999px; border: 1px solid var(--border);
+    background: var(--panel); font-size: 11px; letter-spacing: 0.08em; color: var(--dim);
+    text-transform: uppercase;
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dim); transition: background .3s; }
+  .dot.on { background: var(--success); box-shadow: 0 0 10px var(--success); animation: pulse 1.4s ease-in-out infinite; }
+  .dot.stale { background: var(--amber); box-shadow: 0 0 8px var(--amber); }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+  .subtitle { color: var(--dim); font-size: 12.5px; margin-top: 6px; letter-spacing: .02em; }
+  .subtitle b { color: var(--text); font-weight: 600; }
+
+  .layout { display: grid; grid-template-columns: minmax(420px, 620px) minmax(300px, 380px); gap: 20px; align-items: start; }
+  @media (max-width: 1020px) { .layout { grid-template-columns: 1fr; } }
+
+  .card {
+    background: linear-gradient(180deg, var(--panel-2), var(--panel));
+    border: 1px solid var(--border); border-radius: 14px; padding: 18px;
+    box-shadow: 0 12px 30px -18px rgba(0,0,0,0.7);
+  }
+  .card + .card { margin-top: 18px; }
+  .card-title {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--dim);
+    margin: 0 0 12px; display: flex; justify-content: space-between; align-items: center;
+  }
+
+  svg#world { display: block; width: 100%; height: auto; }
+  .room-label { font-size: 12px; fill: #cfd6e4; font-weight: 600; }
+  .goal-badge { font-size: 9px; fill: #08130d; font-weight: 800; letter-spacing: .06em; }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 14px; font-size: 11px; color: var(--dim); }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .swatch { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+  .swatch.line { width: 18px; height: 2px; border-radius: 0; }
+
+  .stat-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+  .stat { background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+  .stat-label { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); }
+  .stat-val { font-size: 21px; font-weight: 700; margin-top: 3px; color: var(--text); }
+  .stat-val.accent { color: var(--accent); }
+  .stat-val.good { color: var(--success); }
+  .stat-val.bad { color: var(--danger); }
+
+  .inv-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
+  .key-chip {
+    display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 8px;
+    background: rgba(255,255,255,0.03); border: 1px solid var(--border); font-size: 12px;
+    transition: transform .2s;
+  }
+  .key-chip.zero { opacity: .3; }
+  .key-icon { width: 10px; height: 10px; border-radius: 3px 3px 3px 0; transform: rotate(-8deg); }
+
+  .chart-wrap { position: relative; }
+  #chart { width: 100%; height: 64px; display: block; }
+  .ticks { display: flex; gap: 3px; margin-top: 8px; }
+  .tick { flex: 1; height: 14px; border-radius: 2px; background: var(--border); }
+  .tick.win { background: var(--success); }
+  .tick.loss { background: var(--danger); }
+
+  #log { display: flex; flex-direction: column-reverse; gap: 6px; max-height: 260px; overflow-y: auto; padding-right: 4px; }
+  #log::-webkit-scrollbar { width: 6px; }
+  #log::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  .log-entry {
+    display: flex; gap: 8px; align-items: baseline; font-size: 12px; padding: 6px 8px;
+    border-radius: 8px; background: rgba(255,255,255,0.015); border-left: 2px solid var(--border);
+    animation: fadein .25s ease-out;
+  }
+  .log-entry.move { border-left-color: #4d9dff; }
+  .log-entry.use_key { border-left-color: var(--amber); }
+  .log-entry.pickup { border-left-color: var(--success); }
+  .log-entry.inspect { border-left-color: var(--dim); }
+  .log-icon { width: 16px; text-align: center; }
+  .log-text { color: var(--text); flex: 1; }
+  .log-reward { color: var(--dim); font-size: 11px; }
+  @keyframes fadein { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: translateY(0); } }
+
+  .badge { font-size: 10px; padding: 2px 8px; border-radius: 999px; background: rgba(47,227,198,0.12); color: var(--accent); border: 1px solid rgba(47,227,198,0.3); }
 </style></head>
 <body>
-  <h1>Hatchling World -- live</h1>
-  <div class="sub" id="subtitle">waiting for a rollout to start...</div>
-  <div class="row">
-    <div class="card"><svg id="world" width="440" height="440" viewBox="0 0 440 440"></svg></div>
-    <div class="card" style="min-width:220px">
-      <div class="stat">Episode</div><div class="val" id="episode">-</div>
-      <div class="stat" style="margin-top:12px">Step</div><div class="val" id="step">-</div>
-      <div class="stat" style="margin-top:12px">Last reward</div><div class="val" id="reward">-</div>
-      <div class="stat" style="margin-top:12px">Episode return</div><div class="val" id="return">-</div>
-      <div class="stat" style="margin-top:12px">Recent success rate</div><div class="val" id="success">-</div>
-      <div class="stat" style="margin-top:12px">Agent</div><div class="val" id="agent_type">-</div>
-    </div>
-    <div class="card" style="min-width:260px">
-      <div class="stat">Inventory</div>
-      <div id="inventory" style="margin-top:6px"></div>
-      <div class="stat" style="margin-top:16px">Recent actions</div>
-      <div id="log"></div>
+  <div class="topbar">
+    <div>
+      <div class="brand">
+        <h1>HATCHLING <span>WORLD</span></h1>
+        <span class="live-pill"><span class="dot" id="dot"></span><span id="live-text">connecting</span></span>
+      </div>
+      <div class="subtitle">
+        Agent: <b id="agent_type">-</b> &nbsp;|&nbsp; School level: <b id="school_level">-</b>
+        &nbsp;|&nbsp; Episode <b id="episode">-</b> &nbsp;/&nbsp; step <b id="step">-</b> of <b id="plan_len">-</b>
+      </div>
     </div>
   </div>
+
+  <div class="layout">
+    <div>
+      <div class="card">
+        <div class="card-title">
+          <span>WORLD MAP</span>
+          <span class="badge" id="room-count-badge">-</span>
+        </div>
+        <svg id="world" viewBox="0 0 520 480">
+          <defs>
+            <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+              <feGaussianBlur stdDeviation="6" result="blur"/>
+              <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+            </filter>
+          </defs>
+        </svg>
+        <div class="legend" id="legend"></div>
+      </div>
+    </div>
+
+    <div>
+      <div class="card">
+        <div class="card-title">STATUS</div>
+        <div class="stat-grid">
+          <div class="stat"><div class="stat-label">Last reward</div><div class="stat-val" id="reward">-</div></div>
+          <div class="stat"><div class="stat-label">Episode return</div><div class="stat-val accent" id="return">-</div></div>
+          <div class="stat"><div class="stat-label">Success rate (recent)</div><div class="stat-val good" id="success">-</div></div>
+          <div class="stat"><div class="stat-label">Last action</div><div class="stat-val" style="font-size:13px" id="last_action_type">-</div></div>
+        </div>
+        <div class="card-title" style="margin-top:16px">INVENTORY</div>
+        <div class="inv-row" id="inventory"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">RECENT EPISODES <span id="chart-n" class="badge">n=0</span></div>
+        <div class="chart-wrap"><svg id="chart" viewBox="0 0 300 64" preserveAspectRatio="none"></svg></div>
+        <div class="ticks" id="ticks"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">ACTION LOG</div>
+        <div id="log"></div>
+      </div>
+    </div>
+  </div>
+
 <script>
-const COLORS = ["#ff6b6b", "#4dabf7", "#69db7c", "#ffd43b", "#da77f2", "#ff922b"];
-let recentLog = [];
+const ACTUAL_LOCK_COLORS = ["#ff6b6b","#4d9dff","#ffd166","#c77dff","#45e08f","#ff9f4d"];
+const ICONS = { move: "&#8594;", use_key: "&#128273;", pickup: "&#9733;", inspect: "&#128065;" };
 
-function render(s) {
-  document.getElementById('subtitle').textContent =
-    s.agent_type + " agent, room graph n=" + s.n_rooms + ", colors=" + s.n_colors;
-  document.getElementById('episode').textContent = s.episode;
-  document.getElementById('step').textContent = s.step;
-  document.getElementById('reward').textContent = s.last_reward.toFixed(3);
-  document.getElementById('return').textContent = s.episode_return.toFixed(3);
-  document.getElementById('success').textContent = (s.recent_success_rate * 100).toFixed(0) + "%";
-  document.getElementById('agent_type').textContent = s.agent_type;
+let agentPos = null;       // {x,y} currently rendered
+let agentTarget = null;    // {x,y} to animate toward
+let animStart = 0, animFrom = null, animTo = null;
+let lastStepKey = null;
+let lastFetchOk = 0;
 
-  const inv = document.getElementById('inventory');
-  inv.innerHTML = s.inventory.map((c, i) =>
-    `<span class="swatch" style="background:${COLORS[i % COLORS.length]}"></span>${c}&nbsp;&nbsp;`
-  ).join('');
+function lerp(a,b,t){ return a+(b-a)*t; }
 
-  if (s.last_action_str) {
-    recentLog.unshift(`[${s.step}] ${s.last_action_str} -> r=${s.last_reward.toFixed(2)}`);
-    recentLog = recentLog.slice(0, 12);
+function roomPositions(R) {
+  const cx=260, cy=230, radius=190, pos=[];
+  for (let i=0;i<R;i++){
+    const a = (2*Math.PI*i)/R - Math.PI/2;
+    pos.push([cx+radius*Math.cos(a), cy+radius*Math.sin(a)]);
   }
-  document.getElementById('log').textContent = recentLog.join('\\n');
+  return pos;
+}
 
-  drawWorld(s);
+function el(tag, attrs, ns=true) {
+  const e = ns ? document.createElementNS('http://www.w3.org/2000/svg', tag) : document.createElement(tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  return e;
+}
+
+function renderLegend(nColors) {
+  const legend = document.getElementById('legend');
+  let html = '';
+  for (let c=0;c<nColors;c++){
+    html += `<div class="legend-item"><span class="swatch" style="background:${ACTUAL_LOCK_COLORS[c%6]}"></span>Key ${String.fromCharCode(65+c)}</div>`;
+  }
+  html += `<div class="legend-item"><span class="swatch line" style="background:#3a4150;border-top:2px dashed #3a4150"></span>open passage</div>`;
+  html += `<div class="legend-item"><span class="swatch line" style="background:transparent;border-top:2px dashed #ff6b6b"></span>locked (needs key)</div>`;
+  html += `<div class="legend-item">&#9679;&nbsp;agent&nbsp;&nbsp;&#9678;&nbsp;goal</div>`;
+  legend.innerHTML = html;
 }
 
 function drawWorld(s) {
   const svg = document.getElementById('world');
-  svg.innerHTML = '';
+  svg.innerHTML = '<defs><filter id="glow" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="6" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>';
   const R = s.n_rooms;
-  const cx = 220, cy = 220, radius = 160;
-  const pos = [];
-  for (let i = 0; i < R; i++) {
-    const a = (2 * Math.PI * i) / R - Math.PI / 2;
-    pos.push([cx + radius * Math.cos(a), cy + radius * Math.sin(a)]);
-  }
-  const ns = 'http://www.w3.org/2000/svg';
-  function el(tag, attrs) {
-    const e = document.createElementNS(ns, tag);
-    for (const k in attrs) e.setAttribute(k, attrs[k]);
-    return e;
-  }
-  // doors
+  const pos = roomPositions(R);
+
   for (const d of s.doors) {
-    const [x1, y1] = pos[d.a], [x2, y2] = pos[d.b];
-    const color = d.locked ? COLORS[d.color % COLORS.length] : '#3a4150';
-    const width = d.locked ? 3 : 2;
-    const dash = d.locked ? '6,4' : 'none';
-    svg.appendChild(el('line', { x1, y1, x2, y2, stroke: color, 'stroke-width': width, 'stroke-dasharray': dash }));
+    const [x1,y1] = pos[d.a], [x2,y2] = pos[d.b];
+    const justUnlocked = window.__lastDoors && window.__lastDoors.some(pd => pd.a===d.a && pd.b===d.b && pd.locked && !d.locked);
+    const color = d.locked ? ACTUAL_LOCK_COLORS[d.color % 6] : '#333c4a';
+    const line = el('line', {x1,y1,x2,y2, stroke: color, 'stroke-width': d.locked?3:2, 'stroke-dasharray': d.locked?'7,5':'none', opacity: justUnlocked?0:1});
+    if (justUnlocked) {
+      line.style.transition = 'opacity 1.2s ease-out .1s';
+      requestAnimationFrame(()=>requestAnimationFrame(()=>line.setAttribute('opacity','0.15')));
+    }
+    svg.appendChild(line);
+    if (d.locked) {
+      const mx=(x1+x2)/2, my=(y1+y2)/2;
+      const lockSvg = el('text', {x:mx,y:my+4,'text-anchor':'middle','font-size':11,fill:color});
+      lockSvg.textContent = '\u{1F512}';
+      svg.appendChild(lockSvg);
+    }
   }
-  // rooms
-  for (let i = 0; i < R; i++) {
-    const [x, y] = pos[i];
-    const isGoal = i === s.goal_room, isAgent = i === s.agent_room;
-    svg.appendChild(el('circle', {
-      cx: x, cy: y, r: isGoal ? 20 : 16,
-      fill: isGoal ? '#2b8a3e' : '#20242e',
-      stroke: isAgent ? '#fff' : '#4a5060', 'stroke-width': isAgent ? 3 : 1.5,
-    }));
-    const label = el('text', { x, y: y + 4, 'text-anchor': 'middle', fill: '#cfd3da', 'font-size': 11 });
+  window.__lastDoors = s.doors;
+
+  for (let i=0;i<R;i++){
+    const [x,y] = pos[i];
+    const isGoal = i===s.goal_room;
+    const g = el('g', {});
+    if (isGoal) {
+      const pulse = el('circle', {cx:x,cy:y,r:26,fill:'none',stroke:'var(--success)','stroke-width':2,opacity:0.5});
+      pulse.innerHTML = '<animate attributeName="r" values="22;30;22" dur="2s" repeatCount="indefinite"/><animate attributeName="opacity" values="0.6;0.05;0.6" dur="2s" repeatCount="indefinite"/>';
+      g.appendChild(pulse);
+    }
+    g.appendChild(el('circle', {cx:x,cy:y,r:19, fill: isGoal?'#123322':'#161c27', stroke: isGoal?'#45e08f':'#2a3140', 'stroke-width':1.5}));
+    const label = el('text', {x,y:y+4,'text-anchor':'middle', class:'room-label'});
     label.textContent = i;
-    svg.appendChild(label);
-    const keyCount = s.room_keys[i].reduce((a, b) => a + b, 0);
-    if (keyCount > 0) {
-      svg.appendChild(el('circle', { cx: x + 14, cy: y - 14, r: 6, fill: '#ffd43b' }));
+    g.appendChild(label);
+    const keyCount = s.room_keys[i].reduce((a,b)=>a+b,0);
+    if (keyCount>0) {
+      const kx=x+15, ky=y-15;
+      g.appendChild(el('circle',{cx:kx,cy:ky,r:7,fill:'#ffd166',filter:'url(#glow)'}));
+      const kt = el('text', {x:kx,y:ky+3,'text-anchor':'middle','font-size':9,fill:'#3a2c00','font-weight':700});
+      kt.textContent = keyCount;
+      g.appendChild(kt);
     }
-    if (isAgent) {
-      svg.appendChild(el('circle', { cx: x, cy: y, r: 7, fill: '#fff' }));
+    svg.appendChild(g);
+  }
+
+  // agent -- smooth animated marker, drawn last so it's on top
+  const targetXY = pos[s.agent_room];
+  const prevXY = pos[s.prev_room !== undefined ? s.prev_room : s.agent_room];
+  const stepKey = s.episode + ':' + s.step;
+  if (stepKey !== lastStepKey) {
+    animFrom = agentPos || prevXY;
+    animTo = targetXY;
+    animStart = performance.now();
+    lastStepKey = stepKey;
+  }
+  if (!agentPos) agentPos = targetXY;
+
+  const halo = el('circle', {cx:agentPos[0], cy:agentPos[1], r:14, fill:'var(--accent)', opacity:0.25, filter:'url(#glow)', id:'agent-halo'});
+  const dot = el('circle', {cx:agentPos[0], cy:agentPos[1], r:8, fill:'#eafffb', stroke:'var(--accent)', 'stroke-width':2, id:'agent-dot'});
+  svg.appendChild(halo);
+  svg.appendChild(dot);
+}
+
+function animateAgent() {
+  if (animFrom && animTo) {
+    const t = Math.min(1, (performance.now()-animStart)/380);
+    const ease = 1 - Math.pow(1-t, 3);
+    agentPos = [lerp(animFrom[0],animTo[0],ease), lerp(animFrom[1],animTo[1],ease)];
+    const dot = document.getElementById('agent-dot');
+    const halo = document.getElementById('agent-halo');
+    if (dot && halo) {
+      dot.setAttribute('cx', agentPos[0]); dot.setAttribute('cy', agentPos[1]);
+      halo.setAttribute('cx', agentPos[0]); halo.setAttribute('cy', agentPos[1]);
     }
+    if (t >= 1) { animFrom = null; }
+  }
+  requestAnimationFrame(animateAgent);
+}
+requestAnimationFrame(animateAgent);
+
+function drawChart(returns) {
+  const svg = document.getElementById('chart');
+  svg.innerHTML = '';
+  if (!returns.length) return;
+  const min = Math.min(...returns, 0), max = Math.max(...returns, 1);
+  const range = (max-min) || 1;
+  const w = 300, h = 64, n = returns.length;
+  const pts = returns.map((r,i) => {
+    const x = n===1 ? w : (i/(n-1))*w;
+    const y = h - ((r-min)/range)*h;
+    return [x,y];
+  });
+  const path = 'M ' + pts.map(p=>p.join(',')).join(' L ');
+  const area = path + ` L ${w},${h} L 0,${h} Z`;
+  svg.appendChild(el('path', {d:area, fill:'rgba(47,227,198,0.12)', stroke:'none'}));
+  svg.appendChild(el('path', {d:path, fill:'none', stroke:'var(--accent)', 'stroke-width':2}));
+}
+
+function render(s) {
+  lastFetchOk = Date.now();
+  document.getElementById('dot').className = 'dot on';
+  document.getElementById('live-text').textContent = 'live';
+  document.getElementById('agent_type').textContent = s.agent_type;
+  document.getElementById('school_level').textContent = s.school_level || '-';
+  document.getElementById('episode').textContent = s.episode;
+  document.getElementById('step').textContent = s.step;
+  document.getElementById('plan_len').textContent = s.plan_len;
+  document.getElementById('room-count-badge').textContent = s.n_rooms + ' rooms';
+
+  document.getElementById('reward').textContent = s.last_reward.toFixed(3);
+  document.getElementById('reward').className = 'stat-val ' + (s.last_reward > 0 ? 'good' : (s.last_reward < 0 ? 'bad' : ''));
+  document.getElementById('return').textContent = s.episode_return.toFixed(3);
+  document.getElementById('success').textContent = (s.recent_success_rate*100).toFixed(0) + '%';
+  document.getElementById('last_action_type').innerHTML = s.last_action ? (ICONS[s.last_action.type]+' '+s.last_action.text) : '&mdash;';
+
+  const inv = document.getElementById('inventory');
+  inv.innerHTML = s.inventory.map((c,i) =>
+    `<div class="key-chip ${c===0?'zero':''}"><span class="key-icon" style="background:${ACTUAL_LOCK_COLORS[i%6]}"></span>Key ${String.fromCharCode(65+i)} &times; ${c}</div>`
+  ).join('');
+
+  renderLegend(s.n_colors);
+  drawWorld(s);
+  drawChart(s.return_history || []);
+  document.getElementById('chart-n').textContent = 'n=' + (s.return_history||[]).length;
+
+  const ticks = document.getElementById('ticks');
+  ticks.innerHTML = (s.success_history||[]).map(v => `<div class="tick ${v?'win':'loss'}"></div>`).join('');
+
+  if (s.last_action && s._new_step) {
+    const log = document.getElementById('log');
+    const entry = document.createElement('div');
+    entry.className = 'log-entry ' + s.last_action.type;
+    entry.innerHTML = `<span class="log-icon">${ICONS[s.last_action.type]}</span><span class="log-text">ep${s.episode}.${s.step} ${s.last_action.text}</span><span class="log-reward">${s.last_reward>=0?'+':''}${s.last_reward.toFixed(2)}</span>`;
+    log.appendChild(entry);
+    while (log.children.length > 40) log.removeChild(log.firstChild);
   }
 }
 
+let lastKey = null;
 async function poll() {
   try {
     const res = await fetch('/state');
-    if (res.ok) render(await res.json());
+    if (res.ok) {
+      const s = await res.json();
+      if (!s.error) {
+        const key = s.episode + ':' + s.step;
+        s._new_step = key !== lastKey;
+        lastKey = key;
+        render(s);
+      }
+    }
   } catch (e) {}
+  if (Date.now() - lastFetchOk > 3000 && lastFetchOk > 0) {
+    document.getElementById('dot').className = 'dot stale';
+    document.getElementById('live-text').textContent = 'stale';
+  }
   setTimeout(poll, __POLL_MS__);
 }
 poll();
