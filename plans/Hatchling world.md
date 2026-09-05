@@ -1435,8 +1435,17 @@ Do **not** kill Hatchling World after one disappointing number. Park/kill only a
       instruction. The label exists ONLY in the teach utterance, never in
       `encode_objects`' features, so this can only be solved by real
       within-episode recall through \(S\))
-- [ ] L6 simple-reading task set.
-- [ ] Combined multi-signal loss (\(L_{\text{LM}}+L_{\text{ground}}+L_{\text{action}}+L_{\text{world}}+L_{\text{QA}}\)) — L0/L1/L2/L3/L4/L5 currently trained as separate objectives via `--stage`, not yet combined.
+- [x] L6 simple-reading task set.
+      (`generate_l6_reading_episode` + `HZLanguageModel.read_forward` —
+      a short passage of independent facts is read one sentence at a
+      time (real sequential turns into \(S\), extending L5's 2-turn
+      chain to \(n_{\text{sentences}}+1\)), then a question about ONE
+      specific sentence, not always the most recent. No parallel
+      object-feature-set input at all — every fact is language that was
+      read, so `ws.run` reasons over \(S\) and a small learned
+      placeholder (`read_null_x`) standing in for the required but
+      otherwise-unused `x_hidden` argument)
+- [ ] Combined multi-signal loss (\(L_{\text{LM}}+L_{\text{ground}}+L_{\text{action}}+L_{\text{world}}+L_{\text{QA}}\)) — L0/L1/L2/L3/L4/L5/L6 currently trained as separate objectives via `--stage`, not yet combined.
 
 **Real result, 2026-09-04**: `scripts/hz_nursery_train.py`, `d_model=64`,
 `M_H=32` (D/2 value/write), same architecture as the room-navigation
@@ -1655,6 +1664,40 @@ to hold a running tally across up to 4 objects simultaneously — any of
 which could be the real limit, and distinguishing between them is real,
 not-yet-done follow-up work, not something to guess at.
 
+**Real diagnostic, 2026-09-04 — composition-encoder ablation, the
+opposite outcome from counting.** Returned to L3/L4-logic's own
+disclosed gap (held-out UNSEEN-combo accuracy noisy, 30-60%, far below
+the ~100% ceiling other grounding tasks reach) with the same
+controlled-ablation discipline: one candidate cause, named but untested
+in the original writeup, was that `object_encoder` concatenates
+type/color/size/position one-hots and mixes them with ONE shared
+`nn.Linear` — nothing stops that layer from entangling color and size
+arbitrarily, so there's no structural bias toward a representation
+where "small" and "red" contribute independently. `reference/
+hz_nursery_composition_encoders.py` implements the standard fix from
+the compositional-generalization literature — `FactorizedSumEncoder`:
+each attribute gets its own embedding table, and the object's
+representation is their SUM, so composing two properties is
+structurally just vector addition — versus `ConcatLinearEncoder` (the
+control, reproducing the existing mechanism exactly). `scripts/
+hz_nursery_l3_composition_encoder_ablation.py` trains a fresh backbone
+end-to-end per variant (same mem/ws/sel_rq/sel_rk pathway, only the
+encoder differs), same task, same budget (2500 steps). **Result: a
+real, large, reproducible win for the factorized encoder, across 2
+seeds** — seed 0: factorized 92.3% vs. control 58.0% (+34.3pp); seed
+11: factorized 55.7% vs. control **0.0%** (+55.7pp — the control didn't
+just plateau low here, it converged to a systematic wrong answer on
+every held-out combo, worse than its own 25% chance floor). Unlike the
+counting ablation, this candidate fix genuinely moves the needle, by a
+wide and reproducible margin, on both seeds. **Real, disclosed caveat**:
+the factorized encoder's own absolute ceiling is itself seed-dependent
+(55.7% to 92.3%) — the fix substantially helps but doesn't yet fully
+close the gap to the ~100% every other grounding task reaches, and 2
+seeds isn't enough to pin down its true ceiling precisely. Worth
+promoting to the default `object_encoder` once stress-tested further
+(more seeds, and checking it doesn't regress L1/L2's already-clean
+results, since those tasks would also route through it).
+
 **Real result, 2026-09-04 — L5 teacher/student QA, back to a clean
 saturating win.** `generate_l5_qa_episode` + `HZLanguageModel.qa_forward`:
 teach turn ("the {color} object is called {label}") then question turn
@@ -1686,6 +1729,42 @@ DIFFERENT object in between teach and question (which would test
 whether \(S\) resists interference, not just sequential retention) —
 both are the natural next stress tests before calling L5 "done," same
 pattern as L1's and L3's own disclosed gaps.
+
+**Real result, 2026-09-04 — L6 simple reading, a third distinct
+signature.** `generate_l6_reading_episode` (3-sentence passage, unique
+colors per sentence, question about a randomly chosen one) +
+`HZLanguageModel.read_forward` (sentences and question chained into
+\(S\) as `n_sentences+1` real sequential turns, no object-feature-set
+input at all — pure language retention/selection). 2 seeds, 2500 steps
+each: held-out accuracy plateaus at **~68-79%** (seed 0) and **~65-77%**
+(seed 13) against a 50% chance floor — genuine, reproducible learning,
+clearly above chance, but nowhere near L0/L1/L2/L5's ~100% ceiling.
+This is a THIRD distinct result shape the Nursery has now produced:
+not a clean saturating win (L1/L2/L5), not L3/L4-logic's noisy
+30-60%-band partial generalization, and numerically close to (though a
+different task than) L4-counting's ~65-72% capacity ceiling. Per-query-
+position breakdown (`q0`/`q1`/`q2` = accuracy when the question is
+about the 1st/2nd/3rd sentence read) shows **no clean monotonic
+recency bias** in either seed — accuracy doesn't systematically favor
+the most-recently-read fact over earlier ones, which is itself a real,
+useful negative result: whatever is capping accuracy at ~70-75%, it
+does not look like simple recency-based forgetting in \(S\). 2 new
+tests (`test_l6_reading_episode_answer_matches_the_queried_sentence`,
+`test_read_forward_shapes_and_gradients`) added (18/18 passing in
+`test_hz_nursery_grounding.py`).
+
+**Real, disclosed limitation**: not yet root-caused. Candidates worth
+checking before calling this "done," in the same spirit as the L4
+counting and L3 composition diagnostics: whether `read_null_x` (a
+single learned placeholder standing in for `ws.run`'s required
+`x_hidden`) starves \(H\) of anything to reason over besides \(S\)
+itself, whether mean-pooling \(H\) (the same readout shape ruled out
+for counting) is again the wrong shape here, or whether retaining 3
+independent facts simultaneously in \(S\) is genuinely harder than
+retaining 1 (L5) regardless of readout — the counting-ablation
+methodology (swap the readout on a frozen backbone, then retrain
+end-to-end) is the natural template to reapply here if this is worth
+digging into further.
 
 ## Phase 1 — environment (HZ-World-0, infrastructure validation)
 

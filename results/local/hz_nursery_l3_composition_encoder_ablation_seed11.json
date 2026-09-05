@@ -1,0 +1,76 @@
+{
+  "concat_linear": {
+    "final_train_acc": 1.0,
+    "final_held_out_seen_combo_acc": 1.0,
+    "final_held_out_unseen_combo_acc": 0.0,
+    "history": [
+      {
+        "step": 500,
+        "train_acc": 0.95,
+        "held_out_seen_combo_acc": 1.0,
+        "held_out_unseen_combo_acc": 0.0
+      },
+      {
+        "step": 1000,
+        "train_acc": 1.0,
+        "held_out_seen_combo_acc": 1.0,
+        "held_out_unseen_combo_acc": 0.0
+      },
+      {
+        "step": 1500,
+        "train_acc": 1.0,
+        "held_out_seen_combo_acc": 1.0,
+        "held_out_unseen_combo_acc": 0.0
+      },
+      {
+        "step": 2000,
+        "train_acc": 1.0,
+        "held_out_seen_combo_acc": 1.0,
+        "held_out_unseen_combo_acc": 0.0
+      },
+      {
+        "step": 2500,
+        "train_acc": 1.0,
+        "held_out_seen_combo_acc": 1.0,
+        "held_out_unseen_combo_acc": 0.0
+      }
+    ]
+  },
+  "factorized_sum": {
+    "final_train_acc": 1.0,
+    "final_held_out_seen_combo_acc": 1.0,
+    "final_held_out_unseen_combo_acc": 0.5566666666666666,
+    "history": [
+      {
+        "step": 500,
+        "train_acc": 1.0,
+        "held_out_seen_combo_acc": 1.0,
+        "held_out_unseen_combo_acc": 0.53
+      },
+      {
+        "step": 1000,
+        "train_acc": 1.0,
+        "held_out_seen_combo_acc": 1.0,
+        "held_out_unseen_combo_acc": 0.5733333333333334
+      },
+      {
+        "step": 1500,
+        "train_acc": 1.0,
+        "held_out_seen_combo_acc": 1.0,
+        "held_out_unseen_combo_acc": 0.5366666666666666
+      },
+      {
+        "step": 2000,
+        "train_acc": 1.0,
+        "held_out_seen_combo_acc": 1.0,
+        "held_out_unseen_combo_acc": 0.55
+      },
+      {
+        "step": 2500,
+        "train_acc": 1.0,
+        "held_out_seen_combo_acc": 1.0,
+        "held_out_unseen_combo_acc": 0.5566666666666666
+      }
+    ]
+  }
+}

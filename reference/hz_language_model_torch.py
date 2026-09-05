@@ -49,7 +49,8 @@ from reference.hz0h_bdh_hzcq_v1_reasoning_workspace_torch import HZCQReasoningWo
 
 class HZLanguageModel(nn.Module):
     def __init__(self, vocab_size: int, d_model: int = 64, memory_slots: int = 8,
-                 workspace_slots: int = 32, gate_hidden: int = 16, n_rounds_l1: int = 8, n_qa_labels: int = 4):
+                 workspace_slots: int = 32, gate_hidden: int = 16, n_rounds_l1: int = 8, n_qa_labels: int = 4,
+                 n_read_labels: int = 2):
         super().__init__()
         self.D = d_model
         self.vocab_size = vocab_size
@@ -114,6 +115,15 @@ class HZLanguageModel(nn.Module):
         self.qa_rq = nn.Linear(d_model, d_model, bias=False)
         self.qa_rk = nn.Linear(d_model, d_model, bias=False)
         self.qa_head = nn.Linear(d_model, n_qa_labels, bias=True)
+
+        # L6 simple reading: no parallel object-feature-set input exists
+        # for this task at all (every fact is language that was read,
+        # nothing to point a cross-attention query at) -- read_null_x is
+        # a small learned placeholder standing in for HZCQReasoningWorkspace.run's
+        # required x_hidden argument, so H still reasons, just entirely
+        # over what accumulated in S from reading the passage.
+        self.read_null_x = nn.Parameter(torch.randn(1, 1, d_model) * 0.02)
+        self.read_head = nn.Linear(d_model, n_read_labels, bias=True)
 
     # ---- Stage L0: pure self-supervised next-token LM ----
 
@@ -269,3 +279,27 @@ class HZLanguageModel(nn.Module):
         scores = torch.matmul(q, self.qa_rk(H).transpose(-1, -2)) / (self.D ** 0.5)
         read = torch.matmul(F.softmax(scores, dim=-1), H).mean(dim=1)  # (B, D)
         return self.qa_head(read)  # (B, n_qa_labels)
+
+    # ---- Stage L6: simple reading (multi-sentence passage, selective recall) ----
+
+    def read_forward(self, sentence_ids_list: list[torch.Tensor], question_ids: torch.Tensor) -> torch.Tensor:
+        """sentence_ids_list: list of (B, T_k) tensors, one passage read
+        one sentence at a time (real sequential turns into S, extending
+        qa_forward's 2-turn chain to len(sentence_ids_list)+1 turns).
+        question_ids: (B, T_q), the final turn. Returns label logits
+        (B, n_read_labels). No object-feature-set input at all -- every
+        fact is language that was read, so correctness depends entirely
+        on S having retained (and H having selected) the ONE relevant
+        sentence among several, not on grounding to a visible feature."""
+        B = question_ids.shape[0]
+        S = self.mem.init_state(B, device=question_ids.device)
+        for sentence_ids in sentence_ids_list:
+            for t in range(sentence_ids.shape[1]):
+                S = self.mem.update(S, self.token_embed(sentence_ids[:, t]).unsqueeze(1))
+        for t in range(question_ids.shape[1]):
+            S = self.mem.update(S, self.token_embed(question_ids[:, t]).unsqueeze(1))
+
+        x_null = self.read_null_x.expand(B, 1, self.D)
+        H = self.ws.run(B, S, x_null, n_rounds=self.n_rounds_l1)  # (B, M_H, D)
+        pooled = H.mean(dim=1)
+        return self.read_head(pooled)  # (B, n_read_labels)

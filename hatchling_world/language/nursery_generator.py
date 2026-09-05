@@ -245,3 +245,31 @@ def generate_l5_qa_episode(rng: random.Random, n_objects: int = 4) -> dict:
     question = f"what is the {target_color} object called"
     return {"objects": objects, "teach": teach, "question": question,
             "target_idx": target_idx, "label": label, "label_idx": NOVEL_LABELS.index(label)}
+
+
+def generate_l6_reading_episode(rng: random.Random, n_sentences: int = 3) -> dict:
+    """Stage L6: simple reading. A short PASSAGE of `n_sentences`
+    independent facts ("the {color} object is {size}"), read one
+    sentence at a time (real sequential turns into S, extending L5's
+    teach/question 2-turn chain to n_sentences+1 turns), then a question
+    about ONE specific sentence -- chosen uniformly, so it is NOT always
+    the most recent one. Unlike every earlier stage, there is no
+    parallel object-feature-set input at all: every fact exists ONLY as
+    language that was read, so this is a genuine test of retaining and
+    selectively recalling MULTIPLE facts, not grounding language to a
+    visible world state. `query_idx` records which sentence (0 = first
+    read, most vulnerable to being overwritten/aged out by later
+    updates; n_sentences-1 = most recent) the question is actually
+    about -- a real, cheap way to check whether accuracy degrades for
+    earlier-read facts (interference/forgetting), not just averaged."""
+    if n_sentences > len(COLORS):
+        raise ValueError(f"needs unique colors per sentence, only {len(COLORS)} colors available")
+    colors = rng.sample(COLORS, k=n_sentences)
+    sizes = [rng.choice(SIZES) for _ in range(n_sentences)]
+    sentences = [f"the {c} object is {s}" for c, s in zip(colors, sizes)]
+
+    query_idx = rng.randrange(n_sentences)
+    question = f"what size is the {colors[query_idx]} object"
+    answer = sizes[query_idx]
+    return {"sentences": sentences, "question": question, "query_idx": query_idx,
+            "answer": answer, "answer_idx": SIZES.index(answer), "colors": colors, "sizes": sizes}

@@ -11,6 +11,7 @@ from hatchling_world.language.nursery_generator import (
     apply_verb, generate_l0_sentence, generate_l1_grounding_episode, generate_l2_verb_episode,
     generate_l3_relation_episode, HELD_OUT_COMBOS, TRAIN_COMBOS,
     generate_l4_logic_and_episode, generate_l4_counting_episode, generate_l5_qa_episode,
+    generate_l6_reading_episode,
 )
 from hatchling_world.language.tokenizer import (
     COLORS, NOUNS, NOVEL_LABELS, NUMBERS, NurseryTokenizer, POSITIONS, SIZES,
@@ -227,6 +228,35 @@ def test_qa_forward_shapes_and_gradients():
     assert model.qa_head.weight.grad is not None
     assert torch.isfinite(model.qa_head.weight.grad).all()
     assert model.mem.q_proj.weight.grad is not None, "qa_forward must actually exercise mem.update, not bypass it"
+
+
+def test_l6_reading_episode_answer_matches_the_queried_sentence():
+    rng = random.Random(0)
+    for _ in range(50):
+        ep = generate_l6_reading_episode(rng, n_sentences=3)
+        qi = ep["query_idx"]
+        assert ep["answer"] == ep["sizes"][qi]
+        assert ep["colors"][qi] in ep["question"]
+        assert len(set(ep["colors"])) == len(ep["colors"]), "colors must be unique so the question is unambiguous"
+        assert ep["colors"][qi] in ep["sentences"][qi]
+        assert ep["sizes"][qi] in ep["sentences"][qi]
+
+
+def test_read_forward_shapes_and_gradients():
+    tok = NurseryTokenizer()
+    model = HZLanguageModel(vocab_size=tok.vocab_size, d_model=32, memory_slots=8, workspace_slots=16,
+                             n_rounds_l1=4, n_read_labels=len(SIZES))
+    rng = random.Random(5)
+    ep = generate_l6_reading_episode(rng, n_sentences=3)
+    sentence_ids_list = [torch.tensor([tok.encode(s)]) for s in ep["sentences"]]
+    question_ids = torch.tensor([tok.encode(ep["question"])])
+    logits = model.read_forward(sentence_ids_list, question_ids)
+    assert logits.shape == (1, len(SIZES))
+    loss = logits.sum()
+    loss.backward()
+    assert model.read_head.weight.grad is not None
+    assert torch.isfinite(model.read_head.weight.grad).all()
+    assert model.mem.q_proj.weight.grad is not None, "read_forward must actually exercise mem.update"
 
 
 def test_model_uses_default_ln_recurrence_and_d_over_2_value_write():

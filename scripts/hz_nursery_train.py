@@ -23,7 +23,7 @@ from hatchling_world.language.tokenizer import NurseryTokenizer, NOUNS, COLORS, 
 from hatchling_world.language.nursery_generator import (
     generate_l0_sentence, generate_l1_grounding_episode, generate_l2_verb_episode,
     generate_l3_relation_episode, generate_l4_logic_and_episode, generate_l4_counting_episode,
-    generate_l5_qa_episode,
+    generate_l5_qa_episode, generate_l6_reading_episode,
 )
 
 TEST_SEED_OFFSET = 10_000_000
@@ -256,9 +256,45 @@ def l5_eval(model, tok, rng, n_objects, n_episodes):
     return correct / n_episodes
 
 
+def l6_episode_tensors(tok: NurseryTokenizer, ep: dict):
+    sentence_ids_list = [torch.tensor([tok.encode(s)]) for s in ep["sentences"]]
+    question_ids = torch.tensor([tok.encode(ep["question"])])
+    answer_idx = torch.tensor([ep["answer_idx"]])
+    return sentence_ids_list, question_ids, answer_idx
+
+
+def l6_train_step(model, opt, tok, rng, n_sentences):
+    ep = generate_l6_reading_episode(rng, n_sentences=n_sentences)
+    sentence_ids_list, question_ids, answer_idx = l6_episode_tensors(tok, ep)
+    logits = model.read_forward(sentence_ids_list, question_ids)
+    loss = F.cross_entropy(logits, answer_idx)
+    opt.zero_grad(set_to_none=True)
+    loss.backward()
+    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+    opt.step()
+    acc = (logits.argmax(-1) == answer_idx).float().item()
+    return loss.item(), acc
+
+
+def l6_eval(model, tok, rng, n_sentences, n_episodes):
+    correct = 0
+    by_query_idx = {}
+    with torch.no_grad():
+        for _ in range(n_episodes):
+            ep = generate_l6_reading_episode(rng, n_sentences=n_sentences)
+            sentence_ids_list, question_ids, answer_idx = l6_episode_tensors(tok, ep)
+            logits = model.read_forward(sentence_ids_list, question_ids)
+            is_correct = int((logits.argmax(-1) == answer_idx).item())
+            correct += is_correct
+            qi = ep["query_idx"]
+            by_query_idx.setdefault(qi, []).append(is_correct)
+    by_query_idx_acc = {qi: sum(v) / len(v) for qi, v in by_query_idx.items()}
+    return correct / n_episodes, by_query_idx_acc
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--stage", choices=["l0", "l1", "l2", "l3", "l4", "l5", "both"], default="both")
+    parser.add_argument("--stage", choices=["l0", "l1", "l2", "l3", "l4", "l5", "l6", "both"], default="both")
     parser.add_argument("--d-model", type=int, default=64)
     parser.add_argument("--memory-slots", type=int, default=8)
     parser.add_argument("--workspace-slots", type=int, default=32)
@@ -277,6 +313,8 @@ def main() -> None:
     parser.add_argument("--l4-n-objects", type=int, default=4)
     parser.add_argument("--l5-steps", type=int, default=3000)
     parser.add_argument("--l5-n-objects", type=int, default=4)
+    parser.add_argument("--l6-steps", type=int, default=3000)
+    parser.add_argument("--l6-n-sentences", type=int, default=3)
     parser.add_argument("--eval-every", type=int, default=300)
     parser.add_argument("--eval-episodes", type=int, default=200)
     parser.add_argument("--seed", type=int, default=0)
@@ -407,6 +445,21 @@ def main() -> None:
                 print(f"[nursery][L5] step={step+1}/{args.l5_steps} "
                       f"train_acc={sum(recent_acc)/len(recent_acc):.3f} "
                       f"held_out_acc={held_out_acc:.3f} (chance={chance:.3f})", flush=True)
+
+    if args.stage in ("l6",):
+        train_rng = random.Random(args.seed + 8)
+        eval_rng = random.Random(args.seed + 8 + TEST_SEED_OFFSET)
+        recent_acc = []
+        for step in range(args.l6_steps):
+            loss, acc = l6_train_step(model, opt, tok, train_rng, args.l6_n_sentences)
+            recent_acc.append(acc)
+            recent_acc[:] = recent_acc[-200:]
+            if (step + 1) % args.eval_every == 0:
+                held_out_acc, by_query_idx = l6_eval(model, tok, eval_rng, args.l6_n_sentences, args.eval_episodes)
+                by_query_str = " ".join(f"q{qi}={acc:.2f}" for qi, acc in sorted(by_query_idx.items()))
+                print(f"[nursery][L6] step={step+1}/{args.l6_steps} "
+                      f"train_acc={sum(recent_acc)/len(recent_acc):.3f} "
+                      f"held_out_acc={held_out_acc:.3f} (chance=0.500) [{by_query_str}]", flush=True)
 
     if args.save_checkpoint is not None:
         args.save_checkpoint.parent.mkdir(parents=True, exist_ok=True)
