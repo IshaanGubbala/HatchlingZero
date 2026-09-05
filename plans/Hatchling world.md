@@ -1386,19 +1386,54 @@ Do **not** kill Hatchling World after one disappointing number. Park/kill only a
 
 # 30. Immediate Implementation Checklist
 
-## Phase 0 — Language Nursery (real gap, not yet started)
+## Phase 0 — Language Nursery
 
-**Honest retrospective note**: Phases 1-3 below were built and landed BEFORE this amendment recognized that Language Nursery should have come first. That work is not wasted — it is exactly the infrastructure-validation role section 7 now assigns it — but no language or vocabulary work exists yet. This is the real next phase.
+**Honest retrospective note**: Phases 1-3 below were built and landed BEFORE this amendment recognized that Language Nursery should have come first. That work is not wasted — it is exactly the infrastructure-validation role section 7 now assigns it. L0/L1 are now real and landed (2026-09-04); L2-L6 remain open.
 
-- [ ] Fixed tokenizer / byte-subword pipeline.
-- [ ] L0 procedural synthetic text generator + LM loss.
-- [ ] L1 grounded-noun world state + behavioral grounding test.
+- [x] Fixed tokenizer / byte-subword pipeline. (`hatchling_world/language/tokenizer.py`,
+      fixed word-level, closed vocabulary — real, honest choice for a closed
+      procedurally-generated curriculum, no subword complexity needed yet)
+- [x] L0 procedural synthetic text generator + LM loss.
+      (`hatchling_world/language/nursery_generator.py`'s `generate_l0_sentence`,
+      `reference/hz_language_model_torch.py`'s `HZLanguageModel.lm_forward` —
+      reuses `HZCQReasoningWorkspace.step()` ONE STEP PER TOKEN, zero
+      architecture changes)
+- [x] L1 grounded-noun world state + behavioral grounding test.
+      (`generate_l1_grounding_episode`, `HZLanguageModel.ground_forward` —
+      instruction ingested into persistent \(S\) via `mem.update_sequence`,
+      \(H\) reasons over \(S\) + the object set via `ws.run()`, real
+      cross-attention readout over the object set, not a fixed classifier)
 - [ ] L2 verb-through-consequence task set.
 - [ ] L3 relation/composition procedural generator + held-out combination test.
 - [ ] L4 numbers/logic-word task set.
 - [ ] L5 teacher/student QA loop.
 - [ ] L6 simple-reading task set.
-- [ ] Combined multi-signal loss (\(L_{\text{LM}}+L_{\text{ground}}+L_{\text{action}}+L_{\text{world}}+L_{\text{QA}}\)).
+- [ ] Combined multi-signal loss (\(L_{\text{LM}}+L_{\text{ground}}+L_{\text{action}}+L_{\text{world}}+L_{\text{QA}}\)) — L0+L1 currently trained as two separate objectives, not yet combined.
+
+**Real result, 2026-09-04**: `scripts/hz_nursery_train.py`, `d_model=64`,
+`M_H=32` (D/2 value/write), same architecture as the room-navigation
+agent, zero recurrence changes. L0 (2000 steps): held-out perplexity
+falls from chance (~24, the vocabulary size) to a stable **~2.08** by
+step 400 and stays there through step 2000 — genuine, fast,
+reproducible language-model learning on the closed-vocabulary
+templates. L1 (2000 steps): held-out grounding accuracy (`"touch the
+{color} object"`, real held-out episodes, `split` via disjoint seed
+offset) reaches **100%** by step 400 and stays there — clean, robust
+behavioral grounding, real evidence that "red" becomes behaviorally
+tied to the RED feature, not just co-occurring with other words
+(section 5's L0-vs-L1 distinction, verified directly rather than
+assumed). 6 real tests (`tests/test_hz_nursery_grounding.py`) cover
+tokenizer roundtrip, in-vocabulary generation, unique-target
+guarantees, both forward passes' shapes/gradients, and a direct check
+that the model follows the plan's own architecture constraints.
+
+**Real, disclosed limitation**: L1's 100% result is on a small, easy
+configuration (4 objects, unique colors by construction, single
+distinguishing property). It has not yet been stress-tested with
+more objects, colliding properties requiring true compositional
+reference (e.g. "the small red ball" when multiple objects share
+color), or combined with L0 into one multi-task model — those are the
+real next steps before calling L1 "done."
 
 ## Phase 1 — environment (HZ-World-0, infrastructure validation)
 
