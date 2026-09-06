@@ -88,7 +88,18 @@ The ultimate research question this whole branch answers:
 
 ---
 
-# 0.5 Strategic reset, 2026-09-05 — Hatchling World is a diagnostic laboratory, not the research objective
+# 0.5 Strategic reset, 2026-09-05 (superseded same day — see section 0.6) — first-pass framing: Hatchling World as diagnostic laboratory
+
+**Superseded note, added same day**: this section's "freeze new World/
+Nursery/School feature expansion" directive below was corrected within
+the same session — see section 0.6. The corrected framing is: Hatchling
+World is not frozen, it becomes the actual training system, and
+individual curriculum stages stop being treated as ends in themselves.
+The real, still-valid content kept from this section is everything
+about the ALREADY-EXISTING matched-transformer baseline infrastructure
+and results (found while first drafting this reset) — that discovery
+stands; only the "freeze and treat curriculum as secondary" conclusion
+drawn from it was wrong.
 
 **Real course-correction, user-initiated.** The Nursery/School work
 (sections 5-9 above, Phases 0/4/5/7/8/9) was genuinely valuable — it
@@ -226,8 +237,103 @@ first Tree D task, not a from-scratch systems effort.
 
 **North star, restated plainly**: HZ must become measurably smarter,
 faster, or cheaper than a transformer — preferably more than one of
-those — at matched resources. Everything else, School-0 included, is
-now secondary evidence toward that question, not the question itself.
+those — at matched resources. Section 0.6 (same day) corrects HOW
+Hatchling World serves that question — it is the training system that
+answers it, not a side quest to be frozen out of the way of it.
+
+---
+
+# 0.6 Correction, 2026-09-05 (same day) — Hatchling World is the training system, not a discard-per-experiment diagnostic
+
+**Real correction to section 0.5, user-initiated, same day.** 0.5's
+"freeze new feature expansion, treat curriculum as secondary" framing
+was too narrow. The actual mistake this whole session was drifting into
+wasn't "spending time on Hatchling World" — it was **treating every
+curriculum stage as something to individually perfect and then discard**
+(`initialize model -> train on task -> measure -> throw model away`,
+literally every script in Phases 0/4/5/7/8/9 this session). That is
+real, valid architecture DIAGNOSIS — it found the token-by-token memory
+bug, the R-sweep flatness, the rule+selection chaining bottleneck — but
+it is not yet the Hatchling World VISION, which was always:
+
+\[
+\boxed{
+HZ_0
+\xrightarrow{\text{Nursery}} HZ_1
+\xrightarrow{\text{School}} HZ_2
+\xrightarrow{\text{Library}} HZ_3
+\xrightarrow{\text{RL/Labs/Projects}} HZ_{\text{capable}}
+}
+\]
+
+**one continuously-trained model accumulating capability across stages,
+checkpointed throughout** (\(C_0, C_1, \ldots, C_n\)) — not a fresh
+from-scratch model per experiment. Multiple real learning signals
+compose on the SAME persistent weights and the SAME persistent \(S\):
+\(\mathcal{L}_{\text{LM}} + \mathcal{L}_{\text{grounding}} +
+\mathcal{L}_{\text{reasoning}} + \mathcal{L}_{\text{memory}} +
+\mathcal{L}_{\text{action}} + \mathcal{L}_{\text{RLVR}}\). This
+composability — training signal accumulating on one growing model
+through a developmental curriculum, not isolated supervised examples —
+is itself a real candidate advantage over a standard transformer
+training recipe, and section 0.5's framing was about to throw it away
+by treating curriculum work as disposable diagnostic scaffolding.
+
+**Corrected roadmap — "Hatchling World Training Run 1"**: take the
+current locked architecture (section 2's "Inherited HZ Findings") and
+train ONE model continuously through a broad curriculum, checkpointing
+at each stage boundary:
+
+- **Stage A — Language foundation.** Real text dominant (general LM),
+  Nursery synthetic tasks mixed in for grounding/compositional pressure
+  (this session's L0-L6 work is directly reusable here, not discarded).
+- **Stage B — Knowledge + instruction.** Broad factual text, QA,
+  instruction following, Library retrieval (Phase 8's `READ(query)`
+  mechanism, already validated, becomes load-bearing here, not a toy).
+- **Stage C — Reasoning.** Math/logic/code/symbolic, supervised AND
+  verifiable-reward (Phase 7's RLVR loop, already built) — real test of
+  whether recurrent \(H\) earns its existence once there's something
+  worth reasoning about.
+- **Stage D — Interaction.** HZ-World-0-style action -> consequence ->
+  observation -> correction, brought back in strength (not infra-
+  validation-only as section 0 originally scoped it).
+- **Stage E — Projects / autonomous learning.** Long-horizon tasks
+  needing retrieval, experimentation, persistence, self-correction.
+
+**Real, decisive questions this unlocks that isolated per-task tests
+cannot** — the actual point of building the persistent version: does
+learning arithmetic damage language (catastrophic forgetting, measured
+not assumed)? Does earlier grounding make later language faster? Does
+Library use reduce pressure on parametric memorization? Can a fact
+learned once through \(S\) later consolidate into \(\theta\)? Does
+reasoning capability improve as School progresses on the SAME weights?
+Does useful \(R\)-scaling emerge only after richer prior training (this
+session's flat \(R\)-sweeps were all on freshly-initialized, single-task
+models — genuinely untested whether that flatness is a property of the
+architecture or an artifact of testing it with no accumulated prior
+competence)? Does HZ forget less catastrophically than a transformer
+under the same sequential-task pressure?
+
+**Revised relationship to Research Trees A-D (section 0.5)**: unchanged
+as real, valid standalone architecture diagnostics (the raw_bdh-vs-
+transformer result, the jump-operator/combined_best finding, the
+R-scaling question) — but the eventual HZ-vs-transformer comparison
+(Tree B) should ALSO be run at the level of **[HZ architecture +
+Hatchling World developmental training]** vs a standard transformer
+training recipe, at matched total information/compute, evaluated on
+external benchmarks neither model trained directly against — testing
+whether the TRAINING SYSTEM is the advantage, not only the architecture
+in isolation.
+
+**What actually changes starting now**: stop spinning up a fresh model
+per curriculum experiment as the default mode. The next real
+infrastructure task is a persistent-checkpoint training loop that
+carries one model through Stage A onward, with the existing Phase
+0/7/8/9 task generators as its data sources rather than as separate
+one-off scripts. Biology/Chemistry/further Physics variants remain
+correctly deferred for now (per 0.5's real reasoning: diagnose before
+expanding) — but as future STAGE CONTENT for this persistent run, not
+abandoned curriculum branches.
 
 ---
 
