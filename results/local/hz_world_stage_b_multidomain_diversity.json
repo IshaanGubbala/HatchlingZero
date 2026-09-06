@@ -1,0 +1,184 @@
+{
+  "baseline": {
+    "capitals": {
+      "scores": {
+        "SEEN": {
+          "mean_loss": 2.589181836694479,
+          "mean_byte_acc": 0.20894323219545186
+        },
+        "WRONG": {
+          "mean_loss": 2.638277995175329,
+          "mean_byte_acc": 0.1983057229683317
+        },
+        "PARAPHRASE": {
+          "mean_loss": 3.0062543600797653,
+          "mean_byte_acc": 0.11825622641481459
+        },
+        "UNSEEN": {
+          "mean_loss": 2.9530120193958282,
+          "mean_byte_acc": 0.23133394867181778
+        }
+      },
+      "delta_truth": 0.049096158480849805,
+      "delta_para": -0.05324234068393707
+    },
+    "states": {
+      "scores": {
+        "SEEN": {
+          "mean_loss": 2.604375699162483,
+          "mean_byte_acc": 0.21517066676169633
+        },
+        "WRONG": {
+          "mean_loss": 2.632439053975619,
+          "mean_byte_acc": 0.213871531188488
+        },
+        "PARAPHRASE": {
+          "mean_loss": 2.7568763494491577,
+          "mean_byte_acc": 0.18139180596917867
+        },
+        "UNSEEN": {
+          "mean_loss": 2.6165323734283445,
+          "mean_byte_acc": 0.19606061056256294
+        }
+      },
+      "delta_truth": 0.02806335481313571,
+      "delta_para": -0.14034397602081317
+    },
+    "elements": {
+      "scores": {
+        "SEEN": {
+          "mean_loss": 2.136436551809311,
+          "mean_byte_acc": 0.415762137932082
+        },
+        "WRONG": {
+          "mean_loss": 2.226049340289572,
+          "mean_byte_acc": 0.401130278473315
+        },
+        "PARAPHRASE": {
+          "mean_loss": 2.4111527303854623,
+          "mean_byte_acc": 0.2978435962771376
+        },
+        "UNSEEN": {
+          "mean_loss": 2.6849016745885215,
+          "mean_byte_acc": 0.2915954478085041
+        }
+      },
+      "delta_truth": 0.08961278848026089,
+      "delta_para": 0.2737489442030592
+    },
+    "planets": {
+      "scores": {
+        "SEEN": {
+          "mean_loss": 2.2356929779052734,
+          "mean_byte_acc": 0.3204365124305089
+        },
+        "WRONG": {
+          "mean_loss": 2.1898719469706216,
+          "mean_byte_acc": 0.295634925365448
+        },
+        "PARAPHRASE": {
+          "mean_loss": 2.177843908468882,
+          "mean_byte_acc": 0.23412699004014334
+        },
+        "UNSEEN": {
+          "mean_loss": 2.6981745958328247,
+          "mean_byte_acc": 0.1547619104385376
+        }
+      },
+      "delta_truth": -0.04582103093465184,
+      "delta_para": 0.5203306873639426
+    }
+  },
+  "after": {
+    "capitals": {
+      "scores": {
+        "SEEN": {
+          "mean_loss": 1.590253984555602,
+          "mean_byte_acc": 0.49364741891622543
+        },
+        "WRONG": {
+          "mean_loss": 1.9081083392274791,
+          "mean_byte_acc": 0.43766607703833743
+        },
+        "PARAPHRASE": {
+          "mean_loss": 2.57389223203063,
+          "mean_byte_acc": 0.25868619745597243
+        },
+        "UNSEEN": {
+          "mean_loss": 4.6423472464084625,
+          "mean_byte_acc": 0.09522283542901278
+        }
+      },
+      "delta_truth": 0.31785435467187706,
+      "delta_para": 2.0684550143778324
+    },
+    "states": {
+      "scores": {
+        "SEEN": {
+          "mean_loss": 1.750328929722309,
+          "mean_byte_acc": 0.4503531251102686
+        },
+        "WRONG": {
+          "mean_loss": 2.108587859532772,
+          "mean_byte_acc": 0.37328007435187316
+        },
+        "PARAPHRASE": {
+          "mean_loss": 2.049057038128376,
+          "mean_byte_acc": 0.3723616719245911
+        },
+        "UNSEEN": {
+          "mean_loss": 3.832110548019409,
+          "mean_byte_acc": 0.20954545885324477
+        }
+      },
+      "delta_truth": 0.35825892981046303,
+      "delta_para": 1.7830535098910332
+    },
+    "elements": {
+      "scores": {
+        "SEEN": {
+          "mean_loss": 0.7642655794819196,
+          "mean_byte_acc": 0.7856637661655744
+        },
+        "WRONG": {
+          "mean_loss": 0.9736476281414861,
+          "mean_byte_acc": 0.7211526437945988
+        },
+        "PARAPHRASE": {
+          "mean_loss": 1.0039890507857006,
+          "mean_byte_acc": 0.7021205748120943
+        },
+        "UNSEEN": {
+          "mean_loss": 2.1435131331284842,
+          "mean_byte_acc": 0.38561253994703293
+        }
+      },
+      "delta_truth": 0.20938204865956644,
+      "delta_para": 1.1395240823427837
+    },
+    "planets": {
+      "scores": {
+        "SEEN": {
+          "mean_loss": 0.7052555282910665,
+          "mean_byte_acc": 0.7688492139180502
+        },
+        "WRONG": {
+          "mean_loss": 0.7791691869497299,
+          "mean_byte_acc": 0.7767857164144516
+        },
+        "PARAPHRASE": {
+          "mean_loss": 0.9430518746376038,
+          "mean_byte_acc": 0.6319444527228674
+        },
+        "UNSEEN": {
+          "mean_loss": 2.187839150428772,
+          "mean_byte_acc": 0.226190485060215
+        }
+      },
+      "delta_truth": 0.0739136586586634,
+      "delta_para": 1.2447872757911682
+    }
+  },
+  "all_passed": true,
+  "total_updates": 15300
+}

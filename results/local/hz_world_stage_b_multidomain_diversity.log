@@ -1,0 +1,48 @@
+[multidomain-diversity] loading checkpoint (C_13): results/local/hz_world_run1_stage_b_knowledge_v2/after_Knowledge_v2.pt
+[multidomain-diversity] capitals: 32 train, 8 held-out
+[multidomain-diversity] states: 40 train, 10 held-out
+[multidomain-diversity] elements: 24 train, 6 held-out
+[multidomain-diversity] planets: 6 train, 2 held-out
+[multidomain-diversity] 102 total train facts x 5 templates x 30 exposures/fact/template = 15300 total updates
+
+[multidomain-diversity] ===== BASELINE (C_13, untouched) =====
+[multidomain-diversity] baseline capitals: delta_truth=+0.049 delta_para=-0.053
+[multidomain-diversity] baseline states: delta_truth=+0.028 delta_para=-0.140
+[multidomain-diversity] baseline elements: delta_truth=+0.090 delta_para=+0.274
+[multidomain-diversity] baseline planets: delta_truth=-0.046 delta_para=+0.520
+
+[multidomain-diversity] ===== training: 102 facts x 5 templates x 30 exposures =====
+[multidomain-diversity] epoch 3/30 (1530 updates so far)
+[multidomain-diversity] epoch 6/30 (3060 updates so far)
+[multidomain-diversity] epoch 9/30 (4590 updates so far)
+[multidomain-diversity] epoch 12/30 (6120 updates so far)
+[multidomain-diversity] epoch 15/30 (7650 updates so far)
+[multidomain-diversity] epoch 18/30 (9180 updates so far)
+[multidomain-diversity] epoch 21/30 (10710 updates so far)
+[multidomain-diversity] epoch 24/30 (12240 updates so far)
+[multidomain-diversity] epoch 27/30 (13770 updates so far)
+[multidomain-diversity] epoch 30/30 (15300 updates so far)
+[multidomain-diversity] training done, 15300 total updates applied
+
+[multidomain-diversity] ===== AFTER (per-category results) =====
+[multidomain-diversity] capitals: {'SEEN': {'mean_loss': 1.590253984555602, 'mean_byte_acc': 0.49364741891622543}, 'WRONG': {'mean_loss': 1.9081083392274791, 'mean_byte_acc': 0.43766607703833743}, 'PARAPHRASE': {'mean_loss': 2.57389223203063, 'mean_byte_acc': 0.25868619745597243}, 'UNSEEN': {'mean_loss': 4.6423472464084625, 'mean_byte_acc': 0.09522283542901278}}
+[multidomain-diversity] capitals: delta_truth=+0.318 delta_para=+2.068  PASS
+[multidomain-diversity] states: {'SEEN': {'mean_loss': 1.750328929722309, 'mean_byte_acc': 0.4503531251102686}, 'WRONG': {'mean_loss': 2.108587859532772, 'mean_byte_acc': 0.37328007435187316}, 'PARAPHRASE': {'mean_loss': 2.049057038128376, 'mean_byte_acc': 0.3723616719245911}, 'UNSEEN': {'mean_loss': 3.832110548019409, 'mean_byte_acc': 0.20954545885324477}}
+[multidomain-diversity] states: delta_truth=+0.358 delta_para=+1.783  PASS
+[multidomain-diversity] elements: {'SEEN': {'mean_loss': 0.7642655794819196, 'mean_byte_acc': 0.7856637661655744}, 'WRONG': {'mean_loss': 0.9736476281414861, 'mean_byte_acc': 0.7211526437945988}, 'PARAPHRASE': {'mean_loss': 1.0039890507857006, 'mean_byte_acc': 0.7021205748120943}, 'UNSEEN': {'mean_loss': 2.1435131331284842, 'mean_byte_acc': 0.38561253994703293}}
+[multidomain-diversity] elements: delta_truth=+0.209 delta_para=+1.140  PASS
+[multidomain-diversity] planets: {'SEEN': {'mean_loss': 0.7052555282910665, 'mean_byte_acc': 0.7688492139180502}, 'WRONG': {'mean_loss': 0.7791691869497299, 'mean_byte_acc': 0.7767857164144516}, 'PARAPHRASE': {'mean_loss': 0.9430518746376038, 'mean_byte_acc': 0.6319444527228674}, 'UNSEEN': {'mean_loss': 2.187839150428772, 'mean_byte_acc': 0.226190485060215}}
+[multidomain-diversity] planets: delta_truth=+0.074 delta_para=+1.245  PASS
+
+[multidomain-diversity] === SUMMARY (baseline -> after, per category) ===
+  capitals: delta_truth +0.049 -> +0.318   delta_para -0.053 -> +2.068
+  states: delta_truth +0.028 -> +0.358   delta_para -0.140 -> +1.783
+  elements: delta_truth +0.090 -> +0.209   delta_para +0.274 -> +1.140
+  planets: delta_truth -0.046 -> +0.074   delta_para +0.520 -> +1.245
+
+[multidomain-diversity] === PRE-COMMITTED VERDICT (per-category, not aggregate) ===
+ALL FOUR categories pass (delta_truth>0 AND delta_para>0)? True
+[multidomain-diversity] PASS -- the Stage B recipe generalizes across domains. Next real step: factual-prose corpus + HZ-Micro scaling.
+
+[multidomain-diversity] checkpoint saved: results/local/hz_world_stage_b_multidomain_diversity/after_diversity.pt
+[multidomain-diversity] DONE. Wrote results/local/hz_world_stage_b_multidomain_diversity.json
