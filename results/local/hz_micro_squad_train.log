@@ -1,0 +1,31 @@
+[hz-micro-squad] FRESH HZ-Micro model: d_model=384 n_params=2,907,493
+[hz-micro-squad] real SQuAD data: 55 train QAs (28 paragraphs), 20 unseen-domain QAs (7 paragraphs), 26 paraphrase probes, 22 wrong-completion probes
+
+[hz-micro-squad] BASELINE (fresh, untrained): held_out_lm_loss=5.520 delta_truth=-0.001 delta_para=+0.059
+[hz-micro-squad] epoch 2/25 (166 steps, 110s elapsed, 1.51 steps/sec)
+[hz-micro-squad] epoch 4/25 (332 steps, 245s elapsed, 1.36 steps/sec)
+[hz-micro-squad] epoch 6/25 (498 steps, 366s elapsed, 1.36 steps/sec)
+[hz-micro-squad] epoch 8/25 (664 steps, 472s elapsed, 1.41 steps/sec)
+[hz-micro-squad] epoch 10/25 (830 steps, 577s elapsed, 1.44 steps/sec)
+[hz-micro-squad] epoch 12/25 (996 steps, 687s elapsed, 1.45 steps/sec)
+[hz-micro-squad] epoch 14/25 (1162 steps, 806s elapsed, 1.44 steps/sec)
+[hz-micro-squad] epoch 16/25 (1328 steps, 913s elapsed, 1.45 steps/sec)
+[hz-micro-squad] epoch 18/25 (1494 steps, 1020s elapsed, 1.46 steps/sec)
+[hz-micro-squad] epoch 20/25 (1660 steps, 1128s elapsed, 1.47 steps/sec)
+[hz-micro-squad] epoch 22/25 (1826 steps, 1235s elapsed, 1.48 steps/sec)
+[hz-micro-squad] epoch 24/25 (1992 steps, 1342s elapsed, 1.48 steps/sec)
+
+[hz-micro-squad] training done: 2075 total steps in 1396s
+
+[hz-micro-squad] === AFTER TRAINING ===
+[hz-micro-squad] held_out_lm_loss: 5.520 -> 2.777
+[hz-micro-squad] SEEN: {'mean_loss': 1.9870977266268297, 'mean_byte_acc': 0.4103437536819415}
+[hz-micro-squad] WRONG: {'mean_loss': 1.879041400822726, 'mean_byte_acc': 0.45867957919836044}
+[hz-micro-squad] PARAPHRASE: {'mean_loss': 2.549266434632815, 'mean_byte_acc': 0.25062963796349674}
+[hz-micro-squad] UNSEEN: {'mean_loss': 3.855157172679901, 'mean_byte_acc': 0.15313935466110706}
+[hz-micro-squad] delta_truth: -0.001 -> -0.108
+[hz-micro-squad] delta_para: +0.059 -> +1.306
+
+[hz-micro-squad] === VERDICT === delta_truth>0 AND delta_para>0 on REAL factual prose? False
+[hz-micro-squad] checkpoint saved: results/local/hz_micro_squad/after_squad_train.pt
+[hz-micro-squad] DONE. Wrote results/local/hz_micro_squad_train.json

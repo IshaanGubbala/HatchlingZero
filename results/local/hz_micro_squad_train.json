@@ -1,0 +1,48 @@
+{
+  "n_params": 2907493,
+  "baseline": {
+    "held_out_lm_loss": 5.51987498147147,
+    "SEEN": {
+      "mean_loss": 5.509560272910378,
+      "mean_byte_acc": 0.0054574103687297214
+    },
+    "WRONG": {
+      "mean_loss": 5.5082386190241035,
+      "mean_byte_acc": 0.0065070347521792755
+    },
+    "PARAPHRASE": {
+      "mean_loss": 5.485459694495568,
+      "mean_byte_acc": 0.013584053573700098
+    },
+    "UNSEEN": {
+      "mean_loss": 5.544549775123596,
+      "mean_byte_acc": 0.011011905036866665
+    }
+  },
+  "after": {
+    "held_out_lm_loss": 2.7765307085854665,
+    "SEEN": {
+      "mean_loss": 1.9870977266268297,
+      "mean_byte_acc": 0.4103437536819415
+    },
+    "WRONG": {
+      "mean_loss": 1.879041400822726,
+      "mean_byte_acc": 0.45867957919836044
+    },
+    "PARAPHRASE": {
+      "mean_loss": 2.549266434632815,
+      "mean_byte_acc": 0.25062963796349674
+    },
+    "UNSEEN": {
+      "mean_loss": 3.855157172679901,
+      "mean_byte_acc": 0.15313935466110706
+    }
+  },
+  "delta_truth_before": -0.0013216538862748095,
+  "delta_para_before": 0.05909008062802812,
+  "delta_truth_after": -0.10805632580410363,
+  "delta_para_after": 1.3058907380470863,
+  "total_steps": 2075,
+  "total_seconds": 1395.783373117447,
+  "passed": false
+}

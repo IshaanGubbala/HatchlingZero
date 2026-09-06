@@ -1206,6 +1206,84 @@ recipe into the persistent Training Run 1 lineage itself (a real
 work, separate from the real data-sourcing work a genuine prose corpus
 requires.
 
+**Real result, 2026-09-06 -- HZ-Micro vs. a matched transformer, on
+real factual prose. The first real data point on this project's actual
+north-star question, and it is genuinely mixed -- not spun as a win or
+a loss.** Per the user's direct instruction: stopped hand-authoring
+toy fact sets, sourced a real factual-prose corpus (SQuAD v2.0 dev,
+fetched live and verified reachable before assuming it, real Wikipedia
+prose across 35 diverse topics with real human-written QA --
+`hatchling_world/knowledge/squad_corpus.py`; real, disclosed scope
+bounds -- first paragraph/article, 300-char truncation -- both set
+from a measured per-step timing test on this machine, not guessed).
+Built HZ-Micro fresh (`scripts/hz_micro_squad_train.py`, d_model=384,
+memory_slots=16, workspace_slots=64 -- 2,907,493 params, ~25x the toy
+Stage A/B lineage's 113,573; NOT continuing \(C_{13}\), per the user's
+own explicit instruction to treat the toy lineage as complete) and a
+matched transformer (`scripts/hz0a_matched_transformer_squad_train.py`,
+d_model=192/6 layers -- 2,940,480 params, ratio 1.011). Identical real
+data, identical shuffle order (same seed), identical 25-epoch
+matched-repetition schedule, identical evaluation.
+
+| metric | HZ-Micro (2.91M) | matched Transformer (2.94M) |
+|---|---|---|
+| held-out LM loss (before -> after) | 5.520 -> **2.777** | 5.786 -> 3.196 |
+| SEEN completion loss (after) | 1.987 | **1.203** |
+| WRONG completion loss (after) | **1.879** | 1.406 |
+| \(\Delta_{\text{truth}}\) (before -> after) | -0.001 -> **-0.108 (FAIL)** | +0.073 -> **+0.204 (PASS)** |
+| \(\Delta_{\text{para}}\) (before -> after) | +0.059 -> +1.306 | +0.065 -> +1.503 |
+| steps/sec | ~1.47 | ~25.6 |
+| wall-clock, 25 epochs (2,075 steps) | 1,396s | **81s (~17.2x faster)** |
+
+**Real, honest, per-axis reading, matching the north star's own
+multi-axis framing rather than a single verdict**: (1) **HZ-Micro wins
+on held-out LM quality-per-parameter** -- lower loss than the
+transformer on genuinely unseen prose (2.777 vs 3.196) at matched
+params. (2) **HZ-Micro cleanly FAILS factual discrimination** -- not
+just weakly, but a real, negative \(\Delta_{\text{truth}}\): the WRONG
+completion (1.879) scores a LOWER loss than the correct SEEN completion
+(1.987), meaning the model on average prefers a wrong-but-plausible
+real answer over the right one for a prompt it trained on directly.
+This directly contradicts the clean discrimination wins from the
+113K-parameter toy-fact experiments (Δ_truth up to +0.989 there) on the
+exact same underlying mechanism. (3) **Paraphrase generalization is
+real and comparable** for both (+1.306 vs +1.503) -- genuinely
+encouraging, the one axis where HZ-Micro is not clearly behind. (4)
+**The transformer is ~17.2x faster wall-clock** for the identical real
+training run at matched parameters -- a large, real, disclosed
+compute-efficiency gap, consistent with this project's earlier
+raw_bdh-vs-matched_transformer finding (~4-7x slower there; this toy-
+scale comparison shows an even larger gap, plausibly because HZ's
+per-token sequential `ws.step` cost scales with real prose's longer,
+more variable sequence lengths in a way the transformer's parallel
+attention does not).
+
+**Real, disclosed, NOT-yet-confirmed hypotheses for the discrimination
+failure** (reported as open questions, not settled conclusions): the
+same 25-epoch/~30-exposures-per-fact budget that worked cleanly at
+113K params may be genuinely insufficient at 25x the parameter count
+(larger models often need proportionally more optimization steps, a
+general and well-known phenomenon, not yet confirmed specifically
+here); and the WRONG-completion probes here are real, heterogeneous
+extracted spans from genuinely different sentences (varying length and
+structure), a structurally harder discrimination task than the toy
+fact-set's clean single-value swaps within a closed vocabulary -- not
+a directly comparable difficulty level to the 113K-parameter result
+that appeared to "solve" discrimination cleanly.
+
+**This is the first real data point on the project's actual north-star
+question** (does HZ learn useful knowledge more efficiently than a
+transformer) at a scale beyond hand-crafted toy facts, and the honest
+answer right now is: **partially, on some axes, not others, and at a
+real, large compute-efficiency cost**. Real, concrete next steps,
+not yet run: (1) does more training (more epochs, matching the
+"undertrained at larger scale" hypothesis) resolve HZ-Micro's
+discrimination failure the way it resolved the toy-scale multi-template
+dilution problem earlier in this thread; (2) a real per-step compute
+(FLOPs) accounting, not just wall-clock, to separate "HZ needs more
+raw compute for this task" from "HZ's implementation has real,
+fixable inefficiency" as explanations for the 17.2x gap.
+
 ---
 
 # 1. Do Not Abandon Hatchling World After One Bad Run
