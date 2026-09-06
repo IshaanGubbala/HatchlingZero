@@ -335,6 +335,57 @@ correctly deferred for now (per 0.5's real reasoning: diagnose before
 expanding) — but as future STAGE CONTENT for this persistent run, not
 abandoned curriculum branches.
 
+**Real result, 2026-09-05 — "Training Run 1," Stage A, first run: naive
+sequential training forgets catastrophically, and it's now measured, not
+assumed.** `scripts/hz_world_training_run1_stage_a.py`: one model
+(88,357 params), one optimizer, trained through L0->L1->L2->L3->
+L4-logic->L4-counting->L5->L6 in sequence with NO rehearsal/replay,
+checkpointed at every boundary, re-evaluating every prior stage after
+each new one (163.8s total, `results/local/hz_world_run1_stage_a_retention.json`):
+
+| after stage | L0 | L1 | L2 sel | L3 seen/unseen | L4-logic seen/unseen | L4-counting | L5 | L6 |
+|---|---|---|---|---|---|---|---|---|
+| L0 | 0.673 | - | - | - | - | - | - | - |
+| L1 | 0.670 | **1.000** | - | - | - | - | - | - |
+| L2 | 0.653 | 0.780 | **1.000** | - | - | - | - | - |
+| L3 | 0.664 | 0.873 | 1.000 | **1.0 / 0.68** | - | - | - | - |
+| L4-logic | 0.632 | 0.873 | 1.000 | 1.0 / 0.57 | **1.0 / 0.46** | - | - | - |
+| L4-counting | 0.528 | 0.400 | 0.647 | 0.65 / 0.00 | 0.58 / 0.09 | **0.727** | - | - |
+| L5 | 0.640 | 0.253 | 0.233 | 0.37 / 0.00 | 0.36 / 0.11 | 0.720 | **1.000** | - |
+| L6 | 0.629 | 0.267 | 0.287 | 0.18 / 0.02 | 0.43 / 0.40 | 0.647 | 0.953 | **0.807** |
+
+Every new stage lands well on ITS OWN task the moment it's trained
+(bold diagonal). But real, severe forgetting begins specifically at
+L4-counting and cascades: L1 falls from 1.000 to 0.253 by the end (a
+4-way task, 0.253 is chance) and L2's selection accuracy falls to 0.287
+(below its own 0.25 chance floor) — the shared representation isn't
+just forgetting, something is being actively pulled toward wrong
+answers for the earlier tasks. L3's unseen-combo collapses to 0.00-0.02.
+L0 (raw next-token LM) stays comparatively stable throughout (0.673 ->
+0.629) — whatever is being overwritten is concentrated in the
+classification pathway (`ground_forward`'s shared head, reused by L1/
+L3/L4-logic), not the LM head. Real, disclosed, untested hypothesis:
+L4-counting is the only stage using `F.binary_cross_entropy_with_logits`
+on a single-logit head (`verify_count_forward`) rather than
+`F.cross_entropy` over `ground_forward`'s shared multi-way head —
+plausible that its different loss scale/gradient magnitude disrupts
+shared upstream representations, but not yet isolated from "new task
+type" as a confound.
+
+**This is itself a real, valuable answer to one of section 0.6's own
+listed questions** ("does HZ forget less catastrophically than a
+transformer?") for the naive setup: no — sequential fine-tuning with no
+rehearsal forgets badly, a well-known general phenomenon, not
+necessarily HZ-specific (a transformer trained the same naive
+sequential way would very plausibly show the same pattern — not yet
+tested here, real next comparison). **Concrete next step, standard
+continual-learning fix, cheap to build**: interleave stages (mix
+training batches across all completed stages each step, or periodic
+rehearsal batches from earlier stages) instead of pure sequential
+blocks, reusing the exact same per-stage `train_step` functions already
+in `scripts/hz_nursery_train.py` — just change the scheduling, not the
+tasks themselves.
+
 ---
 
 # 1. Do Not Abandon Hatchling World After One Bad Run

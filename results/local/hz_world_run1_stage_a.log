@@ -1,0 +1,73 @@
+[stage-a] PERSISTENT model created once: vocab_size=63 n_params=88357
+
+[stage-a] ===== training L0 (persistent model, 88357 params, 0 prior stages already learned) =====
+[stage-a][L0] step=500/2000 loss=0.7174 acc=0.663
+[stage-a][L0] step=1000/2000 loss=0.7501 acc=0.600
+[stage-a][L0] step=1500/2000 loss=0.7177 acc=0.659
+[stage-a][L0] step=2000/2000 loss=0.7433 acc=0.643
+[stage-a] L0 training done in 24s. Retention check on all 1 completed stages...
+[stage-a] retention after L0: L0={'next_token_acc': 0.6726584434509277}
+[stage-a] checkpoint saved: results/local/hz_world_run1_stage_a/after_L0.pt
+
+[stage-a] ===== training L1 (persistent model, 88357 params, 1 prior stages already learned) =====
+[stage-a][L1] step=500/1500 loss=0.0007 acc=1.000
+[stage-a][L1] step=1000/1500 loss=0.0001 acc=1.000
+[stage-a][L1] step=1500/1500 loss=0.0002 acc=1.000
+[stage-a] L1 training done in 11s. Retention check on all 2 completed stages...
+[stage-a] retention after L1: L0={'next_token_acc': 0.669820249080658} | L1={'held_out_acc': 1.0}
+[stage-a] checkpoint saved: results/local/hz_world_run1_stage_a/after_L1.pt
+
+[stage-a] ===== training L2 (persistent model, 88357 params, 2 prior stages already learned) =====
+[stage-a][L2] step=500/1500 loss=1.0365 sel_acc=1.000 cons_acc=0.333
+[stage-a][L2] step=1000/1500 loss=0.0746 sel_acc=1.000 cons_acc=1.000
+[stage-a][L2] step=1500/1500 loss=0.0377 sel_acc=1.000 cons_acc=1.000
+[stage-a] L2 training done in 11s. Retention check on all 3 completed stages...
+[stage-a] retention after L2: L0={'next_token_acc': 0.652790904045105} | L1={'held_out_acc': 0.78} | L2={'sel_acc': 1.0, 'cons_acc': 0.9533333333333334}
+[stage-a] checkpoint saved: results/local/hz_world_run1_stage_a/after_L2.pt
+
+[stage-a] ===== training L3 (persistent model, 88357 params, 3 prior stages already learned) =====
+[stage-a][L3] step=500/2000 loss=0.0000 acc=1.000
+[stage-a][L3] step=1000/2000 loss=0.0000 acc=1.000
+[stage-a][L3] step=1500/2000 loss=0.0000 acc=1.000
+[stage-a][L3] step=2000/2000 loss=0.0000 acc=1.000
+[stage-a] L3 training done in 16s. Retention check on all 4 completed stages...
+[stage-a] retention after L3: L0={'next_token_acc': 0.6641438007354736} | L1={'held_out_acc': 0.8733333333333333} | L2={'sel_acc': 1.0, 'cons_acc': 0.9533333333333334} | L3={'seen_combo_acc': 1.0, 'unseen_combo_acc': 0.68}
+[stage-a] checkpoint saved: results/local/hz_world_run1_stage_a/after_L3.pt
+
+[stage-a] ===== training L4-logic (persistent model, 88357 params, 4 prior stages already learned) =====
+[stage-a][L4-logic] step=500/2000 loss=0.0000 acc=1.000
+[stage-a][L4-logic] step=1000/2000 loss=0.0000 acc=1.000
+[stage-a][L4-logic] step=1500/2000 loss=0.0000 acc=1.000
+[stage-a][L4-logic] step=2000/2000 loss=0.0000 acc=1.000
+[stage-a] L4-logic training done in 18s. Retention check on all 5 completed stages...
+[stage-a] retention after L4-logic: L0={'next_token_acc': 0.6319773197174072} | L1={'held_out_acc': 0.8733333333333333} | L2={'sel_acc': 1.0, 'cons_acc': 0.9533333333333334} | L3={'seen_combo_acc': 1.0, 'unseen_combo_acc': 0.5666666666666667} | L4-logic={'seen_combo_acc': 1.0, 'unseen_combo_acc': 0.46}
+[stage-a] checkpoint saved: results/local/hz_world_run1_stage_a/after_L4_logic.pt
+
+[stage-a] ===== training L4-counting (persistent model, 88357 params, 5 prior stages already learned) =====
+[stage-a][L4-counting] step=500/2000 loss=3.0096 acc=0.000
+[stage-a][L4-counting] step=1000/2000 loss=0.0500 acc=1.000
+[stage-a][L4-counting] step=1500/2000 loss=3.0032 acc=0.000
+[stage-a][L4-counting] step=2000/2000 loss=0.0935 acc=1.000
+[stage-a] L4-counting training done in 16s. Retention check on all 6 completed stages...
+[stage-a] retention after L4-counting: L0={'next_token_acc': 0.5279091596603394} | L1={'held_out_acc': 0.4} | L2={'sel_acc': 0.6466666666666666, 'cons_acc': 0.82} | L3={'seen_combo_acc': 0.6533333333333333, 'unseen_combo_acc': 0.0} | L4-logic={'seen_combo_acc': 0.58, 'unseen_combo_acc': 0.08666666666666667} | L4-counting={'held_out_acc': 0.7266666666666667}
+[stage-a] checkpoint saved: results/local/hz_world_run1_stage_a/after_L4_counting.pt
+
+[stage-a] ===== training L5 (persistent model, 88357 params, 6 prior stages already learned) =====
+[stage-a][L5] step=500/2000 loss=0.0032 acc=1.000
+[stage-a][L5] step=1000/2000 loss=0.0017 acc=1.000
+[stage-a][L5] step=1500/2000 loss=0.0007 acc=1.000
+[stage-a][L5] step=2000/2000 loss=0.0005 acc=1.000
+[stage-a] L5 training done in 23s. Retention check on all 7 completed stages...
+[stage-a] retention after L5: L0={'next_token_acc': 0.6395458579063416} | L1={'held_out_acc': 0.25333333333333335} | L2={'sel_acc': 0.23333333333333334, 'cons_acc': 0.7177777777777777} | L3={'seen_combo_acc': 0.36666666666666664, 'unseen_combo_acc': 0.0} | L4-logic={'seen_combo_acc': 0.36, 'unseen_combo_acc': 0.11333333333333333} | L4-counting={'held_out_acc': 0.72} | L5={'held_out_acc': 1.0}
+[stage-a] checkpoint saved: results/local/hz_world_run1_stage_a/after_L5.pt
+
+[stage-a] ===== training L6 (persistent model, 88357 params, 7 prior stages already learned) =====
+[stage-a][L6] step=500/2000 loss=0.0698 acc=1.000
+[stage-a][L6] step=1000/2000 loss=0.0160 acc=1.000
+[stage-a][L6] step=1500/2000 loss=0.0175 acc=1.000
+[stage-a][L6] step=2000/2000 loss=0.0282 acc=1.000
+[stage-a] L6 training done in 32s. Retention check on all 8 completed stages...
+[stage-a] retention after L6: L0={'next_token_acc': 0.6291390657424927} | L1={'held_out_acc': 0.26666666666666666} | L2={'sel_acc': 0.2866666666666667, 'cons_acc': 0.6911111111111111} | L3={'seen_combo_acc': 0.18, 'unseen_combo_acc': 0.02} | L4-logic={'seen_combo_acc': 0.43333333333333335, 'unseen_combo_acc': 0.4} | L4-counting={'held_out_acc': 0.6466666666666666} | L5={'held_out_acc': 0.9533333333333334} | L6={'held_out_acc': 0.8066666666666666}
+[stage-a] checkpoint saved: results/local/hz_world_run1_stage_a/after_L6.pt
+
+[stage-a] DONE in 164s. Wrote results/local/hz_world_run1_stage_a_retention.json
