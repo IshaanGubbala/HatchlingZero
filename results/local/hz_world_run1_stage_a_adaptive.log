@@ -1,0 +1,85 @@
+[stage-a-adaptive] PERSISTENT model (byte-level, vocab_size=260) created once: n_params=113573
+[stage-a-adaptive] loading real corpus: data/packed/hz0h_bytes_25m_train.jsonl (max 20000 windows)...
+[stage-a-adaptive] loaded 20000 train windows, 2000 val windows
+
+[stage-a-adaptive] ===== phase introducing Corpus: 2000 steps, mastery-weighted among ['Corpus'] =====
+[stage-a-adaptive][Corpus phase] step=500/2000 last_sampled=Corpus ema_mastery=[Corpus=0.27] calls_so_far={'Corpus': 500, 'L0': 0, 'L1': 0, 'L2': 0, 'L3': 0, 'L4-logic': 0, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-adaptive][Corpus phase] step=1000/2000 last_sampled=Corpus ema_mastery=[Corpus=0.31] calls_so_far={'Corpus': 1000, 'L0': 0, 'L1': 0, 'L2': 0, 'L3': 0, 'L4-logic': 0, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-adaptive][Corpus phase] step=1500/2000 last_sampled=Corpus ema_mastery=[Corpus=0.33] calls_so_far={'Corpus': 1500, 'L0': 0, 'L1': 0, 'L2': 0, 'L3': 0, 'L4-logic': 0, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-adaptive][Corpus phase] step=2000/2000 last_sampled=Corpus ema_mastery=[Corpus=0.36] calls_so_far={'Corpus': 2000, 'L0': 0, 'L1': 0, 'L2': 0, 'L3': 0, 'L4-logic': 0, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-adaptive] Corpus phase done in 401s. Retention check on all 1 introduced stages...
+[stage-a-adaptive] retention after Corpus: Corpus={'held_out_next_byte_acc': 0.36737254901960786}
+[stage-a-adaptive] checkpoint saved: results/local/hz_world_run1_stage_a_adaptive/after_Corpus.pt
+
+[stage-a-adaptive] ===== phase introducing L0: 2000 steps, mastery-weighted among ['Corpus', 'L0'] =====
+[stage-a-adaptive][L0 phase] step=500/2000 last_sampled=Corpus ema_mastery=[Corpus=0.34 L0=0.73] calls_so_far={'Corpus': 2336, 'L0': 164, 'L1': 0, 'L2': 0, 'L3': 0, 'L4-logic': 0, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-adaptive][L0 phase] step=1000/2000 last_sampled=Corpus ema_mastery=[Corpus=0.34 L0=0.74] calls_so_far={'Corpus': 2724, 'L0': 276, 'L1': 0, 'L2': 0, 'L3': 0, 'L4-logic': 0, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-adaptive][L0 phase] step=1500/2000 last_sampled=L0 ema_mastery=[Corpus=0.34 L0=0.81] calls_so_far={'Corpus': 3104, 'L0': 396, 'L1': 0, 'L2': 0, 'L3': 0, 'L4-logic': 0, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-adaptive][L0 phase] step=2000/2000 last_sampled=Corpus ema_mastery=[Corpus=0.35 L0=0.83] calls_so_far={'Corpus': 3489, 'L0': 511, 'L1': 0, 'L2': 0, 'L3': 0, 'L4-logic': 0, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-adaptive] L0 phase done in 321s. Retention check on all 2 introduced stages...
+[stage-a-adaptive] retention after L0: Corpus={'held_out_next_byte_acc': 0.3543921568627451} | L0={'next_token_acc': 0.8608272671699524}
+[stage-a-adaptive] checkpoint saved: results/local/hz_world_run1_stage_a_adaptive/after_L0.pt
+
+[stage-a-adaptive] ===== phase introducing L1: 1500 steps, mastery-weighted among ['Corpus', 'L0', 'L1'] =====
+[stage-a-adaptive][L1 phase] step=500/1500 last_sampled=Corpus ema_mastery=[Corpus=0.32 L0=0.85 L1=0.83] calls_so_far={'Corpus': 3733, 'L0': 584, 'L1': 183, 'L2': 0, 'L3': 0, 'L4-logic': 0, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-adaptive][L1 phase] step=1000/1500 last_sampled=L0 ema_mastery=[Corpus=0.31 L0=0.84 L1=0.92] calls_so_far={'Corpus': 4076, 'L0': 685, 'L1': 239, 'L2': 0, 'L3': 0, 'L4-logic': 0, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-adaptive][L1 phase] step=1500/1500 last_sampled=Corpus ema_mastery=[Corpus=0.35 L0=0.82 L1=0.96] calls_so_far={'Corpus': 4442, 'L0': 781, 'L1': 277, 'L2': 0, 'L3': 0, 'L4-logic': 0, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-adaptive] L1 phase done in 208s. Retention check on all 3 introduced stages...
+[stage-a-adaptive] retention after L1: Corpus={'held_out_next_byte_acc': 0.36607843137254903} | L0={'next_token_acc': 0.7919707894325256} | L1={'held_out_acc': 1.0}
+[stage-a-adaptive] checkpoint saved: results/local/hz_world_run1_stage_a_adaptive/after_L1.pt
+
+[stage-a-adaptive] ===== phase introducing L2: 1500 steps, mastery-weighted among ['Corpus', 'L0', 'L1', 'L2'] =====
+[stage-a-adaptive][L2 phase] step=500/1500 last_sampled=Corpus ema_mastery=[Corpus=0.34 L0=0.82 L1=0.99 L2=0.90] calls_so_far={'Corpus': 4708, 'L0': 849, 'L1': 305, 'L2': 138, 'L3': 0, 'L4-logic': 0, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-adaptive][L2 phase] step=1000/1500 last_sampled=Corpus ema_mastery=[Corpus=0.34 L0=0.84 L1=1.00 L2=0.95] calls_so_far={'Corpus': 5061, 'L0': 937, 'L1': 327, 'L2': 175, 'L3': 0, 'L4-logic': 0, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-adaptive][L2 phase] step=1500/1500 last_sampled=Corpus ema_mastery=[Corpus=0.35 L0=0.84 L1=1.00 L2=0.97] calls_so_far={'Corpus': 5430, 'L0': 1016, 'L1': 350, 'L2': 204, 'L3': 0, 'L4-logic': 0, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-adaptive] L2 phase done in 213s. Retention check on all 4 introduced stages...
+[stage-a-adaptive] retention after L2: Corpus={'held_out_next_byte_acc': 0.3789019607843137} | L0={'next_token_acc': 0.8508515954017639} | L1={'held_out_acc': 1.0} | L2={'sel_acc': 1.0, 'cons_acc': 0.5955555555555555}
+[stage-a-adaptive] checkpoint saved: results/local/hz_world_run1_stage_a_adaptive/after_L2.pt
+
+[stage-a-adaptive] ===== phase introducing L3: 2000 steps, mastery-weighted among ['Corpus', 'L0', 'L1', 'L2', 'L3'] =====
+[stage-a-adaptive][L3 phase] step=500/2000 last_sampled=L3 ema_mastery=[Corpus=0.33 L0=0.85 L1=1.00 L2=0.92 L3=0.66] calls_so_far={'Corpus': 5679, 'L0': 1065, 'L1': 367, 'L2': 221, 'L3': 168, 'L4-logic': 0, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-adaptive][L3 phase] step=1000/2000 last_sampled=Corpus ema_mastery=[Corpus=0.35 L0=0.86 L1=1.00 L2=0.97 L3=0.95] calls_so_far={'Corpus': 5995, 'L0': 1134, 'L1': 392, 'L2': 242, 'L3': 237, 'L4-logic': 0, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-adaptive][L3 phase] step=1500/2000 last_sampled=L1 ema_mastery=[Corpus=0.39 L0=0.88 L1=1.00 L2=0.99 L3=0.90] calls_so_far={'Corpus': 6315, 'L0': 1219, 'L1': 420, 'L2': 273, 'L3': 273, 'L4-logic': 0, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-adaptive][L3 phase] step=2000/2000 last_sampled=Corpus ema_mastery=[Corpus=0.34 L0=0.87 L1=1.00 L2=1.00 L3=0.98] calls_so_far={'Corpus': 6677, 'L0': 1280, 'L1': 444, 'L2': 294, 'L3': 305, 'L4-logic': 0, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-adaptive] L3 phase done in 271s. Retention check on all 5 introduced stages...
+[stage-a-adaptive] retention after L3: Corpus={'held_out_next_byte_acc': 0.37745098039215685} | L0={'next_token_acc': 0.8729926943778992} | L1={'held_out_acc': 1.0} | L2={'sel_acc': 1.0, 'cons_acc': 0.6088888888888889} | L3={'seen_combo_acc': 1.0, 'unseen_combo_acc': 0.41333333333333333}
+[stage-a-adaptive] checkpoint saved: results/local/hz_world_run1_stage_a_adaptive/after_L3.pt
+
+[stage-a-adaptive] ===== phase introducing L4-logic: 2000 steps, mastery-weighted among ['Corpus', 'L0', 'L1', 'L2', 'L3', 'L4-logic'] =====
+[stage-a-adaptive][L4-logic phase] step=500/2000 last_sampled=L4-logic ema_mastery=[Corpus=0.35 L0=0.88 L1=1.00 L2=1.00 L3=0.97 L4-logic=0.95] calls_so_far={'Corpus': 6950, 'L0': 1336, 'L1': 478, 'L2': 319, 'L3': 336, 'L4-logic': 81, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-adaptive][L4-logic phase] step=1000/2000 last_sampled=Corpus ema_mastery=[Corpus=0.34 L0=0.88 L1=1.00 L2=1.00 L3=0.99 L4-logic=0.98] calls_so_far={'Corpus': 7294, 'L0': 1399, 'L1': 501, 'L2': 348, 'L3': 362, 'L4-logic': 96, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-adaptive][L4-logic phase] step=1500/2000 last_sampled=Corpus ema_mastery=[Corpus=0.35 L0=0.89 L1=1.00 L2=1.00 L3=1.00 L4-logic=0.97] calls_so_far={'Corpus': 7631, 'L0': 1466, 'L1': 525, 'L2': 373, 'L3': 386, 'L4-logic': 119, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-adaptive][L4-logic phase] step=2000/2000 last_sampled=Corpus ema_mastery=[Corpus=0.36 L0=0.88 L1=1.00 L2=1.00 L3=1.00 L4-logic=0.99] calls_so_far={'Corpus': 7971, 'L0': 1522, 'L1': 554, 'L2': 399, 'L3': 408, 'L4-logic': 146, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-adaptive] L4-logic phase done in 280s. Retention check on all 6 introduced stages...
+[stage-a-adaptive] retention after L4-logic: Corpus={'held_out_next_byte_acc': 0.36533333333333334} | L0={'next_token_acc': 0.8659367561340332} | L1={'held_out_acc': 1.0} | L2={'sel_acc': 1.0, 'cons_acc': 0.6666666666666666} | L3={'seen_combo_acc': 1.0, 'unseen_combo_acc': 0.41333333333333333} | L4-logic={'seen_combo_acc': 1.0, 'unseen_combo_acc': 0.7066666666666667}
+[stage-a-adaptive] checkpoint saved: results/local/hz_world_run1_stage_a_adaptive/after_L4_logic.pt
+
+[stage-a-adaptive] ===== phase introducing L4-counting: 2000 steps, mastery-weighted among ['Corpus', 'L0', 'L1', 'L2', 'L3', 'L4-logic', 'L4-counting'] =====
+[stage-a-adaptive][L4-counting phase] step=500/2000 last_sampled=Corpus ema_mastery=[Corpus=0.39 L0=0.88 L1=1.00 L2=1.00 L3=1.00 L4-logic=1.00 L4-counting=0.57] calls_so_far={'Corpus': 8189, 'L0': 1558, 'L1': 570, 'L2': 422, 'L3': 426, 'L4-logic': 161, 'L4-counting': 174, 'L5': 0, 'L6': 0}
+[stage-a-adaptive][L4-counting phase] step=1000/2000 last_sampled=L4-counting ema_mastery=[Corpus=0.34 L0=0.88 L1=1.00 L2=1.00 L3=0.96 L4-logic=0.95 L4-counting=0.56] calls_so_far={'Corpus': 8420, 'L0': 1588, 'L1': 584, 'L2': 437, 'L3': 446, 'L4-logic': 186, 'L4-counting': 339, 'L5': 0, 'L6': 0}
+[stage-a-adaptive][L4-counting phase] step=1500/2000 last_sampled=Corpus ema_mastery=[Corpus=0.38 L0=0.89 L1=1.00 L2=1.00 L3=0.98 L4-logic=0.98 L4-counting=0.48] calls_so_far={'Corpus': 8647, 'L0': 1630, 'L1': 609, 'L2': 452, 'L3': 463, 'L4-logic': 201, 'L4-counting': 498, 'L5': 0, 'L6': 0}
+[stage-a-adaptive][L4-counting phase] step=2000/2000 last_sampled=L4-counting ema_mastery=[Corpus=0.37 L0=0.89 L1=1.00 L2=1.00 L3=0.99 L4-logic=0.99 L4-counting=0.58] calls_so_far={'Corpus': 8885, 'L0': 1673, 'L1': 631, 'L2': 477, 'L3': 480, 'L4-logic': 218, 'L4-counting': 636, 'L5': 0, 'L6': 0}
+[stage-a-adaptive] L4-counting phase done in 207s. Retention check on all 7 introduced stages...
+[stage-a-adaptive] retention after L4-counting: Corpus={'held_out_next_byte_acc': 0.3527843137254902} | L0={'next_token_acc': 0.899756669998169} | L1={'held_out_acc': 0.9666666666666667} | L2={'sel_acc': 1.0, 'cons_acc': 0.74} | L3={'seen_combo_acc': 1.0, 'unseen_combo_acc': 0.48} | L4-logic={'seen_combo_acc': 1.0, 'unseen_combo_acc': 0.6066666666666667} | L4-counting={'held_out_acc': 0.5066666666666667}
+[stage-a-adaptive] checkpoint saved: results/local/hz_world_run1_stage_a_adaptive/after_L4_counting.pt
+
+[stage-a-adaptive] ===== phase introducing L5: 2000 steps, mastery-weighted among ['Corpus', 'L0', 'L1', 'L2', 'L3', 'L4-logic', 'L4-counting', 'L5'] =====
+[stage-a-adaptive][L5 phase] step=500/2000 last_sampled=L4-logic ema_mastery=[Corpus=0.37 L0=0.89 L1=1.00 L2=0.95 L3=0.96 L4-logic=0.99 L4-counting=0.45 L5=0.70] calls_so_far={'Corpus': 9045, 'L0': 1702, 'L1': 642, 'L2': 494, 'L3': 491, 'L4-logic': 225, 'L4-counting': 771, 'L5': 130, 'L6': 0}
+[stage-a-adaptive][L5 phase] step=1000/2000 last_sampled=Corpus ema_mastery=[Corpus=0.35 L0=0.87 L1=1.00 L2=0.97 L3=0.93 L4-logic=0.96 L4-counting=0.74 L5=0.89] calls_so_far={'Corpus': 9241, 'L0': 1732, 'L1': 659, 'L2': 504, 'L3': 513, 'L4-logic': 247, 'L4-counting': 900, 'L5': 204, 'L6': 0}
+[stage-a-adaptive][L5 phase] step=1500/2000 last_sampled=L4-counting ema_mastery=[Corpus=0.38 L0=0.89 L1=0.97 L2=0.98 L3=0.94 L4-logic=0.95 L4-counting=0.66 L5=0.96] calls_so_far={'Corpus': 9458, 'L0': 1776, 'L1': 677, 'L2': 514, 'L3': 531, 'L4-logic': 262, 'L4-counting': 1059, 'L5': 223, 'L6': 0}
+[stage-a-adaptive][L5 phase] step=2000/2000 last_sampled=L4-counting ema_mastery=[Corpus=0.38 L0=0.88 L1=0.98 L2=1.00 L3=0.97 L4-logic=0.99 L4-counting=0.67 L5=0.94] calls_so_far={'Corpus': 9691, 'L0': 1808, 'L1': 684, 'L2': 539, 'L3': 557, 'L4-logic': 286, 'L4-counting': 1192, 'L5': 243, 'L6': 0}
+[stage-a-adaptive] L5 phase done in 184s. Retention check on all 8 introduced stages...
+[stage-a-adaptive] retention after L5: Corpus={'held_out_next_byte_acc': 0.3803529411764706} | L0={'next_token_acc': 0.8978102207183838} | L1={'held_out_acc': 1.0} | L2={'sel_acc': 1.0, 'cons_acc': 0.7355555555555555} | L3={'seen_combo_acc': 1.0, 'unseen_combo_acc': 0.66} | L4-logic={'seen_combo_acc': 1.0, 'unseen_combo_acc': 0.7266666666666667} | L4-counting={'held_out_acc': 0.6333333333333333} | L5={'held_out_acc': 1.0}
+[stage-a-adaptive] checkpoint saved: results/local/hz_world_run1_stage_a_adaptive/after_L5.pt
+
+[stage-a-adaptive] ===== phase introducing L6: 2000 steps, mastery-weighted among ['Corpus', 'L0', 'L1', 'L2', 'L3', 'L4-logic', 'L4-counting', 'L5', 'L6'] =====
+[stage-a-adaptive][L6 phase] step=500/2000 last_sampled=Corpus ema_mastery=[Corpus=0.38 L0=0.88 L1=0.99 L2=1.00 L3=0.99 L4-logic=0.99 L4-counting=0.79 L5=0.88 L6=0.57] calls_so_far={'Corpus': 9898, 'L0': 1838, 'L1': 695, 'L2': 551, 'L3': 573, 'L4-logic': 306, 'L4-counting': 1257, 'L5': 272, 'L6': 110}
+[stage-a-adaptive][L6 phase] step=1000/2000 last_sampled=L4-counting ema_mastery=[Corpus=0.36 L0=0.89 L1=1.00 L2=1.00 L3=0.96 L4-logic=1.00 L4-counting=0.59 L5=0.94 L6=0.60] calls_so_far={'Corpus': 10089, 'L0': 1871, 'L1': 711, 'L2': 569, 'L3': 585, 'L4-logic': 316, 'L4-counting': 1362, 'L5': 299, 'L6': 198}
+[stage-a-adaptive][L6 phase] step=1500/2000 last_sampled=Corpus ema_mastery=[Corpus=0.33 L0=0.89 L1=1.00 L2=1.00 L3=0.95 L4-logic=0.90 L4-counting=0.69 L5=0.90 L6=0.67] calls_so_far={'Corpus': 10265, 'L0': 1908, 'L1': 722, 'L2': 584, 'L3': 602, 'L4-logic': 336, 'L4-counting': 1462, 'L5': 321, 'L6': 300}
+[stage-a-adaptive][L6 phase] step=2000/2000 last_sampled=Corpus ema_mastery=[Corpus=0.33 L0=0.90 L1=1.00 L2=1.00 L3=0.98 L4-logic=0.96 L4-counting=0.58 L5=0.92 L6=0.64] calls_so_far={'Corpus': 10453, 'L0': 1948, 'L1': 727, 'L2': 598, 'L3': 615, 'L4-logic': 356, 'L4-counting': 1577, 'L5': 341, 'L6': 385}
+[stage-a-adaptive] L6 phase done in 173s. Retention check on all 9 introduced stages...
+[stage-a-adaptive] retention after L6: Corpus={'held_out_next_byte_acc': 0.3688235294117647} | L0={'next_token_acc': 0.8905109763145447} | L1={'held_out_acc': 1.0} | L2={'sel_acc': 1.0, 'cons_acc': 0.7644444444444445} | L3={'seen_combo_acc': 1.0, 'unseen_combo_acc': 1.0} | L4-logic={'seen_combo_acc': 0.9666666666666667, 'unseen_combo_acc': 0.9666666666666667} | L4-counting={'held_out_acc': 0.72} | L5={'held_out_acc': 0.6533333333333333} | L6={'held_out_acc': 0.6666666666666666}
+[stage-a-adaptive] checkpoint saved: results/local/hz_world_run1_stage_a_adaptive/after_L6.pt
+
+[stage-a-adaptive] DONE in 2344s. Wrote results/local/hz_world_run1_stage_a_adaptive_retention.json
+[stage-a-adaptive] total train calls per stage: {'Corpus': 10453, 'L0': 1948, 'L1': 727, 'L2': 598, 'L3': 615, 'L4-logic': 356, 'L4-counting': 1577, 'L5': 341, 'L6': 385}

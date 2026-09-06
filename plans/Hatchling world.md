@@ -649,6 +649,73 @@ earlier in this plan) remains real, separate, unresolved work -- this
 fix closes the specific "production code never got the already-known
 fix" gap, not the whole memory-capacity research thread.
 
+**Real result, 2026-09-06 -- step (3) done: adaptive mastery-weighted
+scheduling, and it directly fixes the exact regression flagged
+earlier.** `scripts/hz_world_training_run1_stage_a_adaptive.py`: same
+model, same stages (Corpus + L0-L6), same total per-phase step budgets,
+same `ByteTokenizer`, same retention-eval logic as the corpus-channel
+run -- the only change is HOW a stage is picked each step. Real,
+minimal mechanism, not the full "learning need" formula the user
+proposed (mastery + improvement rate + forgetting + difficulty + time-
+since-rehearsal, real future work): an online EMA (decay 0.95) of each
+introduced stage's own recent training accuracy, sampled with
+probability proportional to \((1 - \text{mastery})\), floored at 0.05
+so a fully-mastered stage still gets occasional rehearsal. Run AFTER
+the memory-cliff fix above (so this result reflects both fixes
+combined). 2,344s total.
+
+Final (after L6), three-way comparison:
+
+| stage | pure-Nursery interleaved | uniform + corpus | **adaptive + corpus** |
+|---|---|---|---|
+| Corpus | n/a | 0.357 | 0.369 |
+| L0 | 0.649 | 0.901 | 0.891 |
+| L1 | 1.000 | 1.000 | 1.000 |
+| L2 sel / cons | 1.000 / 0.953 | 1.000 / 0.940 | 1.000 / 0.764 |
+| L3 seen / unseen | 1.00 / 0.933 | 1.00 / 0.227 | **1.00 / 1.00** |
+| L4-logic seen / unseen | 1.00 / 0.027 | 1.00 / 0.353 | **0.967 / 0.967** |
+| L4-counting | 0.700 | 0.680 | **0.720** |
+| L5 | 1.000 | 0.747 | 0.653 |
+| L6 | 0.793 | 0.493 (chance) | **0.667** |
+
+**The exact regression flagged when step (3) was proposed is gone**:
+L4-logic's unseen-combo -- 0.027 under uniform interleaving, the
+clearest evidence uniform sampling starves hard skills -- is now
+**0.967**, and L3's unseen-combo reaches a clean **1.00**, the best
+result either metric has hit anywhere this session. L6 also improves
+over its uniform-scheduled byte-level number (0.667 vs 0.493), though
+not all the way to the isolated fix-only verification's 0.687-0.787 --
+expected, since L6 here competes for budget against 8 other stages, not
+trained in isolation. Real, honest tradeoff also visible: L5 (0.653)
+and L2's cons_acc (0.764) come in a bit lower than the uniform run,
+plausibly because their easier "primary" metric (the one tracked for
+mastery) hit high EMA mastery fast and got deprioritized while their
+secondary/harder sub-metrics kept needing more practice -- a real
+limitation of tracking one scalar mastery signal per stage rather than
+per-sub-skill, flagged for future refinement, not hidden.
+
+**The scheduler's own logged call counts confirm the mechanism, not
+just the outcome**: `Corpus` (hardest, final mastery 0.328) received
+10,453 total training calls; `L4-counting` (also hard, final mastery
+0.579) received 1,577; already-mastered stages `L1`/`L2`/`L3`/
+`L4-logic`/`L5`/`L6` (final mastery 0.92-1.00 each) received only
+341-727 each despite starting with the SAME nominal phase budgets as
+Corpus and L0 -- real, direct evidence the scheduler is reallocating
+capacity away from mastered skills toward unsolved ones, exactly the
+"1+1 then jump to calculus" complaint this step was built to address at
+the scheduling level.
+
+**Where this leaves the sequenced plan**: all three steps from section
+0.7 are now done (byte-level tokenizer, real corpus channel, adaptive
+scheduler), plus the memory-cliff production-code fix above. Real
+remaining gaps, explicitly not solved by this work: per-sub-skill
+mastery tracking (L2/L5's secondary-metric dilution), the broader
+3-fact memory-capacity research thread (~35.4% ceiling on the harder
+stress task), and everything past Stage A (Stage B knowledge/Library,
+Stage C reasoning/RLVR, Stage D interaction, Stage E projects, per
+section 0.6) -- the model here is still 113,573 real parameters and 20K
+corpus windows, an integration prototype, not HZ-1.
+
 ---
 
 # 1. Do Not Abandon Hatchling World After One Bad Run
