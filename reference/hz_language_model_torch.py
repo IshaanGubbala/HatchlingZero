@@ -450,3 +450,26 @@ class HZLanguageModel(nn.Module):
         H = self.ws.run(B, S, x_null, n_rounds=self.n_rounds_l1)
         pooled = H.mean(dim=1)
         return self.read_head(pooled)  # (B, n_read_labels) -- indexed as a COLORS label here
+
+    def entity_select_forward(self, statement_ids_list: list[torch.Tensor],
+                               question_ids: torch.Tensor) -> torch.Tensor:
+        """Real 2x2 diagnostic (plan Phase 9, Physics coreference
+        ablation's successor): structurally IDENTICAL to
+        `cs_program_forward` (same whole-sentence ingestion of a list of
+        statements, then a question) -- the only difference is the
+        OUTPUT: this classifies into {x, y} via read_head (a REFERENCE
+        to which entity satisfies a named property), not a derived
+        value via arithmetic_head. Isolates whether entity-selection
+        specifically (not composition, not coreference across surface
+        tokens) is what this architecture cannot represent."""
+        B = question_ids.shape[0]
+        S = self.mem.init_state(B, device=question_ids.device)
+        for stmt_ids in statement_ids_list:
+            hidden = self.token_embed(stmt_ids)  # (B, T, D) -- whole statement, one mem.update call
+            S = self.mem.update(S, hidden)
+        question_hidden = self.token_embed(question_ids)
+        S = self.mem.update(S, question_hidden)
+        x_null = self.read_null_x.expand(B, 1, self.D)
+        H = self.ws.run(B, S, x_null, n_rounds=self.n_rounds_l1)
+        pooled = H.mean(dim=1)
+        return self.read_head(pooled)  # (B, n_read_labels) -- indexed as an {x, y} label here

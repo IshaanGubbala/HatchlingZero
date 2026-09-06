@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import random
 
-from hatchling_world.language.tokenizer import COLORS, NUMBERS, SIZES
+from hatchling_world.language.tokenizer import COLORS, NUMBERS, SIZES, ENTITY_WORDS
 
 # Fixed, non-reseeded held-out split over the 5x5 addition grid
 # (operands 0-4, matching NUMBERS' zero-four range so both operands and
@@ -118,3 +118,46 @@ def generate_physics_fixed_identity_episode(rng: random.Random) -> dict:
     return {"teach": teach, "scenario": scenario, "question": question,
             "large_id": large_id, "small_id": small_id,
             "answer_id": large_id, "answer_idx": PHYSICS_IDENTITY_LABELS.index(large_id)}
+
+
+def generate_value_retrieval_episode(rng: random.Random) -> dict:
+    """Real 2x2 diagnostic, cell 1 (plan Phase 9's entity-selection
+    follow-up): identical program structure to
+    `generate_cs_program_episode` (two bindings, "x is {a}", "y is
+    {b}"), but the question asks for ONE bound VALUE directly ("what is
+    x") instead of composing both via addition. Control cell: if this
+    is easy (as expected, given CS's own 97-100%), it confirms single-
+    fact value retrieval from a 2-fact program isn't the bottleneck --
+    isolating composition vs. retrieval before testing retrieval of an
+    ENTITY REFERENCE instead of a value (`generate_entity_select_episode`)."""
+    a, b = rng.randrange(5), rng.randrange(5)
+    program = [f"x is {NUMBERS[a]}", f"y is {NUMBERS[b]}"]
+    ask_x = rng.random() < 0.5
+    question = "what is x" if ask_x else "what is y"
+    answer = a if ask_x else b
+    return {"program": program, "question": question, "x": a, "y": b,
+            "answer": answer, "answer_idx": answer}
+
+
+def generate_entity_select_episode(rng: random.Random) -> dict:
+    """Real 2x2 diagnostic, cell 2 (plan Phase 9's entity-selection
+    follow-up) -- the Physics ablation's real successor. Strips away
+    EVERYTHING Physics had beyond the core operation: no arithmetic, no
+    physical rule, no comparison, no colors. Just "x is a widget, y is
+    a gadget, which is the widget" -- a pure (entity -> property) bind
+    for x and y, then a question that must SELECT AND OUTPUT the
+    entity (x or y) satisfying a named property, not compute a derived
+    value. Property-to-symbol assignment and which property is asked
+    about are both randomized per episode so neither can be shortcut.
+    Directly comparable to `generate_value_retrieval_episode`: same
+    program shape, same output space size ({x, y} vs one NUMBERS digit
+    -- both 2-ish-way after conditioning), the only real difference is
+    whether the answer is a VALUE or a REFERENCE to an entity."""
+    prop_x, prop_y = (ENTITY_WORDS if rng.random() < 0.5 else list(reversed(ENTITY_WORDS)))
+    program = [f"x is a {prop_x}", f"y is a {prop_y}"]
+    asked_prop = rng.choice(ENTITY_WORDS)
+    question = f"which is the {asked_prop}"
+    answer_id = "x" if prop_x == asked_prop else "y"
+    return {"program": program, "question": question, "prop_x": prop_x, "prop_y": prop_y,
+            "asked_prop": asked_prop, "answer_id": answer_id,
+            "answer_idx": PHYSICS_IDENTITY_LABELS.index(answer_id)}

@@ -11,6 +11,7 @@ import torch
 from hatchling_world.school.generator import (
     generate_arithmetic_episode, generate_rule_episode, generate_cs_program_episode,
     generate_physics_episode, generate_physics_fixed_identity_episode, PHYSICS_IDENTITY_LABELS,
+    generate_value_retrieval_episode, generate_entity_select_episode,
     ARITH_TRAIN_PAIRS, ARITH_HELD_OUT_PAIRS,
 )
 from hatchling_world.language.tokenizer import NurseryTokenizer, NUMBERS, SIZES, COLORS
@@ -155,3 +156,42 @@ def test_physics_forward_works_unchanged_on_fixed_identity_variant():
     assert logits.shape == (1, len(PHYSICS_IDENTITY_LABELS))
     logits.sum().backward()
     assert model.read_head.weight.grad is not None
+
+
+def test_value_retrieval_episode_answer_matches_the_asked_variable():
+    rng = random.Random(11)
+    for _ in range(50):
+        ep = generate_value_retrieval_episode(rng)
+        if ep["question"] == "what is x":
+            assert ep["answer"] == ep["x"]
+        else:
+            assert ep["question"] == "what is y"
+            assert ep["answer"] == ep["y"]
+        assert ep["answer"] == ep["answer_idx"]
+
+
+def test_entity_select_episode_answer_points_to_the_asked_property():
+    rng = random.Random(12)
+    for _ in range(50):
+        ep = generate_entity_select_episode(rng)
+        assert {ep["prop_x"], ep["prop_y"]} == {"widget", "gadget"}
+        assert ep["prop_x"] != ep["prop_y"]
+        expected = "x" if ep["prop_x"] == ep["asked_prop"] else "y"
+        assert ep["answer_id"] == expected
+        assert PHYSICS_IDENTITY_LABELS[ep["answer_idx"]] == ep["answer_id"]
+
+
+def test_entity_select_forward_shapes_and_gradients_reuses_read_head():
+    tok = NurseryTokenizer()
+    model = HZLanguageModel(vocab_size=tok.vocab_size, d_model=32, memory_slots=8, workspace_slots=16,
+                             n_rounds_l1=4, n_read_labels=len(PHYSICS_IDENTITY_LABELS))
+    rng = random.Random(13)
+    ep = generate_entity_select_episode(rng)
+    statement_ids_list = [torch.tensor([tok.encode(s)]) for s in ep["program"]]
+    question_ids = torch.tensor([tok.encode(ep["question"])])
+    logits = model.entity_select_forward(statement_ids_list, question_ids)
+    assert logits.shape == (1, len(PHYSICS_IDENTITY_LABELS))
+    loss = logits.sum()
+    loss.backward()
+    assert model.read_head.weight.grad is not None, "entity_select_forward must route through the shared read_head"
+    assert model.mem.q_proj.weight.grad is not None

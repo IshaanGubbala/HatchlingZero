@@ -1,0 +1,24 @@
+=== value-retrieval seed 0 ===
+[value-retrieval] vocab_size=63 n_params=88357
+[value-retrieval] step=250/2500 train_acc=0.490 held_out_acc=0.635 (chance=0.111)
+[value-retrieval] step=500/2500 train_acc=0.615 held_out_acc=0.610 (chance=0.111)
+[value-retrieval] step=750/2500 train_acc=0.645 held_out_acc=0.630 (chance=0.111)
+[value-retrieval] step=1000/2500 train_acc=0.620 held_out_acc=0.605 (chance=0.111)
+[value-retrieval] step=1250/2500 train_acc=0.560 held_out_acc=0.585 (chance=0.111)
+[value-retrieval] step=1500/2500 train_acc=0.600 held_out_acc=0.615 (chance=0.111)
+[value-retrieval] step=1750/2500 train_acc=0.590 held_out_acc=0.560 (chance=0.111)
+[value-retrieval] step=2000/2500 train_acc=0.575 held_out_acc=0.590 (chance=0.111)
+[value-retrieval] step=2250/2500 train_acc=0.685 held_out_acc=0.600 (chance=0.111)
+[value-retrieval] step=2500/2500 train_acc=0.615 held_out_acc=0.600 (chance=0.111)
+=== value-retrieval seed 7 ===
+[value-retrieval] vocab_size=63 n_params=88357
+[value-retrieval] step=250/2500 train_acc=0.520 held_out_acc=0.550 (chance=0.111)
+[value-retrieval] step=500/2500 train_acc=0.595 held_out_acc=0.555 (chance=0.111)
+[value-retrieval] step=750/2500 train_acc=0.645 held_out_acc=0.645 (chance=0.111)
+[value-retrieval] step=1000/2500 train_acc=0.590 held_out_acc=0.620 (chance=0.111)
+[value-retrieval] step=1250/2500 train_acc=0.650 held_out_acc=0.545 (chance=0.111)
+[value-retrieval] step=1500/2500 train_acc=0.625 held_out_acc=0.580 (chance=0.111)
+[value-retrieval] step=1750/2500 train_acc=0.605 held_out_acc=0.580 (chance=0.111)
+[value-retrieval] step=2000/2500 train_acc=0.610 held_out_acc=0.645 (chance=0.111)
+[value-retrieval] step=2250/2500 train_acc=0.615 held_out_acc=0.620 (chance=0.111)
+[value-retrieval] step=2500/2500 train_acc=0.580 held_out_acc=0.565 (chance=0.111)

@@ -1,0 +1,24 @@
+=== entity-select seed 0 ===
+[entity-select] vocab_size=63 n_params=88357
+[entity-select] step=250/2500 train_acc=0.515 held_out_acc=0.700 (chance=0.500)
+[entity-select] step=500/2500 train_acc=0.775 held_out_acc=0.780 (chance=0.500)
+[entity-select] step=750/2500 train_acc=0.985 held_out_acc=1.000 (chance=0.500)
+[entity-select] step=1000/2500 train_acc=1.000 held_out_acc=1.000 (chance=0.500)
+[entity-select] step=1250/2500 train_acc=1.000 held_out_acc=1.000 (chance=0.500)
+[entity-select] step=1500/2500 train_acc=1.000 held_out_acc=1.000 (chance=0.500)
+[entity-select] step=1750/2500 train_acc=1.000 held_out_acc=1.000 (chance=0.500)
+[entity-select] step=2000/2500 train_acc=1.000 held_out_acc=1.000 (chance=0.500)
+[entity-select] step=2250/2500 train_acc=1.000 held_out_acc=1.000 (chance=0.500)
+[entity-select] step=2500/2500 train_acc=1.000 held_out_acc=1.000 (chance=0.500)
+=== entity-select seed 7 ===
+[entity-select] vocab_size=63 n_params=88357
+[entity-select] step=250/2500 train_acc=0.555 held_out_acc=0.535 (chance=0.500)
+[entity-select] step=500/2500 train_acc=0.440 held_out_acc=0.495 (chance=0.500)
+[entity-select] step=750/2500 train_acc=0.810 held_out_acc=1.000 (chance=0.500)
+[entity-select] step=1000/2500 train_acc=1.000 held_out_acc=1.000 (chance=0.500)
+[entity-select] step=1250/2500 train_acc=1.000 held_out_acc=1.000 (chance=0.500)
+[entity-select] step=1500/2500 train_acc=1.000 held_out_acc=1.000 (chance=0.500)
+[entity-select] step=1750/2500 train_acc=1.000 held_out_acc=1.000 (chance=0.500)
+[entity-select] step=2000/2500 train_acc=1.000 held_out_acc=1.000 (chance=0.500)
+[entity-select] step=2250/2500 train_acc=1.000 held_out_acc=1.000 (chance=0.500)
+[entity-select] step=2500/2500 train_acc=1.000 held_out_acc=1.000 (chance=0.500)

@@ -2740,18 +2740,64 @@ numbers (order/identity-symmetric: the answer doesn't need to "point
 back" to which symbol held which value). Physics's answer is "which
 SYMBOL was bound to the property `large`" -- the model must select and
 output a REFERENCE to one specific one of the two entities discussed, a
-pointer/selection operation, not an aggregation. **New, testable
-hypothesis for next time**: this architecture composes/aggregates
-independently-retrieved values fine (CS, arithmetic) but struggles to
-select-and-output *which* entity satisfies a predicate (Physics) --
-independent of whether that entity's surface name is fixed or
-per-episode-varying. Parking here rather than tuning indefinitely
-(matching this session's "kill/park, don't keep tuning" discipline from
-the L5 memory-cliff thread) -- the next real experiment, if pursued, is
-a minimal task isolating pure entity-selection (e.g. "the {A} object
-is a widget, the {B} object is a gadget, which one is the widget") with
-NO composition/arithmetic at all, to confirm selection itself is the
-failure mode rather than some other confound.
+pointer/selection operation, not an aggregation. The hypothesis at the
+time: this architecture composes/aggregates independently-retrieved
+values fine (CS) but struggles to select-and-output *which* entity
+satisfies a predicate (Physics).
+
+**Real, decisive follow-up, 2026-09-05 — the pointer/selection
+hypothesis above is REFUTED too; pure entity-selection is actually
+EASY.** User's own proposed 2x2: strip Physics down to a minimal
+predicate with NO rule, no comparison, no arithmetic at all --
+`generate_entity_select_episode` ("x is a widget", "y is a gadget",
+"which is the widget" -> x or y) -- via `entity_select_forward`
+(structurally identical to `cs_program_forward`, classifies via
+read_head over {x,y} instead of arithmetic_head). Alongside it, a
+control cell, `generate_value_retrieval_episode` ("x is {a}", "y is
+{b}", "what is x" -> the VALUE, not the sum) via `cs_program_forward`
+unchanged. `scripts/hz_school0_entity_select_train.py` and `scripts/
+hz_school0_value_retrieval_train.py`, same 2 seeds x 2500 steps:
+
+| task | output type | output space | held-out acc |
+|---|---|---|---|
+| CS compose (x+y) | derived value | 9-way (NUMBERS) | 97-100% (known) |
+| **entity-select (which is widget)** | **entity reference** | **2-way (x/y)** | **100% by step ~750-1000, both seeds** |
+| value-retrieval (what is x) | retrieved value | 9-way (NUMBERS) | ~59.7% mean, flat |
+| rule_forward (if color then size) | derived conclusion | 2-way (SIZES) | 100% by step 500 (known) |
+| Physics fixed-identity (rule+select) | entity reference | 2-way (x/y) | ~48.8% mean, flat (known) |
+
+Pure entity-selection hits a **clean, fast 100%** -- selecting and
+outputting a reference to an entity is not hard for this architecture
+at all, cleanly refuting the previous section's hypothesis. Combined
+with `rule_forward`'s own clean 100% (single-hop rule application, no
+entity selection involved), this isolates the REAL bottleneck sharply:
+**neither rule-application alone nor entity-selection alone is hard --
+only CHAINING them is.** Physics requires exactly that chain: apply a
+general rule ("large needs more force") stated separately from the
+instance binding ("x is large"), then select which entity the rule's
+conclusion points to -- a genuine 2-hop composition (rule-application
+hop -> entity-selection hop) that neither hop alone predicts would
+fail. This reframes the open question from "what output type is hard"
+to **"why does chaining two individually-easy reasoning hops fail,"**
+a compositional-depth question, not a representational one.
+
+**Secondary, not-fully-explained observation**: value-retrieval's
+~59.7% is itself surprising -- structurally almost identical to
+entity-select (same program shape, a question that must select ONE of
+two bound facts) yet far below entity-select's 100%. The one clear
+difference is output space size (9-way NUMBERS vs 2-way {x,y}); CS
+proves 9-way alone isn't the problem (97-100%, but CS's question never
+needs to select between x and y -- it always uses both). This suggests
+selecting-which-fact-matters-conditioned-on-the-question specifically
+degrades when paired with a large output space, independent of the
+rule-chaining story above -- flagged honestly as unresolved, not
+conflated with the main finding. Parking both threads here rather than
+tuning indefinitely (matching this session's "kill/park, don't keep
+tuning" discipline from the L5 memory-cliff thread); the next real
+experiment, if pursued, is a minimal 2-hop task chaining a rule with a
+DIRECT lookup (no comparison, no colors) to confirm chaining depth
+itself, not comparison/magnitude semantics, is what Physics's original
+framing was actually testing.
 
 **Real result, 2026-09-05 — School-0, two very different outcomes,
 directly connecting to the Nursery's own open questions.** Explicit

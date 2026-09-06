@@ -69,10 +69,18 @@ CS_WORDS = ["x", "y"]
 # TWO named entities the abstract rule picks out, not just looking up
 # one premise's conclusion.
 PHYSICS_WORDS = ["force", "more", "than", "needs", "which", "or"]
+# Phase 9 -- entity-selection isolation diagnostic (real, decisive
+# follow-up to the Physics coreference ablation, which refuted "dynamic
+# identity" as the bottleneck): a minimal predicate with NO arithmetic,
+# comparison, or physical rule at all -- "x is a widget, y is a gadget,
+# which is the widget" -- to test pure "select which entity satisfies a
+# property" output, isolated from Physics's comparative-magnitude
+# framing.
+ENTITY_WORDS = ["widget", "gadget"]
 
 VOCAB = (SPECIALS + NOUNS + COLORS + SIZES + POSITIONS + VERBS_STATE + VERBS_ACTION
          + FUNCTION_WORDS + NUMBERS + LOGIC_WORDS + NOVEL_LABELS + QA_WORDS + SCHOOL_WORDS
-         + CS_WORDS + PHYSICS_WORDS)
+         + CS_WORDS + PHYSICS_WORDS + ENTITY_WORDS)
 
 
 class NurseryTokenizer:
