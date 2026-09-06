@@ -772,6 +772,72 @@ real, repeated evidence that per-sub-skill mastery tracking (already
 flagged as a real remaining gap) is now the most load-bearing piece of
 unfinished scheduler work, not a nice-to-have.
 
+**Real result, 2026-09-06 -- per-subskill scheduler built and run
+against a pre-committed bar; FAILS it, reported honestly, not
+promoted.** User-directed fix: `need(stage) = max_j(1 - m_j)` over
+per-subskill mastery (not one scalar per stage), with L3/L4-logic's
+"unseen" subskill refreshed via a small (20-episode) real held-out eval
+every 100 steps, since `l3_train_step`/`l4_logic_train_step` never
+train on `split="test"` at all -- there is no training-time signal for
+"unseen" to track in the first place. `scripts/
+hz_world_training_run1_stage_b_library_subskill.py` loads \(C_9\)
+(same starting checkpoint as the previous Library run, for a clean
+A/B), reruns the identical 2,000-step Library-introduction phase. Real
+bug caught and fixed BEFORE running: the priority formula was first
+written as `1 - max(mastery.values())` (uses the BEST subskill) instead
+of `1 - min(mastery.values())` (uses the WORST, per the user's own
+`max_j(1-m_j)` spec) -- exactly the inversion that would have
+silently reproduced the bug this script exists to fix. A second bug
+also caught before running: inherited stages were about to be
+initialized at mastery=1.0 across the board rather than from their real
+\(C_9\) scores (which would have wrongly deprioritized Corpus's real
+~0.40 mastery). Both fixed prior to the real run.
+
+Pre-committed bar: Library >= 0.95, L3 unseen >= 0.90, L4-logic unseen
+>= 0.90, L1/L2-sel >= 0.90. Real result:
+
+| metric | uniform (avg mastery) | per-subskill (max-need) | bar |
+|---|---|---|---|
+| Library | 1.000 | 1.000 | >= 0.95 [PASS] |
+| L1 | 1.000 | 1.000 | >= 0.90 [PASS] |
+| L2 sel | 1.000 | 1.000 | >= 0.90 [PASS] |
+| L3 unseen | 0.833 | 0.760 | >= 0.90 [FAIL] |
+| L4-logic unseen | 0.547 | **0.680** | >= 0.90 [FAIL] |
+
+**FAILS the pre-committed bar -- not promoted as the production
+scheduler**, per the user's own stated protocol. Real, mixed picture,
+not spun as a win: L4-logic improved substantially (0.547 -> 0.680,
+almost double its allocated training calls: 53 -> 96) but L3 actually
+got WORSE (0.833 -> 0.760) despite the fix, and got FEWER calls than
+before (64 -> 48). Real, identified root cause for L3's regression,
+visible directly in the logs: L3 started this run at a measured
+seen=1.00/unseen=1.00 (genuinely, both were perfect at \(C_9\)), so
+`need = 1 - min(1.0, 1.0) = 0`, floored to the same minimum priority as
+a truly mastered stage -- the scheduler has no way to distinguish
+"perfect and robust" from "perfect but about to be overwritten by other
+stages' gradient updates" until the next periodic refresh (100 steps
+later) actually observes the drop. This is a real, disclosed structural
+limitation of ANY EMA-based reactive scheduler (it responds to already-
+observed degradation, it cannot anticipate fragility), not a bug in
+this specific implementation. Real secondary evidence of miscalibration:
+the scheduler's own internal noisy 20-episode EMA read L3's unseen
+mastery as 0.931 at the end of training, while the real 150-episode
+final eval measured 0.760 -- a real, meaningful gap between the cheap
+tracking signal and ground truth.
+
+**Per the user's own explicit instruction ("if not, report the real
+shortfall honestly") and the project's own north-star guardrail (park
+work that doesn't move knowledge/reasoning/memory/efficiency/benchmark
+forward): this scheduler refinement is parked here, not iterated on
+further right now** -- it is a real, directionally-correct improvement
+(fixes the exact averaging bug, doubles L4-logic's allocation), not a
+regression to abandon, but perfecting it further is not what unblocks
+the next real milestone (Stage B's actual knowledge-acquisition test,
+below). The checkpoint from this run (`results/local/
+hz_world_run1_stage_b_library_subskill/after_Library.pt`, \(C_{11}\))
+is used as the starting point for that next step, since it reflects the
+best available real state, partial scheduler fix included.
+
 ---
 
 # 1. Do Not Abandon Hatchling World After One Bad Run

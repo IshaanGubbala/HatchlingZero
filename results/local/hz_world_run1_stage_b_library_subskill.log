@@ -1,0 +1,41 @@
+[stage-b-subskill] loading checkpoint (C_9, same starting point as the previous Library run for a clean A/B): results/local/hz_world_run1_stage_a_adaptive/after_L6.pt
+[stage-b-subskill] CONTINUING the persistent trainee: n_params=113573
+[stage-b-subskill] loaded 20000 corpus train windows
+
+[stage-b-subskill] ===== BEFORE Library: retention on the inherited lineage (C_9) =====
+[stage-b-subskill] before Library, Corpus={'held_out_next_byte_acc': 0.4014509803921569}
+[stage-b-subskill] before Library, L0={'next_token_acc': 0.8905109763145447}
+[stage-b-subskill] before Library, L1={'held_out_acc': 1.0}
+[stage-b-subskill] before Library, L2={'sel_acc': 1.0, 'cons_acc': 0.7644444444444445}
+[stage-b-subskill] before Library, L3={'seen_combo_acc': 1.0, 'unseen_combo_acc': 1.0}
+[stage-b-subskill] before Library, L4-logic={'seen_combo_acc': 0.9666666666666667, 'unseen_combo_acc': 0.9666666666666667}
+[stage-b-subskill] before Library, L4-counting={'held_out_acc': 0.72}
+[stage-b-subskill] before Library, L5={'held_out_acc': 0.6533333333333333}
+[stage-b-subskill] before Library, L6={'held_out_acc': 0.6666666666666666}
+[stage-b-subskill] initial per-subskill mastery (from real C_9 scores): {'Corpus': {'main': 0.4014509803921569}, 'L0': {'main': 0.8905109763145447}, 'L1': {'main': 1.0}, 'L2': {'sel': 1.0, 'cons': 0.7644444444444445}, 'L3': {'seen': 1.0, 'unseen': 1.0}, 'L4-logic': {'seen': 0.9666666666666667, 'unseen': 0.9666666666666667}, 'L4-counting': {'main': 0.72}, 'L5': {'main': 0.6533333333333333}, 'L6': {'main': 0.6666666666666666}, 'Library': {'main': 0.0}}
+
+[stage-b-subskill] ===== Library phase: 2000 steps, PER-SUBSKILL mastery-weighted among all 10 stages (n_facts=20) =====
+[stage-b-subskill] step=500/2000 last_sampled=L4-counting mastery=[Corpus={'main': 0.37328952257336745} L0={'main': 0.8790138353833673} L1={'main': 1.0} L2={'sel': 1.0, 'cons': 0.7884640911179134} L3={'seen': 1.0, 'unseen': 0.9766003125} L4-logic={'seen': 0.981039996924118, 'unseen': 0.9377034427083335} L4-counting={'main': 0.7059331949605351} L5={'main': 0.9175533464448181} L6={'main': 0.7718804974622416} Library={'main': 0.9055317558622624}] calls_so_far={'Corpus': 159, 'L0': 22, 'L1': 17, 'L2': 47, 'L3': 11, 'L4-logic': 11, 'L4-counting': 85, 'L5': 28, 'L6': 74, 'Library': 46}
+[stage-b-subskill] step=1000/2000 last_sampled=Corpus mastery=[Corpus={'main': 0.362484737299792} L0={'main': 0.8790977732821927} L1={'main': 1.0} L2={'sel': 0.970295318317731, 'cons': 0.7682856247921329} L3={'seen': 1.0, 'unseen': 0.964378424119043} L4-logic={'seen': 0.9932031058084739, 'unseen': 0.9106373146208318} L4-counting={'main': 0.6505187063661548} L5={'main': 0.9480380452630773} L6={'main': 0.624790129276782} Library={'main': 0.951505474750577}] calls_so_far={'Corpus': 346, 'L0': 44, 'L1': 33, 'L2': 106, 'L3': 22, 'L4-logic': 31, 'L4-counting': 164, 'L5': 37, 'L6': 158, 'Library': 59}
+[stage-b-subskill] step=1500/2000 last_sampled=Corpus mastery=[Corpus={'main': 0.37032152298219856} L0={'main': 0.8808885322089931} L1={'main': 1.0} L2={'sel': 0.9979372225371256, 'cons': 0.8198708257027663} L3={'seen': 1.0, 'unseen': 0.9542376411196056} L4-logic={'seen': 0.9982984377105467, 'unseen': 0.8913221544047896} L4-counting={'main': 0.692878699107335} L5={'main': 0.9793599675634165} L6={'main': 0.6673460384338934} Library={'main': 0.9775329117411816}] calls_so_far={'Corpus': 520, 'L0': 74, 'L1': 46, 'L2': 158, 'L3': 36, 'L4-logic': 58, 'L4-counting': 244, 'L5': 55, 'L6': 235, 'Library': 74}
+[stage-b-subskill] step=2000/2000 last_sampled=L4-counting mastery=[Corpus={'main': 0.39700108912544074} L0={'main': 0.884043852749439} L1={'main': 1.0} L2={'sel': 0.956866158019732, 'cons': 0.8199054313670074} L3={'seen': 1.0, 'unseen': 0.9306858965433171} L4-logic={'seen': 0.9997577047763462, 'unseen': 0.8508567016248579} L4-counting={'main': 0.5390339961315739} L5={'main': 0.9882599476454822} L6={'main': 0.714934690648331} Library={'main': 0.9884666981079937}] calls_so_far={'Corpus': 701, 'L0': 102, 'L1': 67, 'L2': 198, 'L3': 48, 'L4-logic': 96, 'L4-counting': 332, 'L5': 66, 'L6': 303, 'Library': 87}
+[stage-b-subskill] Library phase done in 161s.
+
+[stage-b-subskill] ===== AFTER Library: retention on ALL 10 stages =====
+[stage-b-subskill] after Library, Corpus={'held_out_next_byte_acc': 0.3855686274509804}
+[stage-b-subskill] after Library, L0={'next_token_acc': 0.903649628162384}
+[stage-b-subskill] after Library, L1={'held_out_acc': 1.0}
+[stage-b-subskill] after Library, L2={'sel_acc': 1.0, 'cons_acc': 0.8422222222222222}
+[stage-b-subskill] after Library, L3={'seen_combo_acc': 1.0, 'unseen_combo_acc': 0.76}
+[stage-b-subskill] after Library, L4-logic={'seen_combo_acc': 1.0, 'unseen_combo_acc': 0.68}
+[stage-b-subskill] after Library, L4-counting={'held_out_acc': 0.6866666666666666}
+[stage-b-subskill] after Library, L5={'held_out_acc': 1.0}
+[stage-b-subskill] after Library, L6={'held_out_acc': 0.6466666666666666}
+[stage-b-subskill] after Library, Library={'held_out_acc': 1.0}
+[stage-b-subskill] checkpoint saved: results/local/hz_world_run1_stage_b_library_subskill/after_Library.pt
+
+[stage-b-subskill] === PRE-COMMITTED VERDICT ===
+Library=1.000 (need >=0.95)  L3_unseen=0.760 (need >=0.90)  L4logic_unseen=0.680 (need >=0.90)  L1=1.000 (need >=0.90)  L2_sel=1.000 (need >=0.90)
+[stage-b-subskill] FAIL -- report honestly, do not promote
+
+[stage-b-subskill] DONE. Wrote results/local/hz_world_run1_stage_b_library_subskill_retention.json

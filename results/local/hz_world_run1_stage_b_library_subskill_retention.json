@@ -1,0 +1,118 @@
+{
+  "before_library": {
+    "Corpus": {
+      "held_out_next_byte_acc": 0.4014509803921569
+    },
+    "L0": {
+      "next_token_acc": 0.8905109763145447
+    },
+    "L1": {
+      "held_out_acc": 1.0
+    },
+    "L2": {
+      "sel_acc": 1.0,
+      "cons_acc": 0.7644444444444445
+    },
+    "L3": {
+      "seen_combo_acc": 1.0,
+      "unseen_combo_acc": 1.0
+    },
+    "L4-logic": {
+      "seen_combo_acc": 0.9666666666666667,
+      "unseen_combo_acc": 0.9666666666666667
+    },
+    "L4-counting": {
+      "held_out_acc": 0.72
+    },
+    "L5": {
+      "held_out_acc": 0.6533333333333333
+    },
+    "L6": {
+      "held_out_acc": 0.6666666666666666
+    }
+  },
+  "after_library": {
+    "Corpus": {
+      "held_out_next_byte_acc": 0.3855686274509804
+    },
+    "L0": {
+      "next_token_acc": 0.903649628162384
+    },
+    "L1": {
+      "held_out_acc": 1.0
+    },
+    "L2": {
+      "sel_acc": 1.0,
+      "cons_acc": 0.8422222222222222
+    },
+    "L3": {
+      "seen_combo_acc": 1.0,
+      "unseen_combo_acc": 0.76
+    },
+    "L4-logic": {
+      "seen_combo_acc": 1.0,
+      "unseen_combo_acc": 0.68
+    },
+    "L4-counting": {
+      "held_out_acc": 0.6866666666666666
+    },
+    "L5": {
+      "held_out_acc": 1.0
+    },
+    "L6": {
+      "held_out_acc": 0.6466666666666666
+    },
+    "Library": {
+      "held_out_acc": 1.0
+    }
+  },
+  "per_stage_calls": {
+    "Corpus": 701,
+    "L0": 102,
+    "L1": 67,
+    "L2": 198,
+    "L3": 48,
+    "L4-logic": 96,
+    "L4-counting": 332,
+    "L5": 66,
+    "L6": 303,
+    "Library": 87
+  },
+  "final_mastery": {
+    "Corpus": {
+      "main": 0.39700108912544074
+    },
+    "L0": {
+      "main": 0.884043852749439
+    },
+    "L1": {
+      "main": 1.0
+    },
+    "L2": {
+      "sel": 0.956866158019732,
+      "cons": 0.8199054313670074
+    },
+    "L3": {
+      "seen": 1.0,
+      "unseen": 0.9306858965433171
+    },
+    "L4-logic": {
+      "seen": 0.9997577047763462,
+      "unseen": 0.8508567016248579
+    },
+    "L4-counting": {
+      "main": 0.5390339961315739
+    },
+    "L5": {
+      "main": 0.9882599476454822
+    },
+    "L6": {
+      "main": 0.714934690648331
+    },
+    "Library": {
+      "main": 0.9884666981079937
+    }
+  },
+  "n_params": 113573,
+  "passed": false
+}
