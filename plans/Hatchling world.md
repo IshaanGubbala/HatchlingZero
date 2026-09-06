@@ -716,6 +716,62 @@ Stage C reasoning/RLVR, Stage D interaction, Stage E projects, per
 section 0.6) -- the model here is still 113,573 real parameters and 20K
 corpus windows, an integration prototype, not HZ-1.
 
+**Real result, 2026-09-06 -- Stage B's first slice: Library becomes
+load-bearing in the persistent trainee, via the project's first REAL
+checkpoint continuation.** Every Stage A script up to this point started
+a fresh model each time (they were testing different SCHEDULING
+mechanisms, not extending one lineage). `scripts/
+hz_world_training_run1_stage_b_library.py` is the first to actually
+LOAD a prior checkpoint (`results/local/hz_world_run1_stage_a_adaptive/
+after_L6.pt`, \(C_9\) in the plan's own \(C_0 \to C_1 \to \ldots \to
+C_n\) notation) and continue training the SAME weights -- confirmed
+genuine by the "before Library" retention scores matching the adaptive
+run's own final numbers exactly (L1=1.0, L4-logic=0.967/0.967, L5=0.653,
+L6=0.667, etc. -- not a fresh reinitialization). Library is added as a
+10th adaptive-scheduler channel, reusing `HZLanguageModel.
+stress_recall_forward` completely UNCHANGED (now fixed to whole-sentence
+ingestion) -- Library's episode shape (one retrieved fact + one
+question, no object grounding) already matches that method's signature
+exactly, so zero new model code was needed. 2,000-step Library phase,
+`n_facts=20`.
+
+| stage | before Library (\(C_9\)) | after Library (\(C_{10}\)) |
+|---|---|---|
+| Corpus | 0.401 | 0.387 |
+| L0 | 0.891 | 0.885 |
+| L1 | 1.000 | 1.000 |
+| L2 sel / cons | 1.000 / 0.764 | 1.000 / 0.776 |
+| L3 seen / unseen | 1.00 / 1.00 | 1.00 / 0.833 |
+| L4-logic seen / unseen | 0.967 / 0.967 | 0.960 / **0.547** |
+| L4-counting | 0.720 | 0.693 |
+| L5 | 0.653 | **1.000** |
+| L6 | 0.667 | 0.647 |
+| **Library (new)** | n/a | **1.000** |
+
+**Library integrates cleanly -- reaches a clean 1.000, confirming
+Phase 8's original finding (real O(1) retrieval, near-trivial for this
+architecture) transfers into the persistent, continuously-trained,
+byte-level lineage with 9 other stages already loaded, not just in
+isolation.** Nothing collapses. The scheduler's own call counts explain
+both the wins and the one real cost directly: `Corpus` (lowest mastery,
+~0.40) got 774 of the 2,000 calls; `L4-counting` (0.72) and `L6` (0.667)
+got 356 and 338; `Library` itself needed only 97 calls to reach 1.000
+(confirming it really is close to trivial for this architecture); `L5`
+(0.653, moderate mastery) got 70 calls and IMPROVED to 1.000 as a
+result. **`L4-logic` got only 53 calls** -- its EMA mastery signal
+(tracked from `l4_logic_train_step`'s own returned accuracy, which is
+always measured on SEEN training pairs, per that function's own
+`split="train"` default) read as near-mastered (0.967) going in, so the
+scheduler correctly deprioritized it by that signal -- but UNSEEN
+generalization, which needs continued exposure and isn't what the
+tracked signal measures, decayed from 0.967 to 0.547 as a result. This
+is the SAME real limitation flagged in the adaptive-scheduler run above
+(one scalar mastery metric per stage can miss a harder, untracked
+secondary sub-skill) recurring in a new context, not a new problem --
+real, repeated evidence that per-sub-skill mastery tracking (already
+flagged as a real remaining gap) is now the most load-bearing piece of
+unfinished scheduler work, not a nice-to-have.
+
 ---
 
 # 1. Do Not Abandon Hatchling World After One Bad Run

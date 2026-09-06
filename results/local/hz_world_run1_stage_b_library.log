@@ -1,0 +1,36 @@
+[stage-b-library] loading checkpoint (C_9 in the plan's own notation): results/local/hz_world_run1_stage_a_adaptive/after_L6.pt
+[stage-b-library] CONTINUING the persistent trainee (not reinitializing): n_params=113573
+[stage-b-library] loaded 20000 corpus train windows
+
+[stage-b-library] ===== BEFORE Library: retention on the inherited lineage (C_9) =====
+[stage-b-library] before Library, Corpus={'held_out_next_byte_acc': 0.4014509803921569}
+[stage-b-library] before Library, L0={'next_token_acc': 0.8905109763145447}
+[stage-b-library] before Library, L1={'held_out_acc': 1.0}
+[stage-b-library] before Library, L2={'sel_acc': 1.0, 'cons_acc': 0.7644444444444445}
+[stage-b-library] before Library, L3={'seen_combo_acc': 1.0, 'unseen_combo_acc': 1.0}
+[stage-b-library] before Library, L4-logic={'seen_combo_acc': 0.9666666666666667, 'unseen_combo_acc': 0.9666666666666667}
+[stage-b-library] before Library, L4-counting={'held_out_acc': 0.72}
+[stage-b-library] before Library, L5={'held_out_acc': 0.6533333333333333}
+[stage-b-library] before Library, L6={'held_out_acc': 0.6666666666666666}
+
+[stage-b-library] ===== Library phase: 2000 steps, mastery-weighted among all 10 stages (n_facts=20) =====
+[stage-b-library] step=500/2000 last_sampled=L4-counting ema_mastery=[Corpus=0.34 L0=0.90 L1=1.00 L2=1.00 L3=1.00 L4-logic=1.00 L4-counting=0.54 L5=1.00 L6=0.68 Library=0.95] calls_so_far={'Corpus': 176, 'L0': 25, 'L1': 22, 'L2': 23, 'L3': 19, 'L4-logic': 16, 'L4-counting': 70, 'L5': 22, 'L6': 69, 'Library': 58}
+[stage-b-library] step=1000/2000 last_sampled=Corpus ema_mastery=[Corpus=0.37 L0=0.90 L1=1.00 L2=1.00 L3=1.00 L4-logic=0.97 L4-counting=0.67 L5=1.00 L6=0.71 Library=0.97] calls_so_far={'Corpus': 382, 'L0': 50, 'L1': 40, 'L2': 35, 'L3': 35, 'L4-logic': 28, 'L4-counting': 162, 'L5': 32, 'L6': 167, 'Library': 69}
+[stage-b-library] step=1500/2000 last_sampled=Corpus ema_mastery=[Corpus=0.36 L0=0.89 L1=1.00 L2=1.00 L3=1.00 L4-logic=0.98 L4-counting=0.70 L5=1.00 L6=0.75 Library=0.96] calls_so_far={'Corpus': 575, 'L0': 83, 'L1': 52, 'L2': 46, 'L3': 52, 'L4-logic': 43, 'L4-counting': 252, 'L5': 47, 'L6': 266, 'Library': 84}
+[stage-b-library] step=2000/2000 last_sampled=L4-counting ema_mastery=[Corpus=0.38 L0=0.89 L1=1.00 L2=1.00 L3=1.00 L4-logic=0.99 L4-counting=0.56 L5=1.00 L6=0.71 Library=0.98] calls_so_far={'Corpus': 774, 'L0': 119, 'L1': 65, 'L2': 64, 'L3': 64, 'L4-logic': 53, 'L4-counting': 356, 'L5': 70, 'L6': 338, 'Library': 97}
+[stage-b-library] Library phase done in 169s.
+
+[stage-b-library] ===== AFTER Library: retention on ALL 10 stages =====
+[stage-b-library] after Library, Corpus={'held_out_next_byte_acc': 0.3871764705882353}
+[stage-b-library] after Library, L0={'next_token_acc': 0.885158121585846}
+[stage-b-library] after Library, L1={'held_out_acc': 1.0}
+[stage-b-library] after Library, L2={'sel_acc': 1.0, 'cons_acc': 0.7755555555555556}
+[stage-b-library] after Library, L3={'seen_combo_acc': 1.0, 'unseen_combo_acc': 0.8333333333333334}
+[stage-b-library] after Library, L4-logic={'seen_combo_acc': 0.96, 'unseen_combo_acc': 0.5466666666666666}
+[stage-b-library] after Library, L4-counting={'held_out_acc': 0.6933333333333334}
+[stage-b-library] after Library, L5={'held_out_acc': 1.0}
+[stage-b-library] after Library, L6={'held_out_acc': 0.6466666666666666}
+[stage-b-library] after Library, Library={'held_out_acc': 1.0}
+[stage-b-library] checkpoint saved (C_10): results/local/hz_world_run1_stage_b_library/after_Library.pt
+
+[stage-b-library] DONE. Wrote results/local/hz_world_run1_stage_b_library_retention.json
