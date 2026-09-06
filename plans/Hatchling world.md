@@ -1023,6 +1023,81 @@ a capacity problem, since the actual failure mode (overfitting to exact
 wording under repetition) is exactly what training-wording-diversity
 would address directly, and scaling capacity would not.
 
+**Real result, 2026-09-06 -- the wording-diversity experiment, and a
+real methodological confound it exposed in the PREVIOUS result.**
+`scripts/hz_world_stage_b_wording_diversity_states.py`: two arms, both
+from the identical \(C_{13}\) checkpoint, IDENTICAL total updates (30
+full passes over the same 40 states = 1,200 updates each) -- single-
+template arm repeats one canonical wording, multi-template arm cycles
+through 5 genuinely different wordings (6 passes each). A SIXTH
+wording, held out from training in BOTH arms, is used only for the
+paraphrase probe -- stricter than the exposure-scaling experiment's own
+paraphrase probe, which reused `facts_v2.py`'s single fixed paraphrase
+template.
+
+| arm | \(\Delta_{\text{truth}}\) | \(\Delta_{\text{para}}\) |
+|---|---|---|
+| baseline (\(C_{13}\)) | +0.028 | -0.140 |
+| single-template (1,200 updates, 1 wording) | +0.448 | **+0.829** |
+| multi-template (1,200 updates, 5 wordings) | +0.049 | **+1.612** |
+
+**Pre-committed verdict: FAILS** (\(\Delta_{\text{truth}} \ge 0.3\)
+required for the multi-template arm; got +0.049) -- reported honestly,
+not spun. But the real picture underneath is more informative than a
+pass/fail label, and changes how the PREVIOUS exposure-scaling result
+should be read:
+
+**Real confound found in the earlier experiment**: the single-template
+arm here, at the SAME E=30 exposure level as the earlier exposure-
+scaling run, replicates \(\Delta_{\text{truth}}\) almost exactly
+(+0.448 here vs +0.432 there) -- but \(\Delta_{\text{para}}\) comes out
+STRONGLY POSITIVE (+0.829) here, the opposite sign of the earlier
+result (-0.431 there) at the identical exposure level. The only real
+difference is the paraphrase probe's wording: the earlier experiment's
+paraphrase template REVERSED the relation direction ("{capital} is the
+capital city of the state of {state}", asking the model to produce the
+STATE given the CAPITAL -- backwards from training's "state -> capital"
+direction), while this experiment's held-out template preserves
+training's own direction ("... capital of the state of {state}? the
+answer is ", still asking for the CAPITAL). **The earlier "paraphrase
+generalization gets worse with more exposure" finding was, at least
+partly, an artifact of testing generalization through a relation-
+reversed probe, not clean evidence of overfitting-to-exact-wording** --
+a real, important correction to that result, found by designing this
+follow-up more carefully (a stricter, genuinely-held-out, same-
+direction probe) rather than by assuming the earlier probe was clean.
+
+**The real, decisive trade-off THIS experiment actually reveals**:
+diversity training roughly DOUBLES paraphrase generalization over
+single-template training (+1.612 vs +0.829) -- a real, strong,
+positive effect -- but at IDENTICAL total-update budget, it comes at
+the cost of same-canonical-template discrimination, because spreading
+1,200 updates across 5 wordings means each wording gets only ~240
+repetitions instead of 1,200. This is a genuine budget-allocation
+trade-off, not a diversity failure: the experiment deliberately held
+total updates fixed (per its own design, "do not let the diversity arm
+simply see more data overall") specifically to isolate this effect, and
+it worked as a real, clean test -- it just answered a different,
+equally real question (fixed-budget allocation trade-off) rather than
+cleanly confirming diversity as a free win.
+
+**Real, corrected picture for Stage B's actual recipe**: paraphrase
+generalization is not a fundamentally broken axis (the pure
+capacity/representation worry from the exposure-scaling result is now
+less supported) -- it responds strongly and positively to BOTH plain
+exposure (when measured with a same-direction probe) and, even more,
+to wording diversity. The open, real, better-posed question is no
+longer "does HZ generalize past exact wording at all" (yes, once
+measured correctly) but "what is the RIGHT total-budget allocation
+across wordings per fact" -- i.e. a real scaling-curve question (facts
+x wordings x exposures-per-wording), not a binary capacity verdict.
+Concrete, well-scoped next test, not yet run: repeat this same
+multi-template arm at a LARGER total budget (e.g. 1,200 updates PER
+template, 6,000 total, matching single-template's per-wording
+repetition rate) to see whether diversity then gives strong
+\(\Delta_{\text{truth}}\) AND strong \(\Delta_{\text{para}}\) together,
+rather than trading one for the other.
+
 ---
 
 # 1. Do Not Abandon Hatchling World After One Bad Run

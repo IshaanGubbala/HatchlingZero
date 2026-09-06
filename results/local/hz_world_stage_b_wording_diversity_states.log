@@ -1,0 +1,24 @@
+[wording-diversity] loading checkpoint (C_13): results/local/hz_world_run1_stage_b_knowledge_v2/after_Knowledge_v2.pt
+[wording-diversity] 40 train states, 10 held-out states, 5 training templates, 1 held-out-from-training template for paraphrase eval
+[wording-diversity] both arms: 30 exposures/fact = 1200 total updates (IDENTICAL)
+
+[wording-diversity] BASELINE (C_13, untouched): delta_truth=+0.028 delta_para=-0.140
+
+[wording-diversity] ===== SINGLE-TEMPLATE arm (30 exposures, template: 'the capital of the state of {k} is ') =====
+[wording-diversity] SINGLE-TEMPLATE: {'SEEN': {'mean_loss': 1.443251721560955, 'mean_byte_acc': 0.5874195985496045}, 'WRONG': {'mean_loss': 1.8911228699561877, 'mean_byte_acc': 0.404157175276524}, 'PARAPHRASE': {'mean_loss': 2.4123432517051695, 'mean_byte_acc': 0.2763479627668858}, 'UNSEEN': {'mean_loss': 3.2413329124450683, 'mean_byte_acc': 0.14946969971060753}}
+[wording-diversity] SINGLE-TEMPLATE: delta_truth=+0.448 delta_para=+0.829
+
+[wording-diversity] ===== MULTI-TEMPLATE arm (30 exposures across 5 templates, identical total updates) =====
+[wording-diversity] MULTI-TEMPLATE: {'SEEN': {'mean_loss': 1.7009931981563569, 'mean_byte_acc': 0.458642059750855}, 'WRONG': {'mean_loss': 1.7498663572164683, 'mean_byte_acc': 0.4452741086865083}, 'PARAPHRASE': {'mean_loss': 1.7132394760847092, 'mean_byte_acc': 0.4754060609266162}, 'UNSEEN': {'mean_loss': 3.32564001083374, 'mean_byte_acc': 0.18871212303638457}}
+[wording-diversity] MULTI-TEMPLATE: delta_truth=+0.049 delta_para=+1.612
+
+[wording-diversity] === SUMMARY ===
+  baseline (C_13):  delta_truth=+0.028  delta_para=-0.140
+  single-template:  delta_truth=+0.448  delta_para=+0.829
+  multi-template:   delta_truth=+0.049  delta_para=+1.612
+
+[wording-diversity] === PRE-COMMITTED VERDICT ===
+multi-template delta_truth=+0.049 (need >=0.3)  delta_para=+1.612 (need >0)
+[wording-diversity] FAIL -- wording diversity alone does not clear the bar. Capacity/representation becomes the next real suspect.
+
+[wording-diversity] DONE. Wrote results/local/hz_world_stage_b_wording_diversity_states.json
