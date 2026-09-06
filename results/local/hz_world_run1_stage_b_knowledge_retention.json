@@ -1,0 +1,160 @@
+{
+  "before_scores": {
+    "Corpus": {
+      "held_out_next_byte_acc": 0.4024313725490196
+    },
+    "L0": {
+      "next_token_acc": 0.903649628162384
+    },
+    "L1": {
+      "held_out_acc": 1.0
+    },
+    "L2": {
+      "sel_acc": 1.0,
+      "cons_acc": 0.8422222222222222
+    },
+    "L3": {
+      "seen_combo_acc": 1.0,
+      "unseen_combo_acc": 0.76
+    },
+    "L4-logic": {
+      "seen_combo_acc": 1.0,
+      "unseen_combo_acc": 0.68
+    },
+    "L4-counting": {
+      "held_out_acc": 0.6866666666666666
+    },
+    "L5": {
+      "held_out_acc": 1.0
+    },
+    "L6": {
+      "held_out_acc": 0.6466666666666666
+    },
+    "Library": {
+      "held_out_acc": 1.0
+    }
+  },
+  "after_scores": {
+    "Corpus": {
+      "held_out_next_byte_acc": 0.3849019607843137
+    },
+    "L0": {
+      "next_token_acc": 0.8871046304702759
+    },
+    "L1": {
+      "held_out_acc": 1.0
+    },
+    "L2": {
+      "sel_acc": 1.0,
+      "cons_acc": 0.8355555555555556
+    },
+    "L3": {
+      "seen_combo_acc": 1.0,
+      "unseen_combo_acc": 0.5
+    },
+    "L4-logic": {
+      "seen_combo_acc": 1.0,
+      "unseen_combo_acc": 0.84
+    },
+    "L4-counting": {
+      "held_out_acc": 0.6666666666666666
+    },
+    "L5": {
+      "held_out_acc": 1.0
+    },
+    "L6": {
+      "held_out_acc": 0.6466666666666666
+    },
+    "Library": {
+      "held_out_acc": 1.0
+    }
+  },
+  "before_knowledge": {
+    "SEEN": {
+      "mean_loss": 4.39756045738856,
+      "mean_byte_acc": 0.12539682909846306
+    },
+    "PARAPHRASE": {
+      "mean_loss": 4.798581262429555,
+      "mean_byte_acc": 0.11567460621396701
+    },
+    "UNSEEN": {
+      "mean_loss": 4.472504675388336,
+      "mean_byte_acc": 0.17692308127880096
+    },
+    "WRONG": {
+      "mean_loss": 4.778551697731018,
+      "mean_byte_acc": 0.08750000223517418
+    }
+  },
+  "after_knowledge": {
+    "SEEN": {
+      "mean_loss": 1.8076627428332965,
+      "mean_byte_acc": 0.49871032188336056
+    },
+    "PARAPHRASE": {
+      "mean_loss": 3.1376144091288247,
+      "mean_byte_acc": 0.22470238556464514
+    },
+    "UNSEEN": {
+      "mean_loss": 3.739882528781891,
+      "mean_byte_acc": 0.16025641560554504
+    },
+    "WRONG": {
+      "mean_loss": 2.14529350399971,
+      "mean_byte_acc": 0.4833333306014538
+    }
+  },
+  "per_stage_calls": {
+    "Corpus": 502,
+    "L0": 98,
+    "L1": 34,
+    "L2": 122,
+    "L3": 191,
+    "L4-logic": 192,
+    "L4-counting": 221,
+    "L5": 45,
+    "L6": 189,
+    "Library": 35,
+    "Knowledge": 371
+  },
+  "final_mastery": {
+    "Corpus": {
+      "main": 0.34832107312630844
+    },
+    "L0": {
+      "main": 0.8659695842985532
+    },
+    "L1": {
+      "main": 1.0
+    },
+    "L2": {
+      "sel": 1.0,
+      "cons": 0.8051596688469711
+    },
+    "L3": {
+      "seen": 1.0,
+      "unseen": 0.6296661123934606
+    },
+    "L4-logic": {
+      "seen": 0.9997956023849571,
+      "unseen": 0.7490223224705139
+    },
+    "L4-counting": {
+      "main": 0.7164313837269151
+    },
+    "L5": {
+      "main": 0.9632269009275892
+    },
+    "L6": {
+      "main": 0.6807686406707162
+    },
+    "Library": {
+      "main": 0.9811323198732348
+    },
+    "Knowledge": {
+      "main": 0.4613890416528709
+    }
+  },
+  "n_params": 113573
+}

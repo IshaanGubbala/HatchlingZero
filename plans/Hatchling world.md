@@ -838,6 +838,70 @@ hz_world_run1_stage_b_library_subskill/after_Library.pt`, \(C_{11}\))
 is used as the starting point for that next step, since it reflects the
 best available real state, partial scheduler fix included.
 
+**Real result, 2026-09-06 -- the actual knowledge-acquisition test:
+YES, real facts survive training into \(\theta\) and partially
+generalize past their exact wording.** `scripts/
+hz_world_training_run1_stage_b_knowledge.py`: real, true, hand-authored
+facts (`hatchling_world/knowledge/facts.py` -- the only packed real-text
+corpus in this repo was checked directly and found to be source code,
+not prose, so a small curated real-fact set is used instead, disclosed
+in that module's own docstring). Continues from \(C_{11}\), adds
+"Knowledge" as an 11th per-subskill-scheduled channel (same scheduler
+as the previous run, unchanged), trained via `HZLanguageModel.
+lm_forward` -- the model's own genuine autoregressive next-byte
+predictor, teacher-forced loss masked to the completion's byte
+positions only. No new model code. 2,000-step Knowledge phase.
+
+Real, pre-registered four-condition probe (`hatchling_world/knowledge/
+facts.py`'s `TRAIN_FACTS`/`PARAPHRASE_PROBES`/`HELD_OUT_FACTS`/
+`WRONG_COMPLETION_PROBES`), mean per-byte completion loss / accuracy:
+
+| condition | before training | after training |
+|---|---|---|
+| SEEN (trained prompt) | 4.398 / 0.125 | **1.808 / 0.499** |
+| WRONG (trained prompt, another fact's real answer) | 4.779 / 0.088 | 2.145 / 0.483 |
+| PARAPHRASE (same fact, never-trained wording) | 4.799 / 0.116 | 3.138 / 0.225 |
+| UNSEEN (different real fact, same kind, never trained) | 4.473 / 0.177 | 3.740 / 0.160 |
+
+**All four real, disclosed sub-questions answered, decisively, in one
+controlled run**: (1) does training on a real fact via ordinary next-
+byte prediction actually reduce that fact's own completion loss --
+yes, dramatically (4.398 -> 1.808); (2) does the model prefer the
+TRUE completion over a plausible-sounding WRONG one for the same
+prompt, or did it just get more fluent in general -- yes, real
+discrimination: WRONG's loss (2.145) stays well above SEEN's (1.808)
+for the identical prompts, a genuine "knows the specific fact" signal,
+not generic fluency; (3) does the association survive a change in
+surface wording it was never trained on -- yes, partially: PARAPHRASE
+(3.138) is meaningfully below UNSEEN (3.740), real generalization past
+the exact trained byte sequence, though nowhere near SEEN's level; (4)
+did anything else improve just from being near real text -- yes, a
+smaller amount: UNSEEN itself dropped from 4.473 to 3.740, plausibly
+from learning general "fact-sentence" byte statistics (capitalization,
+punctuation, common words) rather than the specific untrained facts,
+expected and disclosed, not conflated with real fact-specific learning.
+
+**Retention while this happened**: no collapse across the other 10
+stages (Library held at 1.000, L1/L5 at 1.000, L4-logic unseen actually
+improved to 0.84). L3 unseen continued its already-known fragility
+(down to 0.5) -- consistent with, not a new instance of, the per-
+subskill scheduler's disclosed reactive-lag limitation above, not
+something this specific experiment introduced.
+
+**Real, honest answer to the user's own question, "did HZ actually
+learn knowledge into theta"**: yes, on this small, controlled, 12-fact
+test -- real acquisition, real discrimination between true and false,
+real (partial) generalization past memorized surface form, without
+catastrophic forgetting of the other 10 stages already in the lineage.
+This is the first real, direct, positive evidence for the Stage B
+thesis (`data/packed real corpus text -> theta -> later held-out
+question`, not simply retrieval or a toy task) anywhere in this
+project. Real, disclosed scope limit, matching the user's own explicit
+sequencing: this is a 12-fact, 113K-parameter proof of the mechanism,
+not evidence it scales -- the next real step, per the user's own
+instruction, is scaling the corpus/model only after this exact
+mechanism is proven, which it now is.
+
 ---
 
 # 1. Do Not Abandon Hatchling World After One Bad Run

@@ -1,0 +1,45 @@
+[stage-b-knowledge] loading checkpoint (C_11): results/local/hz_world_run1_stage_b_library_subskill/after_Library.pt
+[stage-b-knowledge] CONTINUING the persistent trainee: n_params=113573
+[stage-b-knowledge] loaded 20000 corpus train windows
+
+[stage-b-knowledge] ===== BEFORE Knowledge: retention on the inherited lineage (C_11) =====
+[stage-b-knowledge] before Knowledge, Corpus={'held_out_next_byte_acc': 0.4024313725490196}
+[stage-b-knowledge] before Knowledge, L0={'next_token_acc': 0.903649628162384}
+[stage-b-knowledge] before Knowledge, L1={'held_out_acc': 1.0}
+[stage-b-knowledge] before Knowledge, L2={'sel_acc': 1.0, 'cons_acc': 0.8422222222222222}
+[stage-b-knowledge] before Knowledge, L3={'seen_combo_acc': 1.0, 'unseen_combo_acc': 0.76}
+[stage-b-knowledge] before Knowledge, L4-logic={'seen_combo_acc': 1.0, 'unseen_combo_acc': 0.68}
+[stage-b-knowledge] before Knowledge, L4-counting={'held_out_acc': 0.6866666666666666}
+[stage-b-knowledge] before Knowledge, L5={'held_out_acc': 1.0}
+[stage-b-knowledge] before Knowledge, L6={'held_out_acc': 0.6466666666666666}
+[stage-b-knowledge] before Knowledge, Library={'held_out_acc': 1.0}
+[stage-b-knowledge] before Knowledge, knowledge probes (untrained baseline)={'SEEN': {'mean_loss': 4.39756045738856, 'mean_byte_acc': 0.12539682909846306}, 'PARAPHRASE': {'mean_loss': 4.798581262429555, 'mean_byte_acc': 0.11567460621396701}, 'UNSEEN': {'mean_loss': 4.472504675388336, 'mean_byte_acc': 0.17692308127880096}, 'WRONG': {'mean_loss': 4.778551697731018, 'mean_byte_acc': 0.08750000223517418}}
+[stage-b-knowledge] initial per-subskill mastery: {'Corpus': {'main': 0.4024313725490196}, 'L0': {'main': 0.903649628162384}, 'L1': {'main': 1.0}, 'L2': {'sel': 1.0, 'cons': 0.8422222222222222}, 'L3': {'seen': 1.0, 'unseen': 0.76}, 'L4-logic': {'seen': 1.0, 'unseen': 0.68}, 'L4-counting': {'main': 0.6866666666666666}, 'L5': {'main': 1.0}, 'L6': {'main': 0.6466666666666666}, 'Library': {'main': 1.0}, 'Knowledge': {'main': 0.0}}
+
+[stage-b-knowledge] ===== Knowledge phase: 2000 steps, PER-SUBSKILL mastery-weighted among all 11 stages =====
+[stage-b-knowledge] step=500/2000 last_sampled=L4-counting mastery=[{'Corpus': {'main': 0.35469251424705295}, 'L0': {'main': 0.8432561909954207}, 'L1': {'main': 1.0}, 'L2': {'sel': 1.0, 'cons': 0.8207739092816787}, 'L3': {'seen': 1.0, 'unseen': 0.764106309375}, 'L4-logic': {'seen': 1.0, 'unseen': 0.70772035}, 'L4-counting': {'main': 0.5412905869314603}, 'L5': {'main': 0.95}, 'L6': {'main': 0.7125063123255223}, 'Library': {'main': 1.0}, 'Knowledge': {'main': 0.4105165591919243}}] calls_so_far={'Corpus': 113, 'L0': 25, 'L1': 9, 'L2': 27, 'L3': 37, 'L4-logic': 50, 'L4-counting': 53, 'L5': 10, 'L6': 62, 'Library': 5, 'Knowledge': 109}
+[stage-b-knowledge] step=1000/2000 last_sampled=Corpus mastery=[{'Corpus': {'main': 0.32897282519337356}, 'L0': {'main': 0.8519732705422336}, 'L1': {'main': 1.0}, 'L2': {'sel': 1.0, 'cons': 0.8263954493302537}, 'L3': {'seen': 1.0, 'unseen': 0.6969189432928526}, 'L4-logic': {'seen': 0.9793294825742723, 'unseen': 0.7321977034108282}, 'L4-counting': {'main': 0.5217783891931476}, 'L5': {'main': 0.874059995386177}, 'L6': {'main': 0.6822997899513245}, 'Library': {'main': 1.0}, 'Knowledge': {'main': 0.4447851225260919}}] calls_so_far={'Corpus': 241, 'L0': 48, 'L1': 17, 'L2': 66, 'L3': 73, 'L4-logic': 102, 'L4-counting': 108, 'L5': 21, 'L6': 96, 'Library': 14, 'Knowledge': 214}
+[stage-b-knowledge] step=1500/2000 last_sampled=L0 mastery=[{'Corpus': {'main': 0.3507228436798432}, 'L0': {'main': 0.8545079862761614}, 'L1': {'main': 1.0}, 'L2': {'sel': 1.0, 'cons': 0.8477621376715605}, 'L3': {'seen': 1.0, 'unseen': 0.6720582495526528}, 'L4-logic': {'seen': 0.9982376814933193, 'unseen': 0.7448007660055775}, 'L4-counting': {'main': 0.6746148577829915}, 'L5': {'main': 0.9445704453193301}, 'L6': {'main': 0.8383172844688596}, 'Library': {'main': 0.9668289784355469}, 'Knowledge': {'main': 0.5252486445758656}}] calls_so_far={'Corpus': 371, 'L0': 72, 'L1': 26, 'L2': 86, 'L3': 130, 'L4-logic': 150, 'L4-counting': 167, 'L5': 37, 'L6': 138, 'Library': 24, 'Knowledge': 299}
+[stage-b-knowledge] step=2000/2000 last_sampled=L6 mastery=[{'Corpus': {'main': 0.34832107312630844}, 'L0': {'main': 0.8659695842985532}, 'L1': {'main': 1.0}, 'L2': {'sel': 1.0, 'cons': 0.8051596688469711}, 'L3': {'seen': 1.0, 'unseen': 0.6296661123934606}, 'L4-logic': {'seen': 0.9997956023849571, 'unseen': 0.7490223224705139}, 'L4-counting': {'main': 0.7164313837269151}, 'L5': {'main': 0.9632269009275892}, 'L6': {'main': 0.6807686406707162}, 'Library': {'main': 0.9811323198732348}, 'Knowledge': {'main': 0.4613890416528709}}] calls_so_far={'Corpus': 502, 'L0': 98, 'L1': 34, 'L2': 122, 'L3': 191, 'L4-logic': 192, 'L4-counting': 221, 'L5': 45, 'L6': 189, 'Library': 35, 'Knowledge': 371}
+[stage-b-knowledge] Knowledge phase done in 135s.
+
+[stage-b-knowledge] ===== AFTER Knowledge: retention on ALL 10 prior stages =====
+[stage-b-knowledge] after Knowledge, Corpus={'held_out_next_byte_acc': 0.3849019607843137}
+[stage-b-knowledge] after Knowledge, L0={'next_token_acc': 0.8871046304702759}
+[stage-b-knowledge] after Knowledge, L1={'held_out_acc': 1.0}
+[stage-b-knowledge] after Knowledge, L2={'sel_acc': 1.0, 'cons_acc': 0.8355555555555556}
+[stage-b-knowledge] after Knowledge, L3={'seen_combo_acc': 1.0, 'unseen_combo_acc': 0.5}
+[stage-b-knowledge] after Knowledge, L4-logic={'seen_combo_acc': 1.0, 'unseen_combo_acc': 0.84}
+[stage-b-knowledge] after Knowledge, L4-counting={'held_out_acc': 0.6666666666666666}
+[stage-b-knowledge] after Knowledge, L5={'held_out_acc': 1.0}
+[stage-b-knowledge] after Knowledge, L6={'held_out_acc': 0.6466666666666666}
+[stage-b-knowledge] after Knowledge, Library={'held_out_acc': 1.0}
+
+[stage-b-knowledge] === KNOWLEDGE PROBE RESULT ===
+[stage-b-knowledge] SEEN: {'mean_loss': 1.8076627428332965, 'mean_byte_acc': 0.49871032188336056}
+[stage-b-knowledge] PARAPHRASE: {'mean_loss': 3.1376144091288247, 'mean_byte_acc': 0.22470238556464514}
+[stage-b-knowledge] UNSEEN: {'mean_loss': 3.739882528781891, 'mean_byte_acc': 0.16025641560554504}
+[stage-b-knowledge] WRONG: {'mean_loss': 2.14529350399971, 'mean_byte_acc': 0.4833333306014538}
+[stage-b-knowledge] checkpoint saved (C_12): results/local/hz_world_run1_stage_b_knowledge/after_Knowledge.pt
+
+[stage-b-knowledge] DONE. Wrote results/local/hz_world_run1_stage_b_knowledge_retention.json
