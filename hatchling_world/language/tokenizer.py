@@ -61,9 +61,18 @@ SCHOOL_WORDS = ["plus", "equals", "if", "then"]
 # arithmetically -- directly connects to this session's own 2-fact
 # near-cliff finding (L5 memory-stress), not an arbitrary new task.
 CS_WORDS = ["x", "y"]
+# Phase 9 continuation -- School-0's first Physics task (plan section
+# 8.2/9): a comparative-magnitude rule ("a large object needs more
+# force than a small object") applied to two specific, per-episode
+# objects -- genuinely different from `generate_rule_episode`'s single-
+# object classification, since the answer requires comparing which of
+# TWO named entities the abstract rule picks out, not just looking up
+# one premise's conclusion.
+PHYSICS_WORDS = ["force", "more", "than", "needs", "which", "or"]
 
 VOCAB = (SPECIALS + NOUNS + COLORS + SIZES + POSITIONS + VERBS_STATE + VERBS_ACTION
-         + FUNCTION_WORDS + NUMBERS + LOGIC_WORDS + NOVEL_LABELS + QA_WORDS + SCHOOL_WORDS + CS_WORDS)
+         + FUNCTION_WORDS + NUMBERS + LOGIC_WORDS + NOVEL_LABELS + QA_WORDS + SCHOOL_WORDS
+         + CS_WORDS + PHYSICS_WORDS)
 
 
 class NurseryTokenizer:

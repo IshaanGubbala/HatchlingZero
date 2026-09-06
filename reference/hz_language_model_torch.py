@@ -426,3 +426,27 @@ class HZLanguageModel(nn.Module):
         H = self.ws.run(B, S, x_null, n_rounds=self.n_rounds_l1)
         pooled = H.mean(dim=1)
         return self.arithmetic_head(pooled)  # (B, n_arith_labels)
+
+    def physics_forward(self, teach_ids: torch.Tensor, scenario_ids: torch.Tensor,
+                         question_ids: torch.Tensor) -> torch.Tensor:
+        """School-0 Physics: teaches a comparative-magnitude rule ("a
+        large object needs more force than a small object"), then a
+        per-episode scenario naming which color is the large/small
+        object, then asks which of two named objects needs more force.
+        Real relational-inference test: the answer is which of TWO
+        entities the rule picks out, not a single premise's conclusion
+        (`rule_forward`'s task). Whole-sentence ingestion throughout
+        (teach and scenario each as ONE mem.update call, not token-by-
+        token), same discipline as `cs_program_forward`. Classifies via
+        read_head over COLORS (n_read_labels must be >= len(COLORS) when
+        this task is used -- unlike rule_forward's SIZES space, this is
+        a genuinely different output space sharing the same head)."""
+        B = question_ids.shape[0]
+        S = self.mem.init_state(B, device=question_ids.device)
+        for ids in (teach_ids, scenario_ids, question_ids):
+            hidden = self.token_embed(ids)  # (B, T, D) -- whole sentence, one mem.update call
+            S = self.mem.update(S, hidden)
+        x_null = self.read_null_x.expand(B, 1, self.D)
+        H = self.ws.run(B, S, x_null, n_rounds=self.n_rounds_l1)
+        pooled = H.mean(dim=1)
+        return self.read_head(pooled)  # (B, n_read_labels) -- indexed as a COLORS label here

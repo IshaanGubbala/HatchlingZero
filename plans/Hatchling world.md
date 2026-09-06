@@ -2466,12 +2466,31 @@ for those two should not spend budget there.
 - [x] CPU baseline. (Nursery-specific, see result below)
 - [x] MPS reference. (Nursery-specific, see result below)
 - [x] CUDA reference. (Nursery-specific, RTX 5090 via RunPod dispatch, see result below)
-- [ ] Remove per-step transfers.
-- [ ] Device/vectorized worlds.
-- [ ] SPEED-A.
-- [ ] K=2 evidence refresh.
-- [ ] CUDA Graph benchmark.
-- [ ] MPS profiler pass.
+- [ ] Remove per-step transfers. (deferred — see note below)
+- [ ] Device/vectorized worlds. (deferred — see note below)
+- [ ] SPEED-A. (deferred — see note below)
+- [ ] K=2 evidence refresh. (deferred — see note below)
+- [ ] CUDA Graph benchmark. (deferred — see note below)
+- [ ] MPS profiler pass. (deferred — see note below)
+
+**Real assessment, 2026-09-05 — these six remain deliberately deferred,
+not overlooked.** All six (`SPEED-A` batched dual-source attention,
+`K=2` evidence refresh, CUDA Graph capture, MPS profiling/fusion, device-
+resident vectorized worlds, removing per-step host transfers) are
+throughput optimizations for a genuinely BATCHED, compute-bound rollout
+loop — the pre-pivot room-navigation/BDH world-model codepath (sections
+19-26). The current Language Nursery training loop is the opposite
+shape: small, sequential, single-episode-at-a-time, Python-generation-
+dominated — exactly the regime the two real results just above measured
+(three times now, across FSM/room-nav/Nursery) as NOT benefiting from
+any accelerator, local or dispatched. Doing CUDA Graph capture or an MPS
+profiler pass on a loop that's already 4-4.5x faster on plain CPU would
+be optimizing a codepath with no real bottleneck to fix. These become
+relevant again only if/when a genuinely batched, vectorized Nursery
+training loop exists (batching many episodes per step) — which doesn't
+exist yet and isn't currently blocking any real experiment this session
+has run. Left unchecked deliberately rather than force-closed with
+hollow work.
 
 **Real result, 2026-09-05 — CPU vs MPS on the Nursery's own training
 loop, extending an earlier finding rather than assuming it still
@@ -2640,7 +2659,55 @@ search a large corpus on its own, which remains real future work.
       session's own whole-sentence-ingestion finding FROM THE START
       rather than repeating the token-by-token bug; `scripts/
       hz_school0_cs_train.py`. See result below)
-- [ ] Physics/Biology/Chemistry task generators (progressive, one at a time).
+- [~] Physics/Biology/Chemistry task generators (progressive, one at a time).
+      Physics slice built and run; see real result below. Biology/
+      Chemistry deliberately NOT started yet -- the plan's own "one at a
+      time" instruction means diagnosing Physics's plateau first, not
+      repeating the same recipe on two more domains that might hit the
+      same wall.
+
+**Real result, 2026-09-05 -- Physics (comparative-magnitude reasoning)
+does NOT converge the way arithmetic/CS did; a real, disclosed partial
+result.** `hatchling_world/school/generator.py`'s `generate_physics_episode`
+teaches a fixed rule ("a large object needs more force than a small
+object"), then a per-episode scenario naming which color is large/small,
+then asks which of two named colors needs more force (question order
+randomized so position can't be shortcut). `HZLanguageModel.
+physics_forward` (`reference/hz_language_model_torch.py`) applies this
+session's own whole-sentence-ingestion finding from the start (teach,
+scenario, question each as ONE `mem.update` call), reuses `read_head`
+(widened to `n_read_labels=len(COLORS)=4`). `scripts/
+hz_school0_physics_train.py`, 2 seeds x 2500 steps:
+
+| seed | held-out acc (last 5 checkpoints) |
+|------|-------------------------------------|
+| 0    | 0.400, 0.535, 0.490, 0.560, 0.450, 0.485 |
+| 7    | 0.475, 0.545, 0.500, 0.520, 0.475 |
+
+Both seeds plateau in the ~0.45-0.56 band with no upward trend across
+2500 steps -- flat, not still climbing. Two chance baselines matter
+here: naive 4-way uniform guessing over all of COLORS is 0.25, but
+since only 2 of the 4 colors are ever named in a given episode, a
+"guess one of the two mentioned colors" baseline is really 0.5 -- and
+the observed accuracies sit right around THAT floor, not meaningfully
+above it. A direct loss-curve check (3000 steps, seed 1) confirms this
+isn't a false negative from too few steps: training loss moves only
+from the uniform-4-way floor (ln 4 ~= 1.386) down to ~1.1-1.3 and
+plateaus there, and train_acc tracks held-out_acc almost exactly (no
+train/test gap) -- the model isn't overfitting and failing to
+generalize, it is failing to fit the training distribution itself past
+the 2-way-chance level. Real, disclosed comparison: this is structurally
+similar to the CS program-execution task (teach two per-episode facts,
+then compose them) which reached 97-100% cleanly -- the likely real
+difference is that CS's two bindings are keyed by FIXED symbol tokens
+("x", "y", identical every episode), while Physics requires matching
+entity IDENTITY across sentences via a shared, per-episode-varying
+COLOR token (recognizing that "yellow" in the scenario and "yellow" in
+the question name the same entity) -- a real coreference-style binding
+problem, not simple fixed-slot recall, and not yet diagnosed further
+this session (parking here rather than tuning indefinitely, matching
+this session's own "kill/park, don't keep tuning" discipline from the
+L5 memory-cliff thread).
 
 **Real result, 2026-09-05 — School-0, two very different outcomes,
 directly connecting to the Nursery's own open questions.** Explicit
@@ -2712,10 +2779,35 @@ genuinely harder than 1 fact alone, even when it eventually succeeds.
 - [ ] Chemistry Lab.
 - [ ] Programming Lab.
 
+**Real, disclosed blocker, 2026-09-05 — genuinely not startable yet, not
+just unstarted.** Section 9 defines Labs as environments for section
+8.3's Experiment step (prediction -> intervention -> observation ->
+belief update) — they need a real experimentable/failable ACTION to
+intervene with, not another text generator. Section 8.1's own S4
+("Experiment-driven learning") already discloses this exact gap: "HZ-
+World-0 as currently implemented has no experimentable/failable action
+to hang this on yet — tracked as a real gap." That gap is still real
+and still unfixed. Building a Physics/Biology/Chemistry/Programming Lab
+before that action-and-consequence primitive exists in HZ-World-0 would
+mean building four environments with no real intervention loop under
+them — a stub, not a Lab. The real next step is closing S4's gap first
+(a genuinely failable/experimentable action in HZ-World-0), not stubbed
+Lab code.
+
 ## Phase 11 — Projects / Autonomous Learning
 
 - [ ] Long-horizon project tasks combining language + knowledge + interaction.
 - [ ] Autonomous-learning endgame benchmark (section 15).
+
+**Real, disclosed blocker, 2026-09-05 — depends on Phase 10.** Both
+items require a language-competent agent that can also DO the
+Labs/interaction loop above (per section 5's own stage list: stage 11
+is "long-horizon tasks combining everything above, using HZ-World-0-
+style verifiable environments... but now with real language/knowledge
+content," stage 12 is section 15's endgame, both explicitly built ON
+TOP of the Labs stage). With Labs genuinely blocked on Phase 10's
+missing experimentable-action primitive, Phase 11 is correctly
+unstartable, not merely deprioritized.
 
 ---
 

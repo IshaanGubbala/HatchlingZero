@@ -221,13 +221,6 @@ PAGE = r"""<!doctype html>
 
   #nursery-chart { width: 100%; height: 90px; display: block; }
 
-  #arch-diagram { width: 100%; height: auto; display: block; }
-  .arch-note { font-size: 10.5px; color: var(--dim); margin-top: 8px; letter-spacing: .01em; }
-  .arch-label { font-size: 9px; fill: var(--dim); letter-spacing: .06em; text-transform: uppercase; }
-  .arch-val { font-size: 9px; fill: var(--accent); font-weight: 700; }
-  .arch-flow { stroke: var(--border); stroke-width: 1.5; fill: none; }
-  .arch-pulse { stroke: var(--accent); stroke-width: 2; fill: none; filter: drop-shadow(0 0 4px var(--accent-glow)); }
-  #arch-gate-badge { font-variant-numeric: tabular-nums; }
   .nursery-legend { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; font-size: 11px; color: var(--dim); }
 </style></head>
 <body>
@@ -317,15 +310,6 @@ PAGE = r"""<!doctype html>
         <div class="card-title">HELD-OUT METRICS</div>
         <svg id="nursery-chart" viewBox="0 0 300 90" preserveAspectRatio="none"></svg>
         <div class="nursery-legend" id="nursery-chart-legend"></div>
-      </div>
-
-      <div class="card" id="arch-card">
-        <div class="card-title">
-          <span>NEURAL ARCHITECTURE &mdash; LIVE</span>
-          <span class="badge" id="arch-gate-badge">-</span>
-        </div>
-        <svg id="arch-diagram" viewBox="0 0 320 230"></svg>
-        <div class="arch-note" id="arch-note">real per-slot activity from this step's actual S/H tensors</div>
       </div>
     </div>
   </div>
@@ -581,77 +565,6 @@ function renderNurseryStats(s) {
   `).join('') || '<div class="stat"><div class="stat-label">metrics</div><div class="stat-val">-</div></div>';
 }
 
-function renderArchitecture(s) {
-  const svg = document.getElementById('arch-diagram');
-  const badge = document.getElementById('arch-gate-badge');
-  const note = document.getElementById('arch-note');
-  svg.innerHTML = '';
-
-  if (!s.memory_slots) {
-    badge.textContent = 'n/a';
-    note.textContent = 'not instrumented for this stage yet (L5 / L5-stress only, real per-slot tensors)';
-    const txt = el('text', { x: 160, y: 40, 'text-anchor': 'middle', class: 'arch-label' });
-    txt.textContent = 'architecture introspection not wired for this stage';
-    svg.appendChild(txt);
-    return;
-  }
-
-  badge.textContent = 'write gate ' + (s.mean_gate * 100).toFixed(0) + '%';
-  note.textContent = "real per-slot L2-norm activity from this step's actual S/H tensors";
-
-  const W = 320;
-  svg.innerHTML = '<defs><marker id="archArrow" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">' +
-    '<path d="M0,0 L6,3 L0,6 Z" fill="var(--dim)"/></marker></defs>';
-  const arrow = (x1, y1, x2, y2) => el('line', { x1, y1, x2, y2, class: 'arch-flow', 'marker-end': 'url(#archArrow)' });
-  const label = (x, y, text, cls, anchor) => {
-    const t = el('text', { x, y, class: cls || 'arch-label', 'text-anchor': anchor || 'start' });
-    t.textContent = text;
-    return t;
-  };
-
-  svg.appendChild(label(W / 2, 10, 'INPUT', 'arch-label', 'middle'));
-  svg.appendChild(arrow(W / 2, 14, W / 2, 26));
-
-  const sY = 58;
-  svg.appendChild(label(8, 40, `S · PERSISTENT MEMORY (${s.memory_slots.length} slots)`));
-  const sN = s.memory_slots.length;
-  const sSpacing = (W - 40) / Math.max(sN - 1, 1);
-  s.memory_slots.forEach((v, i) => {
-    const x = 20 + i * sSpacing;
-    const r = 6 + v * 7;
-    svg.appendChild(el('circle', { cx: x, cy: sY, r: r + 4, fill: 'var(--accent)', opacity: (v * 0.35).toFixed(2) }));
-    svg.appendChild(el('circle', {
-      cx: x, cy: sY, r, fill: 'var(--accent)', opacity: (0.35 + v * 0.65).toFixed(2),
-      stroke: 'var(--border)', 'stroke-width': 1,
-    }));
-  });
-
-  svg.appendChild(arrow(W / 2, sY + 14, W / 2, sY + 26));
-
-  const hSlots = s.hidden_slots || [];
-  const hLblY = sY + 42;
-  svg.appendChild(label(8, hLblY, `H · REASONING WORKSPACE (${hSlots.length} slots)`));
-  const cols = 8;
-  const rows = Math.ceil(hSlots.length / cols) || 1;
-  const cellW = (W - 40) / cols;
-  const cellH = 10;
-  const hTop = hLblY + 10;
-  hSlots.forEach((v, i) => {
-    const col = i % cols, row = Math.floor(i / cols);
-    const x = 20 + col * cellW;
-    const y = hTop + row * (cellH + 4);
-    svg.appendChild(el('rect', {
-      x, y, width: cellW - 4, height: cellH, rx: 2,
-      fill: 'var(--amber)', opacity: (0.25 + v * 0.7).toFixed(2),
-    }));
-  });
-
-  const afterH = hTop + rows * (cellH + 4) + 8;
-  svg.appendChild(arrow(W / 2, afterH, W / 2, afterH + 16));
-  svg.appendChild(label(W / 2, afterH + 30, 'READOUT → PREDICTION', 'arch-label', 'middle'));
-  svg.appendChild(el('circle', { cx: W / 2, cy: afterH + 38, r: 5, fill: 'var(--success)' }));
-}
-
 function drawNurseryChart(metrics) {
   const svg = document.getElementById('nursery-chart');
   svg.innerHTML = '';
@@ -717,7 +630,6 @@ function renderNursery(s) {
   renderNurseryRecall(s);
   renderNurseryStats(s);
   drawNurseryChart(s.metrics);
-  renderArchitecture(s);
 }
 
 function render(s) {

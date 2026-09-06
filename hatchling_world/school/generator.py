@@ -70,3 +70,24 @@ def generate_cs_program_episode(rng: random.Random) -> dict:
     total = a + b
     return {"program": program, "question": question, "x": a, "y": b,
             "sum": total, "sum_idx": total}
+
+
+def generate_physics_episode(rng: random.Random) -> dict:
+    """School-0, Physics (plan section 8.2/9, first slice): a
+    comparative-magnitude rule ("a large object needs more force than a
+    small object") must be applied to two specific, per-episode objects
+    identified only by color. Genuinely different skill from
+    `generate_rule_episode`'s single-object classification: the answer
+    is which of TWO named entities the rule picks out, not the
+    conclusion for one premise -- a real magnitude-comparison /
+    relational-inference test, not fact recall or single-instance
+    deduction. Question-order (large-first vs small-first) is
+    randomized so the model cannot shortcut on position."""
+    large_color, small_color = rng.sample(COLORS, 2)
+    teach = "a large object needs more force than a small object"
+    scenario = f"the {large_color} object is large and the {small_color} object is small"
+    first, second = (large_color, small_color) if rng.random() < 0.5 else (small_color, large_color)
+    question = f"which object needs more force the {first} object or the {second} object"
+    return {"teach": teach, "scenario": scenario, "question": question,
+            "large_color": large_color, "small_color": small_color,
+            "answer_color": large_color, "answer_idx": COLORS.index(large_color)}

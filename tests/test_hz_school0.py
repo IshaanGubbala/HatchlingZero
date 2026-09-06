@@ -10,9 +10,9 @@ import torch
 
 from hatchling_world.school.generator import (
     generate_arithmetic_episode, generate_rule_episode, generate_cs_program_episode,
-    ARITH_TRAIN_PAIRS, ARITH_HELD_OUT_PAIRS,
+    generate_physics_episode, ARITH_TRAIN_PAIRS, ARITH_HELD_OUT_PAIRS,
 )
-from hatchling_world.language.tokenizer import NurseryTokenizer, NUMBERS, SIZES
+from hatchling_world.language.tokenizer import NurseryTokenizer, NUMBERS, SIZES, COLORS
 from reference.hz_language_model_torch import HZLanguageModel
 
 
@@ -100,4 +100,31 @@ def test_cs_program_forward_shapes_and_gradients_reuses_arithmetic_head():
     loss = logits.sum()
     loss.backward()
     assert model.arithmetic_head.weight.grad is not None, "cs_program_forward must route through the shared arithmetic_head"
+    assert model.mem.q_proj.weight.grad is not None
+
+
+def test_physics_episode_answer_is_the_large_object_and_colors_are_distinct():
+    rng = random.Random(7)
+    for _ in range(50):
+        ep = generate_physics_episode(rng)
+        assert ep["large_color"] != ep["small_color"]
+        assert ep["answer_color"] == ep["large_color"]
+        assert COLORS[ep["answer_idx"]] == ep["large_color"]
+        assert ep["large_color"] in ep["question"] and ep["small_color"] in ep["question"]
+
+
+def test_physics_forward_shapes_and_gradients_reuses_read_head():
+    tok = NurseryTokenizer()
+    model = HZLanguageModel(vocab_size=tok.vocab_size, d_model=32, memory_slots=8, workspace_slots=16,
+                             n_rounds_l1=4, n_read_labels=len(COLORS))
+    rng = random.Random(8)
+    ep = generate_physics_episode(rng)
+    teach_ids = torch.tensor([tok.encode(ep["teach"])])
+    scenario_ids = torch.tensor([tok.encode(ep["scenario"])])
+    question_ids = torch.tensor([tok.encode(ep["question"])])
+    logits = model.physics_forward(teach_ids, scenario_ids, question_ids)
+    assert logits.shape == (1, len(COLORS))
+    loss = logits.sum()
+    loss.backward()
+    assert model.read_head.weight.grad is not None, "physics_forward must route through the shared read_head"
     assert model.mem.q_proj.weight.grad is not None
