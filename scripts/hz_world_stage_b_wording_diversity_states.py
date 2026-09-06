@@ -158,11 +158,24 @@ def main() -> None:
     parser.add_argument("--workspace-slots", type=int, default=32)
     parser.add_argument("--n-rounds-l1", type=int, default=8)
     parser.add_argument("--lr", type=float, default=3e-4)
-    parser.add_argument("--exposures", type=int, default=30)
+    parser.add_argument("--exposures", type=int, default=30,
+                         help="Single-template arm: exact repetitions/fact of the one canonical wording.")
+    parser.add_argument("--multi-exposures", type=int, default=None,
+                         help="Multi-template arm: TOTAL passes across all 5 templates (cycling), so "
+                              "exposures/fact/template = this / 5. Defaults to --exposures (matched total "
+                              "budget). Set to 5x --exposures for matched PER-TEMPLATE repetition instead.")
+    parser.add_argument("--skip-single", action="store_true",
+                         help="Skip retraining the single-template arm (deterministic given the same seed -- "
+                              "reuse a previously-recorded result instead of redundant compute).")
+    parser.add_argument("--single-reference", type=Path, default=None,
+                         help="Prior results JSON to pull the single-template arm's numbers from when "
+                              "--skip-single is set.")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--results-file", type=Path,
                          default=Path("results/local/hz_world_stage_b_wording_diversity_states.json"))
     args = parser.parse_args()
+    if args.multi_exposures is None:
+        args.multi_exposures = args.exposures
 
     tok = ByteTokenizer()
     print(f"[wording-diversity] loading checkpoint (C_13): {args.checkpoint}", flush=True)
@@ -173,8 +186,10 @@ def main() -> None:
     print(f"[wording-diversity] {len(train_keys)} train states, {len(held_keys)} held-out states, "
           f"{len(TRAIN_TEMPLATES)} training templates, 1 held-out-from-training template for paraphrase eval",
           flush=True)
-    print(f"[wording-diversity] both arms: {args.exposures} exposures/fact = "
-          f"{args.exposures * len(train_keys)} total updates (IDENTICAL)", flush=True)
+    print(f"[wording-diversity] single arm: {args.exposures} exposures/fact = "
+          f"{args.exposures * len(train_keys)} total updates. multi arm: {args.multi_exposures} total passes "
+          f"= {args.multi_exposures // len(TRAIN_TEMPLATES)} exposures/fact/template = "
+          f"{args.multi_exposures * len(train_keys)} total updates.", flush=True)
 
     base_model = HZLanguageModel(vocab_size=tok.vocab_size, d_model=args.d_model, memory_slots=args.memory_slots,
                                   workspace_slots=args.workspace_slots, n_rounds_l1=args.n_rounds_l1,
@@ -184,17 +199,27 @@ def main() -> None:
     print(f"\n[wording-diversity] BASELINE (C_13, untouched): delta_truth={baseline_d_truth:+.3f} "
           f"delta_para={baseline_d_para:+.3f}", flush=True)
 
-    print(f"\n[wording-diversity] ===== SINGLE-TEMPLATE arm ({args.exposures} exposures, "
-          f"template: '{TRAIN_TEMPLATES[0]}') =====", flush=True)
-    single_model = train_single_template(base_state_dict, tok, train_keys, args.exposures, args.seed + 100, args)
-    single_scores, single_d_truth, single_d_para = evaluate(single_model, tok, seen, unseen, paraphrase, wrong)
+    if args.skip_single:
+        print(f"\n[wording-diversity] SKIPPING single-template retraining (deterministic, reusing prior "
+              f"result from {args.single_reference})", flush=True)
+        with open(args.single_reference) as f:
+            prior = json.load(f)
+        single_scores = prior["single_template"]["scores"]
+        single_d_truth = prior["single_template"]["delta_truth"]
+        single_d_para = prior["single_template"]["delta_para"]
+    else:
+        print(f"\n[wording-diversity] ===== SINGLE-TEMPLATE arm ({args.exposures} exposures, "
+              f"template: '{TRAIN_TEMPLATES[0]}') =====", flush=True)
+        single_model = train_single_template(base_state_dict, tok, train_keys, args.exposures, args.seed + 100, args)
+        single_scores, single_d_truth, single_d_para = evaluate(single_model, tok, seen, unseen, paraphrase, wrong)
     print(f"[wording-diversity] SINGLE-TEMPLATE: {single_scores}", flush=True)
     print(f"[wording-diversity] SINGLE-TEMPLATE: delta_truth={single_d_truth:+.3f} delta_para={single_d_para:+.3f}",
           flush=True)
 
-    print(f"\n[wording-diversity] ===== MULTI-TEMPLATE arm ({args.exposures} exposures across "
-          f"{len(TRAIN_TEMPLATES)} templates, identical total updates) =====", flush=True)
-    multi_model = train_multi_template(base_state_dict, tok, train_keys, args.exposures, args.seed + 200, args)
+    print(f"\n[wording-diversity] ===== MULTI-TEMPLATE arm ({args.multi_exposures} total passes across "
+          f"{len(TRAIN_TEMPLATES)} templates = {args.multi_exposures // len(TRAIN_TEMPLATES)} exposures/fact/template) "
+          f"=====", flush=True)
+    multi_model = train_multi_template(base_state_dict, tok, train_keys, args.multi_exposures, args.seed + 200, args)
     multi_scores, multi_d_truth, multi_d_para = evaluate(multi_model, tok, seen, unseen, paraphrase, wrong)
     print(f"[wording-diversity] MULTI-TEMPLATE: {multi_scores}", flush=True)
     print(f"[wording-diversity] MULTI-TEMPLATE: delta_truth={multi_d_truth:+.3f} delta_para={multi_d_para:+.3f}",

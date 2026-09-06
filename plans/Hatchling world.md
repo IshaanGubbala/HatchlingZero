@@ -1098,6 +1098,57 @@ repetition rate) to see whether diversity then gives strong
 \(\Delta_{\text{truth}}\) AND strong \(\Delta_{\text{para}}\) together,
 rather than trading one for the other.
 
+**Real result, 2026-09-06 -- matched-repetition multi-template: PASSES
+the pre-committed bar cleanly, and by a wide margin on generalization.
+This is the real Stage B training recipe.** Same `scripts/
+hz_world_stage_b_wording_diversity_states.py`, extended with a
+`--multi-exposures` flag so the multi-template arm's per-template
+repetition can be set independently of total budget. Real mistake
+caught and corrected before reporting anything: the first launch used
+`--multi-exposures 6000` intending "6,000 total updates," but the
+script's own units are TOTAL PASSES (each pass = one exposure/fact for
+whichever template that pass uses) -- 6,000 passes actually meant
+1,200 exposures/fact/template, i.e. 240,000 total updates, a 40x
+oversized job caught mid-run (139 CPU-minutes in, not yet finished) and
+killed rather than let complete or silently reported. Corrected value:
+150 total passes -- 150/5 = 30 exposures/fact/template, EXACTLY
+matching the single-template arm's own 30 exposures/fact, giving the
+intended 150x40 = 6,000 total updates for the multi-template arm.
+
+| arm | \(\Delta_{\text{truth}}\) | \(\Delta_{\text{para}}\) |
+|---|---|---|
+| baseline (\(C_{13}\)) | +0.028 | -0.140 |
+| single-template (1,200 updates, 30 exp/fact, 1 wording) | +0.448 | +0.829 |
+| multi-template, budget-diluted (1,200 updates, 6 exp/fact/template, 5 wordings) | +0.049 | +1.612 |
+| **multi-template, matched repetition (6,000 updates, 30 exp/fact/template, 5 wordings)** | **+0.410** | **+3.508** |
+
+**PASSES the pre-committed bar** (\(\Delta_{\text{truth}} \ge 0.3\):
+0.410; \(\Delta_{\text{para}} > 0\): +3.508) and clears the "strong
+result" bar too (\(\Delta_{\text{truth}} \ge 0.4\): 0.410, just over;
+\(\Delta_{\text{para}} \ge 0.8\): 3.508, more than 4x over). At matched
+per-wording repetition, discrimination is comparable to the single-
+template arm (0.410 vs 0.448 -- a small, real cost, not the collapse
+seen at diluted budget) while paraphrase generalization is over 4x
+STRONGER than single-template training achieves even with identical
+per-wording repetition (3.508 vs 0.829). This directly confirms the
+diagnosis: the earlier multi-template failure really was a budget-
+dilution artifact, not a representational limit, and wording diversity
+is a real, strong, independent lever for generalization once each
+wording gets adequate repetition -- not just "spreads the same
+learning across more surface forms," but produces MORE generalization
+than any single wording could, at matched exposure per wording.
+
+**Real, legitimate Stage B training recipe, established**: multiple
+linguistic views per fact + enough repetitions per view -- confirmed on
+US state capitals, a domain the earlier 102-fact scale-up had
+explicitly failed to establish clean discrimination or generalization
+for. Per the user's own explicit next step: stop experimenting on state
+capitals in isolation; the next real move is applying this recipe (5+
+templates/fact, ~30 exposures/fact/template) to the full 102-fact,
+4-category multi-domain set from the scale-up experiment, to see
+whether it resolves elements/planets' clean failures the same way it
+resolved states here.
+
 ---
 
 # 1. Do Not Abandon Hatchling World After One Bad Run

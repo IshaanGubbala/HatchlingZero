@@ -1,0 +1,24 @@
+[wording-diversity] loading checkpoint (C_13): results/local/hz_world_run1_stage_b_knowledge_v2/after_Knowledge_v2.pt
+[wording-diversity] 40 train states, 10 held-out states, 5 training templates, 1 held-out-from-training template for paraphrase eval
+[wording-diversity] single arm: 30 exposures/fact = 1200 total updates. multi arm: 150 total passes = 30 exposures/fact/template = 6000 total updates.
+
+[wording-diversity] BASELINE (C_13, untouched): delta_truth=+0.028 delta_para=-0.140
+
+[wording-diversity] SKIPPING single-template retraining (deterministic, reusing prior result from results/local/hz_world_stage_b_wording_diversity_states.json)
+[wording-diversity] SINGLE-TEMPLATE: {'SEEN': {'mean_loss': 1.443251721560955, 'mean_byte_acc': 0.5874195985496045}, 'WRONG': {'mean_loss': 1.8911228699561877, 'mean_byte_acc': 0.404157175276524}, 'PARAPHRASE': {'mean_loss': 2.4123432517051695, 'mean_byte_acc': 0.2763479627668858}, 'UNSEEN': {'mean_loss': 3.2413329124450683, 'mean_byte_acc': 0.14946969971060753}}
+[wording-diversity] SINGLE-TEMPLATE: delta_truth=+0.448 delta_para=+0.829
+
+[wording-diversity] ===== MULTI-TEMPLATE arm (150 total passes across 5 templates = 30 exposures/fact/template) =====
+[wording-diversity] MULTI-TEMPLATE: {'SEEN': {'mean_loss': 1.0047508627176285, 'mean_byte_acc': 0.6887213557958602}, 'WRONG': {'mean_loss': 1.4148838137968993, 'mean_byte_acc': 0.5547094024144686}, 'PARAPHRASE': {'mean_loss': 1.3338694505393505, 'mean_byte_acc': 0.5627879157662392}, 'UNSEEN': {'mean_loss': 4.842231869697571, 'mean_byte_acc': 0.17439394369721412}}
+[wording-diversity] MULTI-TEMPLATE: delta_truth=+0.410 delta_para=+3.508
+
+[wording-diversity] === SUMMARY ===
+  baseline (C_13):  delta_truth=+0.028  delta_para=-0.140
+  single-template:  delta_truth=+0.448  delta_para=+0.829
+  multi-template:   delta_truth=+0.410  delta_para=+3.508
+
+[wording-diversity] === PRE-COMMITTED VERDICT ===
+multi-template delta_truth=+0.410 (need >=0.3)  delta_para=+3.508 (need >0)
+[wording-diversity] PASS -- wording diversity fixes paraphrase generalization without destroying discrimination. Stage B recipe: many facts x many phrasings/fact.
+
+[wording-diversity] DONE. Wrote results/local/hz_world_stage_b_wording_diversity_matched.json
