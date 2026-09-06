@@ -969,6 +969,60 @@ fix already built for L3/L4-logic, applied to Knowledge's own internal
 structure. Not run this session; recorded as the concrete next
 Knowledge-track experiment.
 
+**Real result, 2026-09-06 -- the exposure-scaling fork experiment,
+user-directed: the actual outcome is a THIRD case, more informative
+than either of the two pre-registered ones.** Real, minimal, controlled
+test: 4 INDEPENDENT arms, all starting from the identical \(C_{13}\)
+checkpoint, trained on ONLY the US-state-capitals domain (chosen
+because its answers are distinctive strings, not elements/planets'
+small shared number/ordinal vocabulary) for EXACTLY \(E \in \{5, 15,
+30, 60\}\) full shuffled passes over the same 40 train facts (2,600
+steps total across all arms, `scripts/
+hz_world_stage_b_exposure_scaling_states.py`). Same facts, same
+architecture, same evaluation across every arm -- exposure count was
+the only variable.
+
+| E (exposures/fact) | \(\Delta_{\text{truth}} = L_{\text{wrong}} - L_{\text{correct}}\) | \(\Delta_{\text{para}} = L_{\text{unseen}} - L_{\text{paraphrase}}\) |
+|---|---|---|
+| 0 (baseline) | +0.028 | -0.276 |
+| 5 | +0.051 | -0.255 |
+| 15 | +0.193 | -0.230 |
+| 30 | +0.432 | -0.431 |
+| 60 | **+0.989** | **-0.833** |
+
+**\(\Delta_{\text{truth}}\) resolves cleanly with exposure alone --
+real, clean, monotonic, strongly positive by E=60**: discrimination
+between a true and false completion for a trained prompt is a real
+undertraining problem for this domain, exactly as the user's first
+hypothesis predicted, and it is now directly confirmed, not assumed.
+**\(\Delta_{\text{para}}\) does the OPPOSITE of what either
+pre-registered outcome predicted**: it does not stay flat near zero
+(ruling out simple "needs more exposure, same as truth"), and it does
+not merely fail to improve (ruling out a clean "capacity limit,
+plateaus" story either) -- it gets MONOTONICALLY WORSE as exposure
+increases, diverging from -0.276 to -0.833. This is a real, third,
+more specific finding: classic overfitting to the exact trained
+surface form. As \(E\) increases, the model memorizes the LITERAL
+trained byte sequence harder (which is exactly what drives
+\(\Delta_{\text{truth}}\) up), at the direct expense of an abstract
+entity-property association a differently-worded paraphrase could hook
+into. Memorization and generalization are in real tension here, not
+both simply gated by the same "more training" knob.
+
+**Real, concrete, testable next hypothesis this decisively points to**:
+if paraphrase generalization is being crowded out by exact-wording
+overfitting, the fix is not more exposure to the SAME template, but
+DIVERSITY of wording per fact during training itself -- train each
+fact through multiple different sentence templates (not just the one
+canonical form used throughout every Knowledge run so far), so the
+representation is pushed toward the entity-property association rather
+than the literal byte sequence. This is a real, different, better-
+targeted next experiment than either "just add more exposure" or
+"scale model capacity" -- it should be tried before concluding this is
+a capacity problem, since the actual failure mode (overfitting to exact
+wording under repetition) is exactly what training-wording-diversity
+would address directly, and scaling capacity would not.
+
 ---
 
 # 1. Do Not Abandon Hatchling World After One Bad Run

@@ -1,0 +1,32 @@
+[exposure-scaling] loading checkpoint (C_13): results/local/hz_world_run1_stage_b_knowledge_v2/after_Knowledge_v2.pt
+[exposure-scaling] states split: 40 train, 40 paraphrase, 10 held-out, 39 wrong-completion
+[exposure-scaling] E=0 (C_13 baseline, untouched): {'SEEN': {'mean_loss': 2.604375699162483, 'mean_byte_acc': 0.21517066676169633}, 'WRONG': {'mean_loss': 2.632439053975619, 'mean_byte_acc': 0.213871531188488}, 'PARAPHRASE': {'mean_loss': 2.8925546050071715, 'mean_byte_acc': 0.15331522915512324}, 'UNSEEN': {'mean_loss': 2.6165323734283445, 'mean_byte_acc': 0.19606061056256294}}
+[exposure-scaling] E=0: delta_truth=+0.028 delta_para=-0.276
+
+[exposure-scaling] ===== arm E=5 (exactly 5 shuffled passes over 40 train facts = 200 steps) =====
+[exposure-scaling] E=5: {'SEEN': {'mean_loss': 2.0638262659311293, 'mean_byte_acc': 0.3628119874745607}, 'WRONG': {'mean_loss': 2.1150730909445348, 'mean_byte_acc': 0.35301294693580043}, 'PARAPHRASE': {'mean_loss': 2.9398944973945618, 'mean_byte_acc': 0.19993062727153302}, 'UNSEEN': {'mean_loss': 2.6850234627723695, 'mean_byte_acc': 0.17181818559765816}}
+[exposure-scaling] E=5: delta_truth=+0.051 (>0 means correct preferred) delta_para=-0.255 (>0 means paraphrase generalizes)
+
+[exposure-scaling] ===== arm E=15 (exactly 15 shuffled passes over 40 train facts = 600 steps) =====
+[exposure-scaling] E=15: {'SEEN': {'mean_loss': 1.735878551006317, 'mean_byte_acc': 0.4509507929906249}, 'WRONG': {'mean_loss': 1.9284445291910417, 'mean_byte_acc': 0.38935410097623485}, 'PARAPHRASE': {'mean_loss': 3.2361610412597654, 'mean_byte_acc': 0.18194632101804017}, 'UNSEEN': {'mean_loss': 3.006080436706543, 'mean_byte_acc': 0.2100757621228695}}
+[exposure-scaling] E=15: delta_truth=+0.193 (>0 means correct preferred) delta_para=-0.230 (>0 means paraphrase generalizes)
+
+[exposure-scaling] ===== arm E=30 (exactly 30 shuffled passes over 40 train facts = 1200 steps) =====
+[exposure-scaling] E=30: {'SEEN': {'mean_loss': 1.4900737717747687, 'mean_byte_acc': 0.5446289904415608}, 'WRONG': {'mean_loss': 1.9224393719281905, 'mean_byte_acc': 0.39681395009542125}, 'PARAPHRASE': {'mean_loss': 3.6713984966278077, 'mean_byte_acc': 0.1452422605827451}, 'UNSEEN': {'mean_loss': 3.2402595400810243, 'mean_byte_acc': 0.19189394414424896}}
+[exposure-scaling] E=30: delta_truth=+0.432 (>0 means correct preferred) delta_para=-0.431 (>0 means paraphrase generalizes)
+
+[exposure-scaling] ===== arm E=60 (exactly 60 shuffled passes over 40 train facts = 2400 steps) =====
+[exposure-scaling] E=60: {'SEEN': {'mean_loss': 1.0818288788199424, 'mean_byte_acc': 0.6840420741587877}, 'WRONG': {'mean_loss': 2.0703300008407006, 'mean_byte_acc': 0.38685901787800664}, 'PARAPHRASE': {'mean_loss': 4.540928190946579, 'mean_byte_acc': 0.17659132778644562}, 'UNSEEN': {'mean_loss': 3.7075149536132814, 'mean_byte_acc': 0.24492424875497817}}
+[exposure-scaling] E=60: delta_truth=+0.989 (>0 means correct preferred) delta_para=-0.833 (>0 means paraphrase generalizes)
+
+[exposure-scaling] === SUMMARY (delta_truth, delta_para vs exposure) ===
+  E=0: delta_truth=+0.028  delta_para=-0.276
+  E=5: delta_truth=+0.051  delta_para=-0.255
+  E=15: delta_truth=+0.193  delta_para=-0.230
+  E=30: delta_truth=+0.432  delta_para=-0.431
+  E=60: delta_truth=+0.989  delta_para=-0.833
+
+[exposure-scaling] VERDICT: both deltas positive at max exposure (E=60)? False. Trending up from E=5 to E=60? False.
+[exposure-scaling] -> Does NOT clearly resolve with more exposure alone; real capacity/representation question remains open.
+
+[exposure-scaling] DONE. Wrote results/local/hz_world_stage_b_exposure_scaling_states.json
