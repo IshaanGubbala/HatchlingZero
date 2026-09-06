@@ -1,0 +1,74 @@
+[stage-a-interleaved] PERSISTENT model created once: vocab_size=63 n_params=88357
+
+[stage-a-interleaved] ===== phase introducing L0: 2000 steps, sampled uniformly among ['L0'] =====
+[stage-a-interleaved][L0 phase] step=500/2000 last_sampled=L0 calls_so_far={'L0': 500, 'L1': 0, 'L2': 0, 'L3': 0, 'L4-logic': 0, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-interleaved][L0 phase] step=1000/2000 last_sampled=L0 calls_so_far={'L0': 1000, 'L1': 0, 'L2': 0, 'L3': 0, 'L4-logic': 0, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-interleaved][L0 phase] step=1500/2000 last_sampled=L0 calls_so_far={'L0': 1500, 'L1': 0, 'L2': 0, 'L3': 0, 'L4-logic': 0, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-interleaved][L0 phase] step=2000/2000 last_sampled=L0 calls_so_far={'L0': 2000, 'L1': 0, 'L2': 0, 'L3': 0, 'L4-logic': 0, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-interleaved] L0 phase done in 22s. Retention check on all 1 introduced stages...
+[stage-a-interleaved] retention after L0: L0={'next_token_acc': 0.6726584434509277}
+[stage-a-interleaved] checkpoint saved: results/local/hz_world_run1_stage_a_interleaved/after_L0.pt
+
+[stage-a-interleaved] ===== phase introducing L1: 1500 steps, sampled uniformly among ['L0', 'L1'] =====
+[stage-a-interleaved][L1 phase] step=500/1500 last_sampled=L0 calls_so_far={'L0': 2252, 'L1': 248, 'L2': 0, 'L3': 0, 'L4-logic': 0, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-interleaved][L1 phase] step=1000/1500 last_sampled=L1 calls_so_far={'L0': 2502, 'L1': 498, 'L2': 0, 'L3': 0, 'L4-logic': 0, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-interleaved][L1 phase] step=1500/1500 last_sampled=L1 calls_so_far={'L0': 2758, 'L1': 742, 'L2': 0, 'L3': 0, 'L4-logic': 0, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-interleaved] L1 phase done in 14s. Retention check on all 2 introduced stages...
+[stage-a-interleaved] retention after L1: L0={'next_token_acc': 0.617786169052124} | L1={'held_out_acc': 1.0}
+[stage-a-interleaved] checkpoint saved: results/local/hz_world_run1_stage_a_interleaved/after_L1.pt
+
+[stage-a-interleaved] ===== phase introducing L2: 1500 steps, sampled uniformly among ['L0', 'L1', 'L2'] =====
+[stage-a-interleaved][L2 phase] step=500/1500 last_sampled=L0 calls_so_far={'L0': 2924, 'L1': 914, 'L2': 162, 'L3': 0, 'L4-logic': 0, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-interleaved][L2 phase] step=1000/1500 last_sampled=L1 calls_so_far={'L0': 3081, 'L1': 1095, 'L2': 324, 'L3': 0, 'L4-logic': 0, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-interleaved][L2 phase] step=1500/1500 last_sampled=L1 calls_so_far={'L0': 3245, 'L1': 1265, 'L2': 490, 'L3': 0, 'L4-logic': 0, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-interleaved] L2 phase done in 13s. Retention check on all 3 introduced stages...
+[stage-a-interleaved] retention after L2: L0={'next_token_acc': 0.6414380073547363} | L1={'held_out_acc': 1.0} | L2={'sel_acc': 1.0, 'cons_acc': 0.8111111111111111}
+[stage-a-interleaved] checkpoint saved: results/local/hz_world_run1_stage_a_interleaved/after_L2.pt
+
+[stage-a-interleaved] ===== phase introducing L3: 2000 steps, sampled uniformly among ['L0', 'L1', 'L2', 'L3'] =====
+[stage-a-interleaved][L3 phase] step=500/2000 last_sampled=L3 calls_so_far={'L0': 3379, 'L1': 1371, 'L2': 614, 'L3': 136, 'L4-logic': 0, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-interleaved][L3 phase] step=1000/2000 last_sampled=L2 calls_so_far={'L0': 3508, 'L1': 1494, 'L2': 743, 'L3': 255, 'L4-logic': 0, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-interleaved][L3 phase] step=1500/2000 last_sampled=L3 calls_so_far={'L0': 3625, 'L1': 1626, 'L2': 874, 'L3': 375, 'L4-logic': 0, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-interleaved][L3 phase] step=2000/2000 last_sampled=L1 calls_so_far={'L0': 3741, 'L1': 1754, 'L2': 1016, 'L3': 489, 'L4-logic': 0, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-interleaved] L3 phase done in 17s. Retention check on all 4 introduced stages...
+[stage-a-interleaved] retention after L3: L0={'next_token_acc': 0.6556291580200195} | L1={'held_out_acc': 1.0} | L2={'sel_acc': 1.0, 'cons_acc': 0.92} | L3={'seen_combo_acc': 1.0, 'unseen_combo_acc': 0.4866666666666667}
+[stage-a-interleaved] checkpoint saved: results/local/hz_world_run1_stage_a_interleaved/after_L3.pt
+
+[stage-a-interleaved] ===== phase introducing L4-logic: 2000 steps, sampled uniformly among ['L0', 'L1', 'L2', 'L3', 'L4-logic'] =====
+[stage-a-interleaved][L4-logic phase] step=500/2000 last_sampled=L2 calls_so_far={'L0': 3855, 'L1': 1852, 'L2': 1113, 'L3': 580, 'L4-logic': 100, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-interleaved][L4-logic phase] step=1000/2000 last_sampled=L4-logic calls_so_far={'L0': 3964, 'L1': 1957, 'L2': 1209, 'L3': 679, 'L4-logic': 191, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-interleaved][L4-logic phase] step=1500/2000 last_sampled=L1 calls_so_far={'L0': 4072, 'L1': 2059, 'L2': 1303, 'L3': 774, 'L4-logic': 292, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-interleaved][L4-logic phase] step=2000/2000 last_sampled=L2 calls_so_far={'L0': 4163, 'L1': 2163, 'L2': 1416, 'L3': 865, 'L4-logic': 393, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-interleaved] L4-logic phase done in 18s. Retention check on all 5 introduced stages...
+[stage-a-interleaved] retention after L4-logic: L0={'next_token_acc': 0.6461684107780457} | L1={'held_out_acc': 1.0} | L2={'sel_acc': 1.0, 'cons_acc': 0.94} | L3={'seen_combo_acc': 1.0, 'unseen_combo_acc': 0.72} | L4-logic={'seen_combo_acc': 1.0, 'unseen_combo_acc': 0.16}
+[stage-a-interleaved] checkpoint saved: results/local/hz_world_run1_stage_a_interleaved/after_L4_logic.pt
+
+[stage-a-interleaved] ===== phase introducing L4-counting: 2000 steps, sampled uniformly among ['L0', 'L1', 'L2', 'L3', 'L4-logic', 'L4-counting'] =====
+[stage-a-interleaved][L4-counting phase] step=500/2000 last_sampled=L4-logic calls_so_far={'L0': 4249, 'L1': 2250, 'L2': 1497, 'L3': 937, 'L4-logic': 478, 'L4-counting': 89, 'L5': 0, 'L6': 0}
+[stage-a-interleaved][L4-counting phase] step=1000/2000 last_sampled=L3 calls_so_far={'L0': 4328, 'L1': 2335, 'L2': 1586, 'L3': 1019, 'L4-logic': 563, 'L4-counting': 169, 'L5': 0, 'L6': 0}
+[stage-a-interleaved][L4-counting phase] step=1500/2000 last_sampled=L4-counting calls_so_far={'L0': 4424, 'L1': 2422, 'L2': 1661, 'L3': 1089, 'L4-logic': 648, 'L4-counting': 256, 'L5': 0, 'L6': 0}
+[stage-a-interleaved][L4-counting phase] step=2000/2000 last_sampled=L4-counting calls_so_far={'L0': 4508, 'L1': 2516, 'L2': 1728, 'L3': 1169, 'L4-logic': 737, 'L4-counting': 342, 'L5': 0, 'L6': 0}
+[stage-a-interleaved] L4-counting phase done in 18s. Retention check on all 6 introduced stages...
+[stage-a-interleaved] retention after L4-counting: L0={'next_token_acc': 0.6783348917961121} | L1={'held_out_acc': 1.0} | L2={'sel_acc': 1.0, 'cons_acc': 0.9533333333333334} | L3={'seen_combo_acc': 0.98, 'unseen_combo_acc': 0.41333333333333333} | L4-logic={'seen_combo_acc': 1.0, 'unseen_combo_acc': 0.08} | L4-counting={'held_out_acc': 0.6733333333333333}
+[stage-a-interleaved] checkpoint saved: results/local/hz_world_run1_stage_a_interleaved/after_L4_counting.pt
+
+[stage-a-interleaved] ===== phase introducing L5: 2000 steps, sampled uniformly among ['L0', 'L1', 'L2', 'L3', 'L4-logic', 'L4-counting', 'L5'] =====
+[stage-a-interleaved][L5 phase] step=500/2000 last_sampled=L4-counting calls_so_far={'L0': 4579, 'L1': 2586, 'L2': 1795, 'L3': 1244, 'L4-logic': 802, 'L4-counting': 409, 'L5': 85, 'L6': 0}
+[stage-a-interleaved][L5 phase] step=1000/2000 last_sampled=L5 calls_so_far={'L0': 4649, 'L1': 2657, 'L2': 1857, 'L3': 1314, 'L4-logic': 879, 'L4-counting': 482, 'L5': 162, 'L6': 0}
+[stage-a-interleaved][L5 phase] step=1500/2000 last_sampled=L2 calls_so_far={'L0': 4724, 'L1': 2719, 'L2': 1925, 'L3': 1381, 'L4-logic': 954, 'L4-counting': 564, 'L5': 233, 'L6': 0}
+[stage-a-interleaved][L5 phase] step=2000/2000 last_sampled=L5 calls_so_far={'L0': 4787, 'L1': 2795, 'L2': 1996, 'L3': 1459, 'L4-logic': 1020, 'L4-counting': 643, 'L5': 300, 'L6': 0}
+[stage-a-interleaved] L5 phase done in 18s. Retention check on all 7 introduced stages...
+[stage-a-interleaved] retention after L5: L0={'next_token_acc': 0.6310312151908875} | L1={'held_out_acc': 1.0} | L2={'sel_acc': 1.0, 'cons_acc': 0.9533333333333334} | L3={'seen_combo_acc': 1.0, 'unseen_combo_acc': 0.5933333333333334} | L4-logic={'seen_combo_acc': 1.0, 'unseen_combo_acc': 0.0} | L4-counting={'held_out_acc': 0.49333333333333335} | L5={'held_out_acc': 1.0}
+[stage-a-interleaved] checkpoint saved: results/local/hz_world_run1_stage_a_interleaved/after_L5.pt
+
+[stage-a-interleaved] ===== phase introducing L6: 2000 steps, sampled uniformly among ['L0', 'L1', 'L2', 'L3', 'L4-logic', 'L4-counting', 'L5', 'L6'] =====
+[stage-a-interleaved][L6 phase] step=500/2000 last_sampled=L3 calls_so_far={'L0': 4848, 'L1': 2874, 'L2': 2048, 'L3': 1539, 'L4-logic': 1076, 'L4-counting': 694, 'L5': 363, 'L6': 58}
+[stage-a-interleaved][L6 phase] step=1000/2000 last_sampled=L4-counting calls_so_far={'L0': 4907, 'L1': 2930, 'L2': 2105, 'L3': 1618, 'L4-logic': 1140, 'L4-counting': 760, 'L5': 418, 'L6': 122}
+[stage-a-interleaved][L6 phase] step=1500/2000 last_sampled=L3 calls_so_far={'L0': 4978, 'L1': 2999, 'L2': 2160, 'L3': 1684, 'L4-logic': 1203, 'L4-counting': 823, 'L5': 483, 'L6': 170}
+[stage-a-interleaved][L6 phase] step=2000/2000 last_sampled=L4-logic calls_so_far={'L0': 5036, 'L1': 3057, 'L2': 2219, 'L3': 1750, 'L4-logic': 1267, 'L4-counting': 892, 'L5': 542, 'L6': 237}
+[stage-a-interleaved] L6 phase done in 20s. Retention check on all 8 introduced stages...
+[stage-a-interleaved] retention after L6: L0={'next_token_acc': 0.6490066051483154} | L1={'held_out_acc': 1.0} | L2={'sel_acc': 1.0, 'cons_acc': 0.9533333333333334} | L3={'seen_combo_acc': 1.0, 'unseen_combo_acc': 0.9333333333333333} | L4-logic={'seen_combo_acc': 1.0, 'unseen_combo_acc': 0.02666666666666667} | L4-counting={'held_out_acc': 0.7} | L5={'held_out_acc': 1.0} | L6={'held_out_acc': 0.7933333333333333}
+[stage-a-interleaved] checkpoint saved: results/local/hz_world_run1_stage_a_interleaved/after_L6.pt
+
+[stage-a-interleaved] DONE in 154s. Wrote results/local/hz_world_run1_stage_a_interleaved_retention.json
+[stage-a-interleaved] total train calls per stage: {'L0': 5036, 'L1': 3057, 'L2': 2219, 'L3': 1750, 'L4-logic': 1267, 'L4-counting': 892, 'L5': 542, 'L6': 237}

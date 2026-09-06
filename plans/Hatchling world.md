@@ -386,6 +386,126 @@ blocks, reusing the exact same per-stage `train_step` functions already
 in `scripts/hz_nursery_train.py` — just change the scheduling, not the
 tasks themselves.
 
+**Real result, 2026-09-05 — interleaved rehearsal fixes it, cleanly, at
+the same total step budget, with one real, honest exception.**
+`scripts/hz_world_training_run1_stage_a_interleaved.py`: identical
+model, identical per-stage TOTAL step budgets and eval seeds as the
+sequential run above, the only change is scheduling — once a stage is
+introduced, every subsequent step samples uniformly among ALL
+introduced stages (standard task-interleaving rehearsal), reusing the
+same `train_step` functions unchanged. 153.7s total. Final (after L6)
+comparison against the sequential run:
+
+| stage | sequential (final) | interleaved (final) |
+|---|---|---|
+| L0 | 0.629 | 0.649 |
+| L1 | 0.267 | **1.000** |
+| L2 sel / cons | 0.287 / 0.691 | **1.000 / 0.953** |
+| L3 seen / unseen | 0.18 / 0.02 | **1.00 / 0.933** |
+| L4-logic seen / unseen | 0.433 / 0.40 | 1.00 / **0.027** |
+| L4-counting | 0.647 | 0.700 |
+| L5 | 0.953 | 1.000 |
+| L6 | 0.807 | 0.793 |
+
+Rehearsal recovers catastrophic forgetting almost everywhere, including
+the exact point (L4-counting's introduction) where the sequential run
+broke — L1/L2/L3-seen all stay at ~1.0 throughout the ENTIRE rest of the
+run, never dipping the way they did sequentially. **One real, honestly-
+reported exception**: L4-logic's unseen-combo generalization got WORSE
+under rehearsal (0.40 -> 0.027), not better. Real, plausible mechanism,
+directly visible in the logged call counts (`per_stage_calls`): under
+interleaving, L4-logic received only 1,267 total training calls across
+the whole run (its phase budget of 2,000 steps split among 5 candidate
+stages, plus a shrinking share of later phases) vs. sequential's full,
+uninterrupted 2,000-step dedicated block. The "seen" sub-skill
+(memorization-like, saturates fast) is unaffected; the "unseen"
+sub-skill (true generalization) apparently needs more raw repetition
+than interleaving's diluted share gave it here — a real, disclosed
+tension between rehearsal-for-retention and enough-practice-for-
+generalization, not a free lunch. Worth a real follow-up (weighted
+interleaving that gives newer/harder stages a bigger share, rather than
+uniform sampling) but not chased further this session.
+
+---
+
+# 0.7 Correction, 2026-09-05 (same day) — Hatchling World needs real information density, not just more experience types
+
+**Real, further correction to 0.6, user-initiated, same day.** 0.6 fixed
+the WHO (one persistent, checkpointed trainee, not throwaway models) but
+not the WHAT. The actual, more fundamental gap: Stage A above (and every
+Nursery/School script this whole session) trains exclusively on tiny,
+closed-vocabulary, procedurally-generated synthetic sentences (L0's own
+vocab: 63 words total). That is nowhere near the information density a
+capable model needs — real language, facts, code, reasoning, and
+explanation at real scale. The user's own framing: raising a child in a
+room with four colored cubes teaches everything about cubes and nothing
+about history, biology, language, or society.
+
+**Real, load-bearing clarification of \(\theta\)/\(S\)/\(H\)'s intended
+roles, corrected**: broad knowledge and general competence belong in
+\(\theta\) (the weights, built from real corpus-scale training) — NOT
+primarily from tiny synthetic curricula. \(S\) is for the CURRENT
+lifetime/context ("the user's dog is named Max"), not a knowledge base.
+\(H\) is active reasoning over what \(\theta\) and \(S\) already
+provide. This session's whole Nursery/School thread trained \(\theta\)
+almost entirely on synthetic curriculum content — a real, disclosed gap
+in HOW \(\theta\) has been getting its training signal, not a flaw in
+the S/H architecture itself.
+
+**Real, concrete asset check before treating this as a from-scratch
+build**: real corpus data already exists in this repo and is already
+used elsewhere this session (Tree B's raw_bdh-vs-matched_transformer
+comparison) — `data/packed/hz0h_bytes_25m_train.jsonl` (383MB),
+`hz0h_bytes_500m_train.jsonl` (3.2GB), `general_text_ratio_train.jsonl`
+(158MB), `hz0g_g1_100m_train.jsonl` (508MB), all real, byte-level or
+word-level real text, already packed and ready to load. This is NOT
+starting a corpus-ingestion pipeline from zero.
+
+**Real, disclosed architectural gap this correction surfaces, checked
+directly in code**: the persistent Stage A model (`HZLanguageModel`,
+`reference/hz_language_model_torch.py` — token embedding + `S` + `H` +
+small task heads, vocab_size=63, the Nursery's own closed word
+vocabulary) and the real-corpus BDH engine used for Tree B (`reference/
+hz0h_bdh_torch.py`'s `PackedEncoderBDH`, byte-level vocab_size=256, no
+`S`/`H` persistent-memory wrapper at all) are TWO SEPARATE model
+implementations today. "Corpus text feeds the same \(\theta\) that
+School/Library/RL sit on top of" is not yet true in this codebase — it
+requires unifying these, not just adding more training data to the
+existing Stage A script. Real, concrete, SMALLEST viable path (checked,
+not assumed): `HZLanguageModel.lm_forward` and `l0_train_step` are
+already vocabulary-agnostic (they take whatever `token_ids`/`vocab_size`
+the model was constructed with) — switching the persistent model's
+tokenizer from `NurseryTokenizer` (63 closed words) to byte-level
+(vocab_size=256, matching the existing corpus data's own encoding)
+would let real corpus text AND the Nursery's own synthetic sentences
+(themselves just ASCII text) share one embedding space and one \(S\)/
+\(H\) architecture, with zero changes to `HZCQPersistentMemory`/
+`HZCQReasoningWorkspace`. This is real, scoped, buildable work — not
+the full "Hatchling World v2" (adaptive mastery-gated scheduler,
+thousands of fine-grained difficulty levels, held-out cross-domain
+evaluation suite) in one step.
+
+**Corrected, sequenced next steps** (replacing "boil the ocean" with a
+real order): (1) switch the Stage A persistent model to byte-level
+tokenization, verified compatible with existing `lm_forward`/L0 code
+unchanged; (2) add a real-corpus training channel (sampling sequences
+from the existing packed data files) as one more entry in the
+interleaved scheduler already built and validated above (it already
+samples uniformly among "introduced stages" each step — a corpus-text
+channel is structurally just one more entry in that same rotation, not
+a new mechanism); (3) only then take on the adaptive/mastery-gated
+difficulty scheduler and fine-grained skill-level curriculum the user
+correctly identifies as still missing — real, valuable, but a bigger,
+separate undertaking that depends on (1) and (2) existing first, not a
+parallel-track rewrite.
+
+The four-channel framing (corpus / structured curriculum / interactive
+world / library-retrieval) and the persistent-single-trainee-with-
+adaptive-scheduler vision are both correct and now recorded as the real
+target; this section's job is keeping the NEXT concrete step honest and
+small rather than restating the whole vision as one undifferentiated
+task.
+
 ---
 
 # 1. Do Not Abandon Hatchling World After One Bad Run
