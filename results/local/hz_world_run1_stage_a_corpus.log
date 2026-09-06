@@ -1,0 +1,85 @@
+[stage-a-corpus] PERSISTENT model (byte-level, vocab_size=260) created once: n_params=113573
+[stage-a-corpus] loading real corpus: data/packed/hz0h_bytes_25m_train.jsonl (max 20000 windows)...
+[stage-a-corpus] loaded 20000 train windows, 2000 val windows, window length=256 bytes
+
+[stage-a-corpus] ===== phase introducing Corpus: 2000 steps, sampled uniformly among ['Corpus'] =====
+[stage-a-corpus][Corpus phase] step=500/2000 last_sampled=Corpus calls_so_far={'Corpus': 500, 'L0': 0, 'L1': 0, 'L2': 0, 'L3': 0, 'L4-logic': 0, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-corpus][Corpus phase] step=1000/2000 last_sampled=Corpus calls_so_far={'Corpus': 1000, 'L0': 0, 'L1': 0, 'L2': 0, 'L3': 0, 'L4-logic': 0, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-corpus][Corpus phase] step=1500/2000 last_sampled=Corpus calls_so_far={'Corpus': 1500, 'L0': 0, 'L1': 0, 'L2': 0, 'L3': 0, 'L4-logic': 0, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-corpus][Corpus phase] step=2000/2000 last_sampled=Corpus calls_so_far={'Corpus': 2000, 'L0': 0, 'L1': 0, 'L2': 0, 'L3': 0, 'L4-logic': 0, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-corpus] Corpus phase done in 406s. Retention check on all 1 introduced stages...
+[stage-a-corpus] retention after Corpus: Corpus={'held_out_next_byte_acc': 0.36737254901960786}
+[stage-a-corpus] checkpoint saved: results/local/hz_world_run1_stage_a_corpus/after_Corpus.pt
+
+[stage-a-corpus] ===== phase introducing L0: 2000 steps, sampled uniformly among ['Corpus', 'L0'] =====
+[stage-a-corpus][L0 phase] step=500/2000 last_sampled=Corpus calls_so_far={'Corpus': 2252, 'L0': 248, 'L1': 0, 'L2': 0, 'L3': 0, 'L4-logic': 0, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-corpus][L0 phase] step=1000/2000 last_sampled=L0 calls_so_far={'Corpus': 2502, 'L0': 498, 'L1': 0, 'L2': 0, 'L3': 0, 'L4-logic': 0, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-corpus][L0 phase] step=1500/2000 last_sampled=L0 calls_so_far={'Corpus': 2758, 'L0': 742, 'L1': 0, 'L2': 0, 'L3': 0, 'L4-logic': 0, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-corpus][L0 phase] step=2000/2000 last_sampled=L0 calls_so_far={'Corpus': 3007, 'L0': 993, 'L1': 0, 'L2': 0, 'L3': 0, 'L4-logic': 0, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-corpus] L0 phase done in 249s. Retention check on all 2 introduced stages...
+[stage-a-corpus] retention after L0: Corpus={'held_out_next_byte_acc': 0.3342352941176471} | L0={'next_token_acc': 0.9116788506507874}
+[stage-a-corpus] checkpoint saved: results/local/hz_world_run1_stage_a_corpus/after_L0.pt
+
+[stage-a-corpus] ===== phase introducing L1: 1500 steps, sampled uniformly among ['Corpus', 'L0', 'L1'] =====
+[stage-a-corpus][L1 phase] step=500/1500 last_sampled=Corpus calls_so_far={'Corpus': 3156, 'L0': 1182, 'L1': 162, 'L2': 0, 'L3': 0, 'L4-logic': 0, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-corpus][L1 phase] step=1000/1500 last_sampled=L0 calls_so_far={'Corpus': 3331, 'L0': 1347, 'L1': 322, 'L2': 0, 'L3': 0, 'L4-logic': 0, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-corpus][L1 phase] step=1500/1500 last_sampled=L0 calls_so_far={'Corpus': 3489, 'L0': 1531, 'L1': 480, 'L2': 0, 'L3': 0, 'L4-logic': 0, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-corpus] L1 phase done in 129s. Retention check on all 3 introduced stages...
+[stage-a-corpus] retention after L1: Corpus={'held_out_next_byte_acc': 0.3515686274509804} | L0={'next_token_acc': 0.9063260555267334} | L1={'held_out_acc': 1.0}
+[stage-a-corpus] checkpoint saved: results/local/hz_world_run1_stage_a_corpus/after_L1.pt
+
+[stage-a-corpus] ===== phase introducing L2: 1500 steps, sampled uniformly among ['Corpus', 'L0', 'L1', 'L2'] =====
+[stage-a-corpus][L2 phase] step=500/1500 last_sampled=Corpus calls_so_far={'Corpus': 3620, 'L0': 1652, 'L1': 610, 'L2': 118, 'L3': 0, 'L4-logic': 0, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-corpus][L2 phase] step=1000/1500 last_sampled=L1 calls_so_far={'Corpus': 3737, 'L0': 1785, 'L1': 742, 'L2': 236, 'L3': 0, 'L4-logic': 0, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-corpus][L2 phase] step=1500/1500 last_sampled=L1 calls_so_far={'Corpus': 3854, 'L0': 1911, 'L1': 884, 'L2': 351, 'L3': 0, 'L4-logic': 0, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-corpus] L2 phase done in 102s. Retention check on all 4 introduced stages...
+[stage-a-corpus] retention after L2: Corpus={'held_out_next_byte_acc': 0.36023529411764704} | L0={'next_token_acc': 0.9094890356063843} | L1={'held_out_acc': 1.0} | L2={'sel_acc': 1.0, 'cons_acc': 0.6866666666666666}
+[stage-a-corpus] checkpoint saved: results/local/hz_world_run1_stage_a_corpus/after_L2.pt
+
+[stage-a-corpus] ===== phase introducing L3: 2000 steps, sampled uniformly among ['Corpus', 'L0', 'L1', 'L2', 'L3'] =====
+[stage-a-corpus][L3 phase] step=500/2000 last_sampled=Corpus calls_so_far={'Corpus': 3967, 'L0': 2012, 'L1': 979, 'L2': 441, 'L3': 101, 'L4-logic': 0, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-corpus][L3 phase] step=1000/2000 last_sampled=L2 calls_so_far={'Corpus': 4075, 'L0': 2115, 'L1': 1075, 'L2': 541, 'L3': 194, 'L4-logic': 0, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-corpus][L3 phase] step=1500/2000 last_sampled=L1 calls_so_far={'Corpus': 4183, 'L0': 2217, 'L1': 1170, 'L2': 636, 'L3': 294, 'L4-logic': 0, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-corpus][L3 phase] step=2000/2000 last_sampled=L3 calls_so_far={'Corpus': 4274, 'L0': 2322, 'L1': 1281, 'L2': 728, 'L3': 395, 'L4-logic': 0, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-corpus] L3 phase done in 121s. Retention check on all 5 introduced stages...
+[stage-a-corpus] retention after L3: Corpus={'held_out_next_byte_acc': 0.359921568627451} | L0={'next_token_acc': 0.9007299542427063} | L1={'held_out_acc': 1.0} | L2={'sel_acc': 1.0, 'cons_acc': 0.8466666666666667} | L3={'seen_combo_acc': 1.0, 'unseen_combo_acc': 0.21333333333333335}
+[stage-a-corpus] checkpoint saved: results/local/hz_world_run1_stage_a_corpus/after_L3.pt
+
+[stage-a-corpus] ===== phase introducing L4-logic: 2000 steps, sampled uniformly among ['Corpus', 'L0', 'L1', 'L2', 'L3', 'L4-logic'] =====
+[stage-a-corpus][L4-logic phase] step=500/2000 last_sampled=L0 calls_so_far={'Corpus': 4360, 'L0': 2410, 'L1': 1361, 'L2': 799, 'L3': 480, 'L4-logic': 90, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-corpus][L4-logic phase] step=1000/2000 last_sampled=L4-logic calls_so_far={'Corpus': 4443, 'L0': 2492, 'L1': 1451, 'L2': 881, 'L3': 564, 'L4-logic': 169, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-corpus][L4-logic phase] step=1500/2000 last_sampled=L1 calls_so_far={'Corpus': 4538, 'L0': 2580, 'L1': 1526, 'L2': 951, 'L3': 649, 'L4-logic': 256, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-corpus][L4-logic phase] step=2000/2000 last_sampled=L2 calls_so_far={'Corpus': 4619, 'L0': 2675, 'L1': 1594, 'L2': 1030, 'L3': 741, 'L4-logic': 341, 'L4-counting': 0, 'L5': 0, 'L6': 0}
+[stage-a-corpus] L4-logic phase done in 108s. Retention check on all 6 introduced stages...
+[stage-a-corpus] retention after L4-logic: Corpus={'held_out_next_byte_acc': 0.346078431372549} | L0={'next_token_acc': 0.9124087691307068} | L1={'held_out_acc': 1.0} | L2={'sel_acc': 1.0, 'cons_acc': 0.9177777777777778} | L3={'seen_combo_acc': 1.0, 'unseen_combo_acc': 0.006666666666666667} | L4-logic={'seen_combo_acc': 1.0, 'unseen_combo_acc': 0.66}
+[stage-a-corpus] checkpoint saved: results/local/hz_world_run1_stage_a_corpus/after_L4_logic.pt
+
+[stage-a-corpus] ===== phase introducing L4-counting: 2000 steps, sampled uniformly among ['Corpus', 'L0', 'L1', 'L2', 'L3', 'L4-logic', 'L4-counting'] =====
+[stage-a-corpus][L4-counting phase] step=500/2000 last_sampled=L4-counting calls_so_far={'Corpus': 4690, 'L0': 2745, 'L1': 1662, 'L2': 1106, 'L3': 803, 'L4-logic': 406, 'L4-counting': 88, 'L5': 0, 'L6': 0}
+[stage-a-corpus][L4-counting phase] step=1000/2000 last_sampled=L4-counting calls_so_far={'Corpus': 4760, 'L0': 2816, 'L1': 1723, 'L2': 1174, 'L3': 881, 'L4-logic': 481, 'L4-counting': 165, 'L5': 0, 'L6': 0}
+[stage-a-corpus][L4-counting phase] step=1500/2000 last_sampled=L4-logic calls_so_far={'Corpus': 4834, 'L0': 2879, 'L1': 1793, 'L2': 1241, 'L3': 953, 'L4-logic': 564, 'L4-counting': 236, 'L5': 0, 'L6': 0}
+[stage-a-corpus][L4-counting phase] step=2000/2000 last_sampled=L4-counting calls_so_far={'Corpus': 4900, 'L0': 2953, 'L1': 1863, 'L2': 1320, 'L3': 1021, 'L4-logic': 642, 'L4-counting': 301, 'L5': 0, 'L6': 0}
+[stage-a-corpus] L4-counting phase done in 94s. Retention check on all 7 introduced stages...
+[stage-a-corpus] retention after L4-counting: Corpus={'held_out_next_byte_acc': 0.3274901960784314} | L0={'next_token_acc': 0.9075425863265991} | L1={'held_out_acc': 1.0} | L2={'sel_acc': 1.0, 'cons_acc': 0.9222222222222223} | L3={'seen_combo_acc': 1.0, 'unseen_combo_acc': 0.36} | L4-logic={'seen_combo_acc': 1.0, 'unseen_combo_acc': 0.5866666666666667} | L4-counting={'held_out_acc': 0.66}
+[stage-a-corpus] checkpoint saved: results/local/hz_world_run1_stage_a_corpus/after_L4_counting.pt
+
+[stage-a-corpus] ===== phase introducing L5: 2000 steps, sampled uniformly among ['Corpus', 'L0', 'L1', 'L2', 'L3', 'L4-logic', 'L4-counting', 'L5'] =====
+[stage-a-corpus][L5 phase] step=500/2000 last_sampled=Corpus calls_so_far={'Corpus': 4961, 'L0': 3030, 'L1': 1917, 'L2': 1399, 'L3': 1077, 'L4-logic': 693, 'L4-counting': 365, 'L5': 58, 'L6': 0}
+[stage-a-corpus][L5 phase] step=1000/2000 last_sampled=L4-logic calls_so_far={'Corpus': 5021, 'L0': 3086, 'L1': 1973, 'L2': 1478, 'L3': 1141, 'L4-logic': 759, 'L4-counting': 421, 'L5': 121, 'L6': 0}
+[stage-a-corpus][L5 phase] step=1500/2000 last_sampled=L2 calls_so_far={'Corpus': 5092, 'L0': 3155, 'L1': 2028, 'L2': 1544, 'L3': 1204, 'L4-logic': 822, 'L4-counting': 485, 'L5': 170, 'L6': 0}
+[stage-a-corpus][L5 phase] step=2000/2000 last_sampled=L4-logic calls_so_far={'Corpus': 5148, 'L0': 3214, 'L1': 2086, 'L2': 1612, 'L3': 1268, 'L4-logic': 892, 'L4-counting': 544, 'L5': 236, 'L6': 0}
+[stage-a-corpus] L5 phase done in 91s. Retention check on all 8 introduced stages...
+[stage-a-corpus] retention after L5: Corpus={'held_out_next_byte_acc': 0.3584705882352941} | L0={'next_token_acc': 0.9009732604026794} | L1={'held_out_acc': 1.0} | L2={'sel_acc': 1.0, 'cons_acc': 0.9422222222222222} | L3={'seen_combo_acc': 1.0, 'unseen_combo_acc': 0.25333333333333335} | L4-logic={'seen_combo_acc': 1.0, 'unseen_combo_acc': 0.24666666666666667} | L4-counting={'held_out_acc': 0.56} | L5={'held_out_acc': 0.6933333333333334}
+[stage-a-corpus] checkpoint saved: results/local/hz_world_run1_stage_a_corpus/after_L5.pt
+
+[stage-a-corpus] ===== phase introducing L6: 2000 steps, sampled uniformly among ['Corpus', 'L0', 'L1', 'L2', 'L3', 'L4-logic', 'L4-counting', 'L5', 'L6'] =====
+[stage-a-corpus][L6 phase] step=500/2000 last_sampled=L1 calls_so_far={'Corpus': 5198, 'L0': 3291, 'L1': 2144, 'L2': 1647, 'L3': 1327, 'L4-logic': 942, 'L4-counting': 603, 'L5': 285, 'L6': 63}
+[stage-a-corpus][L6 phase] step=1000/2000 last_sampled=L0 calls_so_far={'Corpus': 5253, 'L0': 3335, 'L1': 2208, 'L2': 1698, 'L3': 1373, 'L4-logic': 999, 'L4-counting': 664, 'L5': 339, 'L6': 131}
+[stage-a-corpus][L6 phase] step=1500/2000 last_sampled=L1 calls_so_far={'Corpus': 5310, 'L0': 3394, 'L1': 2271, 'L2': 1763, 'L3': 1427, 'L4-logic': 1052, 'L4-counting': 711, 'L5': 389, 'L6': 183}
+[stage-a-corpus][L6 phase] step=2000/2000 last_sampled=L4-counting calls_so_far={'Corpus': 5371, 'L0': 3446, 'L1': 2316, 'L2': 1824, 'L3': 1490, 'L4-logic': 1107, 'L4-counting': 769, 'L5': 435, 'L6': 242}
+[stage-a-corpus] L6 phase done in 93s. Retention check on all 9 introduced stages...
+[stage-a-corpus] retention after L6: Corpus={'held_out_next_byte_acc': 0.35670588235294115} | L0={'next_token_acc': 0.9012165665626526} | L1={'held_out_acc': 1.0} | L2={'sel_acc': 1.0, 'cons_acc': 0.94} | L3={'seen_combo_acc': 1.0, 'unseen_combo_acc': 0.22666666666666666} | L4-logic={'seen_combo_acc': 1.0, 'unseen_combo_acc': 0.35333333333333333} | L4-counting={'held_out_acc': 0.68} | L5={'held_out_acc': 0.7466666666666667} | L6={'held_out_acc': 0.49333333333333335}
+[stage-a-corpus] checkpoint saved: results/local/hz_world_run1_stage_a_corpus/after_L6.pt
+
+[stage-a-corpus] DONE in 1483s. Wrote results/local/hz_world_run1_stage_a_corpus_retention.json
+[stage-a-corpus] total train calls per stage: {'Corpus': 5371, 'L0': 3446, 'L1': 2316, 'L2': 1824, 'L3': 1490, 'L4-logic': 1107, 'L4-counting': 769, 'L5': 435, 'L6': 242}

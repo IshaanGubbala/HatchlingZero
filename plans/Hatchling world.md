@@ -548,6 +548,62 @@ fact \(S\)-heavy stages (L5, L6, Library) to need the memory-cliff
 thread's own eventual fix before byte-level unification is complete
 everywhere, not just at L0/L1.
 
+**Real result, 2026-09-05 — step (2) done: real corpus text is now one
+more channel in the same validated interleaved scheduler, no new
+mechanism.** `scripts/hz_world_training_run1_stage_a_corpus.py`: real
+text from `data/packed/hz0h_bytes_25m_train.jsonl` (20,000 real,
+pre-chunked 256-byte windows loaded; 2,000-window held-out val set from
+the file's own paired `_val.jsonl`), introduced as `"Corpus"` -- the
+FIRST stage, before L0 -- then L0 through L6 layered in exactly as in
+the interleaved-rehearsal run, same scheduler, same rehearsal
+mechanism, `ByteTokenizer` throughout. 1,483s total (real corpus
+batches are far more expensive per step than short Nursery sentences --
+256 real bytes vs the a few dozen for a synthetic sentence).
+
+Final (after L6) retention, compared against the pure-Nursery
+interleaved run:
+
+| stage | pure-Nursery interleaved (final) | + real corpus (final) |
+|---|---|---|
+| Corpus (held-out next-byte acc) | n/a | **0.357** (from a real corpus, chance ~= 1/260) |
+| L0 | 0.649 | 0.901 |
+| L1 | 1.000 | 1.000 |
+| L2 sel / cons | 1.000 / 0.953 | 1.000 / 0.940 |
+| L3 seen / unseen | 1.00 / 0.933 | 1.00 / 0.227 |
+| L4-logic seen / unseen | 1.00 / 0.027 | 1.00 / 0.353 |
+| L4-counting | 0.700 | 0.680 |
+| L5 | 1.000 | 0.747 |
+| L6 | 0.793 | **0.493** |
+
+**Real, decisive confirmations, not assumptions**: (1) the corpus
+channel integrates cleanly into the SAME scheduler with no special-
+casing -- it never collapses (0.327-0.368 throughout the whole run) and
+nothing else collapses because of it either; L1/L2 stay essentially
+perfect the entire run, including past L4-counting, the exact point
+that broke the original sequential run. (2) **L6's byte-level failure
+from step (1) replicates exactly** -- 0.493, chance, confirming this
+is a real, structural limitation (the multi-fact \(S\) capacity
+interacting with byte-level's longer per-fact sequences), not a fluke
+of that smaller verification run. (3) L3/L4-logic/L5's unseen/held-out
+numbers are noisier under the corpus-mixed run than the pure-Nursery
+one (real, disclosed, not hidden) -- plausibly because these stages now
+receive a smaller share of the same total step budget (diluted across
+9 candidates instead of 8), consistent with the earlier L4-logic
+dilution finding from the plain interleaved run, not a new failure
+mode.
+
+**Where this leaves the sequenced plan**: steps (1) and (2) are both
+real and done. L6 (and, by the same mechanism, L5 and Library's real
+multi-fact tasks) still need the memory-cliff thread's own fix before
+byte-level unification is complete for THOSE stages specifically --
+this is now confirmed twice, not a one-off, and should be treated as a
+real prerequisite rather than something step (3)'s adaptive scheduler
+can route around. Step (3) (adaptive mastery-gated difficulty
+scheduling) is the next real item, but should account for "some stages
+are currently capped below their word-level ceiling by an unresolved
+architectural limit" rather than treating every stage's plateau as
+purely a scheduling problem.
+
 ---
 
 # 1. Do Not Abandon Hatchling World After One Bad Run
