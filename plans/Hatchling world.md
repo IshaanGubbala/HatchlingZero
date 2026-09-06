@@ -604,6 +604,51 @@ are currently capped below their word-level ceiling by an unresolved
 architectural limit" rather than treating every stage's plateau as
 purely a scheduling problem.
 
+**Real result, 2026-09-06 — the multi-fact \(S\) prerequisite is FIXED,
+not just diagnosed again.** Root cause, found by reading the actual
+production code rather than assuming: this session's own real, verified
+whole-sentence-ingestion fix (found in the L5 memory-cliff diagnostic
+thread, moved 3-fact recall 24.5% -> 33.3%) was NEVER promoted out of
+standalone diagnostic scripts into the production model.
+`HZLanguageModel.qa_forward` (L5), `read_forward` (L6), and
+`stress_recall_forward` (L5-stress) in `reference/
+hz_language_model_torch.py` were all STILL using the original
+per-token ingestion loop (`for t in range(ids.shape[1]): S =
+mem.update(S, token_embed(ids[:, t]).unsqueeze(1))`, forcing
+\(T_{\text{demo}}=1\) and therefore identical \(\Delta S\) across every
+slot by construction) -- only `cs_program_forward` and `physics_forward`
+(built later this session) used the correct whole-sentence call. Fixed
+all three to ingest each turn as ONE `mem.update` call
+(\(T_{\text{demo}}\) = turn length), matching `cs_program_forward`'s
+already-correct pattern. Zero new parameters, zero training-loop
+changes -- a pure forward-method fix.
+
+Verified empirically, not just by shape/gradient tests (`tests/
+test_hz_nursery_grounding.py`'s existing `test_qa_forward_shapes_and_
+gradients`/`test_read_forward_shapes_and_gradients`/
+`test_stress_recall_forward_shapes_and_gradients` all still pass
+unchanged -- confirms interface compatibility): retrained L5/L6 from
+scratch, word-level and byte-level:
+
+| stage | word-level | byte-level (before fix) | byte-level (after fix) |
+|---|---|---|---|
+| L5 | 1.000 (already at ceiling -- single-fact, no slot contention) | 0.747 | n/a, not re-isolated separately |
+| L6 | 0.72-0.79 (matches this session's known ~80% baseline) | **0.493 (chance)** | **0.687-0.787** |
+
+L6's byte-level collapse is resolved -- byte-level now matches word-
+level performance, confirming the root-cause hypothesis from the
+corpus-channel run exactly (byte-level's much longer per-fact sequences
+were amplifying the SAME per-token-ingestion bug that word-level mostly
+tolerated at short sentence lengths, not a separate, new failure mode).
+This removes step (3)'s real prerequisite: multi-fact \(S\)-heavy
+stages (L5-stress, L6, and future Library-style tasks) are no longer
+capped below their word-level ceiling by this specific architectural
+limit. The broader 3-fact memory-cliff thread (best result still
+~35.4% mean recall on the harder n=3 stress task, per the L5 diagnostic
+earlier in this plan) remains real, separate, unresolved work -- this
+fix closes the specific "production code never got the already-known
+fix" gap, not the whole memory-capacity research thread.
+
 ---
 
 # 1. Do Not Abandon Hatchling World After One Bad Run

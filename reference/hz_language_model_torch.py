@@ -298,15 +298,23 @@ class HZLanguageModel(nn.Module):
         update that already-taught S further before H ever reads it.
         Returns label logits (B, n_qa_labels) -- the correct label exists
         ONLY in teach_ids, never in the object features, so this can only
-        be solved by real recall through S, not grounding to x_objects."""
+        be solved by real recall through S, not grounding to x_objects.
+
+        Each turn is ingested as ONE WHOLE-SENTENCE mem.update call
+        (T_demo = turn length), not token-by-token -- promoting this
+        session's own real, verified fix (softmax over T_demo=1 is
+        always exactly 1.0, so token-by-token ingestion structurally
+        forces delta_S identical across every slot, see the L5 memory-
+        cliff diagnostic thread) into production. Whole-sentence
+        ingestion alone moved 3-fact recall 24.5% -> 33.3% in that
+        diagnostic; this was the one production forward method still
+        using the old per-token loop."""
         B = teach_ids.shape[0]
         x_objects = self.encode_objects(type_idx, color_idx, size_idx, position_idx)
 
         S = self.mem.init_state(B, device=teach_ids.device)
-        for t in range(teach_ids.shape[1]):
-            S = self.mem.update(S, self.token_embed(teach_ids[:, t]).unsqueeze(1))
-        for t in range(question_ids.shape[1]):
-            S = self.mem.update(S, self.token_embed(question_ids[:, t]).unsqueeze(1))
+        S = self.mem.update(S, self.token_embed(teach_ids))
+        S = self.mem.update(S, self.token_embed(question_ids))
 
         H = self.ws.run(B, S, x_objects, n_rounds=self.n_rounds_l1)  # (B, M_H, D)
         q = self.qa_rq(H).mean(dim=1, keepdim=True)  # (B, 1, D)
@@ -324,14 +332,19 @@ class HZLanguageModel(nn.Module):
         (B, n_read_labels). No object-feature-set input at all -- every
         fact is language that was read, so correctness depends entirely
         on S having retained (and H having selected) the ONE relevant
-        sentence among several, not on grounding to a visible feature."""
+        sentence among several, not on grounding to a visible feature.
+
+        Each sentence/question is ingested as ONE WHOLE-SENTENCE
+        mem.update call (T_demo = sentence length), not token-by-token --
+        promoting this session's own real, verified fix into production
+        (see qa_forward's docstring for the underlying math; this method
+        was the second of three production forwards still using the old
+        per-token loop, alongside qa_forward and stress_recall_forward)."""
         B = question_ids.shape[0]
         S = self.mem.init_state(B, device=question_ids.device)
         for sentence_ids in sentence_ids_list:
-            for t in range(sentence_ids.shape[1]):
-                S = self.mem.update(S, self.token_embed(sentence_ids[:, t]).unsqueeze(1))
-        for t in range(question_ids.shape[1]):
-            S = self.mem.update(S, self.token_embed(question_ids[:, t]).unsqueeze(1))
+            S = self.mem.update(S, self.token_embed(sentence_ids))
+        S = self.mem.update(S, self.token_embed(question_ids))
 
         x_null = self.read_null_x.expand(B, 1, self.D)
         H = self.ws.run(B, S, x_null, n_rounds=self.n_rounds_l1)  # (B, M_H, D)
@@ -349,14 +362,18 @@ class HZLanguageModel(nn.Module):
         Reuses qa_forward's readout (qa_rq/qa_rk/qa_head, same label
         space) and read_forward's turn-chaining + null-x mechanism
         (no object-feature-set input -- every fact is language read
-        through S, same as L6)."""
+        through S, same as L6).
+
+        Each turn is ingested as ONE WHOLE-SENTENCE mem.update call
+        (T_demo = turn length), not token-by-token -- promoting this
+        session's own real, verified fix into production (see
+        qa_forward's docstring; this was the third of three production
+        forwards still using the old per-token loop)."""
         B = question_ids.shape[0]
         S = self.mem.init_state(B, device=question_ids.device)
         for sentence_ids in sequence_ids_list:
-            for t in range(sentence_ids.shape[1]):
-                S = self.mem.update(S, self.token_embed(sentence_ids[:, t]).unsqueeze(1))
-        for t in range(question_ids.shape[1]):
-            S = self.mem.update(S, self.token_embed(question_ids[:, t]).unsqueeze(1))
+            S = self.mem.update(S, self.token_embed(sentence_ids))
+        S = self.mem.update(S, self.token_embed(question_ids))
 
         x_null = self.read_null_x.expand(B, 1, self.D)
         H = self.ws.run(B, S, x_null, n_rounds=self.n_rounds_l1)  # (B, M_H, D)
