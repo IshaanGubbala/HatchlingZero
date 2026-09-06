@@ -1,0 +1,29 @@
+[matched-transformer-squad] FRESH matched transformer: d_model=192 n_layers=6 n_params=2,940,480
+[matched-transformer-squad] SAME real SQuAD data as HZ-Micro: 55 train QAs (28 paragraphs), 20 unseen-domain QAs, 26 paraphrase probes, 22 wrong-completion probes
+
+[matched-transformer-squad] BASELINE (fresh, untrained): held_out_lm_loss=5.786 delta_truth=+0.073 delta_para=+0.065
+[matched-transformer-squad] epoch 2/25 (166 steps, 6s elapsed, 25.62 steps/sec)
+[matched-transformer-squad] epoch 4/25 (332 steps, 13s elapsed, 25.87 steps/sec)
+[matched-transformer-squad] epoch 6/25 (498 steps, 19s elapsed, 25.83 steps/sec)
+[matched-transformer-squad] epoch 8/25 (664 steps, 26s elapsed, 25.65 steps/sec)
+[matched-transformer-squad] epoch 10/25 (830 steps, 32s elapsed, 25.71 steps/sec)
+[matched-transformer-squad] epoch 12/25 (996 steps, 39s elapsed, 25.62 steps/sec)
+[matched-transformer-squad] epoch 14/25 (1162 steps, 45s elapsed, 25.57 steps/sec)
+[matched-transformer-squad] epoch 16/25 (1328 steps, 52s elapsed, 25.61 steps/sec)
+[matched-transformer-squad] epoch 18/25 (1494 steps, 59s elapsed, 25.51 steps/sec)
+[matched-transformer-squad] epoch 20/25 (1660 steps, 65s elapsed, 25.43 steps/sec)
+[matched-transformer-squad] epoch 22/25 (1826 steps, 72s elapsed, 25.43 steps/sec)
+[matched-transformer-squad] epoch 24/25 (1992 steps, 78s elapsed, 25.49 steps/sec)
+
+[matched-transformer-squad] training done: 2075 total steps in 81s
+
+[matched-transformer-squad] === AFTER TRAINING ===
+[matched-transformer-squad] held_out_lm_loss: 5.786 -> 3.196
+[matched-transformer-squad] SEEN: {'mean_loss': 1.2027686113660985, 'mean_byte_acc': 0.5994323684410615}
+[matched-transformer-squad] WRONG: {'mean_loss': 1.4062954905358227, 'mean_byte_acc': 0.4705031595446847}
+[matched-transformer-squad] PARAPHRASE: {'mean_loss': 2.4228467505711775, 'mean_byte_acc': 0.2885471092393765}
+[matched-transformer-squad] UNSEEN: {'mean_loss': 3.9257094621658326, 'mean_byte_acc': 0.130740312859416}
+[matched-transformer-squad] delta_truth: +0.073 -> +0.204
+[matched-transformer-squad] delta_para: +0.065 -> +1.503
+[matched-transformer-squad] checkpoint saved: results/local/hz0a_matched_transformer_squad/after_squad_train.pt
+[matched-transformer-squad] DONE. Wrote results/local/hz0a_matched_transformer_squad_train.json
