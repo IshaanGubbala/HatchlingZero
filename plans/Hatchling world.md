@@ -506,6 +506,48 @@ target; this section's job is keeping the NEXT concrete step honest and
 small rather than restating the whole vision as one undifferentiated
 task.
 
+**Real result, 2026-09-05 — step (1) done and empirically verified, not
+just claimed: byte-level tokenizer built, and it's a partial, honestly-
+reported win, not a clean sweep.** `hatchling_world/language/
+byte_tokenizer.py`'s `ByteTokenizer` implements `NurseryTokenizer`'s
+exact public interface (`vocab_size`, `pad_id`/`bos_id`/`eos_id`/
+`unk_id`, `encode`/`decode`), byte value 0-255 mapped directly to token
+id (matching `scripts/hz0h_pack_byte_corpus.py`'s own convention
+exactly, specials reserved at 256-259). 5 real tests (round-trip on
+unicode text, interface parity, byte-value-equals-id), all passing.
+
+**Verified by actually running it through the real training functions,
+not just unit-testing the tokenizer in isolation**: swapped
+`ByteTokenizer` in for `NurseryTokenizer` in `scripts/
+hz_nursery_train.py`'s existing L0/L1/L6 train_step/eval functions,
+zero code changes to those functions.
+
+| stage | result | verdict |
+|---|---|---|
+| L0 (next-byte LM) | held_out_acc 0.911 by step 600 | clean transfer |
+| L1 (grounding) | held_out_acc 1.000 by step 200 | clean transfer |
+| L6 (3-fact reading) | held_out_acc flat ~0.5 (chance) through 3000 steps | **does NOT transfer** |
+
+L0 and L1 confirm the real, load-bearing claim (`token_embed`/
+`lm_forward` are genuinely vocabulary-agnostic, and L1's
+`object_encoder`-based attribute grounding is fully independent of the
+tokenizer, as read directly from the code before this section was
+written). **L6's failure is real and not swept under the rug**: L6
+stores 3 simultaneous facts via whole-sentence ingestion into \(S\) --
+exactly this session's own already-documented multi-fact capacity limit
+(the L5 memory-cliff thread earlier in this plan, best real fix found
+so far: ~35.4% on a similar 3-fact task, nowhere near solved). Byte-
+level sentences are ~5x longer than word-level ones per fact, so each
+`mem.update` call now has a much larger \(T_{\text{demo}}\) -- a real,
+plausible (not yet isolated) compounding of an already-fragile capacity
+limit, not a new, separate bug introduced by this change. Not chased
+further this session (matches this project's own "measure, report,
+don't chase indefinitely" discipline) -- flagged as a real, open
+dependency: the corpus-channel work in step (2) should expect multi-
+fact \(S\)-heavy stages (L5, L6, Library) to need the memory-cliff
+thread's own eventual fix before byte-level unification is complete
+everywhere, not just at L0/L1.
+
 ---
 
 # 1. Do Not Abandon Hatchling World After One Bad Run
