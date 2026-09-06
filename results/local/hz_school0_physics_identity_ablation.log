@@ -1,0 +1,24 @@
+=== seed 0 ===
+[physics-identity-ablation] vocab_size=61 n_params=88101
+[physics-identity-ablation] step=250/2500 train_acc=0.455 held_out_acc=0.495 (chance=0.500)
+[physics-identity-ablation] step=500/2500 train_acc=0.555 held_out_acc=0.540 (chance=0.500)
+[physics-identity-ablation] step=750/2500 train_acc=0.465 held_out_acc=0.505 (chance=0.500)
+[physics-identity-ablation] step=1000/2500 train_acc=0.540 held_out_acc=0.520 (chance=0.500)
+[physics-identity-ablation] step=1250/2500 train_acc=0.495 held_out_acc=0.500 (chance=0.500)
+[physics-identity-ablation] step=1500/2500 train_acc=0.515 held_out_acc=0.465 (chance=0.500)
+[physics-identity-ablation] step=1750/2500 train_acc=0.515 held_out_acc=0.455 (chance=0.500)
+[physics-identity-ablation] step=2000/2500 train_acc=0.530 held_out_acc=0.505 (chance=0.500)
+[physics-identity-ablation] step=2250/2500 train_acc=0.460 held_out_acc=0.445 (chance=0.500)
+[physics-identity-ablation] step=2500/2500 train_acc=0.480 held_out_acc=0.485 (chance=0.500)
+=== seed 7 ===
+[physics-identity-ablation] vocab_size=61 n_params=88101
+[physics-identity-ablation] step=250/2500 train_acc=0.490 held_out_acc=0.520 (chance=0.500)
+[physics-identity-ablation] step=500/2500 train_acc=0.495 held_out_acc=0.505 (chance=0.500)
+[physics-identity-ablation] step=750/2500 train_acc=0.480 held_out_acc=0.525 (chance=0.500)
+[physics-identity-ablation] step=1000/2500 train_acc=0.580 held_out_acc=0.440 (chance=0.500)
+[physics-identity-ablation] step=1250/2500 train_acc=0.515 held_out_acc=0.405 (chance=0.500)
+[physics-identity-ablation] step=1500/2500 train_acc=0.445 held_out_acc=0.490 (chance=0.500)
+[physics-identity-ablation] step=1750/2500 train_acc=0.505 held_out_acc=0.460 (chance=0.500)
+[physics-identity-ablation] step=2000/2500 train_acc=0.485 held_out_acc=0.475 (chance=0.500)
+[physics-identity-ablation] step=2250/2500 train_acc=0.460 held_out_acc=0.570 (chance=0.500)
+[physics-identity-ablation] step=2500/2500 train_acc=0.480 held_out_acc=0.460 (chance=0.500)

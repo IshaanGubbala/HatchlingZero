@@ -91,3 +91,30 @@ def generate_physics_episode(rng: random.Random) -> dict:
     return {"teach": teach, "scenario": scenario, "question": question,
             "large_color": large_color, "small_color": small_color,
             "answer_color": large_color, "answer_idx": COLORS.index(large_color)}
+
+
+PHYSICS_IDENTITY_LABELS = ["x", "y"]
+
+
+def generate_physics_fixed_identity_episode(rng: random.Random) -> dict:
+    """Real, decisive ablation on `generate_physics_episode`'s
+    plateau (plan Phase 9, held-out acc stuck ~0.45-0.56, right at the
+    "guess one of the two named colors" chance floor). Identical rule
+    and structure, but the two entities are named by FIXED, reused
+    symbol tokens (`x`/`y` -- literally the same tokens the CS program-
+    execution task used to reach 97-100%) instead of a per-episode-
+    varying COLOR. Isolates whether the reasoning rule itself is the
+    bottleneck (predicts this stays ~50%) or whether COLOR's dynamic,
+    per-episode entity identity was the real problem (predicts this
+    jumps toward CS's ~100%) -- x/y's assignment to large/small is
+    still randomized per episode so the answer can't be shortcut by
+    always predicting one fixed symbol."""
+    large_id, small_id = (PHYSICS_IDENTITY_LABELS if rng.random() < 0.5
+                           else list(reversed(PHYSICS_IDENTITY_LABELS)))
+    teach = "a large object needs more force than a small object"
+    scenario = f"the {large_id} object is large and the {small_id} object is small"
+    first, second = (large_id, small_id) if rng.random() < 0.5 else (small_id, large_id)
+    question = f"which object needs more force the {first} object or the {second} object"
+    return {"teach": teach, "scenario": scenario, "question": question,
+            "large_id": large_id, "small_id": small_id,
+            "answer_id": large_id, "answer_idx": PHYSICS_IDENTITY_LABELS.index(large_id)}

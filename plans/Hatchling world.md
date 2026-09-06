@@ -2704,10 +2704,54 @@ difference is that CS's two bindings are keyed by FIXED symbol tokens
 entity IDENTITY across sentences via a shared, per-episode-varying
 COLOR token (recognizing that "yellow" in the scenario and "yellow" in
 the question name the same entity) -- a real coreference-style binding
-problem, not simple fixed-slot recall, and not yet diagnosed further
-this session (parking here rather than tuning indefinitely, matching
-this session's own "kill/park, don't keep tuning" discipline from the
-L5 memory-cliff thread).
+problem, not simple fixed-slot recall.
+
+**Real, decisive ablation, 2026-09-05 — the "dynamic COLOR identity"
+hypothesis above is REFUTED; the real bottleneck is sharper than
+that.** User's own proposed test: replace the per-episode-varying
+COLOR identities with FIXED symbol tokens -- literally `x`/`y`, the
+exact same tokens CS's program-execution task used to reach 97-100% --
+and see whether Physics jumps toward that ceiling.
+`generate_physics_fixed_identity_episode` (`hatchling_world/school/
+generator.py`) does exactly this: identical rule, identical structure,
+`x`/`y` (randomly assigned to large/small per episode, question order
+still randomized) instead of a sampled COLOR pair. `physics_forward`
+reused completely UNCHANGED (it is architecture-agnostic to
+vocabulary) via `scripts/hz_school0_physics_identity_ablation.py`, same
+2 seeds x 2500 steps as the color-based run:
+
+| variant | seed 0 mean held-out acc | seed 7 mean held-out acc | combined mean |
+|---|---|---|---|
+| color identity (original) | 0.494 | 0.500 | 0.497 |
+| **fixed x/y identity (ablation)** | **0.492** | **0.485** | **0.488** |
+
+**No improvement at all** -- fixed identity performs statistically
+indistinguishably from the color-varying version, both flat at the 0.5
+chance floor across all 10 checkpoints/seed, no trend either direction.
+This cleanly refutes "dynamic per-episode surface-token identity" as
+the bottleneck: `x`/`y` are the SAME tokens that let CS bind and recall
+two facts at 97-100%, and they buy Physics nothing.
+
+**Real, sharper reframe.** Since fixed vs. dynamic identity makes no
+difference, the two tasks must differ in what the ANSWER actually is,
+not in how entities are named. CS's answer is `sum(bound_x, bound_y)`
+-- a derived VALUE computed by composing two independently-retrieved
+numbers (order/identity-symmetric: the answer doesn't need to "point
+back" to which symbol held which value). Physics's answer is "which
+SYMBOL was bound to the property `large`" -- the model must select and
+output a REFERENCE to one specific one of the two entities discussed, a
+pointer/selection operation, not an aggregation. **New, testable
+hypothesis for next time**: this architecture composes/aggregates
+independently-retrieved values fine (CS, arithmetic) but struggles to
+select-and-output *which* entity satisfies a predicate (Physics) --
+independent of whether that entity's surface name is fixed or
+per-episode-varying. Parking here rather than tuning indefinitely
+(matching this session's "kill/park, don't keep tuning" discipline from
+the L5 memory-cliff thread) -- the next real experiment, if pursued, is
+a minimal task isolating pure entity-selection (e.g. "the {A} object
+is a widget, the {B} object is a gadget, which one is the widget") with
+NO composition/arithmetic at all, to confirm selection itself is the
+failure mode rather than some other confound.
 
 **Real result, 2026-09-05 — School-0, two very different outcomes,
 directly connecting to the Nursery's own open questions.** Explicit

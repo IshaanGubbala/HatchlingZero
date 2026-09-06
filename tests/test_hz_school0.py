@@ -10,7 +10,8 @@ import torch
 
 from hatchling_world.school.generator import (
     generate_arithmetic_episode, generate_rule_episode, generate_cs_program_episode,
-    generate_physics_episode, ARITH_TRAIN_PAIRS, ARITH_HELD_OUT_PAIRS,
+    generate_physics_episode, generate_physics_fixed_identity_episode, PHYSICS_IDENTITY_LABELS,
+    ARITH_TRAIN_PAIRS, ARITH_HELD_OUT_PAIRS,
 )
 from hatchling_world.language.tokenizer import NurseryTokenizer, NUMBERS, SIZES, COLORS
 from reference.hz_language_model_torch import HZLanguageModel
@@ -128,3 +129,29 @@ def test_physics_forward_shapes_and_gradients_reuses_read_head():
     loss.backward()
     assert model.read_head.weight.grad is not None, "physics_forward must route through the shared read_head"
     assert model.mem.q_proj.weight.grad is not None
+
+
+def test_physics_fixed_identity_episode_answer_is_the_large_id_and_ids_are_distinct():
+    rng = random.Random(9)
+    for _ in range(50):
+        ep = generate_physics_fixed_identity_episode(rng)
+        assert ep["large_id"] != ep["small_id"]
+        assert {ep["large_id"], ep["small_id"]} == set(PHYSICS_IDENTITY_LABELS)
+        assert ep["answer_id"] == ep["large_id"]
+        assert PHYSICS_IDENTITY_LABELS[ep["answer_idx"]] == ep["large_id"]
+        assert ep["large_id"] in ep["question"] and ep["small_id"] in ep["question"]
+
+
+def test_physics_forward_works_unchanged_on_fixed_identity_variant():
+    tok = NurseryTokenizer()
+    model = HZLanguageModel(vocab_size=tok.vocab_size, d_model=32, memory_slots=8, workspace_slots=16,
+                             n_rounds_l1=4, n_read_labels=len(PHYSICS_IDENTITY_LABELS))
+    rng = random.Random(10)
+    ep = generate_physics_fixed_identity_episode(rng)
+    teach_ids = torch.tensor([tok.encode(ep["teach"])])
+    scenario_ids = torch.tensor([tok.encode(ep["scenario"])])
+    question_ids = torch.tensor([tok.encode(ep["question"])])
+    logits = model.physics_forward(teach_ids, scenario_ids, question_ids)
+    assert logits.shape == (1, len(PHYSICS_IDENTITY_LABELS))
+    logits.sum().backward()
+    assert model.read_head.weight.grad is not None
