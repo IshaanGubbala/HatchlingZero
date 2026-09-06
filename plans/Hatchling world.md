@@ -88,6 +88,128 @@ The ultimate research question this whole branch answers:
 
 ---
 
+# 0.5 Strategic reset, 2026-09-05 — Hatchling World is a diagnostic laboratory, not the research objective
+
+**Real course-correction, user-initiated.** The Nursery/School work
+(sections 5-9 above, Phases 0/4/5/7/8/9) was genuinely valuable — it
+found and fixed a real memory-write bug (token-by-token ingestion
+forcing identical \(\Delta S\) across slots), measured real \(R\)-sweep
+flatness on counting/memory, validated the Library concept, got RLVR
+working, and cleanly localized School-0's Physics failure to rule+
+selection *chaining* specifically (neither hop alone is hard). But none
+of that is itself the goal. This document's own North Star (section 0,
+written the same day) already says so: the ultimate question is HZ vs.
+**conventional approaches** on compute-efficiency, not "can HZ solve
+Physics entity selection." The last several sessions drifted into
+treating curriculum-task scores as the product. They are diagnostic
+probes, not the mainline.
+
+**Effective immediately: freeze new World/Nursery/School feature
+expansion.** Phases 0/4/5/7/8/9's generators, tasks, and the live
+viewer are DONE for now — kept only as diagnostic probes to explain a
+future HZ-vs-transformer result (e.g. "does the entity-selection
+finding predict anything about LM scaling behavior"), not extended for
+their own sake. Concretely: no Biology/Chemistry generators, no further
+Physics curriculum variants, no more live-viewer work, until a
+mainline HZ-vs-transformer result needs one of them for explanation.
+
+**Real, important discovery made while re-grounding this reset: the
+matched-transformer baseline infrastructure this reset calls for
+already exists and has already been run** —
+`reference/hz0a_matched_transformer.py`, `reference/
+hz0h_matched_transformer_static_kv.py`, `scripts/
+hz0h_bdh_best_vs_matched_transformer_full_step_benchmark.py`, and real
+results in `results/cuda/hz0h_runpod_a40_*` — dated 2026-08-21/22,
+**predating this entire Nursery pivot** (2026-09-04) and confirmed
+UNCHANGED since (`git log` on the referenced BDH/transformer source
+files shows zero commits since 2026-08-22 — still current, not stale
+code). Real numbers already measured, matched param count (~300M BDH
+vs ~302.6M Transformer), real byte-level LM data
+(`data/packed/hz0h_bytes_25m_train.jsonl`), 10M real training tokens,
+A40:
+
+| arm | params | val loss | wall-clock (10M tok) |
+|---|---:|---:|---:|
+| raw_bdh (seed 8) | 300.3M | **1.408** | 1993s |
+| raw_bdh (seed 9) | 300.3M | **1.403** | 2019s |
+| matched_transformer (seed 8) | 302.6M | 1.899 | 348s |
+
+**BDH already wins on quality-per-parameter-per-token in this real,
+matched, controlled test** — a genuinely positive existing data point
+for Research Tree B below, not a new result to chase from zero. But it
+comes at ~5.7x more wall-clock for the same token count, which is NOT
+the same claim as "wins at matched training FLOPs" — whether that
+wall-clock gap reflects genuinely more FLOPs or just unfused/
+inefficient kernels is real, open, unresolved by this old data alone.
+
+**Real, disclosed red flag also found in the same result set, not yet
+explained**: a "combined_best" capstone recipe from the same period
+(`mult=16 + softmax_scaled attention + weight-tying + jumps`,
+`results/cuda/hz0h_matched_param_capstone_combined_retry_result.json`)
+diverged catastrophically — **validation loss 49.6**, nonsensically bad
+for a converged LM, vs. raw_bdh's 1.4. This is a real warning against
+assuming "combine several validated individual wins" produces a valid
+combined recipe without re-verification — matches this project's own
+already-documented pattern (the H-update-rule branch going "0-for-4"
+combining plausible-sounding ideas, section 2). **Do not treat any
+multi-trick "best" HZ configuration as trustworthy until it has its own
+fresh, isolated validation run** — this is exactly why Research Tree B
+below re-locks to the plan's own already-audited "Inherited HZ
+Findings" (section 2: original LN recurrence, \(M_H=32\), full-fidelity
+Q/K, D/2 value/write) rather than any newer, unaudited "capstone."
+
+## The new mainline research tree
+
+\[
+\boxed{\textbf{A. Can recurrence buy intelligence?}}
+\]
+Build tasks where \(R\in\{1,2,4,8,16\}\) should genuinely require
+progressively more sequential computation (not the flat-by-construction
+tasks this session's own \(R\)-sweep found — L1/L3/L4-counting/L5-
+stress all showed zero or saturating \(R\)-sensitivity), and compare
+against transformer depth / test-time compute at matched parameters.
+This session's FSM/depth-adapter prior work (`results/local/
+depth_adapter_*`, `hz0h_depth_untied_*`) is real, relevant prior art to
+build on, not restart.
+
+\[
+\boxed{\textbf{B. Can HZ beat transformer quality-per-parameter/FLOP?}}
+\]
+Real LM scaling curves (multiple parameter/FLOP budgets), not one-off
+losses — extending the real existing raw_bdh-vs-matched_transformer
+result above rather than replacing it. First concrete gap to close:
+determine whether that 5.7x wall-clock gap is a genuine FLOP gap or a
+kernel-efficiency gap (matters for how the result should be read), then
+re-run at a properly FLOP-matched (not just token-count-matched)
+protocol, on the plan's own currently-locked recipe (section 2), not
+the diverged "combined_best" capstone.
+
+\[
+\boxed{\textbf{C. Can persistent }S\textbf{ beat transformer context/KV memory?}}
+\]
+This is where the Nursery's one-shot-learning and Library results
+actually matter as diagnostic evidence, not curriculum wins in
+themselves: test very long interactions and compare HZ state size
+against transformer context/KV cost at matched task performance.
+
+\[
+\boxed{\textbf{D. Can we execute HZ efficiently?}}
+\]
+Resume fusion/grouped-GEMM/compile/dispatch-reduction/SPEED-A work only
+once a workload exists at a scale where it matters — this session's own
+three device benchmarks (Phase 6) already showed the current tiny
+Nursery loop is the wrong scale for this (Mac CPU beats an RTX 5090 by
+4.4x on it). The raw_bdh benchmark above (300M params, real data) is
+already at a scale where systems work is NOT premature — that is where
+Tree D resumes, not the toy curriculum loop.
+
+**North star, restated plainly**: HZ must become measurably smarter,
+faster, or cheaper than a transformer — preferably more than one of
+those — at matched resources. Everything else, School-0 included, is
+now secondary evidence toward that question, not the question itself.
+
+---
+
 # 1. Do Not Abandon Hatchling World After One Bad Run
 
 Recent HZ work showed that a single architecture result can be misleading, but repeated controlled failures are meaningful. Hatchling World therefore gets a **bounded rescue ladder** — now extended to cover language and educational failures, not just navigation failures.
