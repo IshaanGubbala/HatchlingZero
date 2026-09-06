@@ -1,0 +1,48 @@
+[stage-b-knowledge-v2] loading checkpoint (C_12): results/local/hz_world_run1_stage_b_knowledge/after_Knowledge.pt
+[stage-b-knowledge-v2] CONTINUING the persistent trainee: n_params=113573
+[stage-b-knowledge-v2] fact scale: 102 train, 102 paraphrase, 26 held-out (entity-level), 49 wrong-completion
+[stage-b-knowledge-v2] loaded 20000 corpus train windows
+
+[stage-b-knowledge-v2] ===== BEFORE: retention on the inherited lineage (C_12) =====
+[stage-b-knowledge-v2] before, Corpus={'held_out_next_byte_acc': 0.39741176470588235}
+[stage-b-knowledge-v2] before, L0={'next_token_acc': 0.8871046304702759}
+[stage-b-knowledge-v2] before, L1={'held_out_acc': 1.0}
+[stage-b-knowledge-v2] before, L2={'sel_acc': 1.0, 'cons_acc': 0.8355555555555556}
+[stage-b-knowledge-v2] before, L3={'seen_combo_acc': 1.0, 'unseen_combo_acc': 0.5}
+[stage-b-knowledge-v2] before, L4-logic={'seen_combo_acc': 1.0, 'unseen_combo_acc': 0.84}
+[stage-b-knowledge-v2] before, L4-counting={'held_out_acc': 0.6666666666666666}
+[stage-b-knowledge-v2] before, L5={'held_out_acc': 1.0}
+[stage-b-knowledge-v2] before, L6={'held_out_acc': 0.6466666666666666}
+[stage-b-knowledge-v2] before, Library={'held_out_acc': 1.0}
+[stage-b-knowledge-v2] before, knowledge probes (102-fact scale, before this run's training)={'SEEN': {'mean_loss': 3.65971856841854, 'mean_byte_acc': 0.1487806614707498}, 'PARAPHRASE': {'mean_loss': 3.632698563968434, 'mean_byte_acc': 0.11138366199299402}, 'UNSEEN': {'mean_loss': 3.450277667779189, 'mean_byte_acc': 0.22069949800005326}, 'WRONG': {'mean_loss': 3.686289154753393, 'mean_byte_acc': 0.15725097303487817}}
+[stage-b-knowledge-v2] initial per-subskill mastery: {'Corpus': {'main': 0.39741176470588235}, 'L0': {'main': 0.8871046304702759}, 'L1': {'main': 1.0}, 'L2': {'sel': 1.0, 'cons': 0.8355555555555556}, 'L3': {'seen': 1.0, 'unseen': 0.5}, 'L4-logic': {'seen': 1.0, 'unseen': 0.84}, 'L4-counting': {'main': 0.6666666666666666}, 'L5': {'main': 1.0}, 'L6': {'main': 0.6466666666666666}, 'Library': {'main': 1.0}, 'Knowledge': {'main': 0.0}}
+
+[stage-b-knowledge-v2] ===== Knowledge-v2 phase: 6000 steps, PER-SUBSKILL mastery-weighted among all 11 stages (102 facts) =====
+[stage-b-knowledge-v2] step=1000/6000 last_sampled=Corpus mastery=[{'Corpus': {'main': 0.3404957420554737}, 'L0': {'main': 0.8545690818713636}, 'L1': {'main': 1.0}, 'L2': {'sel': 1.0, 'cons': 0.8357878276985297}, 'L3': {'seen': 1.0, 'unseen': 0.487314453125}, 'L4-logic': {'seen': 1.0, 'unseen': 0.82536220625}, 'L4-counting': {'main': 0.5466859921470173}, 'L5': {'main': 1.0}, 'L6': {'main': 0.686232621475384}, 'Library': {'main': 1.0}, 'Knowledge': {'main': 0.20965567964954396}}] calls_so_far={'Corpus': 213, 'L0': 50, 'L1': 14, 'L2': 53, 'L3': 139, 'L4-logic': 55, 'L4-counting': 109, 'L5': 19, 'L6': 99, 'Library': 12, 'Knowledge': 237}
+[stage-b-knowledge-v2] step=2000/6000 last_sampled=Knowledge mastery=[{'Corpus': {'main': 0.3564591018752928}, 'L0': {'main': 0.8663859327612157}, 'L1': {'main': 1.0}, 'L2': {'sel': 1.0, 'cons': 0.8478635453912186}, 'L3': {'seen': 1.0, 'unseen': 0.47377497814636227}, 'L4-logic': {'seen': 1.0, 'unseen': 0.8408941511041934}, 'L4-counting': {'main': 0.7442146318068078}, 'L5': {'main': 1.0}, 'L6': {'main': 0.7009292839241332}, 'Library': {'main': 1.0}, 'Knowledge': {'main': 0.24109572784077463}}] calls_so_far={'Corpus': 451, 'L0': 99, 'L1': 29, 'L2': 88, 'L3': 295, 'L4-logic': 102, 'L4-counting': 216, 'L5': 37, 'L6': 184, 'Library': 28, 'Knowledge': 471}
+[stage-b-knowledge-v2] step=3000/6000 last_sampled=L4-counting mastery=[{'Corpus': {'main': 0.3521145688942243}, 'L0': {'main': 0.8712044249529178}, 'L1': {'main': 1.0}, 'L2': {'sel': 1.0, 'cons': 0.8582785691125778}, 'L3': {'seen': 1.0, 'unseen': 0.5016466717541342}, 'L4-logic': {'seen': 1.0, 'unseen': 0.8432574583296695}, 'L4-counting': {'main': 0.6187143222314179}, 'L5': {'main': 1.0}, 'L6': {'main': 0.7073558910498485}, 'Library': {'main': 1.0}, 'Knowledge': {'main': 0.2570702560394785}}] calls_so_far={'Corpus': 654, 'L0': 143, 'L1': 44, 'L2': 141, 'L3': 460, 'L4-logic': 164, 'L4-counting': 324, 'L5': 52, 'L6': 284, 'Library': 48, 'Knowledge': 686}
+[stage-b-knowledge-v2] step=4000/6000 last_sampled=L4-counting mastery=[{'Corpus': {'main': 0.3547749298782086}, 'L0': {'main': 0.8718319966332444}, 'L1': {'main': 1.0}, 'L2': {'sel': 1.0, 'cons': 0.8516704585021242}, 'L3': {'seen': 1.0, 'unseen': 0.5176079757136688}, 'L4-logic': {'seen': 1.0, 'unseen': 0.7989298435351988}, 'L4-counting': {'main': 0.6200168791831959}, 'L5': {'main': 1.0}, 'L6': {'main': 0.684994493572367}, 'Library': {'main': 1.0}, 'Knowledge': {'main': 0.23970060676035515}}] calls_so_far={'Corpus': 849, 'L0': 185, 'L1': 58, 'L2': 177, 'L3': 603, 'L4-logic': 241, 'L4-counting': 436, 'L5': 76, 'L6': 378, 'Library': 61, 'Knowledge': 936}
+[stage-b-knowledge-v2] step=5000/6000 last_sampled=Knowledge mastery=[{'Corpus': {'main': 0.3564158269596164}, 'L0': {'main': 0.8803054018244124}, 'L1': {'main': 1.0}, 'L2': {'sel': 0.9903144257770751, 'cons': 0.8867411603977022}, 'L3': {'seen': 1.0, 'unseen': 0.5689510128302}, 'L4-logic': {'seen': 1.0, 'unseen': 0.7422009802023943}, 'L4-counting': {'main': 0.619458437490526}, 'L5': {'main': 1.0}, 'L6': {'main': 0.7251155376052472}, 'Library': {'main': 1.0}, 'Knowledge': {'main': 0.23284007313144708}}] calls_so_far={'Corpus': 1055, 'L0': 222, 'L1': 76, 'L2': 213, 'L3': 757, 'L4-logic': 315, 'L4-counting': 539, 'L5': 92, 'L6': 483, 'Library': 71, 'Knowledge': 1177}
+[stage-b-knowledge-v2] step=6000/6000 last_sampled=Corpus mastery=[{'Corpus': {'main': 0.36726869670112333}, 'L0': {'main': 0.877779278905071}, 'L1': {'main': 1.0}, 'L2': {'sel': 0.9990850208096946, 'cons': 0.7675318654933888}, 'L3': {'seen': 1.0, 'unseen': 0.6183251199743269}, 'L4-logic': {'seen': 1.0, 'unseen': 0.7450438921494277}, 'L4-counting': {'main': 0.4899452506476923}, 'L5': {'main': 1.0}, 'L6': {'main': 0.7746756600090992}, 'Library': {'main': 0.9779936665674118}, 'Knowledge': {'main': 0.2872037155190017}}] calls_so_far={'Corpus': 1262, 'L0': 249, 'L1': 87, 'L2': 259, 'L3': 878, 'L4-logic': 402, 'L4-counting': 673, 'L5': 108, 'L6': 596, 'Library': 88, 'Knowledge': 1398}
+[stage-b-knowledge-v2] Knowledge-v2 phase done in 366s.
+
+[stage-b-knowledge-v2] ===== AFTER: retention on ALL 10 prior stages =====
+[stage-b-knowledge-v2] after, Corpus={'held_out_next_byte_acc': 0.38098039215686275}
+[stage-b-knowledge-v2] after, L0={'next_token_acc': 0.8885644674301147}
+[stage-b-knowledge-v2] after, L1={'held_out_acc': 0.92}
+[stage-b-knowledge-v2] after, L2={'sel_acc': 1.0, 'cons_acc': 0.8511111111111112}
+[stage-b-knowledge-v2] after, L3={'seen_combo_acc': 1.0, 'unseen_combo_acc': 0.9666666666666667}
+[stage-b-knowledge-v2] after, L4-logic={'seen_combo_acc': 1.0, 'unseen_combo_acc': 0.9733333333333334}
+[stage-b-knowledge-v2] after, L4-counting={'held_out_acc': 0.66}
+[stage-b-knowledge-v2] after, L5={'held_out_acc': 1.0}
+[stage-b-knowledge-v2] after, L6={'held_out_acc': 0.6666666666666666}
+[stage-b-knowledge-v2] after, Library={'held_out_acc': 1.0}
+
+[stage-b-knowledge-v2] === KNOWLEDGE PROBE RESULT (102-fact scale) ===
+[stage-b-knowledge-v2] SEEN: {'mean_loss': 2.447358380345737, 'mean_byte_acc': 0.2667807189418989}
+[stage-b-knowledge-v2] PARAPHRASE: {'mean_loss': 2.898206722502615, 'mean_byte_acc': 0.14641369251059552}
+[stage-b-knowledge-v2] UNSEEN: {'mean_loss': 2.822388699421516, 'mean_byte_acc': 0.225102359858843}
+[stage-b-knowledge-v2] WRONG: {'mean_loss': 2.3861966935955747, 'mean_byte_acc': 0.30772153713873457}
+[stage-b-knowledge-v2] checkpoint saved (C_13): results/local/hz_world_run1_stage_b_knowledge_v2/after_Knowledge_v2.pt
+
+[stage-b-knowledge-v2] DONE. Wrote results/local/hz_world_run1_stage_b_knowledge_v2_retention.json

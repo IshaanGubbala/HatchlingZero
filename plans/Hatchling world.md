@@ -902,6 +902,73 @@ not evidence it scales -- the next real step, per the user's own
 instruction, is scaling the corpus/model only after this exact
 mechanism is proven, which it now is.
 
+**Real result, 2026-09-06 -- Stage B knowledge scale-up (12 -> 102
+facts): does NOT cleanly replicate, and the honest breakdown is more
+valuable than a clean win would have been.** Real, disclosed scope
+decision made before running: the user asked for "tens of thousands of
+factual passages," but this repo has no factual-prose corpus (the only
+packed real-text corpus was checked directly and found to be source
+code, see the 12-fact result above) and hand-curating passages at that
+scale in one session risks introducing wrong facts. Built
+`hatchling_world/knowledge/facts_v2.py` instead: 4 real, verifiable,
+systematically-generated categories (world capitals, US state capitals,
+chemical elements' atomic numbers, planets' order from the sun) -- 102
+train facts, 102 paraphrase probes, 26 entity-level held-out facts
+(whole countries/states/elements/planets reserved, never seen in ANY
+wording), 49 wrong-completion probes. A real ~8.5x scale-up from 12,
+not the literal ask, disclosed as such rather than silently
+under-delivered. `scripts/hz_world_training_run1_stage_b_knowledge_v2.py`
+continues \(C_{12} \to C_{13}\), same per-subskill scheduler, 6,000-step
+Knowledge phase (Knowledge got 1,398 of those calls -- ~13.7 exposures
+per fact on average, well under the 12-fact run's ~31).
+
+Aggregate result looked like a REGRESSION on the user's own two key
+criteria: \(L_{\text{correct}} < L_{\text{wrong}}\) FAILS in aggregate
+(SEEN 2.447 vs WRONG 2.386 -- wrong is actually preferred), and
+\(L_{\text{paraphrase}} < L_{\text{unseen}}\) also FAILS in aggregate
+(2.898 vs 2.822). **Real investigation (not accepting the aggregate at
+face value) found a category-dependent effect the mean was masking**:
+
+| category (train facts) | discriminates (SEEN < WRONG) | generalizes (PARAPHRASE < UNSEEN) |
+|---|---|---|
+| capitals (72) | **yes** (2.570 < 2.615) | **yes** (2.774 < 2.953) |
+| states (40) | -- | no (2.910 > 2.815) |
+| elements (24) | no (2.125 > 2.039) | no (3.070 > 2.731) |
+| planets (6) | no (2.264 > 2.185) | no (2.794 > 2.613) |
+
+**Only "capitals" -- the exact domain the original 12-fact proof was
+built on -- replicates both criteria at this larger scale. The other
+three real categories do not, on either criterion.** Real, disclosed,
+plausible explanation, not yet confirmed: capitals benefited from a
+warm start (8 of the original 12 proof facts were capitals, so this
+pathway was already partially shaped before this run began), while
+states/elements/planets are being learned from scratch in this one run
+at ~13.7 exposures/fact; elements and planets also draw completions
+from a small, mutually-similar closed set (number words, ordinals) that
+may be structurally harder to bind per-specific-item than capital city
+names, which are far more distinct as strings. This is real,
+scientifically valuable information the smaller, single-domain 12-fact
+proof could not have revealed: the original result was real but
+domain-specific, not yet evidence the mechanism generalizes across
+arbitrary fact categories at this training budget -- exactly the kind
+of thing "prove it before scaling further" is supposed to catch.
+
+**Retention held up well regardless** (a real, separate positive): L3
+unseen 0.967 and L4-logic unseen 0.973 -- both clearing the 0.90 bar
+the per-subskill scheduler failed to clear two runs ago, at the longer
+6,000-step budget. L1 0.92, L2/L5 at or near 1.0, Library still 1.000.
+No forgetting.
+
+**Honest next step, not yet run**: the natural, testable follow-up is
+more exposure specifically for the categories that failed (states/
+elements/planets), either via more total Knowledge steps or a mastery
+signal that tracks PER-CATEGORY discrimination (not just overall
+Knowledge accuracy) so the scheduler can allocate more practice to the
+categories still failing -- directly analogous to the per-subskill
+fix already built for L3/L4-logic, applied to Knowledge's own internal
+structure. Not run this session; recorded as the concrete next
+Knowledge-track experiment.
+
 ---
 
 # 1. Do Not Abandon Hatchling World After One Bad Run
