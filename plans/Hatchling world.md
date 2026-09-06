@@ -142,21 +142,33 @@ the same claim as "wins at matched training FLOPs" — whether that
 wall-clock gap reflects genuinely more FLOPs or just unfused/
 inefficient kernels is real, open, unresolved by this old data alone.
 
-**Real, disclosed red flag also found in the same result set, not yet
-explained**: a "combined_best" capstone recipe from the same period
-(`mult=16 + softmax_scaled attention + weight-tying + jumps`,
-`results/cuda/hz0h_matched_param_capstone_combined_retry_result.json`)
-diverged catastrophically — **validation loss 49.6**, nonsensically bad
-for a converged LM, vs. raw_bdh's 1.4. This is a real warning against
-assuming "combine several validated individual wins" produces a valid
-combined recipe without re-verification — matches this project's own
-already-documented pattern (the H-update-rule branch going "0-for-4"
-combining plausible-sounding ideas, section 2). **Do not treat any
-multi-trick "best" HZ configuration as trustworthy until it has its own
-fresh, isolated validation run** — this is exactly why Research Tree B
-below re-locks to the plan's own already-audited "Inherited HZ
-Findings" (section 2: original LN recurrence, \(M_H=32\), full-fidelity
-Q/K, D/2 value/write) rather than any newer, unaudited "capstone."
+**Correction after checking the actual source and the correctly-run
+local comparison**: `scripts/hz0h_bdh_combined_best_comparison.py`'s
+own docstring confirms "combined_best" is explicitly a THROUGHPUT
+recipe, not a quality recipe — `mult=16` (Part 2) + `softmax_scaled`
+attention (Part 3) + weight-tying kept exactly as upstream (Part 4) +
+a trained **jump operator** that substitutes a cheap learned shortcut
+for half the real recurrent iterations AT INFERENCE (`real_prefix=4` +
+2 jumps instead of full depth) — a genuine speed/quality trade
+deliberately, not an accident. The correctly-run LOCAL comparison
+(`results/local/combined_best_comparison.log`) shows it working exactly
+as designed: validation loss 2.06 (vs raw_bdh 1.92, matched_transformer
+1.98 — comparable, not diverged) for a real **~3.5x throughput win**
+(100.4k vs 28.1k tok/s uncompiled; 121.0k vs 45.4k tok/s compiled,
+still ~3.9x short of matched_transformer's own 469.0k compiled). The
+`results/cuda/hz0h_matched_param_capstone_combined_retry_result.json`
+run with validation loss 49.6 is a real, disclosed FAILURE of that one
+retry attempt at CUDA/production scale — almost certainly the jump
+operator (trained/distilled at the smaller local scale per the script's
+own docstring) never being retrained for the larger CUDA config it was
+dropped into — not evidence against the combined recipe's design, which
+already has a correct, validated local run. **Real, actionable
+takeaway, corrected**: combined_best is a genuinely promising Research
+Tree D candidate (jump operator recovers a large fraction of
+raw_bdh-vs-transformer's throughput gap at a small, real quality cost)
+that needs its CUDA-scale retraining fixed, not discarded — track this
+as an open item for Tree D, not a red flag against trick-combination in
+general.
 
 ## The new mainline research tree
 
@@ -181,8 +193,10 @@ result above rather than replacing it. First concrete gap to close:
 determine whether that 5.7x wall-clock gap is a genuine FLOP gap or a
 kernel-efficiency gap (matters for how the result should be read), then
 re-run at a properly FLOP-matched (not just token-count-matched)
-protocol, on the plan's own currently-locked recipe (section 2), not
-the diverged "combined_best" capstone.
+protocol, on the plan's own currently-locked recipe (section 2, raw
+BDH) — quality comparisons for Tree B should use raw_bdh, not
+combined_best (that recipe trades some quality for speed by design,
+see Tree D).
 
 \[
 \boxed{\textbf{C. Can persistent }S\textbf{ beat transformer context/KV memory?}}
@@ -201,7 +215,14 @@ three device benchmarks (Phase 6) already showed the current tiny
 Nursery loop is the wrong scale for this (Mac CPU beats an RTX 5090 by
 4.4x on it). The raw_bdh benchmark above (300M params, real data) is
 already at a scale where systems work is NOT premature — that is where
-Tree D resumes, not the toy curriculum loop.
+Tree D resumes, not the toy curriculum loop. Real, promising, already-
+partially-done candidate for this tree: the **jump operator**
+(`combined_best`, see corrected note above) already closes a large
+fraction of raw_bdh's throughput gap vs. matched_transformer at a small
+quality cost (validated locally: 2.06 vs raw_bdh's 1.92 loss, ~3.5x
+throughput), but its CUDA/production-scale retraining is broken
+(val_loss 49.6) — fixing that retraining is a concrete, well-scoped
+first Tree D task, not a from-scratch systems effort.
 
 **North star, restated plainly**: HZ must become measurably smarter,
 faster, or cheaper than a transformer — preferably more than one of
