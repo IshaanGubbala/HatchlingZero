@@ -1,0 +1,16 @@
+{
+  "n_params": 100270080,
+  "n_embd": 1440,
+  "n_layer": 8,
+  "n_head": 4,
+  "mult": 16,
+  "device": "cuda",
+  "mode": "stage0_systems_test",
+  "total_steps": 500,
+  "total_seconds": 523.8638830184937,
+  "steps_per_sec": 0.9544464052742281,
+  "corpus_tokens_seen": 2048000,
+  "tokens_per_sec": 3909.412476003238,
+  "peak_vram_gb": 35.708790784,
+  "decon_rejected": 0
+}

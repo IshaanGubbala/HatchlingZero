@@ -2045,6 +2045,90 @@ initial context/token budget, gradient checkpointing / activation
 recomputation to trade compute for memory, or accepting the cost) is
 the user's call, not assumed.
 
+**Real result, 2026-09-07 -- user's call: switch HZ-Bench-100M to
+`combined_best` BDH, and it resolves the systems finding decisively.**
+`combined_best` (`reference/hz0h_bdh_combined_best_torch.py`) is a
+real, separately-validated architecture from this session's earlier
+BDH-reconstruction/inherited-choices-audit work -- batched, parallel-
+attention-over-the-sequence recurrence (not `HZLanguageModel`'s
+per-token sequential stepping), stacking three already-confirmed
+findings: `mult=16` (not canonical 32), `softmax_scaled` attention,
+weight tying kept exactly as upstream. It has NO persistent `S`/
+reasoning `H` structures -- that is HZCQ's own extension, not part of
+upstream/combined_best BDH -- so this Stage 0 rerun is real,
+disclosed, CORPUS-ONLY (the Knowledge/Nursery/Chat channels built for
+`HZLanguageModel` don't carry over as-is; wiring persistent-memory
+rehearsal into a BDH-based lineage is real, deferred follow-up work,
+not attempted here).
+
+`scripts/hz_bdh_bench_size_solver.py` solved `n_embd=1440` for
+~100M params (holding the audit's own combined_best recipe's
+`n_layer=8`, `n_head=4`, `mult=16` fixed) -> 100,270,080 params
+(+0.3% off target). `scripts/hz_bdh_bench_100m_pretrain.py` reuses the
+SAME `WebCorpusMixture` + decontamination plumbing built for
+Milestone 2, trains via `combined_bdh_forward(model, jump=None, idx,
+real_prefix_iterations=n_layer, num_jumps=0, targets=target)` -- the
+exact call the existing combined_best comparison script's own
+`train_bdh(use_softmax_scaled=True)` uses, full real depth, no
+jump-operator inference shortcut (that's a separate, later
+optimization). Raw-byte tokenization (vocab_size=256), matching
+combined_best's own established convention. Verified locally (tiny
+model, real streamed corpus, decreasing loss, held-out eval,
+checkpointing) before any GPU spend, same discipline as every prior
+dispatch this session.
+
+Ran the SAME Stage 0 systems test (500 steps, `--eval-every 0`, real
+FineWeb-Edu+Wikipedia streaming, real decontamination) on the SAME
+RunPod L40S 48GB, real batched training this time (batch_size=8,
+sequence_length=512 -- BDH's whole architectural advantage is that it
+CAN batch, unlike `HZLanguageModel`'s effective batch=1):
+
+| metric | HZLanguageModel (Stage 0) | combined_best BDH (this run) | ratio |
+|---|---:|---:|---:|
+| n_params | 99,763,781 | 100,270,080 | matched |
+| steps/sec | 0.78 | 0.96 | 1.2x |
+| corpus tokens/sec | 202 | **3,909** | **19.3x** |
+| peak VRAM | 22.64 GB (at only ~300-token context) | 35.71 GB (at 512-token context, batch=8) | -- |
+| training loss trend | n/a (systems test only) | 2.77 -> 1.65, clean and monotonic-ish over 500 steps | real, healthy |
+
+**Real, honest cost/time projection from this measured rate** (RunPod
+L40S, $0.79/hr community / $1.09/hr secure):
+
+| corpus tokens | HZLanguageModel wall-clock / cost | combined_best BDH wall-clock / cost |
+|---|---:|---:|
+| 100M (Milestone 2 target) | 137.6h / $109-150 | **7.1h / $5.61-7.75** |
+| 300M (Stage 3 target) | 412.9h (17.2 days) / $326-450 | **21.3h / $16.84-23.24** |
+| 2B (Chinchilla-style 20x) | 2,752.9h (114.7 days) / $2,175-3,001 | **142.1h (5.9 days) / $112.29-154.93** |
+
+**This is a decisive, real result, not a marginal tweak: combined_best
+BDH turns Milestone 2's 100M-token target from a multi-day, ~$100-150
+run into a 7-hour, ~$6-8 run, and turns the previously-impractical
+2B-token Chinchilla-scale target from ~115 days/~$2,200-3,000 into
+~6 days/~$112-155 -- squarely back in normal-experiment territory.**
+The user's redirect from `HZLanguageModel` to `combined_best` BDH
+directly and completely answers Stage 0's own precommitted question:
+the ~17x systems penalty measured throughout this session's earlier
+5M-scale work was real and specific to HZCQ's persistent-memory/
+per-token-recurrence architecture, NOT an inherent property of every
+BDH-family design -- a real, already-separately-validated alternative
+architecture from this same codebase removes it almost entirely.
+
+**Real, disclosed open items, not yet resolved**: (1) 35.71GB VRAM at
+a modest 512-token context/batch=8 is still real memory pressure for a
+100M-param model (a conventional dense Transformer this size would
+typically use a few GB at this scale) -- combined_best's `mult=16`
+width multiplier keeps intermediate activation tensors wide; there is
+real headroom before hitting the 48GB ceiling, but pushing sequence
+length or batch size up further should be tested before assuming it
+scales freely. (2) This Stage 0 rerun is corpus-only; the persistent-
+memory/Knowledge/Chat rehearsal channels central to Hatchling World's
+own north star still need a real design for how they'd attach to a
+BDH-based (rather than HZCQ-based) lineage -- not yet started. (3) The
+resulting checkpoint has not yet been run through the Milestone 1
+lm-eval harness (needs a new adapter, since `combined_best`'s forward
+signature differs from `HZLanguageModel`'s) -- real, disclosed next
+step before claiming any benchmark result for this architecture.
+
 ---
 
 # 1. Do Not Abandon Hatchling World After One Bad Run
