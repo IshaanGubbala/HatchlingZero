@@ -1,0 +1,192 @@
+[fork-C] loading base checkpoint: results/local/hz_world_run2/step_12000.pt
+[fork-C] ARM C -- full-HW continuation, LARGER Chat pool: n_params=5,056,229
+[fork-C] warm-started mastery + calls from step 12000 (same as Arm A)
+[fork-C] real data: 28 corpus paragraphs, 12 knowledge facts, 1741 CHAT TRAIN (Arm A had 304), 51 chat held-out (must match Arm A's 51 -- verified pre-launch)
+[fork-C] coherence/relevance wordlist size: 234454
+[fork-C] cumulative_step=12500 (+500/24000, 113s, 4.44 steps/sec) last=L6 calls_this_phase={'Corpus': 77, 'L0': 20, 'L1': 6, 'L2': 7, 'L3': 13, 'L4-logic': 16, 'L4-counting': 57, 'L5': 67, 'L6': 56, 'Library': 68, 'Knowledge': 40, 'Chat': 73}
+[fork-C] cumulative_step=13000 (+1000/24000, 220s, 4.55 steps/sec) last=Corpus calls_this_phase={'Corpus': 148, 'L0': 34, 'L1': 18, 'L2': 14, 'L3': 50, 'L4-logic': 77, 'L4-counting': 101, 'L5': 131, 'L6': 90, 'Library': 121, 'Knowledge': 68, 'Chat': 148}
+[fork-C] cumulative_step=13500 (+1500/24000, 333s, 4.50 steps/sec) last=L4-logic calls_this_phase={'Corpus': 213, 'L0': 47, 'L1': 28, 'L2': 17, 'L3': 95, 'L4-logic': 127, 'L4-counting': 139, 'L5': 201, 'L6': 136, 'Library': 189, 'Knowledge': 88, 'Chat': 220}
+[fork-C] cumulative_step=14000 (+2000/24000, 446s, 4.48 steps/sec) last=Library calls_this_phase={'Corpus': 292, 'L0': 59, 'L1': 37, 'L2': 21, 'L3': 127, 'L4-logic': 180, 'L4-counting': 179, 'L5': 264, 'L6': 183, 'Library': 262, 'Knowledge': 116, 'Chat': 280}
+[fork-C] cumulative_step=14500 (+2500/24000, 550s, 4.55 steps/sec) last=L6 calls_this_phase={'Corpus': 363, 'L0': 71, 'L1': 42, 'L2': 28, 'L3': 133, 'L4-logic': 233, 'L4-counting': 216, 'L5': 346, 'L6': 235, 'Library': 340, 'Knowledge': 149, 'Chat': 344}
+[fork-C] cumulative_step=15000 (+3000/24000, 655s, 4.58 steps/sec) last=Library calls_this_phase={'Corpus': 436, 'L0': 89, 'L1': 48, 'L2': 33, 'L3': 141, 'L4-logic': 255, 'L4-counting': 258, 'L5': 421, 'L6': 301, 'Library': 420, 'Knowledge': 186, 'Chat': 412}
+[fork-C] cumulative_step=15500 (+3500/24000, 767s, 4.56 steps/sec) last=Library calls_this_phase={'Corpus': 510, 'L0': 100, 'L1': 52, 'L2': 44, 'L3': 147, 'L4-logic': 293, 'L4-counting': 294, 'L5': 476, 'L6': 364, 'Library': 496, 'Knowledge': 231, 'Chat': 493}
+[fork-C] cumulative_step=16000 (+4000/24000, 854s, 4.68 steps/sec) last=L6 calls_this_phase={'Corpus': 560, 'L0': 116, 'L1': 57, 'L2': 53, 'L3': 181, 'L4-logic': 361, 'L4-counting': 317, 'L5': 549, 'L6': 406, 'Library': 576, 'Knowledge': 262, 'Chat': 562}
+[fork-C] cumulative_step=16500 (+4500/24000, 948s, 4.75 steps/sec) last=L5 calls_this_phase={'Corpus': 617, 'L0': 123, 'L1': 59, 'L2': 61, 'L3': 217, 'L4-logic': 432, 'L4-counting': 356, 'L5': 622, 'L6': 452, 'Library': 639, 'Knowledge': 286, 'Chat': 636}
+[fork-C] cumulative_step=17000 (+5000/24000, 1054s, 4.74 steps/sec) last=Library calls_this_phase={'Corpus': 686, 'L0': 136, 'L1': 65, 'L2': 73, 'L3': 247, 'L4-logic': 490, 'L4-counting': 399, 'L5': 685, 'L6': 483, 'Library': 707, 'Knowledge': 317, 'Chat': 712}
+[fork-C] cumulative_step=17500 (+5500/24000, 1162s, 4.73 steps/sec) last=Library calls_this_phase={'Corpus': 754, 'L0': 155, 'L1': 77, 'L2': 76, 'L3': 259, 'L4-logic': 499, 'L4-counting': 448, 'L5': 763, 'L6': 534, 'Library': 796, 'Knowledge': 347, 'Chat': 792}
+[fork-C] cumulative_step=18000 (+6000/24000, 1266s, 4.74 steps/sec) last=L0 calls_this_phase={'Corpus': 822, 'L0': 169, 'L1': 84, 'L2': 82, 'L3': 288, 'L4-logic': 526, 'L4-counting': 493, 'L5': 828, 'L6': 603, 'Library': 858, 'Knowledge': 378, 'Chat': 869}
+[fork-C] checkpoint saved: results/local/hz_world_run2_fork_large_chat/step_18000.pt
+
+[fork-C] ===== RETENTION @ cumulative_step=18000 =====
+[fork-C] Corpus: {'held_out_next_byte_acc': 0.5644073429561796}
+[fork-C] L0: {'next_token_acc': 0.8849148154258728}
+[fork-C] L1: {'held_out_acc': 0.96}
+[fork-C] L2: {'sel_acc': 0.99, 'cons_acc': 0.8133333333333334}
+[fork-C] L3: {'seen_combo_acc': 1.0, 'unseen_combo_acc': 1.0}
+[fork-C] L4-logic: {'seen_combo_acc': 1.0, 'unseen_combo_acc': 0.96}
+[fork-C] L4-counting: {'held_out_acc': 0.65}
+[fork-C] L5: {'held_out_acc': 0.19}
+[fork-C] L6: {'held_out_acc': 0.41}
+[fork-C] Library: {'held_out_acc': 0.24}
+[fork-C] Knowledge: {'mean_loss': 1.0943860604117315}
+[fork-C] Chat: {'mean_loss': 2.9261660786236035, 'mean_byte_acc': 0.23286079673790464}
+
+[fork-C] ===== CHAT GENERATION @ cumulative_step=18000 (30 fixed held-out prompts) =====
+[fork-C] Q: Why do people like plants?
+[fork-C]   generated: 'Sent Pine Cherale an the Reren Ache Red '
+[fork-C] Q: What instrument plays the part of the duck in the musical composition, "Peter and the Wolf"
+[fork-C]   generated: 'Sent Pine Charin Acat Pinat Pinale Corin'
+[fork-C] Q: What did Britain swap Havana for with Spain in 1763
+[fork-C]   generated: 'Sente Sare Are Satin Are Satin Are Chare'
+[fork-C] Q: What's the most popular tv show of all time in the USA?
+[fork-C]   generated: 'Sere Satin Are Satin Are Satin Are Chare'
+[fork-C] Q: what is philosophy?
+[fork-C]   generated: 'Sent Pine Cherale an the Reren Ache Red '
+[fork-C] Q: Which episode did Daenerys Targaryen lose her dragon, Viserion, to a White Walker's spear?
+[fork-C]   generated: 'The Sare Rende Sanin Are Charin Acat Pin'
+[fork-C] chat diversity: {'n_samples': 30, 'unique_generations': 18, 'avg_longest_repeated_token_run': 1.0666666666666667, 'avg_token_repetition_rate': 0.010833333333333334}
+[fork-C] coherent_english_rate (heuristic): {'rate_ge_50pct_real_words': 0.7333333333333333, 'avg_real_word_fraction': 0.5562830687830689}
+[fork-C] semantic_relevance_heuristic (weak proxy, real manual read needed): {'keyword_overlap_rate': 0.0}
+[fork-C] wrote results/local/hz_world_run2_fork_large_chat.json (1 eval points so far)
+
+[fork-C] cumulative_step=18500 (+6500/24000, 1394s, 4.66 steps/sec) last=L6 calls_this_phase={'Corpus': 893, 'L0': 185, 'L1': 96, 'L2': 85, 'L3': 300, 'L4-logic': 537, 'L4-counting': 542, 'L5': 909, 'L6': 664, 'Library': 928, 'Knowledge': 420, 'Chat': 941}
+[fork-C] cumulative_step=19000 (+7000/24000, 1501s, 4.66 steps/sec) last=Corpus calls_this_phase={'Corpus': 965, 'L0': 194, 'L1': 112, 'L2': 93, 'L3': 343, 'L4-logic': 587, 'L4-counting': 575, 'L5': 954, 'L6': 723, 'Library': 996, 'Knowledge': 454, 'Chat': 1004}
+[fork-C] cumulative_step=19500 (+7500/24000, 1623s, 4.62 steps/sec) last=Chat calls_this_phase={'Corpus': 1030, 'L0': 212, 'L1': 120, 'L2': 100, 'L3': 381, 'L4-logic': 638, 'L4-counting': 607, 'L5': 1013, 'L6': 772, 'Library': 1057, 'Knowledge': 485, 'Chat': 1085}
+[fork-C] cumulative_step=20000 (+8000/24000, 1734s, 4.61 steps/sec) last=Corpus calls_this_phase={'Corpus': 1095, 'L0': 226, 'L1': 124, 'L2': 105, 'L3': 409, 'L4-logic': 684, 'L4-counting': 641, 'L5': 1102, 'L6': 809, 'Library': 1130, 'Knowledge': 512, 'Chat': 1163}
+[fork-C] cumulative_step=20500 (+8500/24000, 1850s, 4.59 steps/sec) last=Knowledge calls_this_phase={'Corpus': 1170, 'L0': 238, 'L1': 136, 'L2': 112, 'L3': 418, 'L4-logic': 696, 'L4-counting': 693, 'L5': 1173, 'L6': 836, 'Library': 1210, 'Knowledge': 562, 'Chat': 1256}
+[fork-C] cumulative_step=21000 (+9000/24000, 1945s, 4.63 steps/sec) last=L4-counting calls_this_phase={'Corpus': 1237, 'L0': 251, 'L1': 142, 'L2': 114, 'L3': 470, 'L4-logic': 738, 'L4-counting': 719, 'L5': 1257, 'L6': 891, 'Library': 1277, 'Knowledge': 589, 'Chat': 1315}
+[fork-C] cumulative_step=21500 (+9500/24000, 2049s, 4.64 steps/sec) last=Chat calls_this_phase={'Corpus': 1301, 'L0': 263, 'L1': 146, 'L2': 121, 'L3': 507, 'L4-logic': 766, 'L4-counting': 751, 'L5': 1330, 'L6': 938, 'Library': 1355, 'Knowledge': 622, 'Chat': 1400}
+[fork-C] cumulative_step=22000 (+10000/24000, 2153s, 4.64 steps/sec) last=Corpus calls_this_phase={'Corpus': 1368, 'L0': 278, 'L1': 153, 'L2': 126, 'L3': 559, 'L4-logic': 774, 'L4-counting': 786, 'L5': 1412, 'L6': 988, 'Library': 1435, 'Knowledge': 649, 'Chat': 1472}
+[fork-C] cumulative_step=22500 (+10500/24000, 2255s, 4.66 steps/sec) last=L5 calls_this_phase={'Corpus': 1438, 'L0': 289, 'L1': 163, 'L2': 132, 'L3': 588, 'L4-logic': 788, 'L4-counting': 820, 'L5': 1506, 'L6': 1037, 'Library': 1519, 'Knowledge': 675, 'Chat': 1545}
+[fork-C] cumulative_step=23000 (+11000/24000, 2354s, 4.67 steps/sec) last=Corpus calls_this_phase={'Corpus': 1502, 'L0': 300, 'L1': 173, 'L2': 137, 'L3': 613, 'L4-logic': 819, 'L4-counting': 860, 'L5': 1581, 'L6': 1101, 'Library': 1601, 'Knowledge': 695, 'Chat': 1618}
+[fork-C] cumulative_step=23500 (+11500/24000, 2456s, 4.68 steps/sec) last=L0 calls_this_phase={'Corpus': 1566, 'L0': 311, 'L1': 190, 'L2': 147, 'L3': 641, 'L4-logic': 836, 'L4-counting': 882, 'L5': 1666, 'L6': 1142, 'Library': 1695, 'Knowledge': 726, 'Chat': 1698}
+[fork-C] cumulative_step=24000 (+12000/24000, 2567s, 4.68 steps/sec) last=Knowledge calls_this_phase={'Corpus': 1641, 'L0': 326, 'L1': 207, 'L2': 153, 'L3': 655, 'L4-logic': 851, 'L4-counting': 919, 'L5': 1744, 'L6': 1186, 'Library': 1782, 'Knowledge': 761, 'Chat': 1775}
+[fork-C] checkpoint saved: results/local/hz_world_run2_fork_large_chat/step_24000.pt
+
+[fork-C] ===== RETENTION @ cumulative_step=24000 =====
+[fork-C] Corpus: {'held_out_next_byte_acc': 0.565985844248817}
+[fork-C] L0: {'next_token_acc': 0.8973236083984375}
+[fork-C] L1: {'held_out_acc': 0.95}
+[fork-C] L2: {'sel_acc': 1.0, 'cons_acc': 0.7966666666666666}
+[fork-C] L3: {'seen_combo_acc': 0.97, 'unseen_combo_acc': 0.57}
+[fork-C] L4-logic: {'seen_combo_acc': 0.99, 'unseen_combo_acc': 0.83}
+[fork-C] L4-counting: {'held_out_acc': 0.66}
+[fork-C] L5: {'held_out_acc': 0.3}
+[fork-C] L6: {'held_out_acc': 0.59}
+[fork-C] Library: {'held_out_acc': 0.24}
+[fork-C] Knowledge: {'mean_loss': 0.8593539881209532}
+[fork-C] Chat: {'mean_loss': 2.8968555249419867, 'mean_byte_acc': 0.23415730776740054}
+
+[fork-C] ===== CHAT GENERATION @ cumulative_step=24000 (30 fixed held-out prompts) =====
+[fork-C] Q: Why do people like plants?
+[fork-C]   generated: 'The the and in the the and in the the wa'
+[fork-C] Q: What instrument plays the part of the duck in the musical composition, "Peter and the Wolf"
+[fork-C]   generated: 'Aren the the Sate and in the the of of t'
+[fork-C] Q: What did Britain swap Havana for with Spain in 1763
+[fork-C]   generated: 'Arente the Steren the Sate Satine Steren'
+[fork-C] Q: What's the most popular tv show of all time in the USA?
+[fork-C]   generated: 'Are the the and in the the of of the and'
+[fork-C] Q: what is philosophy?
+[fork-C]   generated: 'The the and in the the and in the the wa'
+[fork-C] Q: Which episode did Daenerys Targaryen lose her dragon, Viserion, to a White Walker's spear?
+[fork-C]   generated: 'The the and in the the and in the war th'
+[fork-C] chat diversity: {'n_samples': 30, 'unique_generations': 13, 'avg_longest_repeated_token_run': 1.9333333333333333, 'avg_token_repetition_rate': 0.1852777777777778}
+[fork-C] coherent_english_rate (heuristic): {'rate_ge_50pct_real_words': 1.0, 'avg_real_word_fraction': 0.9466570466570468}
+[fork-C] semantic_relevance_heuristic (weak proxy, real manual read needed): {'keyword_overlap_rate': 0.0}
+[fork-C] wrote results/local/hz_world_run2_fork_large_chat.json (2 eval points so far)
+
+[fork-C] cumulative_step=24500 (+12500/24000, 2688s, 4.65 steps/sec) last=Corpus calls_this_phase={'Corpus': 1700, 'L0': 342, 'L1': 211, 'L2': 159, 'L3': 682, 'L4-logic': 862, 'L4-counting': 971, 'L5': 1831, 'L6': 1247, 'Library': 1848, 'Knowledge': 785, 'Chat': 1862}
+[fork-C] cumulative_step=25000 (+13000/24000, 2792s, 4.66 steps/sec) last=Knowledge calls_this_phase={'Corpus': 1779, 'L0': 353, 'L1': 215, 'L2': 164, 'L3': 727, 'L4-logic': 891, 'L4-counting': 1019, 'L5': 1913, 'L6': 1294, 'Library': 1914, 'Knowledge': 811, 'Chat': 1920}
+[fork-C] cumulative_step=25500 (+13500/24000, 2881s, 4.69 steps/sec) last=L5 calls_this_phase={'Corpus': 1833, 'L0': 367, 'L1': 220, 'L2': 172, 'L3': 768, 'L4-logic': 939, 'L4-counting': 1058, 'L5': 1988, 'L6': 1345, 'Library': 1999, 'Knowledge': 825, 'Chat': 1986}
+[fork-C] cumulative_step=26000 (+14000/24000, 2998s, 4.67 steps/sec) last=Corpus calls_this_phase={'Corpus': 1913, 'L0': 376, 'L1': 237, 'L2': 178, 'L3': 780, 'L4-logic': 967, 'L4-counting': 1091, 'L5': 2056, 'L6': 1393, 'Library': 2092, 'Knowledge': 842, 'Chat': 2075}
+[fork-C] cumulative_step=26500 (+14500/24000, 3096s, 4.68 steps/sec) last=Library calls_this_phase={'Corpus': 1976, 'L0': 386, 'L1': 238, 'L2': 179, 'L3': 829, 'L4-logic': 1000, 'L4-counting': 1131, 'L5': 2140, 'L6': 1426, 'Library': 2184, 'Knowledge': 859, 'Chat': 2152}
+[fork-C] cumulative_step=27000 (+15000/24000, 3213s, 4.67 steps/sec) last=Library calls_this_phase={'Corpus': 2052, 'L0': 400, 'L1': 243, 'L2': 182, 'L3': 849, 'L4-logic': 1003, 'L4-counting': 1169, 'L5': 2234, 'L6': 1473, 'Library': 2275, 'Knowledge': 874, 'Chat': 2246}
+[fork-C] cumulative_step=27500 (+15500/24000, 3322s, 4.67 steps/sec) last=L4-logic calls_this_phase={'Corpus': 2133, 'L0': 418, 'L1': 250, 'L2': 185, 'L3': 858, 'L4-logic': 1012, 'L4-counting': 1207, 'L5': 2318, 'L6': 1539, 'Library': 2367, 'Knowledge': 904, 'Chat': 2309}
+[fork-C] cumulative_step=28000 (+16000/24000, 3426s, 4.67 steps/sec) last=Library calls_this_phase={'Corpus': 2204, 'L0': 434, 'L1': 251, 'L2': 196, 'L3': 863, 'L4-logic': 1037, 'L4-counting': 1250, 'L5': 2406, 'L6': 1603, 'Library': 2446, 'Knowledge': 931, 'Chat': 2379}
+[fork-C] cumulative_step=28500 (+16500/24000, 3533s, 4.67 steps/sec) last=L3 calls_this_phase={'Corpus': 2264, 'L0': 448, 'L1': 256, 'L2': 200, 'L3': 870, 'L4-logic': 1043, 'L4-counting': 1294, 'L5': 2506, 'L6': 1663, 'Library': 2525, 'Knowledge': 957, 'Chat': 2474}
+[fork-C] cumulative_step=29000 (+17000/24000, 3643s, 4.67 steps/sec) last=Corpus calls_this_phase={'Corpus': 2342, 'L0': 457, 'L1': 266, 'L2': 209, 'L3': 873, 'L4-logic': 1048, 'L4-counting': 1328, 'L5': 2603, 'L6': 1707, 'Library': 2627, 'Knowledge': 984, 'Chat': 2556}
+[fork-C] cumulative_step=29500 (+17500/24000, 3743s, 4.68 steps/sec) last=L5 calls_this_phase={'Corpus': 2401, 'L0': 472, 'L1': 268, 'L2': 212, 'L3': 906, 'L4-logic': 1057, 'L4-counting': 1372, 'L5': 2676, 'L6': 1758, 'Library': 2734, 'Knowledge': 1010, 'Chat': 2634}
+[fork-C] cumulative_step=30000 (+18000/24000, 3853s, 4.67 steps/sec) last=Corpus calls_this_phase={'Corpus': 2472, 'L0': 486, 'L1': 276, 'L2': 217, 'L3': 929, 'L4-logic': 1066, 'L4-counting': 1413, 'L5': 2765, 'L6': 1808, 'Library': 2811, 'Knowledge': 1033, 'Chat': 2724}
+[fork-C] checkpoint saved: results/local/hz_world_run2_fork_large_chat/step_30000.pt
+
+[fork-C] ===== RETENTION @ cumulative_step=30000 =====
+[fork-C] Corpus: {'held_out_next_byte_acc': 0.5562683627718972}
+[fork-C] L0: {'next_token_acc': 0.8824817538261414}
+[fork-C] L1: {'held_out_acc': 0.98}
+[fork-C] L2: {'sel_acc': 1.0, 'cons_acc': 0.8166666666666667}
+[fork-C] L3: {'seen_combo_acc': 1.0, 'unseen_combo_acc': 0.98}
+[fork-C] L4-logic: {'seen_combo_acc': 1.0, 'unseen_combo_acc': 0.98}
+[fork-C] L4-counting: {'held_out_acc': 0.66}
+[fork-C] L5: {'held_out_acc': 0.3}
+[fork-C] L6: {'held_out_acc': 0.59}
+[fork-C] Library: {'held_out_acc': 0.27}
+[fork-C] Knowledge: {'mean_loss': 0.7122372702384988}
+[fork-C] Chat: {'mean_loss': 2.8491081770728615, 'mean_byte_acc': 0.22824471911378935}
+
+[fork-C] ===== CHAT GENERATION @ cumulative_step=30000 (30 fixed held-out prompts) =====
+[fork-C] Q: Why do people like plants?
+[fork-C]   generated: 'The the the alla in the the the the all '
+[fork-C] Q: What instrument plays the part of the duck in the musical composition, "Peter and the Wolf"
+[fork-C]   generated: 'Aran and in the the the the the the wor '
+[fork-C] Q: What did Britain swap Havana for with Spain in 1763
+[fork-C]   generated: 'Are the the Sat and Aren the the Sat and'
+[fork-C] Q: What's the most popular tv show of all time in the USA?
+[fork-C]   generated: 'Are the the the the the all wor a din th'
+[fork-C] Q: what is philosophy?
+[fork-C]   generated: 'The the the and in the the the the all w'
+[fork-C] Q: Which episode did Daenerys Targaryen lose her dragon, Viserion, to a White Walker's spear?
+[fork-C]   generated: 'The wal wh al ded an the the the the the'
+[fork-C] chat diversity: {'n_samples': 30, 'unique_generations': 24, 'avg_longest_repeated_token_run': 4.366666666666666, 'avg_token_repetition_rate': 0.45314814814814813}
+[fork-C] coherent_english_rate (heuristic): {'rate_ge_50pct_real_words': 1.0, 'avg_real_word_fraction': 0.9175420875420875}
+[fork-C] semantic_relevance_heuristic (weak proxy, real manual read needed): {'keyword_overlap_rate': 0.0}
+[fork-C] wrote results/local/hz_world_run2_fork_large_chat.json (3 eval points so far)
+
+[fork-C] cumulative_step=30500 (+18500/24000, 3982s, 4.65 steps/sec) last=L4-logic calls_this_phase={'Corpus': 2545, 'L0': 502, 'L1': 283, 'L2': 228, 'L3': 949, 'L4-logic': 1086, 'L4-counting': 1456, 'L5': 2846, 'L6': 1866, 'Library': 2884, 'Knowledge': 1056, 'Chat': 2799}
+[fork-C] cumulative_step=31000 (+19000/24000, 4094s, 4.64 steps/sec) last=L2 calls_this_phase={'Corpus': 2622, 'L0': 515, 'L1': 288, 'L2': 237, 'L3': 981, 'L4-logic': 1109, 'L4-counting': 1488, 'L5': 2920, 'L6': 1920, 'Library': 2968, 'Knowledge': 1077, 'Chat': 2875}
+[fork-C] cumulative_step=31500 (+19500/24000, 4208s, 4.63 steps/sec) last=Corpus calls_this_phase={'Corpus': 2699, 'L0': 536, 'L1': 301, 'L2': 238, 'L3': 987, 'L4-logic': 1118, 'L4-counting': 1528, 'L5': 2995, 'L6': 1966, 'Library': 3077, 'Knowledge': 1096, 'Chat': 2959}
+[fork-C] cumulative_step=32000 (+20000/24000, 4325s, 4.62 steps/sec) last=Knowledge calls_this_phase={'Corpus': 2776, 'L0': 542, 'L1': 303, 'L2': 243, 'L3': 992, 'L4-logic': 1125, 'L4-counting': 1558, 'L5': 3083, 'L6': 2032, 'Library': 3169, 'Knowledge': 1123, 'Chat': 3054}
+[fork-C] cumulative_step=32500 (+20500/24000, 4434s, 4.62 steps/sec) last=L0 calls_this_phase={'Corpus': 2848, 'L0': 552, 'L1': 309, 'L2': 245, 'L3': 996, 'L4-logic': 1130, 'L4-counting': 1609, 'L5': 3184, 'L6': 2093, 'Library': 3245, 'Knowledge': 1149, 'Chat': 3140}
+[fork-C] cumulative_step=33000 (+21000/24000, 4553s, 4.61 steps/sec) last=L3 calls_this_phase={'Corpus': 2932, 'L0': 564, 'L1': 319, 'L2': 251, 'L3': 1014, 'L4-logic': 1133, 'L4-counting': 1671, 'L5': 3269, 'L6': 2140, 'Library': 3321, 'Knowledge': 1168, 'Chat': 3218}
+[fork-C] cumulative_step=33500 (+21500/24000, 4662s, 4.61 steps/sec) last=Chat calls_this_phase={'Corpus': 3004, 'L0': 580, 'L1': 330, 'L2': 259, 'L3': 1022, 'L4-logic': 1146, 'L4-counting': 1722, 'L5': 3350, 'L6': 2192, 'Library': 3403, 'Knowledge': 1191, 'Chat': 3301}
+[fork-C] cumulative_step=34000 (+22000/24000, 4769s, 4.61 steps/sec) last=L5 calls_this_phase={'Corpus': 3074, 'L0': 588, 'L1': 334, 'L2': 266, 'L3': 1032, 'L4-logic': 1169, 'L4-counting': 1774, 'L5': 3424, 'L6': 2255, 'Library': 3492, 'Knowledge': 1209, 'Chat': 3383}
+[fork-C] cumulative_step=34500 (+22500/24000, 4868s, 4.62 steps/sec) last=L3 calls_this_phase={'Corpus': 3132, 'L0': 599, 'L1': 339, 'L2': 279, 'L3': 1066, 'L4-logic': 1187, 'L4-counting': 1813, 'L5': 3526, 'L6': 2290, 'Library': 3571, 'Knowledge': 1232, 'Chat': 3466}
+[fork-C] cumulative_step=35000 (+23000/24000, 4963s, 4.63 steps/sec) last=L5 calls_this_phase={'Corpus': 3196, 'L0': 609, 'L1': 352, 'L2': 284, 'L3': 1106, 'L4-logic': 1231, 'L4-counting': 1844, 'L5': 3615, 'L6': 2341, 'Library': 3646, 'Knowledge': 1245, 'Chat': 3531}
+[fork-C] cumulative_step=35500 (+23500/24000, 5056s, 4.65 steps/sec) last=Library calls_this_phase={'Corpus': 3246, 'L0': 621, 'L1': 360, 'L2': 289, 'L3': 1150, 'L4-logic': 1275, 'L4-counting': 1874, 'L5': 3692, 'L6': 2392, 'Library': 3728, 'Knowledge': 1261, 'Chat': 3612}
+[fork-C] cumulative_step=36000 (+24000/24000, 5142s, 4.67 steps/sec) last=L5 calls_this_phase={'Corpus': 3298, 'L0': 633, 'L1': 366, 'L2': 295, 'L3': 1201, 'L4-logic': 1293, 'L4-counting': 1932, 'L5': 3772, 'L6': 2446, 'Library': 3812, 'Knowledge': 1272, 'Chat': 3680}
+[fork-C] checkpoint saved: results/local/hz_world_run2_fork_large_chat/step_36000.pt
+
+[fork-C] ===== RETENTION @ cumulative_step=36000 =====
+[fork-C] Corpus: {'held_out_next_byte_acc': 0.5610774471646263}
+[fork-C] L0: {'next_token_acc': 0.8985401391983032}
+[fork-C] L1: {'held_out_acc': 0.99}
+[fork-C] L2: {'sel_acc': 0.91, 'cons_acc': 0.7933333333333333}
+[fork-C] L3: {'seen_combo_acc': 1.0, 'unseen_combo_acc': 0.92}
+[fork-C] L4-logic: {'seen_combo_acc': 1.0, 'unseen_combo_acc': 0.6}
+[fork-C] L4-counting: {'held_out_acc': 0.66}
+[fork-C] L5: {'held_out_acc': 0.3}
+[fork-C] L6: {'held_out_acc': 0.59}
+[fork-C] Library: {'held_out_acc': 0.25}
+[fork-C] Knowledge: {'mean_loss': 0.6220439585546652}
+[fork-C] Chat: {'mean_loss': 2.830282840074277, 'mean_byte_acc': 0.22214084001732806}
+
+[fork-C] ===== CHAT GENERATION @ cumulative_step=36000 (30 fixed held-out prompts) =====
+[fork-C] Q: Why do people like plants?
+[fork-C]   generated: 'The the alle the alle the alle the alle '
+[fork-C] Q: What instrument plays the part of the duck in the musical composition, "Peter and the Wolf"
+[fork-C]   generated: 'Mores and and in the the alle the the al'
+[fork-C] Q: What did Britain swap Havana for with Spain in 1763
+[fork-C]   generated: 'Ares the the alle the the alle the the a'
+[fork-C] Q: What's the most popular tv show of all time in the USA?
+[fork-C]   generated: 'Ares and in the the alle the the alle th'
+[fork-C] Q: what is philosophy?
+[fork-C]   generated: 'The the alle the alle the alle the alle '
+[fork-C] Q: Which episode did Daenerys Targaryen lose her dragon, Viserion, to a White Walker's spear?
+[fork-C]   generated: 'The Bla and in the the alle the the alle'
+[fork-C] chat diversity: {'n_samples': 30, 'unique_generations': 24, 'avg_longest_repeated_token_run': 1.7, 'avg_token_repetition_rate': 0.12837301587301592}
+[fork-C] coherent_english_rate (heuristic): {'rate_ge_50pct_real_words': 0.9333333333333333, 'avg_real_word_fraction': 0.8507539682539683}
+[fork-C] semantic_relevance_heuristic (weak proxy, real manual read needed): {'keyword_overlap_rate': 0.0}
+[fork-C] wrote results/local/hz_world_run2_fork_large_chat.json (4 eval points so far)
+
+
+[fork-C] fork done: 24000 steps in 5163s (cumulative_step=36000)
+[fork-C] DONE.

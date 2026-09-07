@@ -1717,6 +1717,88 @@ design remains a real, disclosed fallback if a future test shows
 interference re-emerging at a different data scale -- but this
 specific fork rules it out as today's answer.
 
+**Real result, 2026-09-07 -- Arm C: large real Chat pool inside the
+SAME full-HW interleaved scheduler, user-directed and precommitted**
+(`scripts/hz_world_run2_fork_large_chat.py`). Starts from the IDENTICAL
+`step_12000.pt` checkpoint as Arm A and Arm B, same 12-channel
+interleaved scheduler, same warm-started mastery, same 24,000-step
+budget, same cumulative eval points (18k/24k/30k/36k, matching Arm A
+step-for-step, not chat-call-matched like Arm B) -- the ONLY change is
+Chat's train pool: 300 -> 1,741 real examples (the full usable Dolly
+open_qa/general_qa pool at this session's length filter). Verified
+BEFORE launch, not assumed: raising `max_train` does not change which
+51 examples are held out or which prompts are "fixed" -- `build_chat_
+split`'s held-out slice is computed from the full item list before any
+`max_train` cap, confirmed identical between max_train=300 and
+max_train=None at the same seed (asserted in-script: `len(chat_held)
+== 51`). Also expanded the fixed generation-prompt set from 6 to 30,
+per the user's explicit concern that 6 prompts risk one lucky
+generation, plus two automated heuristics (`coherent_english_rate`,
+`semantic_relevance_heuristic`, both disclosed as proxies, not ground
+truth). 24,000 steps, 5,163s (~86 min, matching Arm A's pace almost
+exactly since larger `random.choice` pools cost nothing extra per
+call). Checkpoints: `results/local/hz_world_run2_fork_large_chat/
+step_{18000,24000,30000,36000}.pt`. Full data: `results/local/
+hz_world_run2_fork_large_chat.json`.
+
+| cumulative step | Arm A Chat loss | Arm C Chat loss | Arm A Chat acc | Arm C Chat acc | Arm A Knowledge loss | Arm C Knowledge loss | Arm A L0 acc | Arm C L0 acc |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 18,000 | 2.994 | **2.926** | 0.226 | **0.233** | 0.979 | 1.094 | 0.888 | 0.885 |
+| 24,000 | 2.967 | **2.897** | **0.231** | 0.234 | **0.731** | 0.859 | **0.890** | 0.897 |
+| 30,000 | 2.990 | **2.849** | **0.226** | 0.228 | **0.626** | 0.712 | **0.867** | 0.882 |
+| 36,000 | 2.954 | **2.830** | **0.228** | 0.222 | **0.528** | 0.622 | **0.906** | 0.899 |
+
+**Real, honest read, not spun toward either hoped-for outcome.** Arm C
+posts the best Chat loss of ALL THREE arms at every single matched
+point (2.830 at 36k, beating both Arm A's 2.954 and Arm B's 2.910) --
+a real, consistent, if modest, win -- with NONE of Arm B's collateral
+damage: Knowledge and L0 track Arm A closely throughout (both slightly
+behind Arm A's own numbers, never collapsing). So more real, diverse
+Chat data does help the loss, for free, without the tradeoff Arm B
+showed.
+
+**But real generation quality did not break through.** Direct manual
+reading of all 30 fixed held-out samples at the final 36k checkpoint
+(not just the automated diversity/coherence numbers, which got
+visibly gamed once already at Arm C's own 24k point -- a naive
+"real-word-fraction" heuristic scored 0.95 on a checkpoint that was
+purely spamming "the/and/in/of" in a loop) shows the SAME family of
+failure as Arm A: collapsed into a handful of repetitive filler-word
+attractors (`'The the alle the alle the alle the alle '`, `'Ares and
+in the the alle the the alle th'`, `'Mores Malla Marse Mant Malla Mars
+'`), with ZERO semantic relevance to any of the 30 real questions --
+the automated `keyword_overlap_rate` proxy read 0.0 at every single
+Arm C eval point, matching the manual read exactly. Byte-accuracy is
+not even higher than Arm A's (0.222 vs 0.228 at 36k, the lowest of the
+three final points) despite the lower loss -- the same loss/decision-
+quality split the user flagged live during the interference fork is
+present here too.
+
+**Real, important confound caught before overinterpreting this as "6x
+more data didn't help," directly recalling this session's own earlier
+Stage-B finding (the wording-diversity vs. matched-repetition
+control)**: Arm C's Chat channel received 3,680 calls over 1,741
+examples across the 24k-step budget -- only **2.92 exposures per
+example on average**. Arm A's Chat channel received 4,894 cumulative
+calls over 304 examples -- **16.1 exposures per example**, a 5.5x
+difference. This is EXACTLY the diversity-dilutes-repetition-at-fixed-
+budget pattern the multi-domain Stage-B knowledge experiment already
+uncovered once this session (single-template vs. matched-repetition
+multi-template) -- except this time it was not controlled for. Arm C
+did not cleanly test "does more/diverse data help," it tested "does
+more/diverse data help AT THE SAME TOTAL BUDGET, which necessarily
+means far less repetition per example." The real, disclosed, open
+question this leaves: is Chat's lack of coherence a data-BREADTH
+problem (ruled out as fully solved by this result) or an EXPOSURE-
+PER-EXAMPLE problem (not yet tested in isolation, and the session's
+own prior -- from the SQuAD knowledge thread -- is that exposure count
+matters a great deal). The clean follow-up, if the user wants it,
+would match Arm A's ~16 exposures/example on a MODERATELY larger pool
+(e.g. 600-800 examples at ~16 exposures each, requiring a
+proportionally larger step budget) rather than maximizing pool size at
+a fixed budget -- separating "more examples" from "less repetition"
+as this fork accidentally conflated them.
+
 ---
 
 # 1. Do Not Abandon Hatchling World After One Bad Run
