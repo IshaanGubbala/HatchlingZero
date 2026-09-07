@@ -1,0 +1,63 @@
+{
+  "n_params": 3908133,
+  "baseline": {
+    "mean_loss": 5.5915350914001465,
+    "mean_byte_acc": 0.01047506986097211
+  },
+  "final_train": {
+    "mean_loss": 1.8208324327584235,
+    "mean_byte_acc": 0.4517582080537273
+  },
+  "final_held_out": {
+    "mean_loss": 3.097172839300973,
+    "mean_byte_acc": 0.2536002365606172
+  },
+  "samples": [
+    {
+      "instruction": "Why do people like plants?",
+      "real_response": "Plants build relaxing environment and decorate you room. Plants are beautiful and green. Plants clean the air.",
+      "generated": "The Emaris in Jucalin Lonuge Ddgejid Con"
+    },
+    {
+      "instruction": "What instrument plays the part of the duck in the musical composition, \"Peter and the Wolf\"",
+      "real_response": "An oboe plays the part of the duck in this well-known orchestra piece.",
+      "generated": "The Emalis in Jackin Lon LonSAz"
+    },
+    {
+      "instruction": "What did Britain swap Havana for with Spain in 1763",
+      "real_response": "Florida",
+      "generated": "JucquLie Las LondSADDO, CPACA"
+    },
+    {
+      "instruction": "What's the most popular tv show of all time in the USA?",
+      "real_response": "Jeopardy!",
+      "generated": "The Emalis in Jackin Copatin Componfine "
+    },
+    {
+      "instruction": "what is philosophy?",
+      "real_response": "Philosophy is the systematic study of general and fundamental questions about knowledge, existence, values, mind and language.",
+      "generated": "The Emparis in Jucalin Lonuge Ddgejide!"
+    },
+    {
+      "instruction": "Which episode did Daenerys Targaryen lose her dragon, Viserion, to a White Walker's spear?",
+      "real_response": "The Night King, the leader of the White Walkers, threw a spear at Viserion, which killed him.",
+      "generated": "The Emalis in Janin Lonuken, Laken, Lakk"
+    },
+    {
+      "instruction": "Is it safe for dogs to eat avacado?",
+      "real_response": "No, avocado is considered dangerous for dogs to consume.",
+      "generated": "The Emalis in Jackin Lonon Sanangean Lon"
+    },
+    {
+      "instruction": "How many continents are in the world?",
+      "real_response": "There are seven continents in the world",
+      "generated": "The Emaris in Jancalin Longunge, Dagede "
+    }
+  ],
+  "total_steps": 12400,
+  "total_seconds": 4270.7863528728485,
+  "d_model": 448,
+  "memory_slots": 16,
+  "workspace_slots": 64,
+  "n_rounds_l1": 8
+}

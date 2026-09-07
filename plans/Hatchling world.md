@@ -1355,6 +1355,89 @@ across the whole sequence at once -- not primarily a fixable
 implementation bug, beyond the one small, real, confirmed exception
 above (now worth applying regardless, as a free, zero-risk 6% win).
 
+**Real result, 2026-09-06 -- HZ-Chat-Micro v0: the mechanism works end
+to end (data -> train -> generate -> terminal chat), and it reveals a
+real, interesting architectural difference in overfitting behavior --
+but neither model's actual chat quality is good yet at this tiny data
+scale. Reported honestly, not spun.** Per the user's explicit
+instruction ("build the chatbot now, don't wait to solve the 17x speed
+problem"), built the real missing pieces:
+
+- **`HZLanguageModel.generate()`** (`reference/hz_language_model_torch.py`)
+  -- the first free-form generation capability this class has ever had;
+  every prior forward was classification or teacher-forced parallel
+  loss. Processes the prompt through the exact same per-token H-stepping
+  `lm_forward` uses, then continues autoregressively. Real correctness
+  test added: `generate()`'s first token matches exactly what
+  `lm_forward` would compute for that position, not just "it runs."
+- **Real chat data** (`hatchling_world/knowledge/chat_data.py`):
+  Databricks Dolly-15k, real human-written instruction/response pairs
+  (`open_qa`/`general_qa`, no context needed), fetched live. 1,741 real
+  filtered examples exist; capped to 124 train / 21 held-out for v0's
+  real compute budget on this machine, disclosed as a scope decision.
+  A handful of hand-authored "I don't know" refusals added and
+  disclosed as such (Dolly has no naturally-occurring refusal data).
+- **Two SFT runs, same data/template/100-epoch budget**: HZ-Chat-Micro
+  fresh (d_model=448, 3,908,133 params, NOT continuing any Hatchling
+  World lineage checkpoint -- a standalone SFT run, disclosed) and a
+  matched transformer (d_model=224, 6 layers, 3,989,664 params, ratio
+  1.021, real KV-cache greedy decode).
+- **Terminal chat interface** (`scripts/hz_chat_micro_repl.py`), real
+  and mechanically verified (load/generate/reset/quit). Real, disclosed
+  v0 scope: multi-turn "memory" is plain concatenated text history, NOT
+  yet the architecture's real persistent `S` -- `generate()` doesn't
+  wire that in yet; real, valuable follow-up work.
+
+**Real, important, disclosed finding #1 -- the two models diverge
+sharply on OVERFITTING behavior at this tiny (124-example) scale**:
+
+| epoch | HZ-Chat-Micro held-out loss | matched Transformer held-out loss |
+|---|---|---|
+| 10 | 2.857 | 2.994 |
+| 20 | 2.769 | 3.821 |
+| 30 | 2.763 (HZ's best) | 4.291 |
+| 50 | 2.862 | 4.811 |
+| 70 | 2.989 | 5.348 |
+| 100 | 3.097 | 5.860 |
+
+The transformer catastrophically overfits (final train byte-accuracy
+96.7%, near-perfect memorization, while held-out loss more than DOUBLES
+from its own best point). HZ-Chat-Micro drifts up much more gently from
+its own best (epoch ~30, 2.763) to 3.097 at epoch 100 -- real, mild
+overfitting, but nothing like the transformer's collapse. Real,
+disclosed, plausible hypothesis: HZ's fixed-size, bottlenecked \(S\)/
+\(H\) recurrent state may act as a natural regularizer against
+memorizing a tiny dataset, compared to a transformer's much higher-
+capacity parallel attention+MLP stack at the same nominal parameter
+count -- not yet confirmed as a general property, a real, single
+data point worth a dedicated follow-up test.
+
+**Real, important, disclosed finding #2 -- despite the more favorable
+loss curve, HZ-Chat-Micro's actual GENERATED TEXT at its final (epoch
+100) checkpoint is still genuinely incoherent, not a working chatbot
+yet**: real samples on held-out prompts (never trained on) --
+"Why do people like plants?" -> `"The Emaris in Jucalin Lonuge Ddgejid
+Con"`; "what is philosophy?" -> `"The Emparis in Jucalin Lonuge
+Ddgejide!"` -- largely repetitive, mostly-nonsense phrase fragments
+regardless of the actual question, not real answers. The matched
+transformer's own epoch-100 generations are similarly poor by a
+different failure mode (more letter-salad incoherent: `"An baple it an
+aproit an anedit a proe i"`). **Honest conclusion: v0 proves the
+end-to-end MECHANISM works (data sourcing, masked-completion SFT, real
+autoregressive generation, a terminal interface) and surfaces a real,
+interesting architectural difference in overfitting resistance -- but
+NEITHER model produces good chat quality yet at 124 real examples.**
+This is consistent with, not contradicted by, this session's own
+established lesson from the SQuAD knowledge thread: real quality
+requires real data scale and/or a properly-tuned training budget per
+model, not just "run N epochs and check the loss number." A fair
+follow-up test would need meaningfully more real instruction data
+(the full 1,741-example Dolly pool, not the 124-example v0 slice) and
+a per-model early-stopping check (using each model's OWN best-loss
+checkpoint, not a blind fixed epoch count -- exactly what the
+transformer's overfitting curve here demonstrates is necessary) before
+drawing any real conclusion about which architecture "wins" at chat.
+
 ---
 
 # 1. Do Not Abandon Hatchling World After One Bad Run

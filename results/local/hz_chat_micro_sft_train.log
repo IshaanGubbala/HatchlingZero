@@ -1,0 +1,47 @@
+[hz-chat-micro-sft] FRESH HZ-Chat-Micro v0: d_model=448 n_params=3,908,133
+[hz-chat-micro-sft] real Dolly-15k data: 124 train, 21 held-out
+
+[hz-chat-micro-sft] BASELINE (fresh, untrained): held_out={'mean_loss': 5.5915350914001465, 'mean_byte_acc': 0.01047506986097211}
+[hz-chat-micro-sft] epoch 10/100 (1240 steps, 541s, 2.29 steps/sec) held_out={'mean_loss': 2.856741337549119, 'mean_byte_acc': 0.22688422990696772}
+[hz-chat-micro-sft] epoch 20/100 (2480 steps, 996s, 2.49 steps/sec) held_out={'mean_loss': 2.7692654246375676, 'mean_byte_acc': 0.2493468090182259}
+[hz-chat-micro-sft] epoch 30/100 (3720 steps, 1436s, 2.59 steps/sec) held_out={'mean_loss': 2.7629948457082114, 'mean_byte_acc': 0.25127720016808736}
+[hz-chat-micro-sft] epoch 40/100 (4960 steps, 1840s, 2.70 steps/sec) held_out={'mean_loss': 2.800226370493571, 'mean_byte_acc': 0.24208989313670568}
+[hz-chat-micro-sft] epoch 50/100 (6200 steps, 2244s, 2.76 steps/sec) held_out={'mean_loss': 2.861758243469965, 'mean_byte_acc': 0.2571594835746856}
+[hz-chat-micro-sft] epoch 60/100 (7440 steps, 2648s, 2.81 steps/sec) held_out={'mean_loss': 2.915808774176098, 'mean_byte_acc': 0.2633415889881906}
+[hz-chat-micro-sft] epoch 70/100 (8680 steps, 3051s, 2.84 steps/sec) held_out={'mean_loss': 2.9893341859181723, 'mean_byte_acc': 0.2655955411138989}
+[hz-chat-micro-sft] epoch 80/100 (9920 steps, 3457s, 2.87 steps/sec) held_out={'mean_loss': 3.028038882073902, 'mean_byte_acc': 0.2435847520828247}
+[hz-chat-micro-sft] epoch 90/100 (11160 steps, 3863s, 2.89 steps/sec) held_out={'mean_loss': 3.061215803736732, 'mean_byte_acc': 0.2618589202562968}
+[hz-chat-micro-sft] epoch 100/100 (12400 steps, 4269s, 2.90 steps/sec) held_out={'mean_loss': 3.097172839300973, 'mean_byte_acc': 0.2536002365606172}
+
+[hz-chat-micro-sft] training done: 12400 steps in 4271s
+[hz-chat-micro-sft] FINAL train={'mean_loss': 1.8208324327584235, 'mean_byte_acc': 0.4517582080537273}
+[hz-chat-micro-sft] FINAL held_out={'mean_loss': 3.097172839300973, 'mean_byte_acc': 0.2536002365606172}
+
+[hz-chat-micro-sft] === REAL GENERATION SAMPLES (held-out prompts, never trained on) ===
+[hz-chat-micro-sft] Q: Why do people like plants?
+[hz-chat-micro-sft]   real answer: Plants build relaxing environment and decorate you room. Plants are beautiful and green. Plants clean the air.
+[hz-chat-micro-sft]   generated:   'The Emaris in Jucalin Lonuge Ddgejid Con'
+[hz-chat-micro-sft] Q: What instrument plays the part of the duck in the musical composition, "Peter and the Wolf"
+[hz-chat-micro-sft]   real answer: An oboe plays the part of the duck in this well-known orchestra piece.
+[hz-chat-micro-sft]   generated:   'The Emalis in Jackin Lon LonSAz'
+[hz-chat-micro-sft] Q: What did Britain swap Havana for with Spain in 1763
+[hz-chat-micro-sft]   real answer: Florida
+[hz-chat-micro-sft]   generated:   'JucquLie Las LondSADDO, CPACA'
+[hz-chat-micro-sft] Q: What's the most popular tv show of all time in the USA?
+[hz-chat-micro-sft]   real answer: Jeopardy!
+[hz-chat-micro-sft]   generated:   'The Emalis in Jackin Copatin Componfine '
+[hz-chat-micro-sft] Q: what is philosophy?
+[hz-chat-micro-sft]   real answer: Philosophy is the systematic study of general and fundamental questions about knowledge, existence, values, mind and language.
+[hz-chat-micro-sft]   generated:   'The Emparis in Jucalin Lonuge Ddgejide!'
+[hz-chat-micro-sft] Q: Which episode did Daenerys Targaryen lose her dragon, Viserion, to a White Walker's spear?
+[hz-chat-micro-sft]   real answer: The Night King, the leader of the White Walkers, threw a spear at Viserion, which killed him.
+[hz-chat-micro-sft]   generated:   'The Emalis in Janin Lonuken, Laken, Lakk'
+[hz-chat-micro-sft] Q: Is it safe for dogs to eat avacado?
+[hz-chat-micro-sft]   real answer: No, avocado is considered dangerous for dogs to consume.
+[hz-chat-micro-sft]   generated:   'The Emalis in Jackin Lonon Sanangean Lon'
+[hz-chat-micro-sft] Q: How many continents are in the world?
+[hz-chat-micro-sft]   real answer: There are seven continents in the world
+[hz-chat-micro-sft]   generated:   'The Emaris in Jancalin Longunge, Dagede '
+
+[hz-chat-micro-sft] checkpoint saved: results/local/hz_chat_micro/after_sft.pt
+[hz-chat-micro-sft] DONE. Wrote results/local/hz_chat_micro_sft_train.json
