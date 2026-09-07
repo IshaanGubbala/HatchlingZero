@@ -49,6 +49,7 @@ import torch.nn.functional as F
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from reference.hz0h_bdh_combined_best_torch import combined_bdh_forward  # noqa: E402
+from reference.hz0h_bdh_combined_checkpointed_torch import combined_bdh_forward_training_checkpointed  # noqa: E402
 from reference.hz0h_bdh_torch import BDH, BDHConfig  # noqa: E402
 from hatchling_world.knowledge.decontamination import build_benchmark_ngram_hashes, DEFAULT_BENCHMARK_TASKS  # noqa: E402
 from hatchling_world.knowledge.web_corpus_stream import WebCorpusMixture  # noqa: E402
@@ -78,6 +79,12 @@ def corpus_eval_loss(model: BDH, n_layer: int, held_out_batches: list) -> float:
     return sum(losses) / len(losses)
 
 
+def train_forward(model: BDH, idx: torch.Tensor, n_layer: int, target: torch.Tensor, gradient_checkpointing: bool):
+    if gradient_checkpointing:
+        return combined_bdh_forward_training_checkpointed(model, idx, depth=n_layer, targets=target)
+    return combined_bdh_forward(model, None, idx, real_prefix_iterations=n_layer, num_jumps=0, targets=target)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--n-embd", type=int, default=1440, help="from hz_bdh_bench_size_solver.py's ~100M solve")
@@ -91,6 +98,9 @@ def main() -> None:
     parser.add_argument("--eval-every", type=int, default=0, help="0 = never (Stage 0 systems-test mode)")
     parser.add_argument("--n-held-out-batches", type=int, default=4)
     parser.add_argument("--log-every", type=int, default=20)
+    parser.add_argument("--gradient-checkpointing", action="store_true",
+                         help="wrap each recurrent iteration in torch.utils.checkpoint -- trades compute for "
+                              "memory; verified bit-identical loss/logits/gradients vs the uncheckpointed path")
     parser.add_argument("--fineweb-weight", type=float, default=0.9)
     parser.add_argument("--shuffle-buffer-size", type=int, default=10_000)
     parser.add_argument("--benchmark-tasks", type=str, default=",".join(DEFAULT_BENCHMARK_TASKS))
@@ -108,7 +118,8 @@ def main() -> None:
     model = BDH(config).to(device=device, dtype=torch.float32)
     n_params = sum(p.numel() for p in model.parameters())
     print(f"[hz-bdh-bench] FRESH combined_best BDH: n_embd={args.n_embd} n_layer={args.n_layer} "
-          f"n_head={args.n_head} mult={args.mult} n_params={n_params:,}", flush=True)
+          f"n_head={args.n_head} mult={args.mult} n_params={n_params:,} "
+          f"gradient_checkpointing={args.gradient_checkpointing}", flush=True)
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr)
 
     print("[hz-bdh-bench] building benchmark decontamination hashes...", flush=True)
@@ -136,8 +147,7 @@ def main() -> None:
         data = make_batch(corpus_mix, args.batch_size, args.sequence_length, device)
         idx, target = data[:, :-1].contiguous(), data[:, 1:].contiguous()
         opt.zero_grad(set_to_none=True)
-        _, loss = combined_bdh_forward(model, None, idx, real_prefix_iterations=args.n_layer,
-                                        num_jumps=0, targets=target)
+        _, loss = train_forward(model, idx, args.n_layer, target, args.gradient_checkpointing)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         opt.step()
@@ -188,6 +198,8 @@ def main() -> None:
         with open(args.results_file, "w") as f:
             json.dump({"n_params": n_params, "n_embd": args.n_embd, "n_layer": args.n_layer,
                         "n_head": args.n_head, "mult": args.mult, "device": device,
+                        "gradient_checkpointing": args.gradient_checkpointing,
+                        "batch_size": args.batch_size, "sequence_length": args.sequence_length,
                         "mode": "stage0_systems_test", "total_steps": args.total_steps,
                         "total_seconds": total_time, "steps_per_sec": args.total_steps / total_time,
                         "corpus_tokens_seen": corpus_tokens_seen, "tokens_per_sec": corpus_tokens_seen / total_time,
