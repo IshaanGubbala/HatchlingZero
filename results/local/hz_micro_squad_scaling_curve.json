@@ -1,0 +1,100 @@
+{
+  "curve": [
+    {
+      "cumulative_epoch": 25,
+      "scores": {
+        "held_out_lm_loss": 2.7765307085854665,
+        "SEEN": {
+          "mean_loss": 1.9870977266268297,
+          "mean_byte_acc": 0.4103437536819415
+        },
+        "WRONG": {
+          "mean_loss": 1.879041400822726,
+          "mean_byte_acc": 0.45867957919836044
+        },
+        "PARAPHRASE": {
+          "mean_loss": 2.549266434632815,
+          "mean_byte_acc": 0.25062963796349674
+        },
+        "UNSEEN": {
+          "mean_loss": 3.855157172679901,
+          "mean_byte_acc": 0.15313935466110706
+        }
+      },
+      "delta_truth": -0.10805632580410363,
+      "delta_para": 1.3058907380470863
+    },
+    {
+      "cumulative_epoch": 50,
+      "scores": {
+        "held_out_lm_loss": 2.8421129158564975,
+        "SEEN": {
+          "mean_loss": 1.772785723209381,
+          "mean_byte_acc": 0.4528625644066117
+        },
+        "WRONG": {
+          "mean_loss": 1.736090744083578,
+          "mean_byte_acc": 0.49132841351357376
+        },
+        "PARAPHRASE": {
+          "mean_loss": 2.49350230051921,
+          "mean_byte_acc": 0.2664268439492354
+        },
+        "UNSEEN": {
+          "mean_loss": 4.1874043405056,
+          "mean_byte_acc": 0.156513356231153
+        }
+      },
+      "delta_truth": -0.03669497912580311,
+      "delta_para": 1.6939020399863898
+    },
+    {
+      "cumulative_epoch": 75,
+      "scores": {
+        "held_out_lm_loss": 2.961752005985805,
+        "SEEN": {
+          "mean_loss": 1.4522144862196662,
+          "mean_byte_acc": 0.5504029540175741
+        },
+        "WRONG": {
+          "mean_loss": 1.755909738215533,
+          "mean_byte_acc": 0.4803317886861888
+        },
+        "PARAPHRASE": {
+          "mean_loss": 2.7214598265978007,
+          "mean_byte_acc": 0.2688212828853956
+        },
+        "UNSEEN": {
+          "mean_loss": 4.99789788722992,
+          "mean_byte_acc": 0.12550359014421703
+        }
+      },
+      "delta_truth": 0.3036952519958669,
+      "delta_para": 2.276438060632119
+    },
+    {
+      "cumulative_epoch": 100,
+      "scores": {
+        "held_out_lm_loss": 2.987004348209926,
+        "SEEN": {
+          "mean_loss": 1.1858098860830069,
+          "mean_byte_acc": 0.6403170805085789
+        },
+        "WRONG": {
+          "mean_loss": 1.9924857291308316,
+          "mean_byte_acc": 0.4633425602858717
+        },
+        "PARAPHRASE": {
+          "mean_loss": 2.969797519537119,
+          "mean_byte_acc": 0.24952637375547335
+        },
+        "UNSEEN": {
+          "mean_loss": 5.389082062244415,
+          "mean_byte_acc": 0.12812590580433608
+        }
+      },
+      "delta_truth": 0.8066758430478247,
+      "delta_para": 2.419284542707296
+    }
+  ]
+}

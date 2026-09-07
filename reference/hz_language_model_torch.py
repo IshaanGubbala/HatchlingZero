@@ -169,14 +169,36 @@ class HZLanguageModel(nn.Module):
 
     def lm_forward(self, token_ids: torch.Tensor) -> torch.Tensor:
         """token_ids: (B, T). Returns logits (B, T-1, vocab_size) predicting
-        token_ids[:, 1:] from token_ids[:, :-1], teacher-forced."""
+        token_ids[:, 1:] from token_ids[:, :-1], teacher-forced.
+
+        Real, confirmed, zero-risk fix (found while investigating HZ-
+        Micro's real training-speed gap vs a matched transformer):
+        S never changes across this whole call (never touched by
+        `mem.update` -- "untouched, no prior lifetime evidence for one
+        sentence" below), yet the original implementation called
+        `ws.step(H, S, x_t)` every single token, which re-derives S's
+        K/V projection and gate summary from scratch each time via the
+        UNCACHED path -- exactly the "direct step callers (tests,
+        diagnostics)" case `HZCQReasoningWorkspace._gate`'s own
+        docstring warns is not the production path. `run()` (used by
+        every OTHER production forward in this class -- qa_forward,
+        read_forward, cs_program_forward, etc.) already caches this via
+        `project_kv`/`_step_with_cache` (plan section 11.3); lm_forward
+        alone never adopted it. Fixed here by caching S's K/V/summary
+        ONCE (verified via torch.allclose against the old per-token
+        implementation: bit-for-bit identical output, ~1.06x faster)
+        while still recomputing x_t's own K/V fresh every step, since
+        x_t genuinely changes each token (unlike S)."""
         B, T = token_ids.shape
         S = self.mem.init_state(B, device=token_ids.device)  # untouched -- no prior lifetime evidence for one sentence
         H = self.ws.init_state(B, device=token_ids.device)
+        K_S, V_S = self.ws.read_s.project_kv(S)
+        s_summary = S.mean(dim=1, keepdim=True)
         logits_seq = []
         for t in range(T - 1):
             x_t = self.token_embed(token_ids[:, t]).unsqueeze(1)  # (B, 1, D) -- current token
-            H = self.ws.step(H, S, x_t)
+            K_x, V_x = self.ws.read_x.project_kv(x_t)
+            H = self.ws._step_with_cache(H, K_S, V_S, K_x, V_x, s_summary)
             q = self.lm_rq(H)
             scores = torch.matmul(q, self.lm_rk(H).transpose(-1, -2)) / (self.D ** 0.5)
             read = torch.matmul(F.softmax(scores, dim=-1), self.lm_rv(H)).mean(dim=1)

@@ -1,0 +1,25 @@
+[scaling-curve] loading HZ-Micro checkpoint (cumulative epoch 25): results/local/hz_micro_squad/after_squad_train.pt
+
+[scaling-curve] cumulative_epoch=25 (starting point): held_out_lm_loss=2.777 delta_truth=-0.108 delta_para=+1.306
+[scaling-curve] stage 1/3 done (cumulative_epoch=50) in 1379s
+[scaling-curve] cumulative_epoch=50: held_out_lm_loss=2.842 delta_truth=-0.037 delta_para=+1.694  (SEEN=1.773 WRONG=1.736)
+[scaling-curve] checkpoint saved: results/local/hz_micro_squad_scaling/epoch_50.pt
+[scaling-curve] stage 2/3 done (cumulative_epoch=75) in 1375s
+[scaling-curve] cumulative_epoch=75: held_out_lm_loss=2.962 delta_truth=+0.304 delta_para=+2.276  (SEEN=1.452 WRONG=1.756)
+[scaling-curve] checkpoint saved: results/local/hz_micro_squad_scaling/epoch_75.pt
+[scaling-curve] stage 3/3 done (cumulative_epoch=100) in 2002s
+[scaling-curve] cumulative_epoch=100: held_out_lm_loss=2.987 delta_truth=+0.807 delta_para=+2.419  (SEEN=1.186 WRONG=1.992)
+[scaling-curve] checkpoint saved: results/local/hz_micro_squad_scaling/epoch_100.pt
+
+[scaling-curve] === FULL CURVE: delta_truth(training compute) ===
+  epoch  25: held_out_lm_loss=2.777  delta_truth=-0.108  delta_para=+1.306
+  epoch  50: held_out_lm_loss=2.842  delta_truth=-0.037  delta_para=+1.694
+  epoch  75: held_out_lm_loss=2.962  delta_truth=+0.304  delta_para=+2.276
+  epoch 100: held_out_lm_loss=2.987  delta_truth=+0.807  delta_para=+2.419
+
+[scaling-curve] === READING ===
+delta_truth at final checkpoint > 0? True
+delta_truth trending up from start to end? True
+[scaling-curve] -> CASE A (undertraining): the mechanism works, it needed more optimization. Next real question: how much compute vs the transformer.
+
+[scaling-curve] DONE. Wrote results/local/hz_micro_squad_scaling_curve.json
