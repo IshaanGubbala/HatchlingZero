@@ -1,0 +1,47 @@
+[matched-transformer-chat] FRESH matched transformer: d_model=224 n_layers=6 n_params=3,989,664
+[matched-transformer-chat] SAME real Dolly-15k data as HZ-Chat-Micro: 124 train, 21 held-out
+
+[matched-transformer-chat] BASELINE (fresh, untrained): held_out={'mean_loss': 6.033450558072045, 'mean_byte_acc': 0.009383009569275947}
+[matched-transformer-chat] epoch 10/100 (1240 steps, 36s, 34.72 steps/sec) held_out={'mean_loss': 2.993539730707804, 'mean_byte_acc': 0.1927911082193965}
+[matched-transformer-chat] epoch 20/100 (2480 steps, 70s, 35.64 steps/sec) held_out={'mean_loss': 3.8206651551382884, 'mean_byte_acc': 0.19063492119312286}
+[matched-transformer-chat] epoch 30/100 (3720 steps, 107s, 34.85 steps/sec) held_out={'mean_loss': 4.2908754008156915, 'mean_byte_acc': 0.18353291210674105}
+[matched-transformer-chat] epoch 40/100 (4960 steps, 147s, 33.68 steps/sec) held_out={'mean_loss': 4.456938834417434, 'mean_byte_acc': 0.18117337265894526}
+[matched-transformer-chat] epoch 50/100 (6200 steps, 187s, 33.09 steps/sec) held_out={'mean_loss': 4.810569320406232, 'mean_byte_acc': 0.173103606062276}
+[matched-transformer-chat] epoch 60/100 (7440 steps, 228s, 32.64 steps/sec) held_out={'mean_loss': 4.89151440347944, 'mean_byte_acc': 0.19259611375275112}
+[matched-transformer-chat] epoch 70/100 (8680 steps, 268s, 32.43 steps/sec) held_out={'mean_loss': 5.347774210430327, 'mean_byte_acc': 0.17502926396472113}
+[matched-transformer-chat] epoch 80/100 (9920 steps, 308s, 32.19 steps/sec) held_out={'mean_loss': 5.334101052511306, 'mean_byte_acc': 0.1947458734114965}
+[matched-transformer-chat] epoch 90/100 (11160 steps, 355s, 31.41 steps/sec) held_out={'mean_loss': 5.666347560428438, 'mean_byte_acc': 0.172161385062195}
+[matched-transformer-chat] epoch 100/100 (12400 steps, 394s, 31.48 steps/sec) held_out={'mean_loss': 5.8600185712178545, 'mean_byte_acc': 0.16785793432167598}
+
+[matched-transformer-chat] training done: 12400 steps in 394s
+[matched-transformer-chat] FINAL train={'mean_loss': 0.12455286320413682, 'mean_byte_acc': 0.9665199979659049}
+[matched-transformer-chat] FINAL held_out={'mean_loss': 5.8600185712178545, 'mean_byte_acc': 0.16785793432167598}
+
+[matched-transformer-chat] === REAL GENERATION SAMPLES (held-out prompts) ===
+[matched-transformer-chat] Q: Why do people like plants?
+[matched-transformer-chat]   real answer: Plants build relaxing environment and decorate you room. Plants are beautiful and green. Plants clean the air.
+[matched-transformer-chat]   generated:   'An baple it an aproit an anedit a proe i'
+[matched-transformer-chat] Q: What instrument plays the part of the duck in the musical composition, "Peter and the Wolf"
+[matched-transformer-chat]   real answer: An oboe plays the part of the duck in this well-known orchestra piece.
+[matched-transformer-chat]   generated:   'mer Mar Ema on iche ber ithe e laly ed e'
+[matched-transformer-chat] Q: What did Britain swap Havana for with Spain in 1763
+[matched-transformer-chat]   real answer: Florida
+[matched-transformer-chat]   generated:   'ISce st foran. s wionforan th an 2, anar'
+[matched-transformer-chat] Q: What's the most popular tv show of all time in the USA?
+[matched-transformer-chat]   real answer: Jeopardy!
+[matched-transformer-chat]   generated:   'Ruiigus Ingua mia wang are pindere of th'
+[matched-transformer-chat] Q: what is philosophy?
+[matched-transformer-chat]   real answer: Philosophy is the systematic study of general and fundamental questions about knowledge, existence, values, mind and language.
+[matched-transformer-chat]   generated:   'Posis in. is aaaishario os arei a ai oul'
+[matched-transformer-chat] Q: Which episode did Daenerys Targaryen lose her dragon, Viserion, to a White Walker's spear?
+[matched-transformer-chat]   real answer: The Night King, the leader of the White Walkers, threw a spear at Viserion, which killed him.
+[matched-transformer-chat]   generated:   'igiof eriorn allithe a art part e, and p'
+[matched-transformer-chat] Q: Is it safe for dogs to eat avacado?
+[matched-transformer-chat]   real answer: No, avocado is considered dangerous for dogs to consume.
+[matched-transformer-chat]   generated:   '            aaaion is a ion a ioa and ll'
+[matched-transformer-chat] Q: How many continents are in the world?
+[matched-transformer-chat]   real answer: There are seven continents in the world
+[matched-transformer-chat]   generated:   'Arere d illss d non purate ce 19e interi'
+
+[matched-transformer-chat] checkpoint saved: results/local/hz0a_matched_transformer_chat/after_sft.pt
+[matched-transformer-chat] DONE. Wrote results/local/hz0a_matched_transformer_chat_sft_train.json

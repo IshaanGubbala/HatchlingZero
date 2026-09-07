@@ -1,0 +1,59 @@
+{
+  "n_params": 3989664,
+  "baseline": {
+    "mean_loss": 6.033450558072045,
+    "mean_byte_acc": 0.009383009569275947
+  },
+  "final_train": {
+    "mean_loss": 0.12455286320413682,
+    "mean_byte_acc": 0.9665199979659049
+  },
+  "final_held_out": {
+    "mean_loss": 5.8600185712178545,
+    "mean_byte_acc": 0.16785793432167598
+  },
+  "samples": [
+    {
+      "instruction": "Why do people like plants?",
+      "real_response": "Plants build relaxing environment and decorate you room. Plants are beautiful and green. Plants clean the air.",
+      "generated": "An baple it an aproit an anedit a proe i"
+    },
+    {
+      "instruction": "What instrument plays the part of the duck in the musical composition, \"Peter and the Wolf\"",
+      "real_response": "An oboe plays the part of the duck in this well-known orchestra piece.",
+      "generated": "mer Mar Ema on iche ber ithe e laly ed e"
+    },
+    {
+      "instruction": "What did Britain swap Havana for with Spain in 1763",
+      "real_response": "Florida",
+      "generated": "ISce st foran. s wionforan th an 2, anar"
+    },
+    {
+      "instruction": "What's the most popular tv show of all time in the USA?",
+      "real_response": "Jeopardy!",
+      "generated": "Ruiigus Ingua mia wang are pindere of th"
+    },
+    {
+      "instruction": "what is philosophy?",
+      "real_response": "Philosophy is the systematic study of general and fundamental questions about knowledge, existence, values, mind and language.",
+      "generated": "Posis in. is aaaishario os arei a ai oul"
+    },
+    {
+      "instruction": "Which episode did Daenerys Targaryen lose her dragon, Viserion, to a White Walker's spear?",
+      "real_response": "The Night King, the leader of the White Walkers, threw a spear at Viserion, which killed him.",
+      "generated": "igiof eriorn allithe a art part e, and p"
+    },
+    {
+      "instruction": "Is it safe for dogs to eat avacado?",
+      "real_response": "No, avocado is considered dangerous for dogs to consume.",
+      "generated": "            aaaion is a ion a ioa and ll"
+    },
+    {
+      "instruction": "How many continents are in the world?",
+      "real_response": "There are seven continents in the world",
+      "generated": "Arere d illss d non purate ce 19e interi"
+    }
+  ],
+  "total_steps": 12400,
+  "total_seconds": 393.9806499481201
+}
