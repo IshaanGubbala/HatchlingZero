@@ -60,19 +60,30 @@ def build_chat_split(seed: int = 0, path: Path = DEFAULT_PATH, max_train: int | 
     allows to train well within a reasonable session; capped rather
     than silently used in full and left undertrained)."""
     items = []
-    with open(path) as f:
-        for line in f:
-            d = json.loads(line)
-            if d["category"] not in ("open_qa", "general_qa"):
-                continue
-            if d["context"]:
-                continue
-            instruction, response = d["instruction"].strip(), d["response"].strip()
-            if not instruction or not response:
-                continue
-            if len(instruction) + len(response) > MAX_COMBINED_CHARS:
-                continue
-            items.append({"instruction": instruction, "response": response})
+    if path.exists():
+        with open(path) as f:
+            raw_rows = [json.loads(line) for line in f]
+    else:
+        # Real, disclosed portability fallback: `data/raw/` is gitignored
+        # repo-wide, so a fresh checkout (a RunPod dispatch, a different
+        # machine) won't have this file pre-populated. `databricks/
+        # databricks-dolly-15k` on HuggingFace has the identical schema
+        # (instruction/context/response/category) -- load it live instead
+        # of requiring a pre-fetched local copy.
+        from datasets import load_dataset
+        raw_rows = list(load_dataset("databricks/databricks-dolly-15k", split="train"))
+
+    for d in raw_rows:
+        if d["category"] not in ("open_qa", "general_qa"):
+            continue
+        if d["context"]:
+            continue
+        instruction, response = d["instruction"].strip(), d["response"].strip()
+        if not instruction or not response:
+            continue
+        if len(instruction) + len(response) > MAX_COMBINED_CHARS:
+            continue
+        items.append({"instruction": instruction, "response": response})
 
     rng = random.Random(seed)
     rng.shuffle(items)
