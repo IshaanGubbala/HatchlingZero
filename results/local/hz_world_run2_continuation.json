@@ -1,0 +1,615 @@
+{
+  "base_checkpoint": "results/local/hz_world_run2/step_12000.pt",
+  "base_step": 12000,
+  "n_params": 5056229,
+  "eval_points": [
+    {
+      "cumulative_step": 18000,
+      "final_scores": {
+        "Corpus": {
+          "held_out_next_byte_acc": 0.5644202686491466
+        },
+        "L0": {
+          "next_token_acc": 0.8880778551101685
+        },
+        "L1": {
+          "held_out_acc": 1.0
+        },
+        "L2": {
+          "sel_acc": 0.94,
+          "cons_acc": 0.78
+        },
+        "L3": {
+          "seen_combo_acc": 1.0,
+          "unseen_combo_acc": 1.0
+        },
+        "L4-logic": {
+          "seen_combo_acc": 0.98,
+          "unseen_combo_acc": 0.56
+        },
+        "L4-counting": {
+          "held_out_acc": 0.65
+        },
+        "L5": {
+          "held_out_acc": 0.23
+        },
+        "L6": {
+          "held_out_acc": 0.41
+        },
+        "Library": {
+          "held_out_acc": 0.26
+        },
+        "Knowledge": {
+          "mean_loss": 0.9786668134232362
+        },
+        "Chat": {
+          "mean_loss": 2.9938183648913514,
+          "mean_byte_acc": 0.22635985268097297
+        }
+      },
+      "chat_diversity": {
+        "n_samples": 6,
+        "unique_generations": 4,
+        "avg_longest_repeated_token_run": 1.6666666666666667,
+        "avg_token_repetition_rate": 0.0925925925925926
+      },
+      "samples": [
+        {
+          "instruction": "Why do people like plants?",
+          "real_response": "Plants build relaxing environment and decorate you room. Plants are beautiful and green. Plants clean the air.",
+          "generated": "The the an of of Fren Dalin and Jonghe B"
+        },
+        {
+          "instruction": "What instrument plays the part of the duck in the musical composition, \"Peter and the Wolf\"",
+          "real_response": "An oboe plays the part of the duck in this well-known orchestra piece.",
+          "generated": "The Bres and in and Jon Change Branthe R"
+        },
+        {
+          "instruction": "What did Britain swap Havana for with Spain in 1763",
+          "real_response": "Florida",
+          "generated": "The the the an of of Fromen an inghe the"
+        },
+        {
+          "instruction": "What's the most popular tv show of all time in the USA?",
+          "real_response": "Jeopardy!",
+          "generated": "The the an of of Fren Dalin and Jonghe B"
+        },
+        {
+          "instruction": "what is philosophy?",
+          "real_response": "Philosophy is the systematic study of general and fundamental questions about knowledge, existence, values, mind and language.",
+          "generated": "The the an of of Fren Dalin and Jonghe B"
+        },
+        {
+          "instruction": "Which episode did Daenerys Targaryen lose her dragon, Viserion, to a White Walker's spear?",
+          "real_response": "The Night King, the leader of the White Walkers, threw a spear at Viserion, which killed him.",
+          "generated": "The the an of Fromen an the an of Frongh"
+        }
+      ],
+      "calls_this_phase": {
+        "Corpus": 816,
+        "L0": 164,
+        "L1": 121,
+        "L2": 85,
+        "L3": 357,
+        "L4-logic": 490,
+        "L4-counting": 437,
+        "L5": 863,
+        "L6": 592,
+        "Library": 849,
+        "Knowledge": 387,
+        "Chat": 839
+      },
+      "calls_cumulative": {
+        "Corpus": 2288,
+        "L0": 677,
+        "L1": 581,
+        "L2": 468,
+        "L3": 1210,
+        "L4-logic": 1535,
+        "L4-counting": 1288,
+        "L5": 2286,
+        "L6": 1543,
+        "Library": 2260,
+        "Knowledge": 1616,
+        "Chat": 2248
+      },
+      "mastery": {
+        "Corpus": {
+          "main": 0.359705530560862
+        },
+        "L0": {
+          "main": 0.8550753592254965
+        },
+        "L1": {
+          "main": 0.919873590637253
+        },
+        "L2": {
+          "main": 0.9331700449421402
+        },
+        "L3": {
+          "main": 0.8798125531088978,
+          "unseen": 0.95
+        },
+        "L4-logic": {
+          "main": 0.9598374174443299,
+          "unseen": 0.5
+        },
+        "L4-counting": {
+          "main": 0.5899923646686781
+        },
+        "L5": {
+          "main": 0.24172039414689625
+        },
+        "L6": {
+          "main": 0.4270641682689186
+        },
+        "Library": {
+          "main": 0.17758064245389557
+        },
+        "Knowledge": {
+          "main": 0.635939995692853
+        },
+        "Chat": {
+          "main": 0.25463842462255015
+        }
+      },
+      "elapsed_seconds": 1275.0062730312347
+    },
+    {
+      "cumulative_step": 24000,
+      "final_scores": {
+        "Corpus": {
+          "held_out_next_byte_acc": 0.5648633468718756
+        },
+        "L0": {
+          "next_token_acc": 0.8895376920700073
+        },
+        "L1": {
+          "held_out_acc": 0.71
+        },
+        "L2": {
+          "sel_acc": 0.88,
+          "cons_acc": 0.7766666666666666
+        },
+        "L3": {
+          "seen_combo_acc": 0.92,
+          "unseen_combo_acc": 0.68
+        },
+        "L4-logic": {
+          "seen_combo_acc": 0.89,
+          "unseen_combo_acc": 0.41
+        },
+        "L4-counting": {
+          "held_out_acc": 0.65
+        },
+        "L5": {
+          "held_out_acc": 0.31
+        },
+        "L6": {
+          "held_out_acc": 0.59
+        },
+        "Library": {
+          "held_out_acc": 0.24
+        },
+        "Knowledge": {
+          "mean_loss": 0.7309666853398085
+        },
+        "Chat": {
+          "mean_loss": 2.9671408335367837,
+          "mean_byte_acc": 0.23053341767951555
+        }
+      },
+      "chat_diversity": {
+        "n_samples": 6,
+        "unique_generations": 4,
+        "avg_longest_repeated_token_run": 2.0,
+        "avg_token_repetition_rate": 0.12268518518518519
+      },
+      "samples": [
+        {
+          "instruction": "Why do people like plants?",
+          "real_response": "Plants build relaxing environment and decorate you room. Plants are beautiful and green. Plants clean the air.",
+          "generated": "The Blatis an derest of on the the rames"
+        },
+        {
+          "instruction": "What instrument plays the part of the duck in the musical composition, \"Peter and the Wolf\"",
+          "real_response": "An oboe plays the part of the duck in this well-known orchestra piece.",
+          "generated": "Ble Loke Bred Swis an deres the the red "
+        },
+        {
+          "instruction": "What did Britain swap Havana for with Spain in 1763",
+          "real_response": "Florida",
+          "generated": "The Bleres the the stere the stere for a"
+        },
+        {
+          "instruction": "What's the most popular tv show of all time in the USA?",
+          "real_response": "Jeopardy!",
+          "generated": "The Blatis an derest of on the the rames"
+        },
+        {
+          "instruction": "what is philosophy?",
+          "real_response": "Philosophy is the systematic study of general and fundamental questions about knowledge, existence, values, mind and language.",
+          "generated": "The seres in the the seres in the was th"
+        },
+        {
+          "instruction": "Which episode did Daenerys Targaryen lose her dragon, Viserion, to a White Walker's spear?",
+          "real_response": "The Night King, the leader of the White Walkers, threw a spear at Viserion, which killed him.",
+          "generated": "The Blatis an derest of on the the rames"
+        }
+      ],
+      "calls_this_phase": {
+        "Corpus": 1629,
+        "L0": 326,
+        "L1": 204,
+        "L2": 155,
+        "L3": 741,
+        "L4-logic": 956,
+        "L4-counting": 874,
+        "L5": 1743,
+        "L6": 1143,
+        "Library": 1769,
+        "Knowledge": 760,
+        "Chat": 1700
+      },
+      "calls_cumulative": {
+        "Corpus": 3101,
+        "L0": 839,
+        "L1": 664,
+        "L2": 538,
+        "L3": 1594,
+        "L4-logic": 2001,
+        "L4-counting": 1725,
+        "L5": 3166,
+        "L6": 2094,
+        "Library": 3180,
+        "Knowledge": 1989,
+        "Chat": 3109
+      },
+      "mastery": {
+        "Corpus": {
+          "main": 0.37471138071588056
+        },
+        "L0": {
+          "main": 0.8849816383935291
+        },
+        "L1": {
+          "main": 0.8804147324815026
+        },
+        "L2": {
+          "main": 0.8842732768511904
+        },
+        "L3": {
+          "main": 0.9919109270088645,
+          "unseen": 0.75
+        },
+        "L4-logic": {
+          "main": 0.9998095667792571,
+          "unseen": 0.55
+        },
+        "L4-counting": {
+          "main": 0.8298092787102445
+        },
+        "L5": {
+          "main": 0.23562228001078747
+        },
+        "L6": {
+          "main": 0.6969412025487901
+        },
+        "Library": {
+          "main": 0.24407871448229718
+        },
+        "Knowledge": {
+          "main": 0.756726234069585
+        },
+        "Chat": {
+          "main": 0.2840933018641602
+        }
+      },
+      "elapsed_seconds": 2557.255987882614
+    },
+    {
+      "cumulative_step": 30000,
+      "final_scores": {
+        "Corpus": {
+          "held_out_next_byte_acc": 0.5590386674517678
+        },
+        "L0": {
+          "next_token_acc": 0.8666666746139526
+        },
+        "L1": {
+          "held_out_acc": 0.99
+        },
+        "L2": {
+          "sel_acc": 1.0,
+          "cons_acc": 0.8166666666666667
+        },
+        "L3": {
+          "seen_combo_acc": 0.89,
+          "unseen_combo_acc": 0.68
+        },
+        "L4-logic": {
+          "seen_combo_acc": 0.96,
+          "unseen_combo_acc": 0.78
+        },
+        "L4-counting": {
+          "held_out_acc": 0.65
+        },
+        "L5": {
+          "held_out_acc": 0.19
+        },
+        "L6": {
+          "held_out_acc": 0.41
+        },
+        "Library": {
+          "held_out_acc": 0.24
+        },
+        "Knowledge": {
+          "mean_loss": 0.6260622494543592
+        },
+        "Chat": {
+          "mean_loss": 2.99045473687789,
+          "mean_byte_acc": 0.22575591139349283
+        }
+      },
+      "chat_diversity": {
+        "n_samples": 6,
+        "unique_generations": 5,
+        "avg_longest_repeated_token_run": 3.0,
+        "avg_token_repetition_rate": 0.2898148148148148
+      },
+      "samples": [
+        {
+          "instruction": "Why do people like plants?",
+          "real_response": "Plants build relaxing environment and decorate you room. Plants are beautiful and green. Plants clean the air.",
+          "generated": "The the the the rome the the real is a d"
+        },
+        {
+          "instruction": "What instrument plays the part of the duck in the musical composition, \"Peter and the Wolf\"",
+          "real_response": "An oboe plays the part of the duck in this well-known orchestra piece.",
+          "generated": "The Unition the the the rouned in the th"
+        },
+        {
+          "instruction": "What did Britain swap Havana for with Spain in 1763",
+          "real_response": "Florida",
+          "generated": "The the the the rome the the real war he"
+        },
+        {
+          "instruction": "What's the most popular tv show of all time in the USA?",
+          "real_response": "Jeopardy!",
+          "generated": "The the the the real of the real ard ina"
+        },
+        {
+          "instruction": "what is philosophy?",
+          "real_response": "Philosophy is the systematic study of general and fundamental questions about knowledge, existence, values, mind and language.",
+          "generated": "The the the the rome the the real is a d"
+        },
+        {
+          "instruction": "Which episode did Daenerys Targaryen lose her dragon, Viserion, to a White Walker's spear?",
+          "real_response": "The Night King, the leader of the White Walkers, threw a spear at Viserion, which killed him.",
+          "generated": "The the the the rome the the real war is"
+        }
+      ],
+      "calls_this_phase": {
+        "Corpus": 2394,
+        "L0": 474,
+        "L1": 294,
+        "L2": 219,
+        "L3": 1068,
+        "L4-logic": 1523,
+        "L4-counting": 1315,
+        "L5": 2630,
+        "L6": 1796,
+        "Library": 2703,
+        "Knowledge": 1030,
+        "Chat": 2554
+      },
+      "calls_cumulative": {
+        "Corpus": 3866,
+        "L0": 987,
+        "L1": 754,
+        "L2": 602,
+        "L3": 1921,
+        "L4-logic": 2568,
+        "L4-counting": 2166,
+        "L5": 4053,
+        "L6": 2747,
+        "Library": 4114,
+        "Knowledge": 2259,
+        "Chat": 3963
+      },
+      "mastery": {
+        "Corpus": {
+          "main": 0.3936295787386745
+        },
+        "L0": {
+          "main": 0.8866949372352261
+        },
+        "L1": {
+          "main": 0.9342895826387257
+        },
+        "L2": {
+          "main": 0.9956574543301179
+        },
+        "L3": {
+          "main": 0.9789263600763718,
+          "unseen": 0.45
+        },
+        "L4-logic": {
+          "main": 0.9595189242159126,
+          "unseen": 0.8
+        },
+        "L4-counting": {
+          "main": 0.6237840107402527
+        },
+        "L5": {
+          "main": 0.285247700293611
+        },
+        "L6": {
+          "main": 0.4196469479010937
+        },
+        "Library": {
+          "main": 0.3135446187053989
+        },
+        "Knowledge": {
+          "main": 0.773488219284
+        },
+        "Chat": {
+          "main": 0.298395320973431
+        }
+      },
+      "elapsed_seconds": 3766.1043128967285
+    },
+    {
+      "cumulative_step": 36000,
+      "final_scores": {
+        "Corpus": {
+          "held_out_next_byte_acc": 0.5455656221934728
+        },
+        "L0": {
+          "next_token_acc": 0.9060827493667603
+        },
+        "L1": {
+          "held_out_acc": 0.98
+        },
+        "L2": {
+          "sel_acc": 0.99,
+          "cons_acc": 0.7966666666666666
+        },
+        "L3": {
+          "seen_combo_acc": 1.0,
+          "unseen_combo_acc": 0.92
+        },
+        "L4-logic": {
+          "seen_combo_acc": 0.99,
+          "unseen_combo_acc": 0.81
+        },
+        "L4-counting": {
+          "held_out_acc": 0.7
+        },
+        "L5": {
+          "held_out_acc": 0.2
+        },
+        "L6": {
+          "held_out_acc": 0.59
+        },
+        "Library": {
+          "held_out_acc": 0.18
+        },
+        "Knowledge": {
+          "mean_loss": 0.5278496186559399
+        },
+        "Chat": {
+          "mean_loss": 2.953795031005261,
+          "mean_byte_acc": 0.22786258073414073
+        }
+      },
+      "chat_diversity": {
+        "n_samples": 6,
+        "unique_generations": 6,
+        "avg_longest_repeated_token_run": 1.3333333333333333,
+        "avg_token_repetition_rate": 0.03935185185185185
+      },
+      "samples": [
+        {
+          "instruction": "Why do people like plants?",
+          "real_response": "Plants build relaxing environment and decorate you room. Plants are beautiful and green. Plants clean the air.",
+          "generated": "The Blakin wher the the UK's al and in t"
+        },
+        {
+          "instruction": "What instrument plays the part of the duck in the musical composition, \"Peter and the Wolf\"",
+          "real_response": "An oboe plays the part of the duck in this well-known orchestra piece.",
+          "generated": "Lon Congen Brite BSkint BSkititit SkyB's"
+        },
+        {
+          "instruction": "What did Britain swap Havana for with Spain in 1763",
+          "real_response": "Florida",
+          "generated": "Al Lonte Claling BSkint SkyBlat Dorke Co"
+        },
+        {
+          "instruction": "What's the most popular tv show of all time in the USA?",
+          "real_response": "Jeopardy!",
+          "generated": "Aler and Jane BSkina BSkint Dertithed Co"
+        },
+        {
+          "instruction": "what is philosophy?",
+          "real_response": "Philosophy is the systematic study of general and fundamental questions about knowledge, existence, values, mind and language.",
+          "generated": "Al and in the 1950, the ReN-BAlitite Sky"
+        },
+        {
+          "instruction": "Which episode did Daenerys Targaryen lose her dragon, Viserion, to a White Walker's spear?",
+          "real_response": "The Night King, the leader of the White Walkers, threw a spear at Viserion, which killed him.",
+          "generated": "The Walla wher ald and in the the Reder "
+        }
+      ],
+      "calls_this_phase": {
+        "Corpus": 3238,
+        "L0": 618,
+        "L1": 373,
+        "L2": 295,
+        "L3": 1217,
+        "L4-logic": 1771,
+        "L4-counting": 1870,
+        "L5": 3673,
+        "L6": 2455,
+        "Library": 3715,
+        "Knowledge": 1290,
+        "Chat": 3485
+      },
+      "calls_cumulative": {
+        "Corpus": 4710,
+        "L0": 1131,
+        "L1": 833,
+        "L2": 678,
+        "L3": 2070,
+        "L4-logic": 2816,
+        "L4-counting": 2721,
+        "L5": 5096,
+        "L6": 3406,
+        "Library": 5126,
+        "Knowledge": 2519,
+        "Chat": 4894
+      },
+      "mastery": {
+        "Corpus": {
+          "main": 0.40578286388350143
+        },
+        "L0": {
+          "main": 0.8850784722830081
+        },
+        "L1": {
+          "main": 0.9511394869842604
+        },
+        "L2": {
+          "main": 0.971471943554135
+        },
+        "L3": {
+          "main": 0.9448563824958351,
+          "unseen": 1.0
+        },
+        "L4-logic": {
+          "main": 0.9948583233380062,
+          "unseen": 0.7
+        },
+        "L4-counting": {
+          "main": 0.7129585736802351
+        },
+        "L5": {
+          "main": 0.29326804416969543
+        },
+        "L6": {
+          "main": 0.5700767459032702
+        },
+        "Library": {
+          "main": 0.3946153816920317
+        },
+        "Knowledge": {
+          "main": 0.8469297320197113
+        },
+        "Chat": {
+          "main": 0.2709369876567816
+        }
+      },
+      "elapsed_seconds": 5051.556559085846
+    }
+  ]
+}

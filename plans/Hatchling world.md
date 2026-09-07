@@ -1556,6 +1556,103 @@ show clean signal) would be the natural next real test of whether
 Chat/Library/L5/Corpus are undertrained-but-fixable versus genuinely
 capacity-limited inside a 12-channel shared lineage.
 
+**Real result, 2026-09-07 -- Run 2 continuation, 12k -> 36k cumulative
+steps, precommitted "is Run 2 simply undertrained?" test**
+(`scripts/hz_world_training_run2_continue.py`). Directly answers the
+question above: continues the SAME 5,056,229-param checkpoint (not a
+fresh init), fresh AdamW (optimizer state wasn't saved, disclosed),
+scheduler mastery WARM-STARTED from Run 2's final state (not reset to
+0 -- a true continuation, not a new cold-start run), same 12 channels,
+same data, same seed, no architecture changes. 24,000 additional steps,
+5,052s (~84 min), ~4.7-4.8 steps/sec throughout. Evaluated full
+retention + real chat generation on the SAME 6 fixed held-out prompts
++ generation-diversity metrics (unique-generation count, average
+longest repeated-token run, average consecutive-token repetition rate
+-- precommitted specifically because loss alone hid the 12k
+checkpoint's mode collapse) at every 6,000-step boundary. Checkpoints:
+`results/local/hz_world_run2/step_{18000,24000,30000,36000}.pt`. Full
+per-eval-point data: `results/local/hz_world_run2_continuation.json`.
+
+| cumulative step | Knowledge mean loss | Chat mean loss | Chat byte acc | unique gens (/6) | avg longest repeated-token run | avg token repeat rate |
+|---:|---:|---:|---:|---:|---:|---:|
+| 12,000 (base) | 1.361 | 3.046 | 0.209 | ~1 (full collapse) | -- | -- |
+| 18,000 | 0.979 | 2.994 | 0.226 | 4 | 1.67 | 0.093 |
+| 24,000 | 0.731 | 2.967 | 0.231 | 4 | 2.00 | 0.123 |
+| 30,000 | 0.626 | 2.990 | 0.226 | 5 | 3.00 | **0.290 (worst)** |
+| 36,000 | **0.528** | **2.954** | 0.228 | **6 (full)** | **1.33** | **0.039 (best)** |
+
+**Knowledge: clean, monotonic, undertraining-confirmed -- the SQuAD
+story repeats.** Mean loss falls every single eval point (1.361 ->
+0.528, a 61% relative drop) with no reversals. This channel's
+precommitted branch-1 outcome (`L_chat down, quality up` -- here,
+Knowledge) is unambiguous: more developmental compute on the same
+checkpoint straightforwardly worked, exactly as the SQuAD 100-epoch
+scaling curve predicted it would.
+
+**Chat: real but much slower, non-monotonic progress -- does not
+cleanly fit either precommitted branch, reported honestly rather than
+forced into one.** Loss moved 3.046 -> 2.954, a real but small (~3%
+relative) net improvement, with a genuine REGRESSION at the 30k
+checkpoint (2.967 -> 2.990) before recovering. Byte-accuracy has been
+flat (~0.226-0.231) since 18,000 -- essentially no net movement across
+18,000 real additional Chat-channel steps. The generation-diversity
+metrics are the most informative real signal here, and they are
+themselves non-monotonic: mode collapse visibly broke between 12k and
+18k (unique generations 1->4), then generation quality got WORSE
+through 24k and 30k (repeat rate climbing 0.093 -> 0.123 -> 0.290,
+longest repeated run climbing 1.67 -> 2.0 -> 3.0, samples drifting
+back toward "the the the"-style loops) -- a real, reported-in-the-
+moment regression, not smoothed over -- before a sharp final-point
+reversal at 36k: all 6 generations fully unique, repeat rate DROPS to
+its best value of the whole run (0.039), longest run down to 1.33.
+Real 36k samples, held-out prompts, never trained on:
+
+```
+Q: Why do people like plants?
+  generated: "The Blakin wher the the UK's al and in t"
+Q: What did Britain swap Havana for with Spain in 1763
+  generated: 'Al Lonte Claling BSkint SkyBlat Dorke Co'
+Q: what is philosophy?
+  generated: 'Al and in the 1950, the ReN-BAlitite Sky'
+```
+
+Mode collapse is genuinely gone (no repeated string across prompts, no
+degenerate token loop) -- but this is still not coherent English or a
+real answer to any of the 6 questions. **Honest characterization: Chat
+is improving, but roughly an order of magnitude more slowly than
+Knowledge on the same shared budget, with real volatility along the
+way (including one honest, reported regression at 30k) rather than a
+clean curve.** It does not decisively satisfy the user's precommitted
+branch-1 criterion (loss and generation both improving together,
+cleanly) nor does it hit the branch-3 stop trigger (loss flat despite
+1-3k more updates -- Chat actually got ~3,485 additional calls, far
+more than that bar, and both loss and diversity DID move, just
+slowly and non-monotonically). This sits genuinely between the two
+precommitted outcomes and is reported as such rather than forced into
+either.
+
+**Real, resolved false alarm, disclosed for accuracy**: the 24k
+checkpoint showed L1 held-out acc dropping 1.0 -> 0.71, L3 unseen-combo
+0.93 -> 0.68, and L4-logic unseen-combo 0.98 -> 0.41/0.56 across
+consecutive points, flagged in the moment as possible real
+interference/forgetting from Chat/Corpus/L5/Library's heavier
+scheduler share. By 30k and 36k, all three fully recovered (L1 ->
+0.98-0.99, L3 unseen -> 0.92, L4-logic unseen -> 0.78-0.81) --
+confirms this was real EMA/small-eval-set (50-episode) volatility
+during a scheduler reallocation window, not a lasting forgetting trend.
+Reported both when it looked concerning and again once it resolved, to
+avoid either false alarm or hindsight-quiet burial.
+
+**Open decision, not resolved by this run, deferred to the user's own
+precommitted framework**: whether Chat's slow-but-real improvement
+warrants a further undifferentiated continuation (more of the same
+12-channel budget, betting the 36k reversal is the start of a real
+trend rather than a local blip) or the precommitted **Chat-heavy vs.
+full-HW fork from the 12k checkpoint** (same total updates, only the
+mixture changes -- the direct test of the gradient-interference
+hypothesis). The data is genuinely ambiguous on this specific
+question; not calling it either way without the user's input.
+
 ---
 
 # 1. Do Not Abandon Hatchling World After One Bad Run

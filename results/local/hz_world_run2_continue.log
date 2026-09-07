@@ -1,0 +1,183 @@
+[run2-cont] loading base checkpoint: results/local/hz_world_run2/step_12000.pt
+[run2-cont] CONTINUING Run 2 (NOT a fresh init): n_params=5,056,229
+[run2-cont] warm-started mastery + calls from step 12000 (NOT reset to 0 -- true continuation)
+[run2-cont] real data (same as Run 2, same seed): 28 corpus paragraphs, 12 knowledge facts, 304 chat examples, 7 held-out corpus paragraphs
+[run2-cont] cumulative_step=12500 (+500/24000 continuation, 112s, 4.48 steps/sec) last=Library mastery=[{'Corpus': 0.34, 'L0': 0.841, 'L1': 0.942, 'L2': 0.913, 'L3': 0.879, 'L4-logic': 0.908, 'L4-counting': 0.44, 'L5': 0.352, 'L6': 0.477, 'Library': 0.238, 'Knowledge': 0.612, 'Chat': 0.25}] calls_this_phase={'Corpus': 78, 'L0': 18, 'L1': 6, 'L2': 11, 'L3': 11, 'L4-logic': 14, 'L4-counting': 56, 'L5': 68, 'L6': 56, 'Library': 70, 'Knowledge': 39, 'Chat': 73}
+[run2-cont] cumulative_step=13000 (+1000/24000 continuation, 222s, 4.51 steps/sec) last=Corpus mastery=[{'Corpus': 0.327, 'L0': 0.85, 'L1': 0.916, 'L2': 0.897, 'L3': 0.921, 'L4-logic': 0.875, 'L4-counting': 0.517, 'L5': 0.192, 'L6': 0.496, 'Library': 0.085, 'Knowledge': 0.635, 'Chat': 0.268}] calls_this_phase={'Corpus': 153, 'L0': 33, 'L1': 13, 'L2': 19, 'L3': 39, 'L4-logic': 79, 'L4-counting': 95, 'L5': 139, 'L6': 82, 'Library': 128, 'Knowledge': 71, 'Chat': 149}
+[run2-cont] cumulative_step=13500 (+1500/24000 continuation, 336s, 4.46 steps/sec) last=L4-logic mastery=[{'Corpus': 0.342, 'L0': 0.843, 'L1': 0.854, 'L2': 0.925, 'L3': 0.919, 'L4-logic': 0.939, 'L4-counting': 0.587, 'L5': 0.188, 'L6': 0.402, 'Library': 0.218, 'Knowledge': 0.624, 'Chat': 0.267}] calls_this_phase={'Corpus': 214, 'L0': 46, 'L1': 21, 'L2': 25, 'L3': 103, 'L4-logic': 123, 'L4-counting': 126, 'L5': 208, 'L6': 130, 'Library': 195, 'Knowledge': 94, 'Chat': 215}
+[run2-cont] cumulative_step=14000 (+2000/24000 continuation, 440s, 4.54 steps/sec) last=Library mastery=[{'Corpus': 0.347, 'L0': 0.844, 'L1': 0.879, 'L2': 0.911, 'L3': 0.933, 'L4-logic': 0.931, 'L4-counting': 0.74, 'L5': 0.256, 'L6': 0.557, 'Library': 0.171, 'Knowledge': 0.621, 'Chat': 0.26}] calls_this_phase={'Corpus': 288, 'L0': 59, 'L1': 31, 'L2': 32, 'L3': 151, 'L4-logic': 183, 'L4-counting': 151, 'L5': 269, 'L6': 178, 'Library': 268, 'Knowledge': 122, 'Chat': 268}
+[run2-cont] cumulative_step=14500 (+2500/24000 continuation, 536s, 4.66 steps/sec) last=L6 mastery=[{'Corpus': 0.352, 'L0': 0.847, 'L1': 0.92, 'L2': 0.931, 'L3': 0.981, 'L4-logic': 0.996, 'L4-counting': 0.595, 'L5': 0.277, 'L6': 0.496, 'Library': 0.169, 'Knowledge': 0.66, 'Chat': 0.293}] calls_this_phase={'Corpus': 352, 'L0': 72, 'L1': 39, 'L2': 37, 'L3': 193, 'L4-logic': 241, 'L4-counting': 188, 'L5': 340, 'L6': 227, 'Library': 330, 'Knowledge': 158, 'Chat': 323}
+[run2-cont] cumulative_step=15000 (+3000/24000 continuation, 637s, 4.71 steps/sec) last=L5 mastery=[{'Corpus': 0.338, 'L0': 0.858, 'L1': 0.901, 'L2': 0.949, 'L3': 0.958, 'L4-logic': 1.0, 'L4-counting': 0.733, 'L5': 0.246, 'L6': 0.526, 'Library': 0.359, 'Knowledge': 0.657, 'Chat': 0.272}] calls_this_phase={'Corpus': 417, 'L0': 89, 'L1': 46, 'L2': 43, 'L3': 228, 'L4-logic': 300, 'L4-counting': 213, 'L5': 403, 'L6': 291, 'Library': 398, 'Knowledge': 191, 'Chat': 381}
+[run2-cont] cumulative_step=15500 (+3500/24000 continuation, 744s, 4.70 steps/sec) last=Knowledge mastery=[{'Corpus': 0.349, 'L0': 0.85, 'L1': 0.941, 'L2': 0.959, 'L3': 0.923, 'L4-logic': 0.933, 'L4-counting': 0.671, 'L5': 0.422, 'L6': 0.566, 'Library': 0.264, 'Knowledge': 0.681, 'Chat': 0.263}] calls_this_phase={'Corpus': 490, 'L0': 99, 'L1': 56, 'L2': 47, 'L3': 235, 'L4-logic': 352, 'L4-counting': 249, 'L5': 465, 'L6': 347, 'Library': 465, 'Knowledge': 239, 'Chat': 456}
+[run2-cont] cumulative_step=16000 (+4000/24000 continuation, 841s, 4.76 steps/sec) last=L6 mastery=[{'Corpus': 0.34, 'L0': 0.856, 'L1': 0.959, 'L2': 0.971, 'L3': 0.958, 'L4-logic': 0.974, 'L4-counting': 0.717, 'L5': 0.279, 'L6': 0.532, 'Library': 0.166, 'Knowledge': 0.722, 'Chat': 0.256}] calls_this_phase={'Corpus': 546, 'L0': 116, 'L1': 63, 'L2': 54, 'L3': 269, 'L4-logic': 393, 'L4-counting': 274, 'L5': 540, 'L6': 390, 'Library': 548, 'Knowledge': 278, 'Chat': 529}
+[run2-cont] cumulative_step=16500 (+4500/24000 continuation, 939s, 4.79 steps/sec) last=L5 mastery=[{'Corpus': 0.36, 'L0': 0.855, 'L1': 0.885, 'L2': 0.943, 'L3': 0.868, 'L4-logic': 0.982, 'L4-counting': 0.654, 'L5': 0.172, 'L6': 0.545, 'Library': 0.297, 'Knowledge': 0.734, 'Chat': 0.294}] calls_this_phase={'Corpus': 605, 'L0': 124, 'L1': 78, 'L2': 61, 'L3': 292, 'L4-logic': 430, 'L4-counting': 317, 'L5': 635, 'L6': 436, 'Library': 615, 'Knowledge': 299, 'Chat': 608}
+[run2-cont] cumulative_step=17000 (+5000/24000 continuation, 1050s, 4.76 steps/sec) last=Knowledge mastery=[{'Corpus': 0.345, 'L0': 0.862, 'L1': 0.921, 'L2': 0.919, 'L3': 0.897, 'L4-logic': 0.991, 'L4-counting': 0.549, 'L5': 0.213, 'L6': 0.625, 'Library': 0.255, 'Knowledge': 0.654, 'Chat': 0.252}] calls_this_phase={'Corpus': 681, 'L0': 139, 'L1': 93, 'L2': 68, 'L3': 323, 'L4-logic': 443, 'L4-counting': 350, 'L5': 719, 'L6': 476, 'Library': 684, 'Knowledge': 332, 'Chat': 692}
+[run2-cont] cumulative_step=17500 (+5500/24000 continuation, 1157s, 4.75 steps/sec) last=Library mastery=[{'Corpus': 0.355, 'L0': 0.865, 'L1': 0.924, 'L2': 0.941, 'L3': 0.935, 'L4-logic': 0.995, 'L4-counting': 0.599, 'L5': 0.231, 'L6': 0.477, 'Library': 0.191, 'Knowledge': 0.71, 'Chat': 0.284}] calls_this_phase={'Corpus': 750, 'L0': 155, 'L1': 106, 'L2': 74, 'L3': 332, 'L4-logic': 454, 'L4-counting': 405, 'L5': 800, 'L6': 524, 'Library': 772, 'Knowledge': 358, 'Chat': 770}
+[run2-cont] cumulative_step=18000 (+6000/24000 continuation, 1257s, 4.77 steps/sec) last=L1 mastery=[{'Corpus': 0.36, 'L0': 0.855, 'L1': 0.92, 'L2': 0.933, 'L3': 0.88, 'L4-logic': 0.96, 'L4-counting': 0.59, 'L5': 0.242, 'L6': 0.427, 'Library': 0.178, 'Knowledge': 0.636, 'Chat': 0.255}] calls_this_phase={'Corpus': 816, 'L0': 164, 'L1': 121, 'L2': 85, 'L3': 357, 'L4-logic': 490, 'L4-counting': 437, 'L5': 863, 'L6': 592, 'Library': 849, 'Knowledge': 387, 'Chat': 839}
+[run2-cont] checkpoint saved: results/local/hz_world_run2/step_18000.pt
+
+[run2-cont] ===== RETENTION @ cumulative_step=18000 =====
+[run2-cont] Corpus: {'held_out_next_byte_acc': 0.5644202686491466}
+[run2-cont] L0: {'next_token_acc': 0.8880778551101685}
+[run2-cont] L1: {'held_out_acc': 1.0}
+[run2-cont] L2: {'sel_acc': 0.94, 'cons_acc': 0.78}
+[run2-cont] L3: {'seen_combo_acc': 1.0, 'unseen_combo_acc': 1.0}
+[run2-cont] L4-logic: {'seen_combo_acc': 0.98, 'unseen_combo_acc': 0.56}
+[run2-cont] L4-counting: {'held_out_acc': 0.65}
+[run2-cont] L5: {'held_out_acc': 0.23}
+[run2-cont] L6: {'held_out_acc': 0.41}
+[run2-cont] Library: {'held_out_acc': 0.26}
+[run2-cont] Knowledge: {'mean_loss': 0.9786668134232362}
+[run2-cont] Chat: {'mean_loss': 2.9938183648913514, 'mean_byte_acc': 0.22635985268097297}
+
+[run2-cont] ===== CHAT GENERATION @ cumulative_step=18000 (same 6 fixed held-out prompts every eval point) =====
+[run2-cont] Q: Why do people like plants?
+[run2-cont]   generated: 'The the an of of Fren Dalin and Jonghe B'
+[run2-cont] Q: What instrument plays the part of the duck in the musical composition, "Peter and the Wolf"
+[run2-cont]   generated: 'The Bres and in and Jon Change Branthe R'
+[run2-cont] Q: What did Britain swap Havana for with Spain in 1763
+[run2-cont]   generated: 'The the the an of of Fromen an inghe the'
+[run2-cont] Q: What's the most popular tv show of all time in the USA?
+[run2-cont]   generated: 'The the an of of Fren Dalin and Jonghe B'
+[run2-cont] Q: what is philosophy?
+[run2-cont]   generated: 'The the an of of Fren Dalin and Jonghe B'
+[run2-cont] Q: Which episode did Daenerys Targaryen lose her dragon, Viserion, to a White Walker's spear?
+[run2-cont]   generated: 'The the an of Fromen an the an of Frongh'
+[run2-cont] chat diversity: {'n_samples': 6, 'unique_generations': 4, 'avg_longest_repeated_token_run': 1.6666666666666667, 'avg_token_repetition_rate': 0.0925925925925926}
+[run2-cont] wrote results/local/hz_world_run2_continuation.json (1 eval points so far)
+
+[run2-cont] cumulative_step=18500 (+6500/24000 continuation, 1377s, 4.72 steps/sec) last=L6 mastery=[{'Corpus': 0.378, 'L0': 0.855, 'L1': 0.938, 'L2': 0.953, 'L3': 0.944, 'L4-logic': 0.978, 'L4-counting': 0.639, 'L5': 0.173, 'L6': 0.572, 'Library': 0.384, 'Knowledge': 0.557, 'Chat': 0.28}] calls_this_phase={'Corpus': 884, 'L0': 177, 'L1': 126, 'L2': 92, 'L3': 372, 'L4-logic': 522, 'L4-counting': 494, 'L5': 948, 'L6': 641, 'Library': 918, 'Knowledge': 422, 'Chat': 904}
+[run2-cont] cumulative_step=19000 (+7000/24000 continuation, 1490s, 4.70 steps/sec) last=Corpus mastery=[{'Corpus': 0.356, 'L0': 0.869, 'L1': 0.924, 'L2': 0.966, 'L3': 0.942, 'L4-logic': 0.995, 'L4-counting': 0.588, 'L5': 0.248, 'L6': 0.434, 'Library': 0.204, 'Knowledge': 0.696, 'Chat': 0.229}] calls_this_phase={'Corpus': 961, 'L0': 195, 'L1': 135, 'L2': 98, 'L3': 395, 'L4-logic': 553, 'L4-counting': 535, 'L5': 1013, 'L6': 687, 'Library': 994, 'Knowledge': 462, 'Chat': 972}
+[run2-cont] cumulative_step=19500 (+7500/24000 continuation, 1631s, 4.60 steps/sec) last=Knowledge mastery=[{'Corpus': 0.334, 'L0': 0.865, 'L1': 0.884, 'L2': 0.971, 'L3': 0.94, 'L4-logic': 0.997, 'L4-counting': 0.543, 'L5': 0.332, 'L6': 0.518, 'Library': 0.273, 'Knowledge': 0.666, 'Chat': 0.282}] calls_this_phase={'Corpus': 1040, 'L0': 212, 'L1': 145, 'L2': 101, 'L3': 407, 'L4-logic': 564, 'L4-counting': 586, 'L5': 1080, 'L6': 733, 'Library': 1073, 'Knowledge': 499, 'Chat': 1060}
+[run2-cont] cumulative_step=20000 (+8000/24000 continuation, 1737s, 4.61 steps/sec) last=Corpus mastery=[{'Corpus': 0.354, 'L0': 0.876, 'L1': 0.915, 'L2': 0.979, 'L3': 0.953, 'L4-logic': 0.979, 'L4-counting': 0.747, 'L5': 0.339, 'L6': 0.464, 'Library': 0.417, 'Knowledge': 0.686, 'Chat': 0.273}] calls_this_phase={'Corpus': 1106, 'L0': 226, 'L1': 151, 'L2': 108, 'L3': 441, 'L4-logic': 604, 'L4-counting': 614, 'L5': 1165, 'L6': 782, 'Library': 1139, 'Knowledge': 523, 'Chat': 1141}
+[run2-cont] cumulative_step=20500 (+8500/24000 continuation, 1839s, 4.62 steps/sec) last=Library mastery=[{'Corpus': 0.362, 'L0': 0.872, 'L1': 0.944, 'L2': 0.936, 'L3': 0.965, 'L4-logic': 0.974, 'L4-counting': 0.776, 'L5': 0.292, 'L6': 0.663, 'Library': 0.269, 'Knowledge': 0.751, 'Chat': 0.278}] calls_this_phase={'Corpus': 1167, 'L0': 241, 'L1': 159, 'L2': 112, 'L3': 490, 'L4-logic': 674, 'L4-counting': 641, 'L5': 1209, 'L6': 818, 'Library': 1209, 'Knowledge': 564, 'Chat': 1216}
+[run2-cont] cumulative_step=21000 (+9000/24000 continuation, 1938s, 4.64 steps/sec) last=L5 mastery=[{'Corpus': 0.371, 'L0': 0.876, 'L1': 0.949, 'L2': 0.957, 'L3': 0.929, 'L4-logic': 0.984, 'L4-counting': 0.453, 'L5': 0.229, 'L6': 0.438, 'Library': 0.224, 'Knowledge': 0.73, 'Chat': 0.274}] calls_this_phase={'Corpus': 1235, 'L0': 252, 'L1': 161, 'L2': 120, 'L3': 528, 'L4-logic': 741, 'L4-counting': 682, 'L5': 1280, 'L6': 855, 'Library': 1285, 'Knowledge': 583, 'Chat': 1278}
+[run2-cont] cumulative_step=21500 (+9500/24000 continuation, 2039s, 4.66 steps/sec) last=Chat mastery=[{'Corpus': 0.356, 'L0': 0.875, 'L1': 0.876, 'L2': 0.97, 'L3': 0.942, 'L4-logic': 0.975, 'L4-counting': 0.565, 'L5': 0.214, 'L6': 0.548, 'Library': 0.341, 'Knowledge': 0.727, 'Chat': 0.259}] calls_this_phase={'Corpus': 1299, 'L0': 262, 'L1': 168, 'L2': 127, 'L3': 553, 'L4-logic': 783, 'L4-counting': 715, 'L5': 1346, 'L6': 900, 'Library': 1372, 'Knowledge': 618, 'Chat': 1357}
+[run2-cont] cumulative_step=22000 (+10000/24000 continuation, 2142s, 4.67 steps/sec) last=Corpus mastery=[{'Corpus': 0.363, 'L0': 0.874, 'L1': 0.877, 'L2': 0.978, 'L3': 0.97, 'L4-logic': 0.914, 'L4-counting': 0.698, 'L5': 0.263, 'L6': 0.612, 'Library': 0.341, 'Knowledge': 0.732, 'Chat': 0.287}] calls_this_phase={'Corpus': 1368, 'L0': 277, 'L1': 177, 'L2': 133, 'L3': 566, 'L4-logic': 818, 'L4-counting': 755, 'L5': 1429, 'L6': 954, 'Library': 1452, 'Knowledge': 644, 'Chat': 1427}
+[run2-cont] cumulative_step=22500 (+10500/24000 continuation, 2244s, 4.68 steps/sec) last=L5 mastery=[{'Corpus': 0.371, 'L0': 0.881, 'L1': 0.926, 'L2': 0.954, 'L3': 0.99, 'L4-logic': 0.956, 'L4-counting': 0.689, 'L5': 0.13, 'L6': 0.506, 'Library': 0.263, 'Knowledge': 0.722, 'Chat': 0.294}] calls_this_phase={'Corpus': 1438, 'L0': 290, 'L1': 187, 'L2': 143, 'L3': 588, 'L4-logic': 850, 'L4-counting': 789, 'L5': 1518, 'L6': 993, 'Library': 1537, 'Knowledge': 673, 'Chat': 1494}
+[run2-cont] cumulative_step=23000 (+11000/24000 continuation, 2345s, 4.69 steps/sec) last=L0 mastery=[{'Corpus': 0.384, 'L0': 0.879, 'L1': 0.94, 'L2': 0.958, 'L3': 0.999, 'L4-logic': 0.989, 'L4-counting': 0.671, 'L5': 0.312, 'L6': 0.483, 'Library': 0.254, 'Knowledge': 0.739, 'Chat': 0.269}] calls_this_phase={'Corpus': 1503, 'L0': 304, 'L1': 191, 'L2': 145, 'L3': 627, 'L4-logic': 877, 'L4-counting': 823, 'L5': 1592, 'L6': 1052, 'Library': 1616, 'Knowledge': 704, 'Chat': 1566}
+[run2-cont] cumulative_step=23500 (+11500/24000 continuation, 2431s, 4.73 steps/sec) last=L3 mastery=[{'Corpus': 0.377, 'L0': 0.883, 'L1': 0.953, 'L2': 0.966, 'L3': 0.922, 'L4-logic': 0.999, 'L4-counting': 0.674, 'L5': 0.184, 'L6': 0.564, 'Library': 0.329, 'Knowledge': 0.803, 'Chat': 0.239}] calls_this_phase={'Corpus': 1556, 'L0': 316, 'L1': 196, 'L2': 149, 'L3': 668, 'L4-logic': 927, 'L4-counting': 856, 'L5': 1669, 'L6': 1107, 'Library': 1695, 'Knowledge': 732, 'Chat': 1629}
+[run2-cont] cumulative_step=24000 (+12000/24000 continuation, 2539s, 4.73 steps/sec) last=Knowledge mastery=[{'Corpus': 0.375, 'L0': 0.885, 'L1': 0.88, 'L2': 0.884, 'L3': 0.992, 'L4-logic': 1.0, 'L4-counting': 0.83, 'L5': 0.236, 'L6': 0.697, 'Library': 0.244, 'Knowledge': 0.757, 'Chat': 0.284}] calls_this_phase={'Corpus': 1629, 'L0': 326, 'L1': 204, 'L2': 155, 'L3': 741, 'L4-logic': 956, 'L4-counting': 874, 'L5': 1743, 'L6': 1143, 'Library': 1769, 'Knowledge': 760, 'Chat': 1700}
+[run2-cont] checkpoint saved: results/local/hz_world_run2/step_24000.pt
+
+[run2-cont] ===== RETENTION @ cumulative_step=24000 =====
+[run2-cont] Corpus: {'held_out_next_byte_acc': 0.5648633468718756}
+[run2-cont] L0: {'next_token_acc': 0.8895376920700073}
+[run2-cont] L1: {'held_out_acc': 0.71}
+[run2-cont] L2: {'sel_acc': 0.88, 'cons_acc': 0.7766666666666666}
+[run2-cont] L3: {'seen_combo_acc': 0.92, 'unseen_combo_acc': 0.68}
+[run2-cont] L4-logic: {'seen_combo_acc': 0.89, 'unseen_combo_acc': 0.41}
+[run2-cont] L4-counting: {'held_out_acc': 0.65}
+[run2-cont] L5: {'held_out_acc': 0.31}
+[run2-cont] L6: {'held_out_acc': 0.59}
+[run2-cont] Library: {'held_out_acc': 0.24}
+[run2-cont] Knowledge: {'mean_loss': 0.7309666853398085}
+[run2-cont] Chat: {'mean_loss': 2.9671408335367837, 'mean_byte_acc': 0.23053341767951555}
+
+[run2-cont] ===== CHAT GENERATION @ cumulative_step=24000 (same 6 fixed held-out prompts every eval point) =====
+[run2-cont] Q: Why do people like plants?
+[run2-cont]   generated: 'The Blatis an derest of on the the rames'
+[run2-cont] Q: What instrument plays the part of the duck in the musical composition, "Peter and the Wolf"
+[run2-cont]   generated: 'Ble Loke Bred Swis an deres the the red '
+[run2-cont] Q: What did Britain swap Havana for with Spain in 1763
+[run2-cont]   generated: 'The Bleres the the stere the stere for a'
+[run2-cont] Q: What's the most popular tv show of all time in the USA?
+[run2-cont]   generated: 'The Blatis an derest of on the the rames'
+[run2-cont] Q: what is philosophy?
+[run2-cont]   generated: 'The seres in the the seres in the was th'
+[run2-cont] Q: Which episode did Daenerys Targaryen lose her dragon, Viserion, to a White Walker's spear?
+[run2-cont]   generated: 'The Blatis an derest of on the the rames'
+[run2-cont] chat diversity: {'n_samples': 6, 'unique_generations': 4, 'avg_longest_repeated_token_run': 2.0, 'avg_token_repetition_rate': 0.12268518518518519}
+[run2-cont] wrote results/local/hz_world_run2_continuation.json (2 eval points so far)
+
+[run2-cont] cumulative_step=24500 (+12500/24000 continuation, 2662s, 4.70 steps/sec) last=Corpus mastery=[{'Corpus': 0.374, 'L0': 0.881, 'L1': 0.921, 'L2': 0.937, 'L3': 0.936, 'L4-logic': 0.968, 'L4-counting': 0.8, 'L5': 0.237, 'L6': 0.46, 'Library': 0.167, 'Knowledge': 0.761, 'Chat': 0.286}] calls_this_phase={'Corpus': 1691, 'L0': 340, 'L1': 212, 'L2': 167, 'L3': 759, 'L4-logic': 1006, 'L4-counting': 887, 'L5': 1834, 'L6': 1194, 'Library': 1841, 'Knowledge': 783, 'Chat': 1786}
+[run2-cont] cumulative_step=25000 (+13000/24000 continuation, 2769s, 4.69 steps/sec) last=Knowledge mastery=[{'Corpus': 0.387, 'L0': 0.882, 'L1': 0.947, 'L2': 0.954, 'L3': 0.953, 'L4-logic': 0.965, 'L4-counting': 0.549, 'L5': 0.287, 'L6': 0.349, 'Library': 0.209, 'Knowledge': 0.769, 'Chat': 0.272}] calls_this_phase={'Corpus': 1773, 'L0': 351, 'L1': 220, 'L2': 173, 'L3': 765, 'L4-logic': 1043, 'L4-counting': 922, 'L5': 1925, 'L6': 1262, 'Library': 1909, 'Knowledge': 812, 'Chat': 1845}
+[run2-cont] cumulative_step=25500 (+13500/24000 continuation, 2859s, 4.72 steps/sec) last=L5 mastery=[{'Corpus': 0.376, 'L0': 0.884, 'L1': 0.926, 'L2': 0.97, 'L3': 0.982, 'L4-logic': 0.938, 'L4-counting': 0.612, 'L5': 0.204, 'L6': 0.443, 'Library': 0.289, 'Knowledge': 0.787, 'Chat': 0.269}] calls_this_phase={'Corpus': 1829, 'L0': 363, 'L1': 228, 'L2': 181, 'L3': 784, 'L4-logic': 1082, 'L4-counting': 977, 'L5': 2008, 'L6': 1316, 'Library': 1994, 'Knowledge': 829, 'Chat': 1909}
+[run2-cont] cumulative_step=26000 (+14000/24000 continuation, 2964s, 4.72 steps/sec) last=Corpus mastery=[{'Corpus': 0.369, 'L0': 0.888, 'L1': 0.946, 'L2': 0.978, 'L3': 0.955, 'L4-logic': 0.992, 'L4-counting': 0.632, 'L5': 0.17, 'L6': 0.437, 'Library': 0.221, 'Knowledge': 0.83, 'Chat': 0.283}] calls_this_phase={'Corpus': 1898, 'L0': 378, 'L1': 234, 'L2': 187, 'L3': 821, 'L4-logic': 1121, 'L4-counting': 1002, 'L5': 2074, 'L6': 1377, 'Library': 2070, 'Knowledge': 855, 'Chat': 1983}
+[run2-cont] cumulative_step=26500 (+14500/24000 continuation, 3054s, 4.75 steps/sec) last=Library mastery=[{'Corpus': 0.386, 'L0': 0.881, 'L1': 0.919, 'L2': 0.981, 'L3': 0.982, 'L4-logic': 0.999, 'L4-counting': 0.626, 'L5': 0.154, 'L6': 0.403, 'Library': 0.161, 'Knowledge': 0.774, 'Chat': 0.287}] calls_this_phase={'Corpus': 1953, 'L0': 388, 'L1': 241, 'L2': 190, 'L3': 875, 'L4-logic': 1174, 'L4-counting': 1042, 'L5': 2146, 'L6': 1413, 'Library': 2153, 'Knowledge': 873, 'Chat': 2052}
+[run2-cont] cumulative_step=27000 (+15000/24000 continuation, 3155s, 4.75 steps/sec) last=Library mastery=[{'Corpus': 0.373, 'L0': 0.889, 'L1': 0.938, 'L2': 0.984, 'L3': 0.997, 'L4-logic': 1.0, 'L4-counting': 0.599, 'L5': 0.204, 'L6': 0.47, 'Library': 0.295, 'Knowledge': 0.759, 'Chat': 0.302}] calls_this_phase={'Corpus': 2013, 'L0': 403, 'L1': 246, 'L2': 194, 'L3': 908, 'L4-logic': 1227, 'L4-counting': 1084, 'L5': 2205, 'L6': 1471, 'Library': 2228, 'Knowledge': 889, 'Chat': 2132}
+[run2-cont] cumulative_step=27500 (+15500/24000 continuation, 3253s, 4.76 steps/sec) last=L3 mastery=[{'Corpus': 0.372, 'L0': 0.891, 'L1': 0.954, 'L2': 0.989, 'L3': 0.954, 'L4-logic': 0.993, 'L4-counting': 0.695, 'L5': 0.167, 'L6': 0.495, 'Library': 0.294, 'Knowledge': 0.697, 'Chat': 0.293}] calls_this_phase={'Corpus': 2085, 'L0': 416, 'L1': 252, 'L2': 201, 'L3': 934, 'L4-logic': 1285, 'L4-counting': 1122, 'L5': 2280, 'L6': 1532, 'Library': 2300, 'Knowledge': 909, 'Chat': 2184}
+[run2-cont] cumulative_step=28000 (+16000/24000 continuation, 3347s, 4.78 steps/sec) last=L6 mastery=[{'Corpus': 0.385, 'L0': 0.89, 'L1': 0.926, 'L2': 0.992, 'L3': 0.934, 'L4-logic': 0.986, 'L4-counting': 0.739, 'L5': 0.277, 'L6': 0.529, 'Library': 0.368, 'Knowledge': 0.711, 'Chat': 0.26}] calls_this_phase={'Corpus': 2144, 'L0': 430, 'L1': 258, 'L2': 206, 'L3': 1007, 'L4-logic': 1339, 'L4-counting': 1153, 'L5': 2357, 'L6': 1575, 'Library': 2357, 'Knowledge': 930, 'Chat': 2244}
+[run2-cont] cumulative_step=28500 (+16500/24000 continuation, 3441s, 4.79 steps/sec) last=L3 mastery=[{'Corpus': 0.393, 'L0': 0.885, 'L1': 0.933, 'L2': 0.993, 'L3': 0.921, 'L4-logic': 0.995, 'L4-counting': 0.747, 'L5': 0.209, 'L6': 0.466, 'Library': 0.184, 'Knowledge': 0.741, 'Chat': 0.254}] calls_this_phase={'Corpus': 2198, 'L0': 442, 'L1': 260, 'L2': 209, 'L3': 1026, 'L4-logic': 1405, 'L4-counting': 1199, 'L5': 2431, 'L6': 1619, 'Library': 2430, 'Knowledge': 956, 'Chat': 2325}
+[run2-cont] cumulative_step=29000 (+17000/24000 continuation, 3547s, 4.79 steps/sec) last=Corpus mastery=[{'Corpus': 0.399, 'L0': 0.877, 'L1': 0.863, 'L2': 0.994, 'L3': 0.957, 'L4-logic': 1.0, 'L4-counting': 0.501, 'L5': 0.291, 'L6': 0.448, 'Library': 0.214, 'Knowledge': 0.759, 'Chat': 0.287}] calls_this_phase={'Corpus': 2269, 'L0': 451, 'L1': 266, 'L2': 213, 'L3': 1038, 'L4-logic': 1465, 'L4-counting': 1231, 'L5': 2500, 'L6': 1669, 'Library': 2528, 'Knowledge': 972, 'Chat': 2398}
+[run2-cont] cumulative_step=29500 (+17500/24000 continuation, 3636s, 4.81 steps/sec) last=L5 mastery=[{'Corpus': 0.378, 'L0': 0.884, 'L1': 0.872, 'L2': 0.995, 'L3': 0.965, 'L4-logic': 0.929, 'L4-counting': 0.615, 'L5': 0.356, 'L6': 0.413, 'Library': 0.239, 'Knowledge': 0.763, 'Chat': 0.276}] calls_this_phase={'Corpus': 2321, 'L0': 461, 'L1': 281, 'L2': 216, 'L3': 1058, 'L4-logic': 1512, 'L4-counting': 1267, 'L5': 2554, 'L6': 1728, 'Library': 2632, 'Knowledge': 1002, 'Chat': 2468}
+[run2-cont] cumulative_step=30000 (+18000/24000 continuation, 3748s, 4.80 steps/sec) last=Corpus mastery=[{'Corpus': 0.394, 'L0': 0.887, 'L1': 0.934, 'L2': 0.996, 'L3': 0.979, 'L4-logic': 0.96, 'L4-counting': 0.624, 'L5': 0.285, 'L6': 0.42, 'Library': 0.314, 'Knowledge': 0.773, 'Chat': 0.298}] calls_this_phase={'Corpus': 2394, 'L0': 474, 'L1': 294, 'L2': 219, 'L3': 1068, 'L4-logic': 1523, 'L4-counting': 1315, 'L5': 2630, 'L6': 1796, 'Library': 2703, 'Knowledge': 1030, 'Chat': 2554}
+[run2-cont] checkpoint saved: results/local/hz_world_run2/step_30000.pt
+
+[run2-cont] ===== RETENTION @ cumulative_step=30000 =====
+[run2-cont] Corpus: {'held_out_next_byte_acc': 0.5590386674517678}
+[run2-cont] L0: {'next_token_acc': 0.8666666746139526}
+[run2-cont] L1: {'held_out_acc': 0.99}
+[run2-cont] L2: {'sel_acc': 1.0, 'cons_acc': 0.8166666666666667}
+[run2-cont] L3: {'seen_combo_acc': 0.89, 'unseen_combo_acc': 0.68}
+[run2-cont] L4-logic: {'seen_combo_acc': 0.96, 'unseen_combo_acc': 0.78}
+[run2-cont] L4-counting: {'held_out_acc': 0.65}
+[run2-cont] L5: {'held_out_acc': 0.19}
+[run2-cont] L6: {'held_out_acc': 0.41}
+[run2-cont] Library: {'held_out_acc': 0.24}
+[run2-cont] Knowledge: {'mean_loss': 0.6260622494543592}
+[run2-cont] Chat: {'mean_loss': 2.99045473687789, 'mean_byte_acc': 0.22575591139349283}
+
+[run2-cont] ===== CHAT GENERATION @ cumulative_step=30000 (same 6 fixed held-out prompts every eval point) =====
+[run2-cont] Q: Why do people like plants?
+[run2-cont]   generated: 'The the the the rome the the real is a d'
+[run2-cont] Q: What instrument plays the part of the duck in the musical composition, "Peter and the Wolf"
+[run2-cont]   generated: 'The Unition the the the rouned in the th'
+[run2-cont] Q: What did Britain swap Havana for with Spain in 1763
+[run2-cont]   generated: 'The the the the rome the the real war he'
+[run2-cont] Q: What's the most popular tv show of all time in the USA?
+[run2-cont]   generated: 'The the the the real of the real ard ina'
+[run2-cont] Q: what is philosophy?
+[run2-cont]   generated: 'The the the the rome the the real is a d'
+[run2-cont] Q: Which episode did Daenerys Targaryen lose her dragon, Viserion, to a White Walker's spear?
+[run2-cont]   generated: 'The the the the rome the the real war is'
+[run2-cont] chat diversity: {'n_samples': 6, 'unique_generations': 5, 'avg_longest_repeated_token_run': 3.0, 'avg_token_repetition_rate': 0.2898148148148148}
+[run2-cont] wrote results/local/hz_world_run2_continuation.json (3 eval points so far)
+
+[run2-cont] cumulative_step=30500 (+18500/24000 continuation, 3868s, 4.78 steps/sec) last=L4-counting mastery=[{'Corpus': 0.395, 'L0': 0.892, 'L1': 0.949, 'L2': 0.997, 'L3': 0.995, 'L4-logic': 0.986, 'L4-counting': 0.557, 'L5': 0.204, 'L6': 0.49, 'Library': 0.331, 'Knowledge': 0.773, 'Chat': 0.3}] calls_this_phase={'Corpus': 2467, 'L0': 488, 'L1': 299, 'L2': 227, 'L3': 1096, 'L4-logic': 1544, 'L4-counting': 1354, 'L5': 2715, 'L6': 1854, 'Library': 2779, 'Knowledge': 1059, 'Chat': 2618}
+[run2-cont] cumulative_step=31000 (+19000/24000 continuation, 3981s, 4.77 steps/sec) last=L3 mastery=[{'Corpus': 0.41, 'L0': 0.885, 'L1': 0.966, 'L2': 0.998, 'L3': 0.953, 'L4-logic': 0.995, 'L4-counting': 0.603, 'L5': 0.326, 'L6': 0.508, 'Library': 0.195, 'Knowledge': 0.818, 'Chat': 0.261}] calls_this_phase={'Corpus': 2547, 'L0': 500, 'L1': 307, 'L2': 236, 'L3': 1102, 'L4-logic': 1562, 'L4-counting': 1408, 'L5': 2782, 'L6': 1917, 'Library': 2858, 'Knowledge': 1088, 'Chat': 2693}
+[run2-cont] cumulative_step=31500 (+19500/24000 continuation, 4086s, 4.77 steps/sec) last=Corpus mastery=[{'Corpus': 0.404, 'L0': 0.889, 'L1': 0.98, 'L2': 0.999, 'L3': 0.965, 'L4-logic': 0.944, 'L4-counting': 0.635, 'L5': 0.262, 'L6': 0.569, 'Library': 0.158, 'Knowledge': 0.806, 'Chat': 0.294}] calls_this_phase={'Corpus': 2617, 'L0': 517, 'L1': 317, 'L2': 242, 'L3': 1123, 'L4-logic': 1585, 'L4-counting': 1447, 'L5': 2852, 'L6': 1966, 'Library': 2967, 'Knowledge': 1103, 'Chat': 2764}
+[run2-cont] cumulative_step=32000 (+20000/24000 continuation, 4197s, 4.76 steps/sec) last=Knowledge mastery=[{'Corpus': 0.412, 'L0': 0.887, 'L1': 0.983, 'L2': 0.999, 'L3': 0.974, 'L4-logic': 0.986, 'L4-counting': 0.722, 'L5': 0.239, 'L6': 0.524, 'Library': 0.365, 'Knowledge': 0.832, 'Chat': 0.282}] calls_this_phase={'Corpus': 2690, 'L0': 525, 'L1': 320, 'L2': 246, 'L3': 1129, 'L4-logic': 1612, 'L4-counting': 1477, 'L5': 2947, 'L6': 2017, 'Library': 3057, 'Knowledge': 1127, 'Chat': 2853}
+[run2-cont] cumulative_step=32500 (+20500/24000 continuation, 4305s, 4.76 steps/sec) last=L0 mastery=[{'Corpus': 0.393, 'L0': 0.889, 'L1': 0.985, 'L2': 0.999, 'L3': 0.937, 'L4-logic': 0.947, 'L4-counting': 0.752, 'L5': 0.25, 'L6': 0.524, 'Library': 0.261, 'Knowledge': 0.771, 'Chat': 0.276}] calls_this_phase={'Corpus': 2761, 'L0': 536, 'L1': 323, 'L2': 249, 'L3': 1136, 'L4-logic': 1629, 'L4-counting': 1527, 'L5': 3036, 'L6': 2076, 'Library': 3134, 'Knowledge': 1156, 'Chat': 2937}
+[run2-cont] cumulative_step=33000 (+21000/24000 continuation, 4426s, 4.74 steps/sec) last=L4-counting mastery=[{'Corpus': 0.405, 'L0': 0.889, 'L1': 0.989, 'L2': 0.999, 'L3': 0.954, 'L4-logic': 0.97, 'L4-counting': 0.616, 'L5': 0.23, 'L6': 0.567, 'Library': 0.291, 'Knowledge': 0.73, 'Chat': 0.276}] calls_this_phase={'Corpus': 2850, 'L0': 546, 'L1': 328, 'L2': 254, 'L3': 1142, 'L4-logic': 1640, 'L4-counting': 1582, 'L5': 3121, 'L6': 2123, 'Library': 3222, 'Knowledge': 1174, 'Chat': 3018}
+[run2-cont] cumulative_step=33500 (+21500/24000 continuation, 4534s, 4.74 steps/sec) last=Chat mastery=[{'Corpus': 0.408, 'L0': 0.885, 'L1': 0.944, 'L2': 0.999, 'L3': 0.968, 'L4-logic': 0.984, 'L4-counting': 0.633, 'L5': 0.16, 'L6': 0.539, 'Library': 0.319, 'Knowledge': 0.742, 'Chat': 0.286}] calls_this_phase={'Corpus': 2923, 'L0': 561, 'L1': 335, 'L2': 261, 'L3': 1149, 'L4-logic': 1652, 'L4-counting': 1635, 'L5': 3208, 'L6': 2176, 'Library': 3300, 'Knowledge': 1200, 'Chat': 3100}
+[run2-cont] cumulative_step=34000 (+22000/24000 continuation, 4638s, 4.74 steps/sec) last=L5 mastery=[{'Corpus': 0.409, 'L0': 0.887, 'L1': 0.955, 'L2': 1.0, 'L3': 0.926, 'L4-logic': 0.962, 'L4-counting': 0.588, 'L5': 0.299, 'L6': 0.451, 'Library': 0.209, 'Knowledge': 0.802, 'Chat': 0.303}] calls_this_phase={'Corpus': 2992, 'L0': 570, 'L1': 339, 'L2': 267, 'L3': 1168, 'L4-logic': 1666, 'L4-counting': 1683, 'L5': 3295, 'L6': 2239, 'Library': 3378, 'Knowledge': 1226, 'Chat': 3177}
+[run2-cont] cumulative_step=34500 (+22500/24000 continuation, 4746s, 4.74 steps/sec) last=L3 mastery=[{'Corpus': 0.41, 'L0': 0.884, 'L1': 0.92, 'L2': 1.0, 'L3': 0.932, 'L4-logic': 0.911, 'L4-counting': 0.574, 'L5': 0.294, 'L6': 0.685, 'Library': 0.125, 'Knowledge': 0.839, 'Chat': 0.268}] calls_this_phase={'Corpus': 3057, 'L0': 584, 'L1': 344, 'L2': 277, 'L3': 1183, 'L4-logic': 1676, 'L4-counting': 1724, 'L5': 3402, 'L6': 2279, 'Library': 3465, 'Knowledge': 1244, 'Chat': 3265}
+[run2-cont] cumulative_step=35000 (+23000/24000 continuation, 4853s, 4.74 steps/sec) last=L5 mastery=[{'Corpus': 0.427, 'L0': 0.888, 'L1': 0.877, 'L2': 1.0, 'L3': 0.898, 'L4-logic': 0.871, 'L4-counting': 0.453, 'L5': 0.159, 'L6': 0.568, 'Library': 0.292, 'Knowledge': 0.819, 'Chat': 0.263}] calls_this_phase={'Corpus': 3129, 'L0': 599, 'L1': 355, 'L2': 283, 'L3': 1188, 'L4-logic': 1688, 'L4-counting': 1776, 'L5': 3493, 'L6': 2341, 'Library': 3546, 'Knowledge': 1262, 'Chat': 3340}
+[run2-cont] cumulative_step=35500 (+23500/24000 continuation, 4943s, 4.75 steps/sec) last=Library mastery=[{'Corpus': 0.416, 'L0': 0.883, 'L1': 0.93, 'L2': 0.957, 'L3': 0.903, 'L4-logic': 0.953, 'L4-counting': 0.525, 'L5': 0.238, 'L6': 0.444, 'Library': 0.138, 'Knowledge': 0.866, 'Chat': 0.275}] calls_this_phase={'Corpus': 3180, 'L0': 609, 'L1': 366, 'L2': 287, 'L3': 1206, 'L4-logic': 1728, 'L4-counting': 1826, 'L5': 3582, 'L6': 2394, 'Library': 3625, 'Knowledge': 1281, 'Chat': 3416}
+[run2-cont] cumulative_step=36000 (+24000/24000 continuation, 5033s, 4.77 steps/sec) last=L6 mastery=[{'Corpus': 0.406, 'L0': 0.885, 'L1': 0.951, 'L2': 0.971, 'L3': 0.945, 'L4-logic': 0.995, 'L4-counting': 0.713, 'L5': 0.293, 'L6': 0.57, 'Library': 0.395, 'Knowledge': 0.847, 'Chat': 0.271}] calls_this_phase={'Corpus': 3238, 'L0': 618, 'L1': 373, 'L2': 295, 'L3': 1217, 'L4-logic': 1771, 'L4-counting': 1870, 'L5': 3673, 'L6': 2455, 'Library': 3715, 'Knowledge': 1290, 'Chat': 3485}
+[run2-cont] checkpoint saved: results/local/hz_world_run2/step_36000.pt
+
+[run2-cont] ===== RETENTION @ cumulative_step=36000 =====
+[run2-cont] Corpus: {'held_out_next_byte_acc': 0.5455656221934728}
+[run2-cont] L0: {'next_token_acc': 0.9060827493667603}
+[run2-cont] L1: {'held_out_acc': 0.98}
+[run2-cont] L2: {'sel_acc': 0.99, 'cons_acc': 0.7966666666666666}
+[run2-cont] L3: {'seen_combo_acc': 1.0, 'unseen_combo_acc': 0.92}
+[run2-cont] L4-logic: {'seen_combo_acc': 0.99, 'unseen_combo_acc': 0.81}
+[run2-cont] L4-counting: {'held_out_acc': 0.7}
+[run2-cont] L5: {'held_out_acc': 0.2}
+[run2-cont] L6: {'held_out_acc': 0.59}
+[run2-cont] Library: {'held_out_acc': 0.18}
+[run2-cont] Knowledge: {'mean_loss': 0.5278496186559399}
+[run2-cont] Chat: {'mean_loss': 2.953795031005261, 'mean_byte_acc': 0.22786258073414073}
+
+[run2-cont] ===== CHAT GENERATION @ cumulative_step=36000 (same 6 fixed held-out prompts every eval point) =====
+[run2-cont] Q: Why do people like plants?
+[run2-cont]   generated: "The Blakin wher the the UK's al and in t"
+[run2-cont] Q: What instrument plays the part of the duck in the musical composition, "Peter and the Wolf"
+[run2-cont]   generated: "Lon Congen Brite BSkint BSkititit SkyB's"
+[run2-cont] Q: What did Britain swap Havana for with Spain in 1763
+[run2-cont]   generated: 'Al Lonte Claling BSkint SkyBlat Dorke Co'
+[run2-cont] Q: What's the most popular tv show of all time in the USA?
+[run2-cont]   generated: 'Aler and Jane BSkina BSkint Dertithed Co'
+[run2-cont] Q: what is philosophy?
+[run2-cont]   generated: 'Al and in the 1950, the ReN-BAlitite Sky'
+[run2-cont] Q: Which episode did Daenerys Targaryen lose her dragon, Viserion, to a White Walker's spear?
+[run2-cont]   generated: 'The Walla wher ald and in the the Reder '
+[run2-cont] chat diversity: {'n_samples': 6, 'unique_generations': 6, 'avg_longest_repeated_token_run': 1.3333333333333333, 'avg_token_repetition_rate': 0.03935185185185185}
+[run2-cont] wrote results/local/hz_world_run2_continuation.json (4 eval points so far)
+
+
+[run2-cont] continuation done: 24000 steps in 5052s (cumulative_step=36000)
+[run2-cont] DONE.
