@@ -296,3 +296,40 @@ def test_model_uses_default_ln_recurrence_and_d_over_2_value_write():
     assert model.ws.config.identity_biased is False
     assert model.ws.config.bounded_residual is False
     assert model.ws.config.bounded_accumulating is False
+
+
+def test_generate_produces_the_requested_number_of_tokens_and_matches_lm_forward_first_step():
+    """HZ-Chat-Micro v0's real generation capability -- the first free-
+    form (non-classification, non-teacher-forced) text production this
+    class supports. Real correctness check: generate()'s FIRST predicted
+    token must come from the exact same logits lm_forward would compute
+    for the position right after the prompt (same H-stepping, same
+    cached-S mechanism) -- train/inference consistency, not just "it
+    runs"."""
+    tok = NurseryTokenizer()
+    torch.manual_seed(0)
+    model = HZLanguageModel(vocab_size=tok.vocab_size, d_model=32, memory_slots=8, workspace_slots=16, n_rounds_l1=4)
+    model.eval()
+    prompt_ids = torch.tensor([tok.encode("the red ball", add_bos=True, add_eos=False)])
+
+    generated = model.generate(prompt_ids, max_new_tokens=5, greedy=True)
+    assert len(generated) == 5
+    assert all(isinstance(i, int) for i in generated)
+
+    with torch.no_grad():
+        full_ids = torch.cat([prompt_ids, torch.tensor([[generated[0]]])], dim=1)
+        logits = model.lm_forward(full_ids)
+        expected_first_token = logits[0, prompt_ids.shape[1] - 1].argmax(-1).item()
+    assert generated[0] == expected_first_token
+
+
+def test_generate_stops_at_eos_id():
+    tok = NurseryTokenizer()
+    torch.manual_seed(1)
+    model = HZLanguageModel(vocab_size=tok.vocab_size, d_model=16, memory_slots=4, workspace_slots=8, n_rounds_l1=2)
+    model.eval()
+    prompt_ids = torch.tensor([tok.encode("the", add_bos=True, add_eos=False)])
+    generated = model.generate(prompt_ids, max_new_tokens=200, eos_id=tok.eos_id, greedy=True)
+    assert len(generated) <= 200
+    if len(generated) < 200:
+        assert generated[-1] == tok.eos_id

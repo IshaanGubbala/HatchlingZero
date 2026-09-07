@@ -205,6 +205,62 @@ class HZLanguageModel(nn.Module):
             logits_seq.append(self.lm_head(read))
         return torch.stack(logits_seq, dim=1)
 
+    @torch.no_grad()
+    def generate(self, prompt_ids: torch.Tensor, max_new_tokens: int = 60,
+                 eos_id: int | None = None, greedy: bool = True, temperature: float = 1.0) -> list[int]:
+        """Real, first free-form generation capability for this class
+        (HZ-Chat-Micro v0) -- every forward before this was either a
+        classification readout or `lm_forward`'s teacher-forced,
+        parallel-over-labels loss; nothing could actually produce open-
+        ended text. `prompt_ids`: (1, T) -- batch size 1 only for now.
+
+        Processes the prompt through the EXACT SAME per-token H-stepping
+        `lm_forward` uses (same cached-S mechanism, same order), so a
+        model trained via `lm_forward` on prompt+response sequences
+        concatenated together sees IDENTICAL H dynamics at inference
+        time -- after the last prompt token, `lm_forward`'s own indexing
+        would next predict the token immediately following the prompt,
+        which is exactly what happens here. Then continues
+        autoregressively: sample one new token from the current
+        readout, embed it, step H forward with it, repeat.
+
+        Real, disclosed scope for v0: `S` stays at its untouched init
+        state throughout (matching `lm_forward` exactly) -- persistent
+        cross-turn memory via real `mem.update` calls is real, valuable
+        follow-up work, not yet wired into generation."""
+        B, T = prompt_ids.shape
+        assert B == 1, "generate() supports batch size 1 for now"
+        S = self.mem.init_state(B, device=prompt_ids.device)
+        H = self.ws.init_state(B, device=prompt_ids.device)
+        K_S, V_S = self.ws.read_s.project_kv(S)
+        s_summary = S.mean(dim=1, keepdim=True)
+
+        def step_with(token_id_tensor):
+            x_t = self.token_embed(token_id_tensor).unsqueeze(1)
+            K_x, V_x = self.ws.read_x.project_kv(x_t)
+            return self.ws._step_with_cache(H, K_S, V_S, K_x, V_x, s_summary)
+
+        for t in range(T):
+            H = step_with(prompt_ids[:, t])
+
+        generated: list[int] = []
+        for _ in range(max_new_tokens):
+            q = self.lm_rq(H)
+            scores = torch.matmul(q, self.lm_rk(H).transpose(-1, -2)) / (self.D ** 0.5)
+            read = torch.matmul(F.softmax(scores, dim=-1), self.lm_rv(H)).mean(dim=1)
+            logits = self.lm_head(read)
+            if greedy:
+                next_id = logits.argmax(-1)
+            else:
+                probs = F.softmax(logits / temperature, dim=-1)
+                next_id = torch.multinomial(probs, 1).squeeze(-1)
+            next_id_val = int(next_id.item())
+            generated.append(next_id_val)
+            if eos_id is not None and next_id_val == eos_id:
+                break
+            H = step_with(next_id)
+        return generated
+
     # ---- Stage L1: grounded nouns/properties ----
 
     def encode_objects(self, type_idx: torch.Tensor, color_idx: torch.Tensor,
