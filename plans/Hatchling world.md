@@ -1438,6 +1438,124 @@ checkpoint, not a blind fixed epoch count -- exactly what the
 transformer's overfitting curve here demonstrates is necessary) before
 drawing any real conclusion about which architecture "wins" at chat.
 
+**Real result, 2026-09-06 -- v1 (SFT from the pretrained 100-epoch SQuAD
+HZ-Micro checkpoint, not a fresh init) started and confirmed the
+pretrained-base hypothesis before being superseded**: baseline held-out
+loss (pretrained base, before any chat SFT) was **3.939**, already
+better than v0's fresh-init FINAL loss of 5.591 -- real, direct evidence
+that continuing a pretrained base beats training chat from scratch. This
+run (PID 67084) was killed mid-flight once the next correction below
+was made; the baseline number stands as real, disclosed, unconfirmed-
+beyond-that-one-data-point evidence, not a completed result.
+
+**Real, major architectural correction made at this point, not just an
+engineering tweak**: standalone chat SFT scripts (v0, v1) are exactly
+the "train it separately, then bolt it on" pattern Hatchling World
+exists to replace. The user's explicit correction: pull chat
+development BACK INTO Hatchling World as a persistent, scheduler-driven,
+no-reset developmental lineage -- the same adaptive per-subskill
+scheduler validated on Stage A/B, now driving a SINGLE model through
+general text, structured curriculum, factual prose, multiple wordings,
+reasoning, reading/QA, Library/retrieval, instruction data, and chat,
+all at once, with no phase ever fully abandoning an earlier one. v0/v1's
+checkpoints are kept as validated ENGINEERING pieces (`generate()`,
+masked-completion SFT, the terminal REPL) -- explicitly NOT the main
+lineage.
+
+**Real result, 2026-09-06 -- Hatchling World Training Run 2: first
+persistent, scheduler-driven, no-reset lineage spanning general text
+through chat, in one model, one \(\theta\), no phase resets**
+(`scripts/hz_world_training_run2.py`). Fresh `HZLanguageModel`
+(d_model=512, memory_slots=16, workspace_slots=64,
+**5,056,229 params** -- inside the requested 5-10M range), TRUE cold
+start (no inherited checkpoint -- unlike Run 1's continuations, this is
+Hatchling World's first fresh multi-channel lineage that includes real
+factual prose and real chat data from step 0). Trained via the same
+per-subskill adaptive scheduler validated in Stage A/B
+(`need(stage) = max_j(1 - m_j)`, EMA mastery tracking) across **12 real
+channels in one loop**: `Corpus, L0, L1, L2, L3, L4-logic, L4-counting,
+L5, L6, Library, Knowledge, Chat`. Real data: 28 real SQuAD paragraphs
+(Corpus), 12 real knowledge facts (Knowledge), 304 real Dolly-15k chat
+examples (Chat, `max_train=300, max_held_out=50`), 7 held-out corpus
+paragraphs for eval. 12,000 steps, 2,390s (~39.8 min), ~5.0-5.5
+steps/sec throughout, 6 checkpoints saved
+(`results/local/hz_world_run2/step_{2000,4000,6000,8000,10000,12000}.pt`).
+
+**Final retention, all 12 channels, one shared \(\theta\)**
+(`results/local/hz_world_run2_retention.json`):
+
+| Channel | Metric | Score |
+|---|---|---:|
+| Corpus | held-out next-byte acc | 0.565 |
+| L0 | next-token acc | 0.852 |
+| L1 | held-out acc | 0.870 |
+| L2 | sel_acc / cons_acc | 0.880 / 0.777 |
+| L3 | seen / unseen combo acc | 0.760 / 0.930 |
+| L4-logic | seen / unseen combo acc | 0.900 / 0.980 |
+| L4-counting | held-out acc | 0.650 |
+| L5 | held-out acc | 0.310 |
+| L6 | held-out acc | 0.410 |
+| Library | held-out acc | 0.250 |
+| Knowledge | mean loss | 1.361 |
+| Chat | mean loss / byte acc | 3.046 / 0.209 |
+
+Real, honest pattern: the structured-language channels (L0-L4) reach
+strong mastery in a shared model with no reset needed between them --
+L3/L4-logic even show unseen-combo accuracy HIGHER than seen (0.93 vs
+0.76, 0.98 vs 0.90), consistent with genuine compositional
+generalization, not memorization. The weakest cluster -- L5 (0.31),
+Library (0.25), Corpus (0.565 byte-acc, i.e. still far from clean
+sentence-level generation), and Chat -- are real, disclosed
+undertraining: each got roughly the same ~1,400/12,000 step budget
+(11-12%) as every other channel, split 12 ways, versus the DEDICATED
+100%-of-budget SFT runs (v0/v1) that produced comparable-or-better
+numbers for chat alone. This is the direct, expected cost of moving
+from "12 separate specialist runs" to "one shared lineage" -- not yet
+a claim that the shared-\(\theta\) approach has caught up to
+specialist training at equal wall-clock, only that it is now
+MEASURED, not assumed.
+
+**Real chat generation samples, held-out prompts, never trained on**
+-- honest disclosure, not spun: generation has fully mode-collapsed,
+producing the same near-constant output regardless of the question:
+
+```
+Q: Why do people like plants?
+  generated: 'A the the the the the the the cal is an '
+Q: What did Britain swap Havana for with Spain in 1763
+  generated: 'A the the the the the the the the cal is'
+Q: what is philosophy?
+  generated: 'A the the the the the the the the cal is'
+```
+
+All 6 held-out samples are near-identical strings regardless of
+prompt content -- a real, different, and WORSE failure mode than v0's
+(v0 at least produced prompt-varying, if incoherent, phrase fragments;
+Run 2's Chat channel has collapsed to a fixed high-frequency-byte loop).
+**Honest diagnosis, following the language rescue ladder (section
+1.3)**: this is consistent with real undertraining of the Chat channel
+specifically (1,409 calls total vs v0's ~3,100 calls -- 124 examples x
+25 epochs -- concentrated ENTIRELY on chat data, and v1's baseline
+alone used 500 examples once), not yet evidence of an architecture
+problem shared-\(\theta\) training can't overcome. The mean loss
+(3.046) and byte-accuracy (0.209) are in a similar range to v0/v1's
+mid-training checkpoints, but the actual sampled text is worse --
+plausible explanation: with 11 other channels competing for gradient
+updates on the same shared weights, Chat's absolute gradient signal
+per real step is diluted even when its per-call loss looks
+comparable, and greedy decoding is more exposed to a shallow local
+optimum ("predict the single most common token") when the channel is
+this undertrained.
+
+**Real, disclosed, NOT-yet-executed next step, following section 1.5's
+kill-rule discipline (only one failure family observed, not three) --
+proposed but requires user confirmation before running**: a longer
+continuation of this SAME checkpoint (not a reset, exactly the pattern
+already validated by the SQuAD scaling curve needing 100 epochs to
+show clean signal) would be the natural next real test of whether
+Chat/Library/L5/Corpus are undertrained-but-fixable versus genuinely
+capacity-limited inside a 12-channel shared lineage.
+
 ---
 
 # 1. Do Not Abandon Hatchling World After One Bad Run

@@ -1,0 +1,70 @@
+[run2] FRESH model, Training Run 2: n_params=5,056,229
+[run2] real data: 28 corpus paragraphs, 12 knowledge facts, 304 chat examples, 7 held-out corpus paragraphs for eval
+[run2] step=500/12000 (91s, 5.48 steps/sec) last=L5 mastery=[{'Corpus': 0.19, 'L0': 0.47, 'L1': 0.282, 'L2': 0.235, 'L3': 0.316, 'L4-logic': 0.195, 'L4-counting': 0.389, 'L5': 0.22, 'L6': 0.502, 'Library': 0.292, 'Knowledge': 0.147, 'Chat': 0.14}] calls={'Corpus': 46, 'L0': 40, 'L1': 47, 'L2': 47, 'L3': 45, 'L4-logic': 51, 'L4-counting': 35, 'L5': 35, 'L6': 32, 'Library': 44, 'Knowledge': 40, 'Chat': 38}
+[run2] step=1000/12000 (187s, 5.34 steps/sec) last=Corpus mastery=[{'Corpus': 0.233, 'L0': 0.601, 'L1': 0.208, 'L2': 0.272, 'L3': 0.312, 'L4-logic': 0.269, 'L4-counting': 0.531, 'L5': 0.132, 'L6': 0.524, 'Library': 0.259, 'Knowledge': 0.289, 'Chat': 0.173}] calls={'Corpus': 99, 'L0': 73, 'L1': 95, 'L2': 94, 'L3': 90, 'L4-logic': 105, 'L4-counting': 67, 'L5': 66, 'L6': 62, 'Library': 70, 'Knowledge': 88, 'Chat': 91}
+[run2] step=1500/12000 (276s, 5.43 steps/sec) last=L2 mastery=[{'Corpus': 0.236, 'L0': 0.633, 'L1': 0.274, 'L2': 0.29, 'L3': 0.317, 'L4-logic': 0.359, 'L4-counting': 0.67, 'L5': 0.405, 'L6': 0.581, 'Library': 0.255, 'Knowledge': 0.234, 'Chat': 0.192}] calls={'Corpus': 149, 'L0': 97, 'L1': 143, 'L2': 137, 'L3': 138, 'L4-logic': 148, 'L4-counting': 106, 'L5': 109, 'L6': 92, 'Library': 114, 'Knowledge': 130, 'Chat': 137}
+[run2] step=2000/12000 (387s, 5.16 steps/sec) last=Library mastery=[{'Corpus': 0.254, 'L0': 0.65, 'L1': 0.428, 'L2': 0.464, 'L3': 0.521, 'L4-logic': 0.384, 'L4-counting': 0.615, 'L5': 0.298, 'L6': 0.499, 'Library': 0.271, 'Knowledge': 0.194, 'Chat': 0.215}] calls={'Corpus': 212, 'L0': 121, 'L1': 181, 'L2': 176, 'L3': 198, 'L4-logic': 205, 'L4-counting': 126, 'L5': 158, 'L6': 115, 'Library': 161, 'Knowledge': 173, 'Chat': 174}
+[run2] checkpoint saved: results/local/hz_world_run2/step_2000.pt
+[run2] step=2500/12000 (469s, 5.33 steps/sec) last=L5 mastery=[{'Corpus': 0.258, 'L0': 0.656, 'L1': 0.438, 'L2': 0.572, 'L3': 0.684, 'L4-logic': 0.687, 'L4-counting': 0.614, 'L5': 0.13, 'L6': 0.554, 'Library': 0.345, 'Knowledge': 0.281, 'Chat': 0.199}] calls={'Corpus': 264, 'L0': 142, 'L1': 211, 'L2': 206, 'L3': 265, 'L4-logic': 273, 'L4-counting': 152, 'L5': 210, 'L6': 142, 'Library': 203, 'Knowledge': 224, 'Chat': 208}
+[run2] step=3000/12000 (558s, 5.38 steps/sec) last=L5 mastery=[{'Corpus': 0.273, 'L0': 0.673, 'L1': 0.674, 'L2': 0.618, 'L3': 0.745, 'L4-logic': 0.713, 'L4-counting': 0.612, 'L5': 0.133, 'L6': 0.535, 'Library': 0.236, 'Knowledge': 0.305, 'Chat': 0.208}] calls={'Corpus': 317, 'L0': 167, 'L1': 241, 'L2': 233, 'L3': 324, 'L4-logic': 309, 'L4-counting': 175, 'L5': 283, 'L6': 181, 'Library': 248, 'Knowledge': 266, 'Chat': 256}
+[run2] step=3500/12000 (652s, 5.37 steps/sec) last=Library mastery=[{'Corpus': 0.265, 'L0': 0.658, 'L1': 0.581, 'L2': 0.741, 'L3': 0.743, 'L4-logic': 0.79, 'L4-counting': 0.688, 'L5': 0.314, 'L6': 0.491, 'Library': 0.283, 'Knowledge': 0.371, 'Chat': 0.212}] calls={'Corpus': 373, 'L0': 187, 'L1': 263, 'L2': 251, 'L3': 372, 'L4-logic': 368, 'L4-counting': 210, 'L5': 340, 'L6': 203, 'Library': 306, 'Knowledge': 320, 'Chat': 307}
+[run2] step=4000/12000 (754s, 5.31 steps/sec) last=L5 mastery=[{'Corpus': 0.26, 'L0': 0.696, 'L1': 0.758, 'L2': 0.786, 'L3': 0.839, 'L4-logic': 0.84, 'L4-counting': 0.599, 'L5': 0.286, 'L6': 0.553, 'Library': 0.157, 'Knowledge': 0.322, 'Chat': 0.252}] calls={'Corpus': 415, 'L0': 208, 'L1': 291, 'L2': 267, 'L3': 434, 'L4-logic': 427, 'L4-counting': 236, 'L5': 388, 'L6': 241, 'Library': 364, 'Knowledge': 373, 'Chat': 356}
+[run2] checkpoint saved: results/local/hz_world_run2/step_4000.pt
+[run2] step=4500/12000 (844s, 5.33 steps/sec) last=L4-logic mastery=[{'Corpus': 0.275, 'L0': 0.67, 'L1': 0.855, 'L2': 0.842, 'L3': 0.972, 'L4-logic': 0.943, 'L4-counting': 0.618, 'L5': 0.484, 'L6': 0.447, 'Library': 0.265, 'Knowledge': 0.227, 'Chat': 0.233}] calls={'Corpus': 468, 'L0': 222, 'L1': 306, 'L2': 279, 'L3': 493, 'L4-logic': 500, 'L4-counting': 270, 'L5': 435, 'L6': 284, 'Library': 409, 'Knowledge': 416, 'Chat': 418}
+[run2] step=5000/12000 (943s, 5.30 steps/sec) last=Knowledge mastery=[{'Corpus': 0.272, 'L0': 0.677, 'L1': 0.874, 'L2': 0.774, 'L3': 0.987, 'L4-logic': 0.996, 'L4-counting': 0.567, 'L5': 0.422, 'L6': 0.303, 'Library': 0.22, 'Knowledge': 0.292, 'Chat': 0.179}] calls={'Corpus': 530, 'L0': 245, 'L1': 318, 'L2': 290, 'L3': 551, 'L4-logic': 566, 'L4-counting': 297, 'L5': 470, 'L6': 323, 'Library': 455, 'Knowledge': 481, 'Chat': 474}
+[run2] step=5500/12000 (1035s, 5.31 steps/sec) last=Library mastery=[{'Corpus': 0.277, 'L0': 0.709, 'L1': 0.939, 'L2': 0.872, 'L3': 0.953, 'L4-logic': 1.0, 'L4-counting': 0.62, 'L5': 0.1, 'L6': 0.49, 'Library': 0.402, 'Knowledge': 0.249, 'Chat': 0.202}] calls={'Corpus': 586, 'L0': 269, 'L1': 332, 'L2': 301, 'L3': 575, 'L4-logic': 620, 'L4-counting': 334, 'L5': 534, 'L6': 359, 'Library': 515, 'Knowledge': 545, 'Chat': 530}
+[run2] step=6000/12000 (1134s, 5.29 steps/sec) last=L0 mastery=[{'Corpus': 0.297, 'L0': 0.725, 'L1': 0.921, 'L2': 0.927, 'L3': 0.921, 'L4-logic': 1.0, 'L4-counting': 0.583, 'L5': 0.29, 'L6': 0.46, 'Library': 0.287, 'Knowledge': 0.305, 'Chat': 0.236}] calls={'Corpus': 648, 'L0': 291, 'L1': 341, 'L2': 312, 'L3': 615, 'L4-logic': 666, 'L4-counting': 358, 'L5': 597, 'L6': 415, 'Library': 569, 'Knowledge': 600, 'Chat': 588}
+[run2] checkpoint saved: results/local/hz_world_run2/step_6000.pt
+[run2] step=6500/12000 (1232s, 5.28 steps/sec) last=L6 mastery=[{'Corpus': 0.286, 'L0': 0.732, 'L1': 0.913, 'L2': 0.937, 'L3': 0.983, 'L4-logic': 0.931, 'L4-counting': 0.506, 'L5': 0.304, 'L6': 0.573, 'Library': 0.212, 'Knowledge': 0.394, 'Chat': 0.225}] calls={'Corpus': 715, 'L0': 310, 'L1': 350, 'L2': 315, 'L3': 645, 'L4-logic': 718, 'L4-counting': 401, 'L5': 662, 'L6': 458, 'Library': 624, 'Knowledge': 661, 'Chat': 641}
+[run2] step=7000/12000 (1340s, 5.23 steps/sec) last=Corpus mastery=[{'Corpus': 0.298, 'L0': 0.746, 'L1': 0.911, 'L2': 0.952, 'L3': 0.997, 'L4-logic': 0.969, 'L4-counting': 0.538, 'L5': 0.291, 'L6': 0.596, 'Library': 0.299, 'Knowledge': 0.344, 'Chat': 0.232}] calls={'Corpus': 789, 'L0': 332, 'L1': 360, 'L2': 320, 'L3': 676, 'L4-logic': 776, 'L4-counting': 433, 'L5': 719, 'L6': 480, 'Library': 695, 'Knowledge': 716, 'Chat': 704}
+[run2] step=7500/12000 (1447s, 5.18 steps/sec) last=Knowledge mastery=[{'Corpus': 0.303, 'L0': 0.791, 'L1': 0.897, 'L2': 0.961, 'L3': 0.821, 'L4-logic': 0.892, 'L4-counting': 0.447, 'L5': 0.248, 'L6': 0.469, 'Library': 0.242, 'Knowledge': 0.386, 'Chat': 0.244}] calls={'Corpus': 854, 'L0': 358, 'L1': 367, 'L2': 324, 'L3': 716, 'L4-logic': 814, 'L4-counting': 482, 'L5': 764, 'L6': 512, 'Library': 759, 'Knowledge': 775, 'Chat': 775}
+[run2] step=8000/12000 (1552s, 5.15 steps/sec) last=Corpus mastery=[{'Corpus': 0.3, 'L0': 0.787, 'L1': 0.928, 'L2': 0.969, 'L3': 0.866, 'L4-logic': 0.928, 'L4-counting': 0.508, 'L5': 0.307, 'L6': 0.421, 'Library': 0.279, 'Knowledge': 0.426, 'Chat': 0.237}] calls={'Corpus': 918, 'L0': 377, 'L1': 374, 'L2': 329, 'L3': 743, 'L4-logic': 830, 'L4-counting': 531, 'L5': 843, 'L6': 558, 'Library': 816, 'Knowledge': 832, 'Chat': 849}
+[run2] checkpoint saved: results/local/hz_world_run2/step_8000.pt
+[run2] step=8500/12000 (1654s, 5.14 steps/sec) last=Knowledge mastery=[{'Corpus': 0.297, 'L0': 0.787, 'L1': 0.845, 'L2': 0.932, 'L3': 0.863, 'L4-logic': 0.918, 'L4-counting': 0.616, 'L5': 0.185, 'L6': 0.45, 'Library': 0.344, 'Knowledge': 0.531, 'Chat': 0.245}] calls={'Corpus': 981, 'L0': 398, 'L1': 389, 'L2': 335, 'L3': 768, 'L4-logic': 852, 'L4-counting': 571, 'L5': 903, 'L6': 591, 'Library': 896, 'Knowledge': 894, 'Chat': 922}
+[run2] step=9000/12000 (1764s, 5.10 steps/sec) last=L5 mastery=[{'Corpus': 0.296, 'L0': 0.798, 'L1': 0.907, 'L2': 0.953, 'L3': 0.926, 'L4-logic': 0.946, 'L4-counting': 0.519, 'L5': 0.266, 'L6': 0.527, 'Library': 0.274, 'Knowledge': 0.356, 'Chat': 0.222}] calls={'Corpus': 1060, 'L0': 419, 'L1': 399, 'L2': 342, 'L3': 780, 'L4-logic': 860, 'L4-counting': 627, 'L5': 971, 'L6': 650, 'Library': 963, 'Knowledge': 942, 'Chat': 987}
+[run2] step=9500/12000 (1872s, 5.07 steps/sec) last=Chat mastery=[{'Corpus': 0.317, 'L0': 0.801, 'L1': 0.909, 'L2': 0.926, 'L3': 0.943, 'L4-logic': 0.825, 'L4-counting': 0.483, 'L5': 0.146, 'L6': 0.499, 'Library': 0.225, 'Knowledge': 0.56, 'Chat': 0.263}] calls={'Corpus': 1130, 'L0': 433, 'L1': 411, 'L2': 350, 'L3': 785, 'L4-logic': 881, 'L4-counting': 659, 'L5': 1042, 'L6': 695, 'Library': 1042, 'Knowledge': 1005, 'Chat': 1067}
+[run2] step=10000/12000 (1976s, 5.06 steps/sec) last=Corpus mastery=[{'Corpus': 0.325, 'L0': 0.829, 'L1': 0.93, 'L2': 0.94, 'L3': 0.932, 'L4-logic': 0.861, 'L4-counting': 0.546, 'L5': 0.252, 'L6': 0.455, 'Library': 0.19, 'Knowledge': 0.512, 'Chat': 0.246}] calls={'Corpus': 1197, 'L0': 454, 'L1': 416, 'L2': 354, 'L3': 797, 'L4-logic': 900, 'L4-counting': 709, 'L5': 1118, 'L6': 754, 'Library': 1119, 'Knowledge': 1048, 'Chat': 1134}
+[run2] checkpoint saved: results/local/hz_world_run2/step_10000.pt
+[run2] step=10500/12000 (2084s, 5.04 steps/sec) last=L5 mastery=[{'Corpus': 0.32, 'L0': 0.832, 'L1': 0.877, 'L2': 0.953, 'L3': 0.95, 'L4-logic': 0.893, 'L4-counting': 0.553, 'L5': 0.239, 'L6': 0.618, 'Library': 0.269, 'Knowledge': 0.593, 'Chat': 0.262}] calls={'Corpus': 1271, 'L0': 470, 'L1': 433, 'L2': 359, 'L3': 803, 'L4-logic': 922, 'L4-counting': 748, 'L5': 1205, 'L6': 794, 'Library': 1199, 'Knowledge': 1091, 'Chat': 1205}
+[run2] step=11000/12000 (2193s, 5.02 steps/sec) last=Corpus mastery=[{'Corpus': 0.321, 'L0': 0.816, 'L1': 0.905, 'L2': 0.94, 'L3': 0.916, 'L4-logic': 0.942, 'L4-counting': 0.706, 'L5': 0.194, 'L6': 0.43, 'Library': 0.242, 'Knowledge': 0.616, 'Chat': 0.25}] calls={'Corpus': 1344, 'L0': 484, 'L1': 446, 'L2': 370, 'L3': 808, 'L4-logic': 934, 'L4-counting': 788, 'L5': 1281, 'L6': 851, 'Library': 1276, 'Knowledge': 1136, 'Chat': 1282}
+[run2] step=11500/12000 (2285s, 5.03 steps/sec) last=L3 mastery=[{'Corpus': 0.321, 'L0': 0.832, 'L1': 0.923, 'L2': 0.956, 'L3': 0.955, 'L4-logic': 0.94, 'L4-counting': 0.589, 'L5': 0.228, 'L6': 0.521, 'Library': 0.215, 'Knowledge': 0.58, 'Chat': 0.258}] calls={'Corpus': 1400, 'L0': 500, 'L1': 450, 'L2': 376, 'L3': 820, 'L4-logic': 997, 'L4-counting': 821, 'L5': 1359, 'L6': 898, 'Library': 1352, 'Knowledge': 1184, 'Chat': 1343}
+[run2] step=12000/12000 (2390s, 5.02 steps/sec) last=Knowledge mastery=[{'Corpus': 0.327, 'L0': 0.825, 'L1': 0.921, 'L2': 0.919, 'L3': 0.947, 'L4-logic': 0.967, 'L4-counting': 0.567, 'L5': 0.302, 'L6': 0.532, 'Library': 0.3, 'Knowledge': 0.576, 'Chat': 0.257}] calls={'Corpus': 1472, 'L0': 513, 'L1': 460, 'L2': 383, 'L3': 853, 'L4-logic': 1045, 'L4-counting': 851, 'L5': 1423, 'L6': 951, 'Library': 1411, 'Knowledge': 1229, 'Chat': 1409}
+[run2] checkpoint saved: results/local/hz_world_run2/step_12000.pt
+
+[run2] training done: 12000 steps in 2390s
+
+[run2] ===== FINAL RETENTION ACROSS ALL CHANNELS =====
+[run2] Corpus: {'held_out_next_byte_acc': 0.5654075713384719}
+[run2] L0: {'next_token_acc': 0.8515815138816833}
+[run2] L1: {'held_out_acc': 0.87}
+[run2] L2: {'sel_acc': 0.88, 'cons_acc': 0.7766666666666666}
+[run2] L3: {'seen_combo_acc': 0.76, 'unseen_combo_acc': 0.93}
+[run2] L4-logic: {'seen_combo_acc': 0.9, 'unseen_combo_acc': 0.98}
+[run2] L4-counting: {'held_out_acc': 0.65}
+[run2] L5: {'held_out_acc': 0.31}
+[run2] L6: {'held_out_acc': 0.41}
+[run2] Library: {'held_out_acc': 0.25}
+[run2] Knowledge: {'mean_loss': 1.361402486761411}
+[run2] Chat: {'mean_loss': 3.045999625149895, 'mean_byte_acc': 0.2088161207297269}
+
+[run2] ===== REAL CHAT GENERATION SAMPLES =====
+[run2] Q: Why do people like plants?
+[run2]   real: Plants build relaxing environment and decorate you room. Plants are beautiful and green. Plants clean the air.
+[run2]   generated: 'A the the the the the the the cal is an '
+[run2] Q: What instrument plays the part of the duck in the musical composition, "Peter and the Wolf"
+[run2]   real: An oboe plays the part of the duck in this well-known orchestra piece.
+[run2]   generated: 'A the the the the the the the cal is an '
+[run2] Q: What did Britain swap Havana for with Spain in 1763
+[run2]   real: Florida
+[run2]   generated: 'A the the the the the the the the cal is'
+[run2] Q: What's the most popular tv show of all time in the USA?
+[run2]   real: Jeopardy!
+[run2]   generated: 'A the the the the the the the the cal is'
+[run2] Q: what is philosophy?
+[run2]   real: Philosophy is the systematic study of general and fundamental questions about knowledge, existence, values, mind and language.
+[run2]   generated: 'A the the the the the the the the cal is'
+[run2] Q: Which episode did Daenerys Targaryen lose her dragon, Viserion, to a White Walker's spear?
+[run2]   real: The Night King, the leader of the White Walkers, threw a spear at Viserion, which killed him.
+[run2]   generated: 'A the the the the the the the cal is an '
+
+[run2] DONE. Wrote results/local/hz_world_run2_retention.json

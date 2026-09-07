@@ -1,0 +1,133 @@
+{
+  "n_params": 5056229,
+  "final_scores": {
+    "Corpus": {
+      "held_out_next_byte_acc": 0.5654075713384719
+    },
+    "L0": {
+      "next_token_acc": 0.8515815138816833
+    },
+    "L1": {
+      "held_out_acc": 0.87
+    },
+    "L2": {
+      "sel_acc": 0.88,
+      "cons_acc": 0.7766666666666666
+    },
+    "L3": {
+      "seen_combo_acc": 0.76,
+      "unseen_combo_acc": 0.93
+    },
+    "L4-logic": {
+      "seen_combo_acc": 0.9,
+      "unseen_combo_acc": 0.98
+    },
+    "L4-counting": {
+      "held_out_acc": 0.65
+    },
+    "L5": {
+      "held_out_acc": 0.31
+    },
+    "L6": {
+      "held_out_acc": 0.41
+    },
+    "Library": {
+      "held_out_acc": 0.25
+    },
+    "Knowledge": {
+      "mean_loss": 1.361402486761411
+    },
+    "Chat": {
+      "mean_loss": 3.045999625149895,
+      "mean_byte_acc": 0.2088161207297269
+    }
+  },
+  "samples": [
+    {
+      "instruction": "Why do people like plants?",
+      "real_response": "Plants build relaxing environment and decorate you room. Plants are beautiful and green. Plants clean the air.",
+      "generated": "A the the the the the the the cal is an "
+    },
+    {
+      "instruction": "What instrument plays the part of the duck in the musical composition, \"Peter and the Wolf\"",
+      "real_response": "An oboe plays the part of the duck in this well-known orchestra piece.",
+      "generated": "A the the the the the the the cal is an "
+    },
+    {
+      "instruction": "What did Britain swap Havana for with Spain in 1763",
+      "real_response": "Florida",
+      "generated": "A the the the the the the the the cal is"
+    },
+    {
+      "instruction": "What's the most popular tv show of all time in the USA?",
+      "real_response": "Jeopardy!",
+      "generated": "A the the the the the the the the cal is"
+    },
+    {
+      "instruction": "what is philosophy?",
+      "real_response": "Philosophy is the systematic study of general and fundamental questions about knowledge, existence, values, mind and language.",
+      "generated": "A the the the the the the the the cal is"
+    },
+    {
+      "instruction": "Which episode did Daenerys Targaryen lose her dragon, Viserion, to a White Walker's spear?",
+      "real_response": "The Night King, the leader of the White Walkers, threw a spear at Viserion, which killed him.",
+      "generated": "A the the the the the the the cal is an "
+    }
+  ],
+  "per_stage_calls": {
+    "Corpus": 1472,
+    "L0": 513,
+    "L1": 460,
+    "L2": 383,
+    "L3": 853,
+    "L4-logic": 1045,
+    "L4-counting": 851,
+    "L5": 1423,
+    "L6": 951,
+    "Library": 1411,
+    "Knowledge": 1229,
+    "Chat": 1409
+  },
+  "final_mastery": {
+    "Corpus": {
+      "main": 0.3272271063249357
+    },
+    "L0": {
+      "main": 0.8250989560645988
+    },
+    "L1": {
+      "main": 0.9205726579688442
+    },
+    "L2": {
+      "main": 0.9193204873707019
+    },
+    "L3": {
+      "main": 0.9465631477692734,
+      "unseen": 0.95
+    },
+    "L4-logic": {
+      "main": 0.9670813574659125,
+      "unseen": 1.0
+    },
+    "L4-counting": {
+      "main": 0.567083299005817
+    },
+    "L5": {
+      "main": 0.3019315205072609
+    },
+    "L6": {
+      "main": 0.5318919846536208
+    },
+    "Library": {
+      "main": 0.29978043660744147
+    },
+    "Knowledge": {
+      "main": 0.5757454131770074
+    },
+    "Chat": {
+      "main": 0.2573991198489891
+    }
+  },
+  "total_steps": 12000,
+  "total_seconds": 2389.5722839832306
+}
