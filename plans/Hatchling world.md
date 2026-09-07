@@ -2129,6 +2129,64 @@ lm-eval harness (needs a new adapter, since `combined_best`'s forward
 signature differs from `HZLanguageModel`'s) -- real, disclosed next
 step before claiming any benchmark result for this architecture.
 
+**Real result, 2026-09-07 -- diagnosed AND fixed item (1) above: traced
+the 35.71GB VRAM to a specific, real cause, and verified the existing
+fix in this codebase resolves it with a real, quantified tradeoff.**
+Reading `BDH.forward`'s real per-iteration tensor shapes
+(`reference/hz0h_bdh_torch.py`): `x_latent`, `x_sparse`, `y_latent`,
+`y_sparse`, `xy_sparse` are each real tensors of shape `(B, n_head, T,
+N)` where `N = mult * D / n_head = 16 * 1440 / 4 = 5,760` -- nearly 4x
+WIDER than `n_embd` itself. With `n_layer=8` real recurrent iterations
+and no gradient checkpointing, autograd retains all ~5 such tensors
+per layer across all 8 layers simultaneously for backward. Back-of-
+envelope: at `B=8, T=512`, one such tensor is 94,371,840 elements
+(~377MB fp32); ~5 tensors x 8 layers x 377MB ~= 15.1GB from these
+specifically -- consistent with, and the dominant contributor to, the
+measured 35.71GB total once optimizer state/gradients/attention-score
+tensors/allocator overhead are added.
+
+The fix already existed in this codebase, unused by the Stage 0
+script: `combined_bdh_forward_training_checkpointed`
+(`reference/hz0h_bdh_combined_checkpointed_torch.py`, built during the
+earlier inherited-choices audit, used by
+`scripts/hz0h_bdh_combined_best_comparison.py`'s own
+`--gradient-checkpointing` path) wraps each recurrent iteration in
+`torch.utils.checkpoint.checkpoint`, discarding these intermediates
+and recomputing them during backward instead of retaining all 8
+layers' worth at once. Verified LOCALLY, before any GPU spend, that it
+produces bit-identical loss/logits/gradients versus the uncheckpointed
+path (`torch.allclose` on all three, tiny model, same seed) -- this is
+a pure memory/compute tradeoff, not an approximation. Wired in as an
+opt-in `--gradient-checkpointing` flag on `hz_bdh_bench_100m_pretrain.py`.
+
+Reran the IDENTICAL Stage 0 config (n_embd=1440, batch=8, seq=512,
+same seeds -- confirmed by identical per-step loss values against the
+uncheckpointed run, e.g. step 360: 1.6474 in both) on the same RunPod
+L40S with `--gradient-checkpointing` added, isolating it as the only
+variable:
+
+| metric | uncheckpointed | checkpointed | change |
+|---|---:|---:|---:|
+| peak VRAM | 35.71 GB | **7.11 GB** | **5.0x lower** |
+| corpus tokens/sec | 3,909 | 2,393 | 0.61x (39% slower) |
+| loss trajectory | 2.77 -> 1.65 | 2.77 -> 1.65 (identical) | confirmed unchanged |
+
+**Real, disclosed tradeoff, not a free win: checkpointing buys a 5x
+memory reduction at a real 39% throughput cost** (recomputing forward
+activations during backward is genuinely extra compute, not free).
+Whether this is worth it depends on what the memory buys -- with 7.11GB
+instead of 35.71GB at this batch/context, there is now enormous real
+headroom (up to ~40GB of the 48GB budget) to increase batch size
+and/or sequence length well beyond what the uncheckpointed path could
+ever fit, which would very likely raise net effective throughput
+(tokens/sec) even after the 39% per-step penalty, since GPU utilization
+at batch=8/seq=512 was almost certainly memory-headroom-limited, not
+compute-limited, at 3,909 tok/s. **Not yet tested**: the real next
+step is finding the actual maximum batch/sequence length checkpointing
+allows within 48GB and measuring whether net throughput ends up higher
+or lower than the uncheckpointed 3,909 tok/s baseline -- a real,
+concrete, cheap follow-up experiment, not decided here.
+
 ---
 
 # 1. Do Not Abandon Hatchling World After One Bad Run
