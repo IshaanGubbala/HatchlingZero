@@ -1653,6 +1653,70 @@ mixture changes -- the direct test of the gradient-interference
 hypothesis). The data is genuinely ambiguous on this specific
 question; not calling it either way without the user's input.
 
+**Real result, 2026-09-07 -- the gradient-interference fork, Arm A vs
+Arm B, user-directed and precommitted before either was run**
+(`scripts/hz_world_run2_fork_chat_only.py`). Both arms start from the
+IDENTICAL `step_12000.pt` checkpoint. Arm A is the 12k->36k continuation
+above (NOT rerun). Arm B is a fully PROTECTED Chat-only continuation --
+zero updates on any of the other 11 channels, not merely "Chat-heavy" --
+evaluated at Chat-update counts matched EXACTLY to Arm A's own real
+cumulative Chat calls at each of its 4 eval points (839, 1700, 2554,
+3485, read directly from Arm A's results file, not re-derived). Same
+seed, same data, same fixed 6 held-out prompts, same retention_fns for
+all 12 channels (in Arm B, the 11 non-Chat channels are pure eval --
+never trained -- which is exactly what makes this the direct test of
+collateral damage). 3,485 real Chat-only steps, 1,660s (~28 min, much
+faster in isolation than Arm A's mixed-channel pace since chat_train_
+step never competes for wall-clock with cheaper Nursery steps).
+Checkpoints: `results/local/hz_world_run2_fork_chat_only/chat_calls_
+{839,1700,2554,3485}.pt`. Full data:
+`results/local/hz_world_run2_fork_chat_only.json`.
+
+| matched Chat updates | Arm A loss | Arm B loss | Arm A byte-acc | Arm B byte-acc | Arm A rep. rate | Arm B rep. rate | Arm A Knowledge loss | Arm B Knowledge loss | Arm A L0 acc | Arm B L0 acc |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 839 | 2.994 | **2.911** | 0.226 | 0.224 | **0.093** | 0.454 | **0.979** | 2.454 | **0.888** | 0.578 |
+| 1,700 | 2.967 | **2.860** | 0.231 | 0.231 | **0.123** | 0.430 | **0.731** | 3.574 | **0.890** | 0.463 |
+| 2,554 | 2.990 | **2.907** | 0.226 | **0.240** | **0.290** | 0.771 | **0.626** | 3.855 | **0.867** | 0.335 |
+| 3,485 | 2.954 | **2.910** | 0.228 | **0.241** | **0.039** | 0.417 | **0.528** | 4.031 | **0.906** | 0.301 |
+
+**Verdict, matching the user's own precommitted framework: this is the
+third scenario, not the first.** Chat-only training does buy a small,
+real, consistent loss edge (~0.04-0.13 lower loss at every matched
+point, byte-accuracy edging ahead at the later two points, 0.240-0.241
+vs 0.226-0.228) -- so removing interference is not doing NOTHING for
+Chat. But it is buying almost nothing that matters: repetition rate is
+WORSE than the interleaved arm at every single matched point, often by
+3-10x (0.771 vs 0.290 at the 2,554 point -- the single worst
+degeneracy observed in either arm across the entire experiment), and
+Arm B never reaches anything like Arm A's clean 36k reversal (6/6
+unique, 0.039 repetition). The extra loss/accuracy Arm B buys is
+real but is landing on calibration/confidence rather than on the
+actual token decisions that make generation legible -- exactly the
+gap the user flagged live during the run (loss moving while byte-
+accuracy stayed flat at the first two points is the tell).
+
+Meanwhile the collateral cost is severe, monotonic, and NOT plateauing
+by 3,485 Chat-only steps: Knowledge mean loss 1.361 (12k base) -> 4.031,
+worse than the UNTRAINED-on-Knowledge starting point by 3x, while Arm A
+over the identical span pushed Knowledge to 0.528. L0 next-token acc
+0.852 (base) -> 0.301, while Arm A held it at 0.87-0.91 throughout.
+Library, L3-unseen, and L4-logic-unseen show smaller but real drift in
+the same direction.
+
+**Conclusion: full-interleaving is not the main Chat bottleneck, and
+pure protected specialization is actively harmful for a benefit that
+does not materialize in actual generation quality.** This rules out
+the tempting "just stop interleaving" fix. It does NOT yet identify
+what would fix Chat -- the user's own proposed next step (more and
+more diverse real Chat data inside the same full-HW scheduler, since
+~300 examples is asking a 5M-param model to develop general
+conversational behavior from very little signal) is the natural
+next real test, not an architecture change and not a scheduler
+redesign. A middle-ground consolidation-block-plus-mandatory-rehearsal
+design remains a real, disclosed fallback if a future test shows
+interference re-emerging at a different data scale -- but this
+specific fork rules it out as today's answer.
+
 ---
 
 # 1. Do Not Abandon Hatchling World After One Bad Run

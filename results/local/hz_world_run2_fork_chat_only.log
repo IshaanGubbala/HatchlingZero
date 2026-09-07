@@ -1,0 +1,152 @@
+[fork-B] loading base checkpoint: results/local/hz_world_run2/step_12000.pt
+[fork-B] ARM B -- PROTECTED CHAT-ONLY continuation: n_params=5,056,229
+[fork-B] matched Chat-update targets from Arm A: [839, 1700, 2554, 3485]
+[fork-B] real data (same as Run 2, same seed): 304 chat train, 51 chat held-out
+[fork-B] chat_calls=200/839 (90s, 2.22 steps/sec)
+[fork-B] chat_calls=400/839 (181s, 2.21 steps/sec)
+[fork-B] chat_calls=600/839 (269s, 2.23 steps/sec)
+[fork-B] chat_calls=800/839 (374s, 2.14 steps/sec)
+[fork-B] checkpoint saved: results/local/hz_world_run2_fork_chat_only/chat_calls_839.pt
+
+[fork-B] ===== RETENTION @ chat_calls=839 (all non-Chat channels are PURE EVAL -- never trained in this arm) =====
+[fork-B] Corpus: {'held_out_next_byte_acc': 0.5669093188785372}
+[fork-B] L0: {'next_token_acc': 0.5776155591011047}
+[fork-B] L1: {'held_out_acc': 0.9}
+[fork-B] L2: {'sel_acc': 0.85, 'cons_acc': 0.7833333333333333}
+[fork-B] L3: {'seen_combo_acc': 0.82, 'unseen_combo_acc': 0.82}
+[fork-B] L4-logic: {'seen_combo_acc': 0.84, 'unseen_combo_acc': 0.54}
+[fork-B] L4-counting: {'held_out_acc': 0.66}
+[fork-B] L5: {'held_out_acc': 0.31}
+[fork-B] L6: {'held_out_acc': 0.41}
+[fork-B] Library: {'held_out_acc': 0.25}
+[fork-B] Knowledge: {'mean_loss': 2.4537585973739624}
+[fork-B] Chat: {'mean_loss': 2.910946619276907, 'mean_byte_acc': 0.22435412643586888}
+
+[fork-B] ===== CHAT GENERATION @ chat_calls=839 (same 6 fixed held-out prompts as Arm A) =====
+[fork-B] Q: Why do people like plants?
+[fork-B]   generated: 'The Untis in an the the the the the the '
+[fork-B] Q: What instrument plays the part of the duck in the musical composition, "Peter and the Wolf"
+[fork-B]   generated: 'The Untis in an the the Untithe the the '
+[fork-B] Q: What did Britain swap Havana for with Spain in 1763
+[fork-B]   generated: 'The Untin in on the Untithe the the the '
+[fork-B] Q: What's the most popular tv show of all time in the USA?
+[fork-B]   generated: 'The Untis in an the the the the the the '
+[fork-B] Q: what is philosophy?
+[fork-B]   generated: 'The Untis in an the the the the the the '
+[fork-B] Q: Which episode did Daenerys Targaryen lose her dragon, Viserion, to a White Walker's spear?
+[fork-B]   generated: 'The Untis in an the the the the the the '
+[fork-B] chat diversity: {'n_samples': 6, 'unique_generations': 3, 'avg_longest_repeated_token_run': 4.833333333333333, 'avg_token_repetition_rate': 0.4537037037037037}
+[fork-B] wrote results/local/hz_world_run2_fork_chat_only.json (1 eval points so far)
+
+[fork-B] chat_calls=1000/1700 (479s, 2.09 steps/sec)
+[fork-B] chat_calls=1200/1700 (568s, 2.11 steps/sec)
+[fork-B] chat_calls=1400/1700 (658s, 2.13 steps/sec)
+[fork-B] chat_calls=1600/1700 (765s, 2.09 steps/sec)
+[fork-B] checkpoint saved: results/local/hz_world_run2_fork_chat_only/chat_calls_1700.pt
+
+[fork-B] ===== RETENTION @ chat_calls=1700 (all non-Chat channels are PURE EVAL -- never trained in this arm) =====
+[fork-B] Corpus: {'held_out_next_byte_acc': 0.5592072577703566}
+[fork-B] L0: {'next_token_acc': 0.46277371048927307}
+[fork-B] L1: {'held_out_acc': 0.86}
+[fork-B] L2: {'sel_acc': 0.89, 'cons_acc': 0.8}
+[fork-B] L3: {'seen_combo_acc': 0.82, 'unseen_combo_acc': 0.82}
+[fork-B] L4-logic: {'seen_combo_acc': 0.8, 'unseen_combo_acc': 0.56}
+[fork-B] L4-counting: {'held_out_acc': 0.69}
+[fork-B] L5: {'held_out_acc': 0.31}
+[fork-B] L6: {'held_out_acc': 0.41}
+[fork-B] Library: {'held_out_acc': 0.32}
+[fork-B] Knowledge: {'mean_loss': 3.5741097927093506}
+[fork-B] Chat: {'mean_loss': 2.859913211242825, 'mean_byte_acc': 0.2313989032717312}
+
+[fork-B] ===== CHAT GENERATION @ chat_calls=1700 (same 6 fixed held-out prompts as Arm A) =====
+[fork-B] Q: Why do people like plants?
+[fork-B]   generated: 'The ware se for in the the the the the f'
+[fork-B] Q: What instrument plays the part of the duck in the musical composition, "Peter and the Wolf"
+[fork-B]   generated: 'The Un the the the the the the fore sere'
+[fork-B] Q: What did Britain swap Havana for with Spain in 1763
+[fork-B]   generated: 'The Untine the the the the the the fore '
+[fork-B] Q: What's the most popular tv show of all time in the USA?
+[fork-B]   generated: 'The ware sere an the the the the the for'
+[fork-B] Q: what is philosophy?
+[fork-B]   generated: 'The ware sere sere an the the the the th'
+[fork-B] Q: Which episode did Daenerys Targaryen lose her dragon, Viserion, to a White Walker's spear?
+[fork-B]   generated: 'The wan the ware sere sere for in the th'
+[fork-B] chat diversity: {'n_samples': 6, 'unique_generations': 6, 'avg_longest_repeated_token_run': 4.666666666666667, 'avg_token_repetition_rate': 0.4300925925925927}
+[fork-B] wrote results/local/hz_world_run2_fork_chat_only.json (2 eval points so far)
+
+[fork-B] chat_calls=1800/2554 (875s, 2.06 steps/sec)
+[fork-B] chat_calls=2000/2554 (966s, 2.07 steps/sec)
+[fork-B] chat_calls=2200/2554 (1053s, 2.09 steps/sec)
+[fork-B] chat_calls=2400/2554 (1143s, 2.10 steps/sec)
+[fork-B] checkpoint saved: results/local/hz_world_run2_fork_chat_only/chat_calls_2554.pt
+
+[fork-B] ===== RETENTION @ chat_calls=2554 (all non-Chat channels are PURE EVAL -- never trained in this arm) =====
+[fork-B] Corpus: {'held_out_next_byte_acc': 0.5538451047170729}
+[fork-B] L0: {'next_token_acc': 0.3350364863872528}
+[fork-B] L1: {'held_out_acc': 0.87}
+[fork-B] L2: {'sel_acc': 0.83, 'cons_acc': 0.79}
+[fork-B] L3: {'seen_combo_acc': 0.79, 'unseen_combo_acc': 0.82}
+[fork-B] L4-logic: {'seen_combo_acc': 0.86, 'unseen_combo_acc': 0.6}
+[fork-B] L4-counting: {'held_out_acc': 0.69}
+[fork-B] L5: {'held_out_acc': 0.31}
+[fork-B] L6: {'held_out_acc': 0.41}
+[fork-B] Library: {'held_out_acc': 0.24}
+[fork-B] Knowledge: {'mean_loss': 3.855052928129832}
+[fork-B] Chat: {'mean_loss': 2.906711424098295, 'mean_byte_acc': 0.24046066549478792}
+
+[fork-B] ===== CHAT GENERATION @ chat_calls=2554 (same 6 fixed held-out prompts as Arm A) =====
+[fork-B] Q: Why do people like plants?
+[fork-B]   generated: 'The the the the the the the the the the '
+[fork-B] Q: What instrument plays the part of the duck in the musical composition, "Peter and the Wolf"
+[fork-B]   generated: 'The Chaming and and and and and ar and a'
+[fork-B] Q: What did Britain swap Havana for with Spain in 1763
+[fork-B]   generated: 'The Amporing and and and and and and ar '
+[fork-B] Q: What's the most popular tv show of all time in the USA?
+[fork-B]   generated: 'The the the the the the the the the the '
+[fork-B] Q: what is philosophy?
+[fork-B]   generated: 'The the the the the the the the the the '
+[fork-B] Q: Which episode did Daenerys Targaryen lose her dragon, Viserion, to a White Walker's spear?
+[fork-B]   generated: 'The the the the the the the the the the '
+[fork-B] chat diversity: {'n_samples': 6, 'unique_generations': 3, 'avg_longest_repeated_token_run': 7.833333333333333, 'avg_token_repetition_rate': 0.7708333333333334}
+[fork-B] wrote results/local/hz_world_run2_fork_chat_only.json (3 eval points so far)
+
+[fork-B] chat_calls=2600/3485 (1250s, 2.08 steps/sec)
+[fork-B] chat_calls=2800/3485 (1339s, 2.09 steps/sec)
+[fork-B] chat_calls=3000/3485 (1428s, 2.10 steps/sec)
+[fork-B] chat_calls=3200/3485 (1515s, 2.11 steps/sec)
+[fork-B] chat_calls=3400/3485 (1605s, 2.12 steps/sec)
+[fork-B] checkpoint saved: results/local/hz_world_run2_fork_chat_only/chat_calls_3485.pt
+
+[fork-B] ===== RETENTION @ chat_calls=3485 (all non-Chat channels are PURE EVAL -- never trained in this arm) =====
+[fork-B] Corpus: {'held_out_next_byte_acc': 0.5493001483735585}
+[fork-B] L0: {'next_token_acc': 0.3014598488807678}
+[fork-B] L1: {'held_out_acc': 0.87}
+[fork-B] L2: {'sel_acc': 0.87, 'cons_acc': 0.7833333333333333}
+[fork-B] L3: {'seen_combo_acc': 0.81, 'unseen_combo_acc': 0.82}
+[fork-B] L4-logic: {'seen_combo_acc': 0.81, 'unseen_combo_acc': 0.56}
+[fork-B] L4-counting: {'held_out_acc': 0.67}
+[fork-B] L5: {'held_out_acc': 0.31}
+[fork-B] L6: {'held_out_acc': 0.41}
+[fork-B] Library: {'held_out_acc': 0.33}
+[fork-B] Knowledge: {'mean_loss': 4.031207819779714}
+[fork-B] Chat: {'mean_loss': 2.9100663615208044, 'mean_byte_acc': 0.2410321989480187}
+
+[fork-B] ===== CHAT GENERATION @ chat_calls=3485 (same 6 fixed held-out prompts as Arm A) =====
+[fork-B] Q: Why do people like plants?
+[fork-B]   generated: 'The stor in the the the the the the the '
+[fork-B] Q: What instrument plays the part of the duck in the musical composition, "Peter and the Wolf"
+[fork-B]   generated: 'The Clame spare and in the the the the t'
+[fork-B] Q: What did Britain swap Havana for with Spain in 1763
+[fork-B]   generated: 'Alla Dorite Coriste and in Collatis and '
+[fork-B] Q: What's the most popular tv show of all time in the USA?
+[fork-B]   generated: 'Alatis and as as and and and or was and '
+[fork-B] Q: what is philosophy?
+[fork-B]   generated: 'The came spere sere the the the the the '
+[fork-B] Q: Which episode did Daenerys Targaryen lose her dragon, Viserion, to a White Walker's spear?
+[fork-B]   generated: 'The stor in the the the the the the the '
+[fork-B] chat diversity: {'n_samples': 6, 'unique_generations': 5, 'avg_longest_repeated_token_run': 4.5, 'avg_token_repetition_rate': 0.4166666666666667}
+[fork-B] wrote results/local/hz_world_run2_fork_chat_only.json (4 eval points so far)
+
+
+[fork-B] fork done: 3485 chat-only steps in 1660s
+[fork-B] DONE.

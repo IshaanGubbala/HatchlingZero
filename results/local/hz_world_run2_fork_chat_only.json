@@ -1,0 +1,348 @@
+{
+  "base_checkpoint": "results/local/hz_world_run2/step_12000.pt",
+  "n_params": 5056229,
+  "matched_chat_targets": [
+    839,
+    1700,
+    2554,
+    3485
+  ],
+  "eval_points": [
+    {
+      "chat_calls": 839,
+      "final_scores": {
+        "Corpus": {
+          "held_out_next_byte_acc": 0.5669093188785372
+        },
+        "L0": {
+          "next_token_acc": 0.5776155591011047
+        },
+        "L1": {
+          "held_out_acc": 0.9
+        },
+        "L2": {
+          "sel_acc": 0.85,
+          "cons_acc": 0.7833333333333333
+        },
+        "L3": {
+          "seen_combo_acc": 0.82,
+          "unseen_combo_acc": 0.82
+        },
+        "L4-logic": {
+          "seen_combo_acc": 0.84,
+          "unseen_combo_acc": 0.54
+        },
+        "L4-counting": {
+          "held_out_acc": 0.66
+        },
+        "L5": {
+          "held_out_acc": 0.31
+        },
+        "L6": {
+          "held_out_acc": 0.41
+        },
+        "Library": {
+          "held_out_acc": 0.25
+        },
+        "Knowledge": {
+          "mean_loss": 2.4537585973739624
+        },
+        "Chat": {
+          "mean_loss": 2.910946619276907,
+          "mean_byte_acc": 0.22435412643586888
+        }
+      },
+      "chat_diversity": {
+        "n_samples": 6,
+        "unique_generations": 3,
+        "avg_longest_repeated_token_run": 4.833333333333333,
+        "avg_token_repetition_rate": 0.4537037037037037
+      },
+      "samples": [
+        {
+          "instruction": "Why do people like plants?",
+          "real_response": "Plants build relaxing environment and decorate you room. Plants are beautiful and green. Plants clean the air.",
+          "generated": "The Untis in an the the the the the the "
+        },
+        {
+          "instruction": "What instrument plays the part of the duck in the musical composition, \"Peter and the Wolf\"",
+          "real_response": "An oboe plays the part of the duck in this well-known orchestra piece.",
+          "generated": "The Untis in an the the Untithe the the "
+        },
+        {
+          "instruction": "What did Britain swap Havana for with Spain in 1763",
+          "real_response": "Florida",
+          "generated": "The Untin in on the Untithe the the the "
+        },
+        {
+          "instruction": "What's the most popular tv show of all time in the USA?",
+          "real_response": "Jeopardy!",
+          "generated": "The Untis in an the the the the the the "
+        },
+        {
+          "instruction": "what is philosophy?",
+          "real_response": "Philosophy is the systematic study of general and fundamental questions about knowledge, existence, values, mind and language.",
+          "generated": "The Untis in an the the the the the the "
+        },
+        {
+          "instruction": "Which episode did Daenerys Targaryen lose her dragon, Viserion, to a White Walker's spear?",
+          "real_response": "The Night King, the leader of the White Walkers, threw a spear at Viserion, which killed him.",
+          "generated": "The Untis in an the the the the the the "
+        }
+      ],
+      "elapsed_seconds": 409.76758193969727
+    },
+    {
+      "chat_calls": 1700,
+      "final_scores": {
+        "Corpus": {
+          "held_out_next_byte_acc": 0.5592072577703566
+        },
+        "L0": {
+          "next_token_acc": 0.46277371048927307
+        },
+        "L1": {
+          "held_out_acc": 0.86
+        },
+        "L2": {
+          "sel_acc": 0.89,
+          "cons_acc": 0.8
+        },
+        "L3": {
+          "seen_combo_acc": 0.82,
+          "unseen_combo_acc": 0.82
+        },
+        "L4-logic": {
+          "seen_combo_acc": 0.8,
+          "unseen_combo_acc": 0.56
+        },
+        "L4-counting": {
+          "held_out_acc": 0.69
+        },
+        "L5": {
+          "held_out_acc": 0.31
+        },
+        "L6": {
+          "held_out_acc": 0.41
+        },
+        "Library": {
+          "held_out_acc": 0.32
+        },
+        "Knowledge": {
+          "mean_loss": 3.5741097927093506
+        },
+        "Chat": {
+          "mean_loss": 2.859913211242825,
+          "mean_byte_acc": 0.2313989032717312
+        }
+      },
+      "chat_diversity": {
+        "n_samples": 6,
+        "unique_generations": 6,
+        "avg_longest_repeated_token_run": 4.666666666666667,
+        "avg_token_repetition_rate": 0.4300925925925927
+      },
+      "samples": [
+        {
+          "instruction": "Why do people like plants?",
+          "real_response": "Plants build relaxing environment and decorate you room. Plants are beautiful and green. Plants clean the air.",
+          "generated": "The ware se for in the the the the the f"
+        },
+        {
+          "instruction": "What instrument plays the part of the duck in the musical composition, \"Peter and the Wolf\"",
+          "real_response": "An oboe plays the part of the duck in this well-known orchestra piece.",
+          "generated": "The Un the the the the the the fore sere"
+        },
+        {
+          "instruction": "What did Britain swap Havana for with Spain in 1763",
+          "real_response": "Florida",
+          "generated": "The Untine the the the the the the fore "
+        },
+        {
+          "instruction": "What's the most popular tv show of all time in the USA?",
+          "real_response": "Jeopardy!",
+          "generated": "The ware sere an the the the the the for"
+        },
+        {
+          "instruction": "what is philosophy?",
+          "real_response": "Philosophy is the systematic study of general and fundamental questions about knowledge, existence, values, mind and language.",
+          "generated": "The ware sere sere an the the the the th"
+        },
+        {
+          "instruction": "Which episode did Daenerys Targaryen lose her dragon, Viserion, to a White Walker's spear?",
+          "real_response": "The Night King, the leader of the White Walkers, threw a spear at Viserion, which killed him.",
+          "generated": "The wan the ware sere sere for in the th"
+        }
+      ],
+      "elapsed_seconds": 828.7214221954346
+    },
+    {
+      "chat_calls": 2554,
+      "final_scores": {
+        "Corpus": {
+          "held_out_next_byte_acc": 0.5538451047170729
+        },
+        "L0": {
+          "next_token_acc": 0.3350364863872528
+        },
+        "L1": {
+          "held_out_acc": 0.87
+        },
+        "L2": {
+          "sel_acc": 0.83,
+          "cons_acc": 0.79
+        },
+        "L3": {
+          "seen_combo_acc": 0.79,
+          "unseen_combo_acc": 0.82
+        },
+        "L4-logic": {
+          "seen_combo_acc": 0.86,
+          "unseen_combo_acc": 0.6
+        },
+        "L4-counting": {
+          "held_out_acc": 0.69
+        },
+        "L5": {
+          "held_out_acc": 0.31
+        },
+        "L6": {
+          "held_out_acc": 0.41
+        },
+        "Library": {
+          "held_out_acc": 0.24
+        },
+        "Knowledge": {
+          "mean_loss": 3.855052928129832
+        },
+        "Chat": {
+          "mean_loss": 2.906711424098295,
+          "mean_byte_acc": 0.24046066549478792
+        }
+      },
+      "chat_diversity": {
+        "n_samples": 6,
+        "unique_generations": 3,
+        "avg_longest_repeated_token_run": 7.833333333333333,
+        "avg_token_repetition_rate": 0.7708333333333334
+      },
+      "samples": [
+        {
+          "instruction": "Why do people like plants?",
+          "real_response": "Plants build relaxing environment and decorate you room. Plants are beautiful and green. Plants clean the air.",
+          "generated": "The the the the the the the the the the "
+        },
+        {
+          "instruction": "What instrument plays the part of the duck in the musical composition, \"Peter and the Wolf\"",
+          "real_response": "An oboe plays the part of the duck in this well-known orchestra piece.",
+          "generated": "The Chaming and and and and and ar and a"
+        },
+        {
+          "instruction": "What did Britain swap Havana for with Spain in 1763",
+          "real_response": "Florida",
+          "generated": "The Amporing and and and and and and ar "
+        },
+        {
+          "instruction": "What's the most popular tv show of all time in the USA?",
+          "real_response": "Jeopardy!",
+          "generated": "The the the the the the the the the the "
+        },
+        {
+          "instruction": "what is philosophy?",
+          "real_response": "Philosophy is the systematic study of general and fundamental questions about knowledge, existence, values, mind and language.",
+          "generated": "The the the the the the the the the the "
+        },
+        {
+          "instruction": "Which episode did Daenerys Targaryen lose her dragon, Viserion, to a White Walker's spear?",
+          "real_response": "The Night King, the leader of the White Walkers, threw a spear at Viserion, which killed him.",
+          "generated": "The the the the the the the the the the "
+        }
+      ],
+      "elapsed_seconds": 1231.1209580898285
+    },
+    {
+      "chat_calls": 3485,
+      "final_scores": {
+        "Corpus": {
+          "held_out_next_byte_acc": 0.5493001483735585
+        },
+        "L0": {
+          "next_token_acc": 0.3014598488807678
+        },
+        "L1": {
+          "held_out_acc": 0.87
+        },
+        "L2": {
+          "sel_acc": 0.87,
+          "cons_acc": 0.7833333333333333
+        },
+        "L3": {
+          "seen_combo_acc": 0.81,
+          "unseen_combo_acc": 0.82
+        },
+        "L4-logic": {
+          "seen_combo_acc": 0.81,
+          "unseen_combo_acc": 0.56
+        },
+        "L4-counting": {
+          "held_out_acc": 0.67
+        },
+        "L5": {
+          "held_out_acc": 0.31
+        },
+        "L6": {
+          "held_out_acc": 0.41
+        },
+        "Library": {
+          "held_out_acc": 0.33
+        },
+        "Knowledge": {
+          "mean_loss": 4.031207819779714
+        },
+        "Chat": {
+          "mean_loss": 2.9100663615208044,
+          "mean_byte_acc": 0.2410321989480187
+        }
+      },
+      "chat_diversity": {
+        "n_samples": 6,
+        "unique_generations": 5,
+        "avg_longest_repeated_token_run": 4.5,
+        "avg_token_repetition_rate": 0.4166666666666667
+      },
+      "samples": [
+        {
+          "instruction": "Why do people like plants?",
+          "real_response": "Plants build relaxing environment and decorate you room. Plants are beautiful and green. Plants clean the air.",
+          "generated": "The stor in the the the the the the the "
+        },
+        {
+          "instruction": "What instrument plays the part of the duck in the musical composition, \"Peter and the Wolf\"",
+          "real_response": "An oboe plays the part of the duck in this well-known orchestra piece.",
+          "generated": "The Clame spare and in the the the the t"
+        },
+        {
+          "instruction": "What did Britain swap Havana for with Spain in 1763",
+          "real_response": "Florida",
+          "generated": "Alla Dorite Coriste and in Collatis and "
+        },
+        {
+          "instruction": "What's the most popular tv show of all time in the USA?",
+          "real_response": "Jeopardy!",
+          "generated": "Alatis and as as and and and or was and "
+        },
+        {
+          "instruction": "what is philosophy?",
+          "real_response": "Philosophy is the systematic study of general and fundamental questions about knowledge, existence, values, mind and language.",
+          "generated": "The came spere sere the the the the the "
+        },
+        {
+          "instruction": "Which episode did Daenerys Targaryen lose her dragon, Viserion, to a White Walker's spear?",
+          "real_response": "The Night King, the leader of the White Walkers, threw a spear at Viserion, which killed him.",
+          "generated": "The stor in the the the the the the the "
+        }
+      ],
+      "elapsed_seconds": 1660.1327450275421
+    }
+  ]
+}
