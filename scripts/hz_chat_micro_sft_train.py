@@ -58,12 +58,12 @@ def masked_loss_and_acc(model, tok, prompt: str, completion: str, backward: bool
 
 def train_step(model, opt, tok, item: dict):
     prompt, completion = format_turn(item["instruction"], item["response"])
-    loss, _ = masked_loss_and_acc(model, tok, prompt, completion, backward=True)
+    loss, acc = masked_loss_and_acc(model, tok, prompt, completion, backward=True)
     opt.zero_grad(set_to_none=True)
     loss.backward()
     torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
     opt.step()
-    return loss.item()
+    return loss.item(), acc
 
 
 def eval_items(model, tok, items: list) -> dict:
