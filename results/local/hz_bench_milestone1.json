@@ -1,0 +1,18 @@
+{
+  "checkpoint": "results/local/hz_world_run2/step_36000.pt",
+  "tasks": [
+    "arc_easy"
+  ],
+  "limit": 5,
+  "results": {
+    "arc_easy": {
+      "name": "arc_easy",
+      "alias": "arc_easy",
+      "sample_len": 5,
+      "acc,none": 0.0,
+      "acc_stderr,none": 0.0,
+      "acc_norm,none": 0.2,
+      "acc_norm_stderr,none": 0.2
+    }
+  }
+}

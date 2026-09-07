@@ -1799,6 +1799,156 @@ proportionally larger step budget) rather than maximizing pool size at
 a fixed budget -- separating "more examples" from "less repetition"
 as this fork accidentally conflated them.
 
+**Arm D was designed (`scripts/hz_world_run2_fork_matched_chat.py`,
+same 12k checkpoint, a catch-up-then-uniform Chat sampler matching new
+examples to the old pool's baked-in exposure rate, ~60,000-step budget
+to reach ~16 exposures/example on a 604-example pool) but NOT run** --
+the user redirected before launch (see section 0.8 below). The script
+is real, complete, and untested-in-production; kept in the tree as
+real, disclosed, unexecuted work rather than deleted, in case a future
+session wants it.
+
+---
+
+# 0.8 Correction, 2026-09-07 -- five 5M-scale diagnostics is enough; move to HZ-Bench scaling, not more micro-forks
+
+By the end of the interference/breadth fork tree (Arm A continuation,
+Arm B chat-only, Arm C large-pool), the 5M-scale HZ checkpoint had
+produced five separate, mutually consistent, non-contradictory real
+findings: it learns real language structure, it learns factual
+information into \(\theta\), factual discrimination improves with
+training, paraphrase generalization is real, persistent multi-channel
+training preserves prior skills, pure specialization is actively
+harmful, and more/diverse Chat data improves loss without fixing
+generation. **User's explicit call, and the right one: this is a
+saturated diagnostic tree at this scale.** The next several tiny forks
+(Arm D included) would very likely have taught less than moving up a
+full order of magnitude in scale would. Arm D is real, complete,
+disclosed, and deliberately NOT run as a result (see the note above).
+
+**New north star, replacing "perfect Hatchling World at 5M":**
+
+\[
+\boxed{\text{Get one HZ checkpoint onto standard LLM benchmarks, then scale toward a real Qwen3-0.6B-Base comparison}}
+\]
+
+Real correction to the Qwen reference point (user-supplied, not
+independently re-verified beyond taking the correction at face value):
+the small official Qwen3 model is **Qwen3-0.6B** (~600M params, 28
+layers, 32K context) -- **Qwen3.5-0.8B** is a different, larger model.
+This does not change the plan's shape, only the exact target size
+(~600M, not ~800M) for the eventual parameter-matched comparison.
+
+**Hatchling World is NOT being abandoned -- what changes is what it
+feeds the model.** The persistent, scheduler-driven, no-reset lineage
+stays; the channel MIX shifts from "12 roughly-equal-priority
+developmental micro-tasks" toward a real pretraining mixture (~80-90%
+real corpus, ~5-10% structured reasoning, ~5-10% instruction/QA) as
+scale increases -- Nursery becomes curriculum bootstrapping and
+rehearsal, not a permanent ~50% share of the budget.
+
+**Milestone plan, in order, each gating the next:**
+
+1. **Benchmark plumbing** (this session, see below) -- prove the real
+   `lm-evaluation-harness` runs end-to-end against a real HZ checkpoint,
+   even at floor-level scores. Validates harness + tokenizer + scoring
+   convention before any scaling spend.
+2. **HZ-Bench-100M** -- a real scaled base model (~100-150M params)
+   trained through Hatchling World on a real large corpus mixture (not
+   28 SQuAD paragraphs). Purpose: prove training doesn't explode,
+   generation becomes more coherent, the pipeline scales, and the
+   architecture isn't catastrophically bottlenecked at real scale --
+   NOT a claim of competitiveness yet.
+3. **Scaling verdict** -- compare 5M/25M-or-50M/100M on the same
+   benchmark suite. Only proceed further if \(N\uparrow \Rightarrow\)
+   benchmark performance \(\uparrow\) holds.
+4. **HZ-Bench-600M** -- parameter-matched against Qwen3-0.6B-Base (pure
+   pretrained, no instruction-tuning confound) on MMLU, ARC-C,
+   HellaSwag, PIQA, WinoGrande, GSM8K, perplexity, training/inference
+   FLOPs, peak VRAM, tok/s.
+5. **HZ-Instruct-600M** -- SFT the same checkpoint, compare against the
+   post-trained Qwen3-0.6B on instruction/reasoning benchmarks
+   (IFEval, etc.).
+
+**Two real, disclosed blockers that need a decision before Milestone 2,
+not silently assumed away:**
+
+- **Real corpus acquisition.** 100M+-scale pretraining needs a real,
+  large, licensed text mixture (Wikipedia/FineWeb-style web text/
+  books/science/math/code/QA/dialogue) -- multi-GB, real download and
+  disk-space commitment, not yet sourced.
+- **Compute dispatch.** This Mac's CPU/MPS cannot train a 100M+ model
+  in reasonable time. Per this repo's own `CLAUDE.md` multi-machine
+  section, this means real GPU dispatch -- the Windows RTX3060 (local,
+  free) or RunPod (real, billed cloud compute) -- a resource decision
+  the user should make explicitly, not one to default into silently.
+  The known ~17x HZ-vs-matched-Transformer wall-clock gap (diagnosed
+  earlier this session as mostly architectural: many small sequential
+  per-token kernel launches that can't batch across time) is a real,
+  disclosed risk that gets more serious, not less, at 100M+ scale --
+  Milestone 2's own explicit purpose includes finding out whether this
+  is "merely slow" or "infeasible" at that size, not assuming either.
+
+**Real result, 2026-09-07 -- Milestone 1 complete: `lm-evaluation-
+harness` runs end-to-end on the real Hatchling World mainline
+checkpoint.** Installed the real, public `lm-eval` package (v0.4.13,
+EleutherAI) into this repo's existing `.venv` (Python 3.12, torch
+2.13, transformers 5.14 -- already present, unrelated to this work;
+verified `HZLanguageModel` runs correctly under this venv before
+adding anything). Built `scripts/hz_lm_eval_adapter.py`: a real
+`lm_eval.api.model.LM` subclass (`@register_model("hz")`) implementing
+`loglikelihood` -- the request type every target multiple-choice task
+uses -- by reusing the EXACT masked-completion-scoring convention
+already established and validated this session (`masked_loss_and_acc`'s
+mask-to-continuation-positions pattern): encode context alone to find
+its token length, encode context+continuation, sum log-softmax only
+over the continuation's positions, and separately report whether
+greedy decoding would reproduce the continuation. `loglikelihood_
+rolling` (perplexity tasks, not needed by the target list) raises a
+clear `NotImplementedError` rather than returning silently-wrong
+numbers; `generate_until` (needed later for GSM8K-style tasks) is
+wired to the existing `HZLanguageModel.generate()` method, real but
+not yet exercised by this milestone. Added
+`tests/test_hz_lm_eval_adapter.py`: verifies the adapter's scoring
+matches an independently computed masked log-softmax sum bit-for-bit
+(not just "it runs"), gated on `lm_eval` availability
+(`pytest.mark.skipif`) so the main suite stays green under the
+system Python this repo's tests normally run under -- confirmed both
+ways (2 passed under `.venv`, 2 skipped under system `python3`, full
+suite still 1032 passed / 2 pre-existing unrelated failures / 115
+skipped, up from 113 by exactly these 2 new skips).
+
+Ran the real harness against the current mainline checkpoint
+(`results/local/hz_world_run2/step_36000.pt`, Run 2 Arm A, 5,056,229
+params) across all 6 Milestone-1 target tasks, real HuggingFace-hosted
+datasets (ARC-Easy/Challenge, HellaSwag, PIQA, WinoGrande, BoolQ),
+30 examples each (`results/local/hz_bench_milestone1_full.json`):
+
+| task | acc | acc_norm | chance floor |
+|---|---:|---:|---:|
+| arc_easy | 0.200 | 0.267 | ~0.25 (4-way) |
+| arc_challenge | 0.067 | 0.133 | ~0.25 (4-way) |
+| hellaswag | 0.200 | 0.067 | ~0.25 (4-way) |
+| piqa | 0.567 | 0.533 | 0.50 (2-way) |
+| winogrande | 0.400 | -- | 0.50 (2-way) |
+| boolq | 0.167 | -- | 0.50 (2-way) |
+
+**Honest read, exactly as expected and disclosed in advance, not
+spun**: scores are at or near their respective chance floors, several
+below chance (boolq 0.167 vs 0.50, winogrande 0.400 vs 0.50) -- real,
+unsurprising noise at n=30 for a 5M-param model trained on a handful
+of real corpus paragraphs, not a meaningful capability signal. This
+result is NOT the point. The point, achieved: real public benchmark
+datasets, real harness scoring code, and this repo's real byte-level
+tokenizer + `HZLanguageModel` all interoperate correctly end-to-end,
+establishing the reproducible FLOOR that HZ-Bench-100M and
+HZ-Bench-600M will be measured against with zero adapter changes
+needed. **Real, disclosed, NOT yet done**: `lm-eval` is currently
+installed only in this Mac's local `.venv` -- if Milestone 2/3 training
+happens on the Windows RTX3060 (per this repo's own multi-machine
+`CLAUDE.md`), that machine will need the same install before it can
+run this harness against its own checkpoints.
+
 ---
 
 # 1. Do Not Abandon Hatchling World After One Bad Run
