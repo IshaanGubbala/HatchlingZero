@@ -1,0 +1,23 @@
+{
+  "n_params": 99763781,
+  "d_model": 2336,
+  "device": "cuda",
+  "mode": "stage0_systems_test",
+  "total_steps": 500,
+  "total_seconds": 639.8194477558136,
+  "steps_per_sec": 0.7814704628841236,
+  "corpus_tokens_seen": 129118,
+  "tokens_per_sec": 201.80380645334455,
+  "peak_vram_gb": 22.639956992,
+  "calls": {
+    "Corpus": 432,
+    "Knowledge": 27,
+    "Nursery": 19,
+    "Chat": 22
+  },
+  "corpus_source_calls": {
+    "fineweb_edu": 430,
+    "wikipedia": 2
+  },
+  "decon_rejected": 0
+}

@@ -1949,6 +1949,102 @@ happens on the Windows RTX3060 (per this repo's own multi-machine
 `CLAUDE.md`), that machine will need the same install before it can
 run this harness against its own checkpoints.
 
+**Real result, 2026-09-07 -- HZ-Bench-100M plumbing built and Stage 0
+(RunPod L40S systems test) run, and it surfaced a real, severe finding
+that changes the Milestone 2 plan.** User's own scoping, followed
+directly: corpus = FineWeb-Edu `sample-10BT` (streamed) + Wikipedia
+(streamed), 90/10 inside an 85% real-corpus share, 5% Knowledge/
+Wikipedia-factual-emphasis (reusing the existing real SQuAD-based
+mechanism -- SQuAD's own source passages ARE Wikipedia articles, a
+real, disclosed choice of what "Wikipedia/factual emphasis" means
+here, not a new mechanism), 5% Nursery+Library rehearsal (L0-L6
+collapsed into one macro-channel, no longer 12 near-equal channels),
+5% Chat/instruction (Dolly). Mandatory benchmark decontamination
+(`hatchling_world/knowledge/decontamination.py`) built and verified
+against a real ARC-Easy example before any corpus document was used.
+`d_model=2336` solved for ~100M params (99,763,781, -0.2% off target)
+via real binary search over instantiated models
+(`scripts/hz_bench_size_solver.py`), holding memory_slots=16/
+workspace_slots=64/n_rounds_l1=8 fixed per the user's "preserve the HZ
+architecture otherwise" instruction.
+
+Real bug caught and fixed BEFORE any GPU spend, during local CPU
+smoke-testing: none of the existing `train_step` helpers (built during
+a CPU-only Mac session) place tensors on a target device -- fixed
+globally via `torch.set_default_device(device)` rather than touching
+every helper. Two more real bugs surfaced only once actually dispatched
+to RunPod (both real, disclosed, both fixed in-session, not
+hand-waved): (1) `data/raw/dolly15k.jsonl` is gitignored, so a fresh
+pod's synced tree had no chat data -- fixed by adding a live
+HuggingFace fallback (`databricks/databricks-dolly-15k`, verified
+byte-identical split to the local-file path) to `build_chat_split`,
+making Chat data portable to any machine without manual setup; (2)
+`pip install` failed on the pod's Ubuntu 24.04 image (PEP 668
+externally-managed-environment) -- fixed with `--break-system-packages`
+for this ephemeral container.
+
+**Real, severe systems finding -- this is what Stage 0 was built to
+surface, and the honest answer is worse than hoped.** First Stage 0
+attempt (`--chunk-chars 2000`, the ~2000-token corpus-chunk length
+originally planned) OOM'd a 48GB L40S outright (`CUDA out of memory...
+44.37 GiB memory in use`) before completing even one full log interval.
+Retried at `--chunk-chars 300` (roughly the SAME chunk length the 5M
+model's SQuAD-based Corpus channel used successfully all session) --
+this completed cleanly, 500/500 steps, but revealed just how severe
+the cost of that length reduction is:
+
+| metric | value |
+|---|---:|
+| n_params | 99,763,781 |
+| device | CUDA (L40S 48GB) |
+| steps/sec | 0.78 |
+| corpus tokens/sec | 202 |
+| peak VRAM | 22.64 GB |
+| total corpus tokens (500 steps) | 129,118 |
+| estimated FLOPs (6*N*tokens) | 7.73e13 |
+
+**Real, disclosed interpretation, not spun toward either hoped-for
+outcome.** VRAM at a mere ~300-token context is already 22.64 GB for a
+100M-param model -- a conventional dense Transformer this size training
+at this sequence length would typically use a few GB, not 20+. Scaling
+the context up ~6.7x (300 -> 2000 chars) didn't scale memory linearly,
+it broke a 48GB card entirely -- consistent with, and now measured
+evidence for, the architectural diagnosis from earlier this session
+(many small sequential per-token kernel launches, real per-token state
+retained for backprop through time, that don't batch across the
+sequence dimension the way a Transformer's parallel attention does).
+Throughput itself (202 corpus tok/sec) is also real and slow in
+absolute terms for a modern datacenter GPU at this parameter count --
+this is not merely "slower than a matched Transformer," the GPU itself
+is not being meaningfully leveraged for parallelism across the
+sequence at all.
+
+**Real, honest cost/time projection from this measured rate (not a
+guess)**, at RunPod L40S community pricing ($0.79/hr) and secure
+($1.09/hr):
+
+| corpus tokens | wall-clock | community cost | secure cost |
+|---|---:|---:|---:|
+| 100M (Milestone 2's own target) | 137.6h (5.7 days) | $109 | $150 |
+| 300M (Stage 3's target) | 412.9h (17.2 days) | $326 | $450 |
+| 2B (Chinchilla-style 20x-params "properly trained" budget) | 2,752.9h (114.7 days) | $2,175 | $3,001 |
+
+**This is a real, decisive answer to the question Stage 0 was
+precommitted to ask ("is the ~17x systems penalty merely slow or
+completely infeasible at 100M scale") -- not a clean "infeasible" (500
+real steps did complete, nothing crashed at the safe context length),
+but the practical economics at the originally-planned context length
+are severe enough that Milestone 2 as scoped (100M real corpus tokens)
+cannot proceed as a routine unattended run without either a real
+systems fix or a substantially revised token/context budget.** Not
+deciding unilaterally which of those paths to take -- this is exactly
+the kind of finding the user's own Stage 0 design was built to
+surface before committing to Milestone 2's real spend, and the choice
+of how to respond (systems optimization pass first, a much shorter
+initial context/token budget, gradient checkpointing / activation
+recomputation to trade compute for memory, or accepting the cost) is
+the user's call, not assumed.
+
 ---
 
 # 1. Do Not Abandon Hatchling World After One Bad Run

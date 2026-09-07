@@ -1,0 +1,44 @@
+[hz-bench-100m] device=cuda
+[hz-bench-100m] FRESH model: d_model=2336 n_params=99,763,781
+[hz-bench-100m] building benchmark decontamination hashes...
+[hz-bench-100m] 1693252 benchmark n-gram hashes across ['arc_easy', 'arc_challenge', 'hellaswag', 'piqa', 'winogrande', 'boolq']
+[hz-bench-100m] captured 20 frozen held-out corpus chunks (seed+777, never trained on)
+[hz-bench-100m] real data: chat 1741 train / 51 held-out
+[hz-bench-100m] step=20/500 (92.3s, 0.22 steps/sec, 49 corpus tok/sec) last=Corpus corpus_tokens_seen=4,478 peak_vram=17.02 GB calls={'Corpus': 16, 'Knowledge': 2, 'Nursery': 0, 'Chat': 2} corpus_sources={'fineweb_edu': 16, 'wikipedia': 0} decon_rejected=0
+[hz-bench-100m] step=40/500 (127.0s, 0.31 steps/sec, 75 corpus tok/sec) last=Corpus corpus_tokens_seen=9,553 peak_vram=17.35 GB calls={'Corpus': 33, 'Knowledge': 3, 'Nursery': 1, 'Chat': 3} corpus_sources={'fineweb_edu': 33, 'wikipedia': 0} decon_rejected=0
+[hz-bench-100m] step=60/500 (150.4s, 0.40 steps/sec, 102 corpus tok/sec) last=Corpus corpus_tokens_seen=15,295 peak_vram=17.39 GB calls={'Corpus': 52, 'Knowledge': 3, 'Nursery': 2, 'Chat': 3} corpus_sources={'fineweb_edu': 52, 'wikipedia': 0} decon_rejected=0
+[hz-bench-100m] step=80/500 (168.1s, 0.48 steps/sec, 114 corpus tok/sec) last=Nursery corpus_tokens_seen=19,229 peak_vram=17.50 GB calls={'Corpus': 65, 'Knowledge': 6, 'Nursery': 4, 'Chat': 5} corpus_sources={'fineweb_edu': 65, 'wikipedia': 0} decon_rejected=0
+[hz-bench-100m] step=100/500 (189.1s, 0.53 steps/sec, 126 corpus tok/sec) last=Chat corpus_tokens_seen=23,892 peak_vram=17.50 GB calls={'Corpus': 81, 'Knowledge': 7, 'Nursery': 4, 'Chat': 8} corpus_sources={'fineweb_edu': 81, 'wikipedia': 0} decon_rejected=0
+[hz-bench-100m] step=120/500 (209.6s, 0.57 steps/sec, 139 corpus tok/sec) last=Corpus corpus_tokens_seen=29,131 peak_vram=18.45 GB calls={'Corpus': 99, 'Knowledge': 8, 'Nursery': 5, 'Chat': 8} corpus_sources={'fineweb_edu': 99, 'wikipedia': 0} decon_rejected=0
+[hz-bench-100m] step=140/500 (233.1s, 0.60 steps/sec, 149 corpus tok/sec) last=Corpus corpus_tokens_seen=34,811 peak_vram=18.45 GB calls={'Corpus': 118, 'Knowledge': 8, 'Nursery': 5, 'Chat': 9} corpus_sources={'fineweb_edu': 118, 'wikipedia': 0} decon_rejected=0
+[hz-bench-100m] step=160/500 (254.0s, 0.63 steps/sec, 156 corpus tok/sec) last=Corpus corpus_tokens_seen=39,657 peak_vram=18.45 GB calls={'Corpus': 134, 'Knowledge': 11, 'Nursery': 5, 'Chat': 10} corpus_sources={'fineweb_edu': 134, 'wikipedia': 0} decon_rejected=0
+[hz-bench-100m] step=180/500 (274.3s, 0.66 steps/sec, 162 corpus tok/sec) last=Corpus corpus_tokens_seen=44,499 peak_vram=18.45 GB calls={'Corpus': 150, 'Knowledge': 13, 'Nursery': 7, 'Chat': 10} corpus_sources={'fineweb_edu': 150, 'wikipedia': 0} decon_rejected=0
+[hz-bench-100m] step=200/500 (294.9s, 0.68 steps/sec, 167 corpus tok/sec) last=Corpus corpus_tokens_seen=49,351 peak_vram=18.45 GB calls={'Corpus': 166, 'Knowledge': 14, 'Nursery': 9, 'Chat': 11} corpus_sources={'fineweb_edu': 166, 'wikipedia': 0} decon_rejected=0
+[hz-bench-100m] step=220/500 (317.7s, 0.69 steps/sec, 173 corpus tok/sec) last=Corpus corpus_tokens_seen=54,839 peak_vram=18.45 GB calls={'Corpus': 184, 'Knowledge': 14, 'Nursery': 9, 'Chat': 13} corpus_sources={'fineweb_edu': 184, 'wikipedia': 0} decon_rejected=0
+[hz-bench-100m] step=240/500 (354.4s, 0.68 steps/sec, 169 corpus tok/sec) last=Corpus corpus_tokens_seen=59,846 peak_vram=22.64 GB calls={'Corpus': 201, 'Knowledge': 15, 'Nursery': 10, 'Chat': 14} corpus_sources={'fineweb_edu': 199, 'wikipedia': 2} decon_rejected=0
+[hz-bench-100m] step=260/500 (376.9s, 0.69 steps/sec, 172 corpus tok/sec) last=Nursery corpus_tokens_seen=64,875 peak_vram=22.64 GB calls={'Corpus': 218, 'Knowledge': 16, 'Nursery': 12, 'Chat': 14} corpus_sources={'fineweb_edu': 216, 'wikipedia': 2} decon_rejected=0
+[hz-bench-100m] step=280/500 (394.9s, 0.71 steps/sec, 175 corpus tok/sec) last=Corpus corpus_tokens_seen=69,000 peak_vram=22.64 GB calls={'Corpus': 233, 'Knowledge': 18, 'Nursery': 13, 'Chat': 16} corpus_sources={'fineweb_edu': 231, 'wikipedia': 2} decon_rejected=0
+[hz-bench-100m] step=300/500 (417.6s, 0.72 steps/sec, 179 corpus tok/sec) last=Corpus corpus_tokens_seen=74,744 peak_vram=22.64 GB calls={'Corpus': 252, 'Knowledge': 19, 'Nursery': 13, 'Chat': 16} corpus_sources={'fineweb_edu': 250, 'wikipedia': 2} decon_rejected=0
+[hz-bench-100m] step=320/500 (437.9s, 0.73 steps/sec, 182 corpus tok/sec) last=Corpus corpus_tokens_seen=79,884 peak_vram=22.64 GB calls={'Corpus': 269, 'Knowledge': 21, 'Nursery': 14, 'Chat': 16} corpus_sources={'fineweb_edu': 267, 'wikipedia': 2} decon_rejected=0
+[hz-bench-100m] step=340/500 (460.9s, 0.74 steps/sec, 186 corpus tok/sec) last=Corpus corpus_tokens_seen=85,622 peak_vram=22.64 GB calls={'Corpus': 288, 'Knowledge': 21, 'Nursery': 14, 'Chat': 17} corpus_sources={'fineweb_edu': 286, 'wikipedia': 2} decon_rejected=0
+[hz-bench-100m] step=360/500 (482.1s, 0.75 steps/sec, 188 corpus tok/sec) last=Corpus corpus_tokens_seen=90,756 peak_vram=22.64 GB calls={'Corpus': 305, 'Knowledge': 23, 'Nursery': 14, 'Chat': 18} corpus_sources={'fineweb_edu': 303, 'wikipedia': 2} decon_rejected=0
+[hz-bench-100m] step=380/500 (505.8s, 0.75 steps/sec, 191 corpus tok/sec) last=Corpus corpus_tokens_seen=96,800 peak_vram=22.64 GB calls={'Corpus': 325, 'Knowledge': 23, 'Nursery': 14, 'Chat': 18} corpus_sources={'fineweb_edu': 323, 'wikipedia': 2} decon_rejected=0
+[hz-bench-100m] step=400/500 (527.3s, 0.76 steps/sec, 193 corpus tok/sec) last=Corpus corpus_tokens_seen=101,934 peak_vram=22.64 GB calls={'Corpus': 342, 'Knowledge': 24, 'Nursery': 15, 'Chat': 19} corpus_sources={'fineweb_edu': 340, 'wikipedia': 2} decon_rejected=0
+[hz-bench-100m] step=420/500 (550.1s, 0.76 steps/sec, 195 corpus tok/sec) last=Corpus corpus_tokens_seen=107,072 peak_vram=22.64 GB calls={'Corpus': 359, 'Knowledge': 24, 'Nursery': 16, 'Chat': 21} corpus_sources={'fineweb_edu': 357, 'wikipedia': 2} decon_rejected=0
+[hz-bench-100m] step=440/500 (571.6s, 0.77 steps/sec, 196 corpus tok/sec) last=Corpus corpus_tokens_seen=112,206 peak_vram=22.64 GB calls={'Corpus': 376, 'Knowledge': 26, 'Nursery': 17, 'Chat': 21} corpus_sources={'fineweb_edu': 374, 'wikipedia': 2} decon_rejected=0
+[hz-bench-100m] step=460/500 (595.8s, 0.77 steps/sec, 198 corpus tok/sec) last=Corpus corpus_tokens_seen=118,246 peak_vram=22.64 GB calls={'Corpus': 396, 'Knowledge': 26, 'Nursery': 17, 'Chat': 21} corpus_sources={'fineweb_edu': 394, 'wikipedia': 2} decon_rejected=0
+[hz-bench-100m] step=480/500 (617.8s, 0.78 steps/sec, 200 corpus tok/sec) last=Chat corpus_tokens_seen=123,682 peak_vram=22.64 GB calls={'Corpus': 414, 'Knowledge': 26, 'Nursery': 18, 'Chat': 22} corpus_sources={'fineweb_edu': 412, 'wikipedia': 2} decon_rejected=0
+[hz-bench-100m] step=500/500 (639.8s, 0.78 steps/sec, 202 corpus tok/sec) last=Corpus corpus_tokens_seen=129,118 peak_vram=22.64 GB calls={'Corpus': 432, 'Knowledge': 27, 'Nursery': 19, 'Chat': 22} corpus_sources={'fineweb_edu': 430, 'wikipedia': 2} decon_rejected=0
+
+[hz-bench-100m] DONE: 500 steps in 639.8s (0.78 steps/sec, 202 corpus tok/sec, peak_vram=22.64 GB, corpus_tokens_seen=129,118, estimated_flops=7.729e+13)
+[hz-bench-100m] final checkpoint: results/local/hz_bench_100m/final.pt
+
+--- Earlier attempt, --chunk-chars 2000 (default), same d_model=2336: real OOM on a 48GB L40S ---
+[hz-bench-100m] device=cuda
+[hz-bench-100m] FRESH model: d_model=2336 n_params=99,763,781
+[hz-bench-100m] building benchmark decontamination hashes...
+[hz-bench-100m] 1693252 benchmark n-gram hashes across ['arc_easy', 'arc_challenge', 'hellaswag', 'piqa', 'winogrande', 'boolq']
+[hz-bench-100m] captured 20 frozen held-out corpus chunks (seed+777, never trained on)
+[hz-bench-100m] real data: chat 1741 train / 51 held-out
+Traceback (most recent call last):
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 42.00 MiB. GPU 0 has a total capacity of 44.40 GiB of which 26.12 MiB is free. Process 1109962 has 44.37 GiB memory in use. Of the allocated memory 42.88 GiB is allocated by PyTorch, and 1023.30 MiB is reserved by PyTorch but unallocated.
