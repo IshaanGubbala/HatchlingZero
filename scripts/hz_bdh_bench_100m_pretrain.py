@@ -123,6 +123,18 @@ def train_forward(model: BDH, idx: torch.Tensor, n_layer: int, target: torch.Ten
     return combined_bdh_forward(model, None, idx, real_prefix_iterations=n_layer, num_jumps=0, targets=target)
 
 
+def run_benchmark_suite(checkpoint_path: Path, n_embd: int, n_layer: int, n_head: int, mult: int,
+                         tasks: list, limit: int) -> dict:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import hz_bdh_lm_eval_adapter  # noqa: F401  (registers "hz_bdh")
+    from lm_eval import simple_evaluate
+    model_args = (f"checkpoint={checkpoint_path},n_embd={n_embd},n_layer={n_layer},"
+                  f"n_head={n_head},mult={mult}")
+    results = simple_evaluate(model="hz_bdh", model_args=model_args, tasks=tasks, limit=limit,
+                               log_samples=False, random_seed=0, numpy_random_seed=0, torch_random_seed=0)
+    return {task: metrics for task, metrics in results["results"].items()}
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--n-embd", type=int, default=1440, help="from hz_bdh_bench_size_solver.py's ~100M solve")
@@ -148,6 +160,7 @@ def main() -> None:
     parser.add_argument("--fineweb-weight", type=float, default=0.9)
     parser.add_argument("--shuffle-buffer-size", type=int, default=10_000)
     parser.add_argument("--benchmark-tasks", type=str, default=",".join(DEFAULT_BENCHMARK_TASKS))
+    parser.add_argument("--benchmark-limit", type=int, default=30, help="examples per task at each eval checkpoint")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--checkpoint-dir", type=Path, default=Path("results/local/hz_bdh_bench_100m"))
     parser.add_argument("--results-file", type=Path, default=Path("results/local/hz_bdh_bench_100m_results.json"))
@@ -219,11 +232,17 @@ def main() -> None:
             elapsed = time.time() - t0
             print(f"[hz-bdh-bench] EVAL @ step={step+1}: held_out_loss={held_out_loss:.4f} "
                   f"corpus_tokens_seen={corpus_tokens_seen:,} estimated_flops={estimated_flops:.3e}", flush=True)
+            print(f"[hz-bdh-bench] running benchmark suite...", flush=True)
+            bench_scores = run_benchmark_suite(ckpt_path, args.n_embd, args.n_layer, args.n_head, args.mult,
+                                                benchmark_tasks, args.benchmark_limit)
+            for task, metrics in bench_scores.items():
+                print(f"[hz-bdh-bench] {task}: {metrics}", flush=True)
             eval_points.append({
                 "step": step + 1, "held_out_loss": held_out_loss, "corpus_tokens_seen": corpus_tokens_seen,
                 "estimated_flops": estimated_flops, "steps_per_sec": (step + 1) / elapsed,
                 "tokens_per_sec": corpus_tokens_seen / elapsed,
                 "peak_vram_gb": (torch.cuda.max_memory_allocated() / 1e9 if device == "cuda" else None),
+                "benchmark_scores": bench_scores,
             })
             with open(args.results_file, "w") as f:
                 json.dump({"n_params": n_params, "n_embd": args.n_embd, "n_layer": args.n_layer,
