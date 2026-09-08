@@ -42,6 +42,7 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.utils.checkpoint
 
 from reference.hz0h_bdh_hzcq_v1_persistent_memory_torch import HZCQPersistentMemory, HZCQPersistentMemoryConfig
 from reference.hz0h_bdh_hzcq_v1_reasoning_workspace_torch import HZCQReasoningWorkspace, HZCQReasoningWorkspaceConfig
@@ -167,9 +168,36 @@ class HZLanguageModel(nn.Module):
 
     # ---- Stage L0: pure self-supervised next-token LM ----
 
-    def lm_forward(self, token_ids: torch.Tensor) -> torch.Tensor:
+    def _lm_forward_step(self, H: torch.Tensor, K_S: torch.Tensor, V_S: torch.Tensor,
+                          s_summary: torch.Tensor, token_id_t: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """One token's worth of `lm_forward`'s per-token loop body,
+        factored out so `torch.utils.checkpoint.checkpoint` can wrap it
+        -- real, disclosed reason: this loop is the exact bottleneck
+        Stage 0 measured on `combined_best` BDH before checkpointing
+        (5x memory reduction there); `HZLanguageModel`'s own per-token
+        recurrence retains one round of activations per token for
+        backward with no checkpointing applied anywhere before this."""
+        x_t = self.token_embed(token_id_t).unsqueeze(1)  # (B, 1, D) -- current token
+        K_x, V_x = self.ws.read_x.project_kv(x_t)
+        H = self.ws._step_with_cache(H, K_S, V_S, K_x, V_x, s_summary)
+        q = self.lm_rq(H)
+        scores = torch.matmul(q, self.lm_rk(H).transpose(-1, -2)) / (self.D ** 0.5)
+        read = torch.matmul(F.softmax(scores, dim=-1), self.lm_rv(H)).mean(dim=1)
+        return H, self.lm_head(read)
+
+    def lm_forward(self, token_ids: torch.Tensor, gradient_checkpointing: bool = False) -> torch.Tensor:
         """token_ids: (B, T). Returns logits (B, T-1, vocab_size) predicting
         token_ids[:, 1:] from token_ids[:, :-1], teacher-forced.
+
+        `gradient_checkpointing=True` wraps each per-token step in
+        `torch.utils.checkpoint.checkpoint` -- discards that step's
+        activations and recomputes them during backward instead of
+        retaining all T-1 steps' worth simultaneously. Default False,
+        preserving every existing caller's exact behavior; verified
+        bit-identical logits/gradients against the uncheckpointed path
+        (`tests/test_hz_language_model_gradient_checkpointing.py`) --
+        a pure memory/compute tradeoff, not an approximation, same
+        discipline already validated for `combined_best` BDH.
 
         Real, confirmed, zero-risk fix (found while investigating HZ-
         Micro's real training-speed gap vs a matched transformer):
@@ -196,13 +224,12 @@ class HZLanguageModel(nn.Module):
         s_summary = S.mean(dim=1, keepdim=True)
         logits_seq = []
         for t in range(T - 1):
-            x_t = self.token_embed(token_ids[:, t]).unsqueeze(1)  # (B, 1, D) -- current token
-            K_x, V_x = self.ws.read_x.project_kv(x_t)
-            H = self.ws._step_with_cache(H, K_S, V_S, K_x, V_x, s_summary)
-            q = self.lm_rq(H)
-            scores = torch.matmul(q, self.lm_rk(H).transpose(-1, -2)) / (self.D ** 0.5)
-            read = torch.matmul(F.softmax(scores, dim=-1), self.lm_rv(H)).mean(dim=1)
-            logits_seq.append(self.lm_head(read))
+            if gradient_checkpointing and torch.is_grad_enabled():
+                H, logits_t = torch.utils.checkpoint.checkpoint(
+                    self._lm_forward_step, H, K_S, V_S, s_summary, token_ids[:, t], use_reentrant=False)
+            else:
+                H, logits_t = self._lm_forward_step(H, K_S, V_S, s_summary, token_ids[:, t])
+            logits_seq.append(logits_t)
         return torch.stack(logits_seq, dim=1)
 
     @torch.no_grad()
