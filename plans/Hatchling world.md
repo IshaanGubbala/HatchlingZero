@@ -2233,6 +2233,31 @@ and/or sequence length before hitting any real ceiling -- a further,
 real, not-yet-run follow-up opportunity to push net throughput even
 higher, on top of an already-decisive win.
 
+**Real result, 2026-09-07 -- pushed batch/context to use more of that
+headroom; found real, honest diminishing returns, not a further win.**
+Tested batch=32/sequence_length=1024 (8x the tokens/step of the
+3.76GB config: 32,768 vs 4,096) on the same RunPod L40S, same
+gradient-checkpointing + bf16 + Adam8bit stack, 150 steps:
+
+| config | peak VRAM | corpus tok/sec |
+|---|---:|---:|
+| batch=8, seq=512 (4,096 tok/step) | 3.76 GB | 6,743 |
+| batch=32, seq=1024 (32,768 tok/step) | 18.72 GB | 6,999 |
+
+**Honest read: 8x more memory bought only ~4% more throughput** (6,743
+-> 6,999) -- real, measured diminishing returns, not a further
+decisive win. The smaller batch=8/seq=512 configuration was already
+close to this architecture's efficient operating point on this GPU;
+scaling batch/context further trades a lot of memory for very little
+extra speed at this depth/width. Stopped here rather than continuing
+to search for a better point, per the real data rather than an
+assumption that "more headroom used = more throughput." The
+batch=8/seq=512 + checkpointing + bf16 + Adam8bit configuration
+remains the recommended real operating point for further HZ-Bench-100M
+work unless a future test finds a specific reason to prefer more
+context (e.g. needing longer real documents for the corpus mixture,
+not pure throughput).
+
 ---
 
 # 1. Do Not Abandon Hatchling World After One Bad Run

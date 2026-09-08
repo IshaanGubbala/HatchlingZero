@@ -1,0 +1,22 @@
+[hz-bdh-bench] device=cuda
+[hz-bdh-bench] FRESH combined_best BDH: n_embd=1440 n_layer=8 n_head=4 mult=16 n_params=100,270,080 gradient_checkpointing=True dtype=bfloat16 optimizer=adam8bit
+[hz-bdh-bench] building benchmark decontamination hashes...
+[hz-bdh-bench] 1693252 benchmark n-gram hashes across ['arc_easy', 'arc_challenge', 'hellaswag', 'piqa', 'winogrande', 'boolq']
+[hz-bdh-bench] captured 4 frozen held-out batches (seed+777, never trained on)
+[hz-bdh-bench] step=10/150 (77.9s, 0.13 steps/sec, 4204 corpus tok/sec) loss=2.7931 corpus_tokens_seen=327,680 peak_vram=18.72 GB decon_rejected=0 corpus_sources=41fw/6wiki
+[hz-bdh-bench] step=20/150 (122.5s, 0.16 steps/sec, 5350 corpus tok/sec) loss=2.4800 corpus_tokens_seen=655,360 peak_vram=18.72 GB decon_rejected=0 corpus_sources=100fw/14wiki
+[hz-bdh-bench] step=30/150 (167.2s, 0.18 steps/sec, 5880 corpus tok/sec) loss=2.3992 corpus_tokens_seen=983,040 peak_vram=18.72 GB decon_rejected=0 corpus_sources=157fw/23wiki
+[hz-bdh-bench] step=40/150 (211.8s, 0.19 steps/sec, 6187 corpus tok/sec) loss=2.3637 corpus_tokens_seen=1,310,720 peak_vram=18.72 GB decon_rejected=0 corpus_sources=225fw/26wiki
+[hz-bdh-bench] step=50/150 (256.5s, 0.19 steps/sec, 6387 corpus tok/sec) loss=2.1288 corpus_tokens_seen=1,638,400 peak_vram=18.72 GB decon_rejected=0 corpus_sources=275fw/35wiki
+[hz-bdh-bench] step=60/150 (301.2s, 0.20 steps/sec, 6528 corpus tok/sec) loss=2.0548 corpus_tokens_seen=1,966,080 peak_vram=18.72 GB decon_rejected=0 corpus_sources=340fw/44wiki
+[hz-bdh-bench] step=70/150 (345.8s, 0.20 steps/sec, 6632 corpus tok/sec) loss=1.8531 corpus_tokens_seen=2,293,760 peak_vram=18.72 GB decon_rejected=0 corpus_sources=404fw/49wiki
+[hz-bdh-bench] step=80/150 (390.5s, 0.20 steps/sec, 6713 corpus tok/sec) loss=1.9409 corpus_tokens_seen=2,621,440 peak_vram=18.72 GB decon_rejected=0 corpus_sources=467fw/64wiki
+[hz-bdh-bench] step=90/150 (435.1s, 0.21 steps/sec, 6778 corpus tok/sec) loss=2.1362 corpus_tokens_seen=2,949,120 peak_vram=18.72 GB decon_rejected=0 corpus_sources=508fw/67wiki
+[hz-bdh-bench] step=100/150 (479.7s, 0.21 steps/sec, 6831 corpus tok/sec) loss=1.8582 corpus_tokens_seen=3,276,800 peak_vram=18.72 GB decon_rejected=0 corpus_sources=561fw/71wiki
+[hz-bdh-bench] step=110/150 (524.2s, 0.21 steps/sec, 6876 corpus tok/sec) loss=1.8740 corpus_tokens_seen=3,604,480 peak_vram=18.72 GB decon_rejected=0 corpus_sources=638fw/77wiki
+[hz-bdh-bench] step=120/150 (568.8s, 0.21 steps/sec, 6913 corpus tok/sec) loss=1.7918 corpus_tokens_seen=3,932,160 peak_vram=18.72 GB decon_rejected=0 corpus_sources=706fw/84wiki
+[hz-bdh-bench] step=130/150 (613.3s, 0.21 steps/sec, 6946 corpus tok/sec) loss=2.0721 corpus_tokens_seen=4,259,840 peak_vram=18.72 GB decon_rejected=0 corpus_sources=774fw/87wiki
+[hz-bdh-bench] step=140/150 (657.8s, 0.21 steps/sec, 6974 corpus tok/sec) loss=1.5074 corpus_tokens_seen=4,587,520 peak_vram=18.72 GB decon_rejected=0 corpus_sources=845fw/93wiki
+[hz-bdh-bench] step=150/150 (702.3s, 0.21 steps/sec, 6999 corpus tok/sec) loss=1.6483 corpus_tokens_seen=4,915,200 peak_vram=18.72 GB decon_rejected=0 corpus_sources=908fw/97wiki
+
+[hz-bdh-bench] DONE: 150 steps in 702.3s (0.21 steps/sec, 6999 corpus tok/sec, peak_vram=18.72 GB, corpus_tokens_seen=4,915,200, estimated_flops=4.930e+14)

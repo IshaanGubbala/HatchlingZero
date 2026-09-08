@@ -1,0 +1,21 @@
+{
+  "n_params": 100270080,
+  "n_embd": 1440,
+  "n_layer": 8,
+  "n_head": 4,
+  "mult": 16,
+  "device": "cuda",
+  "gradient_checkpointing": true,
+  "dtype": "bfloat16",
+  "optimizer": "adam8bit",
+  "batch_size": 32,
+  "sequence_length": 1024,
+  "mode": "stage0_systems_test",
+  "total_steps": 150,
+  "total_seconds": 702.3011474609375,
+  "steps_per_sec": 0.2135835895218199,
+  "corpus_tokens_seen": 4915200,
+  "tokens_per_sec": 6998.707061450995,
+  "peak_vram_gb": 18.719067136,
+  "decon_rejected": 0
+}
