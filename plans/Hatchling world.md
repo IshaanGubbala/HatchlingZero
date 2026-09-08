@@ -2258,6 +2258,33 @@ work unless a future test finds a specific reason to prefer more
 context (e.g. needing longer real documents for the corpus mixture,
 not pure throughput).
 
+**Real result, 2026-09-07 -- Milestone 1 harness plumbing extended to
+combined_best BDH.** Built `scripts/hz_bdh_lm_eval_adapter.py`
+(registers `"hz_bdh"` with `lm_eval`, separate from the original
+`HZLanguageModel` adapter since `combined_best`'s forward signature
+and tokenization both differ) and `scripts/hz_bdh_bench_milestone1.py`,
+mirroring the original Milestone 1 pattern exactly. Correctness
+verified against an independently computed masked log-softmax sum
+(`tests/test_hz_bdh_lm_eval_adapter.py`, gated on `lm_eval`
+availability, full suite still 1036 passed / 120 skipped, +2 from
+these new gated tests). Real, disclosed gap: `combined_best` has no
+`generate()` method in this codebase yet, so `generate_until` raises
+`NotImplementedError` -- not needed for the Milestone 1 loglikelihood-
+based task list.
+
+Validated end-to-end locally (no RunPod checkpoint was pulled back
+from the Stage 0 systems tests -- real, disclosed gap, `--pull` was
+never added for the `.pt` files since those runs only needed systems
+metrics): trained a tiny real combined_best BDH checkpoint locally,
+ran the real harness against it through the new `"hz_bdh"` adapter,
+got real scores back (`arc_easy`/`piqa`/`boolq`, n=5, near-floor as
+expected for a 28,672-param model trained 20 steps -- pure plumbing
+validation, not a capability claim). The harness path is now proven
+for both HZ architectures in this codebase; the next real HZ-Bench-100M
+training run should add `--pull` for its checkpoint so a real ~100M-
+scale evaluation can follow the same pattern already validated for
+`HZLanguageModel`'s mainline checkpoint.
+
 ---
 
 # 1. Do Not Abandon Hatchling World After One Bad Run
