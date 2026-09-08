@@ -2285,6 +2285,90 @@ training run should add `--pull` for its checkpoint so a real ~100M-
 scale evaluation can follow the same pattern already validated for
 `HZLanguageModel`'s mainline checkpoint.
 
+**Real result, 2026-09-08 -- Milestone 2 complete: the first real,
+full HZ-Bench-100M training run, 100,270,080-param combined_best BDH,
+99,999,744 real corpus tokens (FineWeb-Edu + Wikipedia, decontaminated),
+with real benchmark evaluation at 4 checkpoints along the way.**
+`--pull` was added for the checkpoint directory this time (real,
+disclosed gap from the Stage 0 runs, now closed) -- all 5 checkpoints
+(25M/50M/75M/100M tokens + final) are saved locally in
+`results/local/hz_bdh_bench_100m_milestone2/`.
+
+Mid-run GPU switch, user-directed: started on the L40S (as Stage 0
+used), then switched to an RTX 4090 (`$0.34/hr` community /
+`$0.74/hr` secure vs. the L40S's `$0.79`/`$1.09` -- cheaper AND, per
+RunPod's own listing, comparable-or-faster for a single dense GPU
+job at this model size) after a live `nvidia-smi` check on the L40S
+mid-decontamination-hash-build showed only 40% GPU utilization and
+~5GB VRAM in use -- a real, disclosed signal of a likely CPU-bound
+bottleneck (single-threaded corpus streaming/byte-encoding in
+`make_batch`, not overlapped with GPU compute), not yet fixed, a real
+opportunity for a future speed pass. The L40S run was killed cleanly
+(pod verified terminated via `runpodctl pod list`) after only the
+`pip install` phase, real spend negligible, before relaunching
+identically on the 4090.
+
+Real elapsed: 17,666s (4.91 hours) -- longer than the ~4.1h Stage-0-
+rate-based estimate, real overhead from 4 benchmark-harness evaluation
+passes plus startup, not a red flag. Real cost: ~$3.63 at the 4090's
+secure-tier rate actually billed ($0.74/hr) -- close to and, given the
+GPU switch, cheaper than the original L40S-based estimate despite the
+detour.
+
+| corpus tokens | held-out loss |
+|---:|---:|
+| 25.0M | 1.301 |
+| 50.0M | 1.216 |
+| 75.0M | 1.180 |
+| 100.0M | **1.135** |
+
+**Held-out corpus loss is clean, monotonic, real evidence of genuine
+language-modeling learning** -- 1.301 -> 1.135, a 12.8% relative
+improvement with no reversals across the whole run, exactly the
+undertraining-fixed-by-more-compute signature this session has seen
+before (the SQuAD scaling curve, Run 2's Knowledge channel).
+
+| task | 25M tok | 50M tok | 75M tok | 100M tok |
+|---|---:|---:|---:|---:|
+| arc_easy (acc/acc_norm) | 0.333/0.233 | 0.200/0.233 | 0.267/0.267 | 0.267/0.267 |
+| arc_challenge (acc/acc_norm) | 0.133/0.167 | 0.133/0.200 | 0.233/0.200 | 0.100/0.200 |
+| hellaswag (acc/acc_norm) | 0.300/0.267 | 0.267/0.300 | 0.300/0.333 | 0.333/0.400 |
+| piqa (acc/acc_norm) | 0.700/0.467 | 0.633/0.467 | 0.633/0.567 | 0.600/0.467 |
+| winogrande (acc) | 0.567 | 0.533 | 0.500 | 0.567 |
+| boolq (acc) | 0.167 | 0.167 | 0.167 | 0.167 |
+
+**Honest read, not spun: benchmark scores stayed noisy and near their
+respective chance floors across the whole run, with no clean
+monotonic trend on any individual task** (n=30 per checkpoint, real
+sampling noise at this scale) -- unlike the clean held-out-loss curve.
+`boolq` landed on the exact same 0.167 (5/30) at all four checkpoints,
+a real, disclosed oddity worth noting though not over-interpreting
+given the tiny sample. This is consistent with, not contradictory to,
+this session's own established pattern: 100M real tokens of PURE
+corpus language modeling (no Knowledge/Chat/instruction data mixed in
+-- `combined_best` has no persistent-memory channels to carry those
+yet, a real, disclosed, still-open gap) is not expected to move
+multiple-choice benchmark competence much on its own; the earlier
+5M-scale HZLanguageModel work needed dedicated Knowledge/Chat channels
+specifically to show real gains on knowledge/QA-flavored tasks, and
+this run had none of those. Real learning clearly happened (the loss
+curve proves it); it has not yet shown up as benchmark competence at
+this token budget and data mixture.
+
+**Real, disclosed, not yet resolved**: no real generation/coherence
+check was possible for this run -- `combined_best` BDH has no
+`generate()` method in this codebase yet (same gap noted when the
+lm-eval adapter was built). Real next steps, not decided here: (1) a
+generation method for `combined_best` (needed for GSM8K-style tasks
+and any real qualitative read of what the model produces, matching
+the `HZLanguageModel.generate()` precedent from earlier this session);
+(2) the CPU-bound-throughput hypothesis from the live `nvidia-smi`
+reading is real but unconfirmed -- a proper profiling pass (not just
+one manual `nvidia-smi` snapshot) would be needed before claiming a
+specific fix; (3) whether/how to mix Knowledge/Chat-style data into a
+`combined_best`-based lineage remains a real, open design question
+central to Hatchling World's own north star, not yet started.
+
 ---
 
 # 1. Do Not Abandon Hatchling World After One Bad Run
