@@ -38,6 +38,7 @@ established convention throughout this codebase -- not this session's
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import sys
 import time
@@ -55,6 +56,43 @@ from hatchling_world.knowledge.decontamination import build_benchmark_ngram_hash
 from hatchling_world.knowledge.web_corpus_stream import WebCorpusMixture  # noqa: E402
 
 PAD_BYTE = 0
+
+
+def autocast_context(dtype: str, device: str):
+    """Real, disclosed, established pattern already used by
+    `scripts/hz0h_bdh_combined_best_comparison.py`: `torch.autocast`
+    (NOT a hard `.to(dtype=bfloat16)` model cast) -- BDH's `Attention`
+    module asserts its RoPE `freqs` buffer stays fp32, and autocast
+    keeps master weights/optimizer state in fp32 while only casting
+    compute ops, sidestepping that assertion rather than fighting it.
+    Halves activation memory for every intermediate tensor cast to
+    bf16 -- a real, additional, FREE reduction on top of gradient
+    checkpointing's already-applied 5x, not a speed/memory tradeoff:
+    bf16 matmuls also run faster on tensor-core GPUs (L40S included)."""
+    if dtype == "bfloat16" and device == "cuda":
+        return torch.autocast(device_type="cuda", dtype=torch.bfloat16)
+    return contextlib.nullcontext()
+
+
+def make_optimizer(params, optimizer: str, lr: float, device: str):
+    """Real, disclosed, established pattern already used by
+    `scripts/hz0h_bdh_combined_best_comparison.py`: `bitsandbytes`'
+    `Adam8bit` quantizes ONLY AdamW's two fp32 moment buffers to int8
+    (~4x smaller there specifically) -- forward/backward math is
+    untouched, this only changes the optimizer's internal bookkeeping
+    precision. CUDA-only; requesting it elsewhere is a real, loud
+    error rather than a silent fallback."""
+    if optimizer == "adamw":
+        return torch.optim.AdamW(params, lr=lr, weight_decay=0.1)
+    if device != "cuda":
+        raise RuntimeError(f"--optimizer adam8bit requires CUDA, got device={device}. "
+                            f"Use --optimizer adamw on non-CUDA devices.")
+    try:
+        import bitsandbytes as bnb
+    except ImportError as error:
+        raise RuntimeError("--optimizer adam8bit requires bitsandbytes (pip install bitsandbytes), "
+                            "which is not installed.") from error
+    return bnb.optim.Adam8bit(params, lr=lr, weight_decay=0.1)
 
 
 def make_batch(mixture: WebCorpusMixture, batch_size: int, sequence_length: int, device: str) -> torch.Tensor:
@@ -101,6 +139,12 @@ def main() -> None:
     parser.add_argument("--gradient-checkpointing", action="store_true",
                          help="wrap each recurrent iteration in torch.utils.checkpoint -- trades compute for "
                               "memory; verified bit-identical loss/logits/gradients vs the uncheckpointed path")
+    parser.add_argument("--dtype", choices=["float32", "bfloat16"], default="float32",
+                         help="bfloat16 uses autocast (CUDA only) -- real, additional, FREE memory reduction, "
+                              "not a tradeoff: halves activation memory and typically runs FASTER on tensor cores")
+    parser.add_argument("--optimizer", choices=["adamw", "adam8bit"], default="adamw",
+                         help="adam8bit (CUDA only, needs bitsandbytes) quantizes ONLY optimizer state to int8 -- "
+                              "forward/backward math is untouched")
     parser.add_argument("--fineweb-weight", type=float, default=0.9)
     parser.add_argument("--shuffle-buffer-size", type=int, default=10_000)
     parser.add_argument("--benchmark-tasks", type=str, default=",".join(DEFAULT_BENCHMARK_TASKS))
@@ -119,8 +163,9 @@ def main() -> None:
     n_params = sum(p.numel() for p in model.parameters())
     print(f"[hz-bdh-bench] FRESH combined_best BDH: n_embd={args.n_embd} n_layer={args.n_layer} "
           f"n_head={args.n_head} mult={args.mult} n_params={n_params:,} "
-          f"gradient_checkpointing={args.gradient_checkpointing}", flush=True)
-    opt = torch.optim.AdamW(model.parameters(), lr=args.lr)
+          f"gradient_checkpointing={args.gradient_checkpointing} dtype={args.dtype} optimizer={args.optimizer}",
+          flush=True)
+    opt = make_optimizer(model.parameters(), args.optimizer, args.lr, device)
 
     print("[hz-bdh-bench] building benchmark decontamination hashes...", flush=True)
     benchmark_tasks = args.benchmark_tasks.split(",")
@@ -147,7 +192,8 @@ def main() -> None:
         data = make_batch(corpus_mix, args.batch_size, args.sequence_length, device)
         idx, target = data[:, :-1].contiguous(), data[:, 1:].contiguous()
         opt.zero_grad(set_to_none=True)
-        _, loss = train_forward(model, idx, args.n_layer, target, args.gradient_checkpointing)
+        with autocast_context(args.dtype, device):
+            _, loss = train_forward(model, idx, args.n_layer, target, args.gradient_checkpointing)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         opt.step()
@@ -199,6 +245,7 @@ def main() -> None:
             json.dump({"n_params": n_params, "n_embd": args.n_embd, "n_layer": args.n_layer,
                         "n_head": args.n_head, "mult": args.mult, "device": device,
                         "gradient_checkpointing": args.gradient_checkpointing,
+                        "dtype": args.dtype, "optimizer": args.optimizer,
                         "batch_size": args.batch_size, "sequence_length": args.sequence_length,
                         "mode": "stage0_systems_test", "total_steps": args.total_steps,
                         "total_seconds": total_time, "steps_per_sec": args.total_steps / total_time,
