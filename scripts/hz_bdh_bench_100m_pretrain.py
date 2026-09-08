@@ -174,10 +174,18 @@ def main() -> None:
                         mlp_internal_dim_multiplier=args.mult, vocab_size=256, dropout=0.0)
     model = BDH(config).to(device=device, dtype=torch.float32)
     n_params = sum(p.numel() for p in model.parameters())
+    # Real, disclosed safeguard against the 2026-09-08 architecture-
+    # identity mix-up (combined_best was mistakenly used as "HZ-Bench"
+    # despite having NO persistent S/H memory) happening again -- this
+    # metadata is explicit and checkable in every result file, marking
+    # this lineage as the systems/reference BDH-Core-Bench branch, NOT
+    # HatchlingZero.
+    model_metadata = {"model_family": "bdh_core", "architecture_version": "combined_best",
+                       "has_persistent_memory": False}
     print(f"[hz-bdh-bench] FRESH combined_best BDH: n_embd={args.n_embd} n_layer={args.n_layer} "
           f"n_head={args.n_head} mult={args.mult} n_params={n_params:,} "
-          f"gradient_checkpointing={args.gradient_checkpointing} dtype={args.dtype} optimizer={args.optimizer}",
-          flush=True)
+          f"gradient_checkpointing={args.gradient_checkpointing} dtype={args.dtype} optimizer={args.optimizer} "
+          f"{model_metadata}", flush=True)
     opt = make_optimizer(model.parameters(), args.optimizer, args.lr, device)
 
     print("[hz-bdh-bench] building benchmark decontamination hashes...", flush=True)
@@ -247,7 +255,7 @@ def main() -> None:
             with open(args.results_file, "w") as f:
                 json.dump({"n_params": n_params, "n_embd": args.n_embd, "n_layer": args.n_layer,
                             "n_head": args.n_head, "mult": args.mult, "device": device,
-                            "eval_points": eval_points}, f, indent=2, default=str)
+                            **model_metadata, "eval_points": eval_points}, f, indent=2, default=str)
 
     total_time = time.time() - t0
     vram = (f"{torch.cuda.max_memory_allocated() / 1e9:.2f} GB" if device == "cuda" else "n/a")
@@ -263,6 +271,7 @@ def main() -> None:
         with open(args.results_file, "w") as f:
             json.dump({"n_params": n_params, "n_embd": args.n_embd, "n_layer": args.n_layer,
                         "n_head": args.n_head, "mult": args.mult, "device": device,
+                        **model_metadata,
                         "gradient_checkpointing": args.gradient_checkpointing,
                         "dtype": args.dtype, "optimizer": args.optimizer,
                         "batch_size": args.batch_size, "sequence_length": args.sequence_length,

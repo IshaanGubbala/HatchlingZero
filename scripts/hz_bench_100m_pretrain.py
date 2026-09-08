@@ -45,6 +45,7 @@ Real, disclosed mechanics:
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import random
 import sys
@@ -69,12 +70,41 @@ from hatchling_world.knowledge.decontamination import build_benchmark_ngram_hash
 from hatchling_world.knowledge.web_corpus_stream import WebCorpusMixture  # noqa: E402
 
 
-def corpus_train_step(model, opt, tok, text: str):
+def autocast_context(dtype: str, device: str):
+    """Real, same pattern validated for combined_best BDH this session
+    (scripts/hz_bdh_bench_100m_pretrain.py's own autocast_context):
+    torch.autocast keeps master weights fp32, only casts compute ops --
+    a real, additional, FREE memory reduction, not a speed tradeoff."""
+    if dtype == "bfloat16" and device == "cuda":
+        return torch.autocast(device_type="cuda", dtype=torch.bfloat16)
+    return contextlib.nullcontext()
+
+
+def make_optimizer(params, optimizer: str, lr: float, device: str):
+    """Real, same pattern validated for combined_best BDH this session:
+    bitsandbytes' Adam8bit quantizes only AdamW's moment buffers to
+    int8 -- forward/backward math is untouched. CUDA-only; a real, loud
+    error rather than a silent no-op elsewhere."""
+    if optimizer == "adamw":
+        return torch.optim.AdamW(params, lr=lr)
+    if device != "cuda":
+        raise RuntimeError(f"--optimizer adam8bit requires CUDA, got device={device}. "
+                            f"Use --optimizer adamw on non-CUDA devices.")
+    try:
+        import bitsandbytes as bnb
+    except ImportError as error:
+        raise RuntimeError("--optimizer adam8bit requires bitsandbytes (pip install bitsandbytes), "
+                            "which is not installed.") from error
+    return bnb.optim.Adam8bit(params, lr=lr)
+
+
+def corpus_train_step(model, opt, tok, text: str, gradient_checkpointing: bool, dtype: str, device: str):
     token_ids = torch.tensor([tok.encode(text)])
-    logits = model.lm_forward(token_ids)
-    target = token_ids[:, 1:]
-    loss = F.cross_entropy(logits.reshape(-1, tok.vocab_size), target.reshape(-1))
     opt.zero_grad(set_to_none=True)
+    with autocast_context(dtype, device):
+        logits = model.lm_forward(token_ids, gradient_checkpointing=gradient_checkpointing)
+        target = token_ids[:, 1:]
+        loss = F.cross_entropy(logits.reshape(-1, tok.vocab_size), target.reshape(-1))
     loss.backward()
     torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
     opt.step()
@@ -138,6 +168,13 @@ def main() -> None:
     parser.add_argument("--total-steps", type=int, default=500, help="Stage 0 default: systems test, not real training")
     parser.add_argument("--eval-every", type=int, default=0, help="0 = never (Stage 0 systems-test mode)")
     parser.add_argument("--log-every", type=int, default=20)
+    parser.add_argument("--gradient-checkpointing", action="store_true",
+                         help="wrap lm_forward's per-token loop in torch.utils.checkpoint -- trades compute "
+                              "for memory; verified bit-identical vs the uncheckpointed path")
+    parser.add_argument("--dtype", choices=["float32", "bfloat16"], default="float32",
+                         help="bfloat16 uses autocast (CUDA only) -- real, additional, FREE memory reduction")
+    parser.add_argument("--optimizer", choices=["adamw", "adam8bit"], default="adamw",
+                         help="adam8bit (CUDA only, needs bitsandbytes) quantizes only optimizer state to int8")
     parser.add_argument("--corpus-share", type=float, default=0.85)
     parser.add_argument("--knowledge-share", type=float, default=0.05)
     parser.add_argument("--nursery-share", type=float, default=0.05)
@@ -176,8 +213,18 @@ def main() -> None:
                              workspace_slots=args.workspace_slots, n_rounds_l1=args.n_rounds_l1,
                              n_qa_labels=len(NOVEL_LABELS))
     n_params = sum(p.numel() for p in model.parameters())
-    print(f"[hz-bench-100m] FRESH model: d_model={args.d_model} n_params={n_params:,}", flush=True)
-    opt = torch.optim.AdamW(model.parameters(), lr=args.lr)
+    # Real, disclosed safeguard against this exact architecture-identity
+    # mix-up happening again (2026-09-08 correction: combined_best BDH,
+    # which has NO persistent S/H, was mistakenly used as "HZ-Bench" --
+    # this metadata makes the distinction explicit and checkable in every
+    # result file this script writes, not just in this run's prose).
+    model_metadata = {"model_family": "hatchlingzero", "architecture_version": "hz-sh-v1",
+                       "has_persistent_memory": True, "memory_slots": args.memory_slots,
+                       "workspace_slots": args.workspace_slots}
+    print(f"[hz-bench-100m] FRESH model: d_model={args.d_model} n_params={n_params:,} "
+          f"gradient_checkpointing={args.gradient_checkpointing} dtype={args.dtype} optimizer={args.optimizer} "
+          f"{model_metadata}", flush=True)
+    opt = make_optimizer(model.parameters(), args.optimizer, args.lr, device)
 
     print("[hz-bench-100m] building benchmark decontamination hashes...", flush=True)
     benchmark_tasks = args.benchmark_tasks.split(",")
@@ -221,7 +268,8 @@ def main() -> None:
         if chosen == "Corpus":
             source, text = next(corpus_mix)
             corpus_source_calls[source] += 1
-            loss, acc, n_tok = corpus_train_step(model, opt, tok, text)
+            loss, acc, n_tok = corpus_train_step(model, opt, tok, text, args.gradient_checkpointing,
+                                                  args.dtype, device)
             corpus_tokens_seen += n_tok
         elif chosen == "Knowledge":
             knowledge_train_step(model, opt, tok, knowledge_rng)
@@ -270,7 +318,7 @@ def main() -> None:
             })
             with open(args.results_file, "w") as f:
                 json.dump({"n_params": n_params, "d_model": args.d_model, "device": device,
-                            "eval_points": eval_points}, f, indent=2, default=str)
+                            **model_metadata, "eval_points": eval_points}, f, indent=2, default=str)
             print(f"[hz-bench-100m] wrote {args.results_file}\n", flush=True)
 
     total_time = time.time() - t0
@@ -286,6 +334,7 @@ def main() -> None:
     if not args.eval_every:
         with open(args.results_file, "w") as f:
             json.dump({"n_params": n_params, "d_model": args.d_model, "device": device,
+                        **model_metadata,
                         "mode": "stage0_systems_test", "total_steps": args.total_steps,
                         "total_seconds": total_time, "steps_per_sec": args.total_steps / total_time,
                         "corpus_tokens_seen": corpus_tokens_seen, "tokens_per_sec": corpus_tokens_seen / total_time,

@@ -2371,6 +2371,115 @@ central to Hatchling World's own north star, not yet started.
 
 ---
 
+# 0.9 Correction, 2026-09-08 -- combined_best BDH is not HatchlingZero; the HZ-Bench mainline must use the real S/H architecture
+
+**Real, important, user-caught error: HZ-Bench Milestone 2 (the
+100M-token run above) trained the wrong architecture.** `combined_best`
+BDH (`reference/hz0h_bdh_combined_best_torch.py`) has NO persistent
+`S`/reasoning-`H` memory system at all -- it is the older, pre-HZCQ
+faithful-BDH-reconstruction lineage from earlier this session, kept
+alive as a systems/efficiency reference. It is not HatchlingZero.
+
+**The root confusion: two completely different things both got called
+"persistent."**
+
+\[
+\boxed{\theta_{k+1} \leftarrow \theta_k}
+\]
+
+-- a **persistent training lineage** (the next checkpoint continues
+from the previous one, Hatchling World's own no-reset discipline) --
+is NOT the same claim as
+
+\[
+\boxed{S_{t+1} = U_\theta(S_t, x_t, H_t, \ldots)}
+\]
+
+-- **persistent architectural memory** (an explicit state `S` that
+survives and evolves across time WITHIN the model itself). `combined_
+best`'s pretraining script has the first (real, and reused correctly).
+`HZLanguageModel` (Run 2's actual architecture, `HZCQPersistentMemory`
++ `HZCQReasoningWorkspace`) has both. Saying "it's persistent because
+checkpoints continue" does not mean it has HatchlingZero's persistent
+memory -- conflating the two is exactly the error that happened when
+"use combined_best BDH" was taken as a straightforward systems fix
+rather than a silent architecture substitution.
+
+**A companion overclaim, also corrected**: the earlier disclosed
+scope-reduction note said "L1-L6 specifically test persistent-memory
+storage/retrieval" -- too broad. Real breakdown: L0 (language/
+statistical learning), L1 (nouns/properties), L2 (verbs/consequences),
+L3 (relations/composition), L4 (symbolic/counting/logic) are not all
+simply "store in `S`, retrieve later" tasks. `S` becomes especially
+load-bearing in L5 (QA/conversation/one-shot learning) and L6
+(reading/delayed retrieval), and in the dedicated memory-stress tasks
+(the real L5 two-fact capacity cliff found earlier this session). Some
+of Nursery genuinely COULD be reformulated for a memory-less LM. That
+was never the real objection -- the real objection is that the project
+does not want another plain LM; it wants HatchlingZero specifically.
+
+**Is the `combined_best` work wasted? No -- mentally relabel it
+`BDH-Core-Bench`, a real, valuable, PARKED systems/reference branch,
+not the HZ-Bench mainline.** Genuinely reusable, verified assets from
+it: `WebCorpusMixture` + decontamination (100% architecture-agnostic,
+already real), the `lm-eval` harness integration pattern (both
+adapters exist now), the RunPod dispatch pattern, and -- most
+importantly -- the SYSTEMS TECHNIQUES themselves (gradient
+checkpointing, bf16 autocast, Adam8bit), which are architecture-
+agnostic PyTorch-level techniques, not BDH-specific. No further RunPod
+spend goes toward continuing `combined_best` past its already-real
+100M-token result; it stays frozen as a reference point.
+
+**Real, immediate correction, in progress**: the SAME systems
+techniques just validated on `combined_best` are being ported to the
+REAL architecture instead of substituted for it.
+`HZLanguageModel.lm_forward` gained an opt-in `gradient_checkpointing`
+argument (factored the per-token loop body into `_lm_forward_step`,
+wrapped in `torch.utils.checkpoint`, verified bit-identical logits/
+gradients against the uncheckpointed path -- same discipline already
+used for `combined_best`'s own checkpointed forward). `scripts/
+hz_bench_100m_pretrain.py` -- the ORIGINAL HZLanguageModel-based
+85/5/5/5-mixture Milestone-2 script, built before the architecture
+swap and never actually finished on real GPU hardware -- gained
+matching `--gradient-checkpointing`/`--dtype bfloat16`/`--optimizer
+adam8bit` flags, mirroring `hz_bdh_bench_100m_pretrain.py`'s exact
+pattern.
+
+**Real, cheap safeguard against this exact mix-up recurring**: both
+pretraining scripts now stamp explicit metadata into every log line
+and results JSON they write -- `hz_bench_100m_pretrain.py` (the real
+architecture) writes `model_family=hatchlingzero`,
+`architecture_version=hz-sh-v1`, `has_persistent_memory=true`,
+`memory_slots`, `workspace_slots`; `hz_bdh_bench_100m_pretrain.py`
+(the BDH-Core-Bench reference branch) writes `model_family=bdh_core`,
+`architecture_version=combined_best`, `has_persistent_memory=false`.
+Real, disclosed, not yet done: an explicit `assert has_persistent_
+memory == True` gate specifically for anything invoked as the "HZ-
+Bench" mainline script, so a future session cannot silently repeat
+this substitution even by accident.
+
+**Corrected plan, replacing the "port Knowledge/Chat into combined_
+best" proposal from the previous entry**: do a small, bounded
+integration gate on the REAL architecture BEFORE any further 100M-
+scale spend, per the user's explicit four checks -- (1) loads/trains
+on real streamed corpus [already proven: the original Stage 0 attempt
+on `HZLanguageModel` DID load and start training before being found
+too slow, before this correction], (2) `lm-eval` runs unchanged
+[already proven: Milestone 1's `hz_lm_eval_adapter.py` was built and
+validated against this exact architecture before the pivot], (3)
+enough of the existing Hatchling World test suite passes to confirm
+`S` genuinely works [already real and extensive -- `HZCQPersistentMemory`
+correctness is covered by a large fraction of this repo's 1,038
+passing tests, including the real L5 memory-stress/capacity-cliff
+work], (4) real generation text [`HZLanguageModel.generate()` already
+exists and was used in the HZ-Chat-Micro v0/v1 work]. The genuinely
+NEW work is applying the just-added systems techniques and measuring
+whether they close the throughput/memory gap enough to make a real
+100M-token run on the ACTUAL architecture practical -- the next real
+Stage-0-equivalent test, not yet run as of this correction.
+
+---
+
 # 1. Do Not Abandon Hatchling World After One Bad Run
 
 Recent HZ work showed that a single architecture result can be misleading, but repeated controlled failures are meaningful. Hatchling World therefore gets a **bounded rescue ladder** — now extended to cover language and educational failures, not just navigation failures.
