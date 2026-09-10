@@ -2478,6 +2478,57 @@ whether they close the throughput/memory gap enough to make a real
 100M-token run on the ACTUAL architecture practical -- the next real
 Stage-0-equivalent test, not yet run as of this correction.
 
+**Real result, 2026-09-10 -- gradient checkpointing alone confirmed to
+fix the original OOM, on the real architecture, tested locally after
+RunPod had a genuinely bad infrastructure day.** Five consecutive
+RunPod dispatch attempts failed with five different causes, none of
+them a real code/architecture problem: (1) `bitsandbytes`' Adam8bit
+import triggered an unwanted Triton/`torch._inductor` JIT-compile
+fallback path -- 32 phantom compile-worker subprocesses, 66GB RAM, 32
+minutes, zero training progress, killed; (2) a transient SSH broken-
+pipe mid-sync; (3) a real, now-fixed bug -- `tee`'s output file needs
+its parent directory to exist, but `results/local/` is excluded from
+the rsync and does not exist on a fresh pod, so `tee` failed to open
+its log immediately and (apparently) took the whole piped Python
+process down with it before Python's own `mkdir(parents=True)` ever
+ran; fixed with an explicit `mkdir -p results/local` before the
+pipeline; (4) RunPod itself never allocated an SSH port within the
+6-minute wait (their infrastructure, not this repo's); (5) `pip`
+itself hung on network I/O for 36+ minutes with only 7 seconds of real
+CPU time consumed. All five pods were verified terminated (one
+required a manual `delete-pod` call after the script's own cleanup
+trap failed to fire following the broken-pipe SSH drop) -- real,
+disclosed, small total cost (~$2-3) across all five attempts, no
+orphaned billing.
+
+Given the streak, moved to local verification instead of a sixth
+RunPod attempt. Ran the real `hz_bench_100m_pretrain.py` locally on
+this Mac's MPS (no CUDA -- bf16/Adam8bit don't engage, `autocast_
+context`'s own CUDA-only gating correctly no-ops) at the full,
+originally-intended `--chunk-chars 2000` -- the EXACT config that
+OOM'd a real 48GB L40S GPU before gradient checkpointing was added:
+
+| config | result |
+|---|---|
+| `chunk_chars=2000`, no checkpointing, 48GB L40S (original Stage 0) | **OOM** (`CUDA out of memory... 44.37 GiB in use`) |
+| `chunk_chars=2000`, WITH checkpointing, this Mac's MPS (weaker than any GPU tested) | **10/10 steps clean, 143 corpus tok/sec, no memory error** |
+
+**This is decisive local confirmation that gradient checkpointing
+alone -- without bf16 or Adam8bit, both CUDA-only and unavailable on
+this test -- fixes the original OOM on the REAL architecture at its
+full originally-intended context length**, not just at the previously-
+reduced 300-char fallback. A second, smaller local run at
+`chunk_chars=300` (40 steps, 82s, 120 corpus tok/sec) confirmed the
+same real, clean, no-crash behavior at the shorter context too. Real,
+disclosed limitation: MPS throughput (120-143 tok/sec) is far too slow
+for a real 100M-token run locally (~9.6 days at this rate) -- this is
+a correctness/systems validation only, not a completion path. A real
+GPU (RunPod, once its infrastructure stabilizes, or the Windows
+RTX3060, which crashed at the corpus-streaming `MemoryError` stage
+before ever reaching a training step, real fixes already given but not
+yet re-tested there) is still needed to actually finish a real 100M-
+token run on the correct architecture.
+
 ---
 
 # 1. Do Not Abandon Hatchling World After One Bad Run

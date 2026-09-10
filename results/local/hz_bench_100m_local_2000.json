@@ -1,0 +1,28 @@
+{
+  "n_params": 99763781,
+  "d_model": 2336,
+  "device": "mps",
+  "model_family": "hatchlingzero",
+  "architecture_version": "hz-sh-v1",
+  "has_persistent_memory": true,
+  "memory_slots": 16,
+  "workspace_slots": 64,
+  "mode": "stage0_systems_test",
+  "total_steps": 10,
+  "total_seconds": 105.35160207748413,
+  "steps_per_sec": 0.09492024613584127,
+  "corpus_tokens_seen": 15075,
+  "tokens_per_sec": 143.09227104978072,
+  "peak_vram_gb": null,
+  "calls": {
+    "Corpus": 9,
+    "Knowledge": 1,
+    "Nursery": 0,
+    "Chat": 0
+  },
+  "corpus_source_calls": {
+    "fineweb_edu": 9,
+    "wikipedia": 0
+  },
+  "decon_rejected": 0
+}

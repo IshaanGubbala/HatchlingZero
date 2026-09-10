@@ -1,0 +1,17 @@
+[hz-bench-100m] device=mps
+[hz-bench-100m] FRESH model: d_model=2336 n_params=99,763,781 gradient_checkpointing=True dtype=float32 optimizer=adamw {'model_family': 'hatchlingzero', 'architecture_version': 'hz-sh-v1', 'has_persistent_memory': True, 'memory_slots': 16, 'workspace_slots': 64}
+[hz-bench-100m] building benchmark decontamination hashes...
+[Task: boolq] metric acc is defined, but aggregation is not. using default aggregation=mean
+[Task: boolq] metric acc is defined, but higher_is_better is not. using default higher_is_better=True
+[hz-bench-100m] 1693252 benchmark n-gram hashes across ['arc_easy', 'arc_challenge', 'hellaswag', 'piqa', 'winogrande', 'boolq']
+[hz-bench-100m] captured 20 frozen held-out corpus chunks (seed+777, never trained on)
+[hz-bench-100m] real data: chat 1741 train / 51 held-out
+[hz-bench-100m] step=2/10 (42.7s, 0.05 steps/sec, 80 corpus tok/sec) last=Corpus corpus_tokens_seen=3,424 peak_vram=n/a calls={'Corpus': 2, 'Knowledge': 0, 'Nursery': 0, 'Chat': 0} corpus_sources={'fineweb_edu': 2, 'wikipedia': 0} decon_rejected=0
+[hz-bench-100m] step=4/10 (52.9s, 0.08 steps/sec, 103 corpus tok/sec) last=Corpus corpus_tokens_seen=5,452 peak_vram=n/a calls={'Corpus': 3, 'Knowledge': 1, 'Nursery': 0, 'Chat': 0} corpus_sources={'fineweb_edu': 3, 'wikipedia': 0} decon_rejected=0
+[hz-bench-100m] step=6/10 (72.6s, 0.08 steps/sec, 126 corpus tok/sec) last=Corpus corpus_tokens_seen=9,129 peak_vram=n/a calls={'Corpus': 5, 'Knowledge': 1, 'Nursery': 0, 'Chat': 0} corpus_sources={'fineweb_edu': 5, 'wikipedia': 0} decon_rejected=0
+[hz-bench-100m] step=8/10 (94.2s, 0.08 steps/sec, 139 corpus tok/sec) last=Corpus corpus_tokens_seen=13,133 peak_vram=n/a calls={'Corpus': 7, 'Knowledge': 1, 'Nursery': 0, 'Chat': 0} corpus_sources={'fineweb_edu': 7, 'wikipedia': 0} decon_rejected=0
+[hz-bench-100m] step=10/10 (105.4s, 0.09 steps/sec, 143 corpus tok/sec) last=Corpus corpus_tokens_seen=15,075 peak_vram=n/a calls={'Corpus': 9, 'Knowledge': 1, 'Nursery': 0, 'Chat': 0} corpus_sources={'fineweb_edu': 9, 'wikipedia': 0} decon_rejected=0
+
+[hz-bench-100m] DONE: 10 steps in 105.4s (0.09 steps/sec, 143 corpus tok/sec, peak_vram=n/a, corpus_tokens_seen=15,075, estimated_flops=9.024e+12)
+[hz-bench-100m] final checkpoint: results/local/hz_bench_100m_local_2000/final.pt
+[hz-bench-100m] wrote results/local/hz_bench_100m_local_2000.json

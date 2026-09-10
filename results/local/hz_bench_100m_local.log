@@ -1,0 +1,16 @@
+[hz-bench-100m] device=mps
+[hz-bench-100m] FRESH model: d_model=2336 n_params=99,763,781 gradient_checkpointing=True dtype=float32 optimizer=adamw {'model_family': 'hatchlingzero', 'architecture_version': 'hz-sh-v1', 'has_persistent_memory': True, 'memory_slots': 16, 'workspace_slots': 64}
+[hz-bench-100m] building benchmark decontamination hashes...
+[Task: boolq] metric acc is defined, but aggregation is not. using default aggregation=mean
+[Task: boolq] metric acc is defined, but higher_is_better is not. using default higher_is_better=True
+[hz-bench-100m] 1693252 benchmark n-gram hashes across ['arc_easy', 'arc_challenge', 'hellaswag', 'piqa', 'winogrande', 'boolq']
+[hz-bench-100m] captured 20 frozen held-out corpus chunks (seed+777, never trained on)
+[hz-bench-100m] real data: chat 1741 train / 51 held-out
+[hz-bench-100m] step=10/40 (39.5s, 0.25 steps/sec, 67 corpus tok/sec) last=Corpus corpus_tokens_seen=2,636 peak_vram=n/a calls={'Corpus': 9, 'Knowledge': 1, 'Nursery': 0, 'Chat': 0} corpus_sources={'fineweb_edu': 9, 'wikipedia': 0} decon_rejected=0
+[hz-bench-100m] step=20/40 (53.2s, 0.38 steps/sec, 89 corpus tok/sec) last=Corpus corpus_tokens_seen=4,758 peak_vram=n/a calls={'Corpus': 16, 'Knowledge': 2, 'Nursery': 0, 'Chat': 2} corpus_sources={'fineweb_edu': 16, 'wikipedia': 0} decon_rejected=0
+[hz-bench-100m] step=30/40 (67.5s, 0.44 steps/sec, 107 corpus tok/sec) last=Knowledge corpus_tokens_seen=7,202 peak_vram=n/a calls={'Corpus': 24, 'Knowledge': 3, 'Nursery': 0, 'Chat': 3} corpus_sources={'fineweb_edu': 24, 'wikipedia': 0} decon_rejected=0
+[hz-bench-100m] step=40/40 (81.9s, 0.49 steps/sec, 120 corpus tok/sec) last=Corpus corpus_tokens_seen=9,785 peak_vram=n/a calls={'Corpus': 33, 'Knowledge': 3, 'Nursery': 1, 'Chat': 3} corpus_sources={'fineweb_edu': 33, 'wikipedia': 0} decon_rejected=0
+
+[hz-bench-100m] DONE: 40 steps in 81.9s (0.49 steps/sec, 120 corpus tok/sec, peak_vram=n/a, corpus_tokens_seen=9,785, estimated_flops=5.857e+12)
+[hz-bench-100m] final checkpoint: results/local/hz_bench_100m_local/final.pt
+[hz-bench-100m] wrote results/local/hz_bench_100m_local.json
