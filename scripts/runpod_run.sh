@@ -23,6 +23,14 @@
 #   scripts/runpod_run.sh --gpu-id "NVIDIA A100 80GB PCIe" --ttl-minutes 60 -- nvidia-smi
 #   scripts/runpod_run.sh --keep -- pip install -r requirements.txt   # leave pod up for a follow-up call
 #   scripts/runpod_run.sh --sync none --keep -- python train.py       # reuse state from a prior --keep call
+#   scripts/runpod_run.sh --sync-files scripts/foo.py,reference,hatchling_world -- python scripts/foo.py
+#       # sync ONLY these explicit paths instead of the whole tree (files and/or
+#       # directories, comma-separated, no spaces) -- real, disclosed intent:
+#       # not another --exclude pattern (excludes only shrink a whole-tree copy,
+#       # they can't beat "everything except a few big dirs"). Get the real list
+#       # by tracing what your script actually imports rather than guessing --
+#       # e.g. import it and diff sys.modules before/after, keep only __file__
+#       # paths under the repo root.
 
 set -euo pipefail
 
@@ -41,6 +49,7 @@ NETWORK_VOLUME_ID=""
 DATA_CENTER_IDS=""
 POD_NAME=""
 SYNC_MODE="local"
+SYNC_FILES=""
 REMOTE_DIR=""
 SSH_KEY="$HOME/.ssh/id_ed25519"
 KEEP=0
@@ -66,6 +75,7 @@ while [[ $# -gt 0 ]]; do
         --ttl-minutes) TTL_MINUTES="$2"; shift 2 ;;
         --name) POD_NAME="$2"; shift 2 ;;
         --sync) SYNC_MODE="$2"; shift 2 ;;
+        --sync-files) SYNC_FILES="$2"; shift 2 ;;
         --remote-dir) REMOTE_DIR="$2"; shift 2 ;;
         --ssh-key) SSH_KEY="$2"; shift 2 ;;
         --keep) KEEP=1; shift ;;
@@ -204,34 +214,50 @@ ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "mkdir -p '$REMOTE_DIR'"
 
 case "$SYNC_MODE" in
     local)
-        RSYNC_EXCLUDES=(--exclude .git --exclude __pycache__ --exclude '*.pyc' --exclude .DS_Store --exclude target)
-        if [[ $NO_DEFAULT_EXCLUDES -eq 0 ]]; then
-            RSYNC_EXCLUDES+=(--exclude data --exclude results --exclude archive --exclude archive2 --exclude outputs)
+        if [[ -n "$SYNC_FILES" ]]; then
+            # Real, disclosed reason this is a separate branch rather than
+            # another --exclude pattern: an exclude list only REMOVES paths
+            # from an otherwise-whole-tree copy, so it can never be smaller
+            # than "everything except a few big directories" -- syncing only
+            # what a specific job actually imports (traced via Python's own
+            # sys.modules, not guessed) needs the opposite: an explicit
+            # include list. `rsync --relative` with each path passed as its
+            # own source argument (run from $REPO_ROOT so the relative paths
+            # resolve) preserves directory structure at the destination
+            # without copying anything not named.
+            IFS=',' read -r -a SYNC_FILE_LIST <<< "$SYNC_FILES"
+            log "syncing ONLY ${#SYNC_FILE_LIST[@]} explicit path(s) to $SSH_TARGET:$REMOTE_DIR (--sync-files given -- not a whole-tree sync)"
+            ( cd "$REPO_ROOT" && rsync -rltzR -e "ssh ${SSH_OPTS[*]}" "${SYNC_FILE_LIST[@]}" "$SSH_TARGET:$REMOTE_DIR/" )
+        else
+            RSYNC_EXCLUDES=(--exclude .git --exclude __pycache__ --exclude '*.pyc' --exclude .DS_Store --exclude target)
+            if [[ $NO_DEFAULT_EXCLUDES -eq 0 ]]; then
+                RSYNC_EXCLUDES+=(--exclude data --exclude results --exclude archive --exclude archive2 --exclude outputs)
+            fi
+            for pat in "${EXTRA_EXCLUDES[@]:-}"; do
+                [[ -n "$pat" ]] && RSYNC_EXCLUDES+=(--exclude "$pat")
+            done
+            log "syncing working tree to $SSH_TARGET:$REMOTE_DIR (rsync, default excludes: data/ results/ archive*/ outputs/ target/ -- use --sync-all to disable)"
+            # --delete is unsafe when a network volume is attached: multiple
+            # concurrent pods mounting the SAME volume at the SAME REMOTE_DIR
+            # (see --network-volume-id) share one directory tree, so one pod's
+            # sync deleting files "not present locally" can wipe another
+            # still-running pod's runtime logs/output out from under it (real,
+            # observed 2026-08-24 -- training processes survived since they
+            # already had the file open, but `tail`/`ls` on the log path broke
+            # mid-run on 3 concurrent pods). Safe to keep --delete for the
+            # normal ephemeral-disk case (each pod gets its own untouched tree).
+            DELETE_FLAG=(--delete)
+            [[ -n "$NETWORK_VOLUME_ID" ]] && DELETE_FLAG=()
+            # -rlt (not -a): real, observed failure on RunPod containers --
+            # -a implies -o/-g (preserve owner/group), which needs chown()
+            # privileges the container doesn't have even as root (2026-08-27,
+            # every file in the sync failing with "Operation not permitted"
+            # and the whole rsync exiting nonzero, killing the sync before any
+            # training ran). -rlt keeps recursion/symlinks/timestamps, drops
+            # the owner/group preservation that was never needed here anyway
+            # (single-user pods, no multi-owner file tree).
+            rsync -rltz "${DELETE_FLAG[@]:-}" -e "ssh ${SSH_OPTS[*]}" "${RSYNC_EXCLUDES[@]}" "$REPO_ROOT/" "$SSH_TARGET:$REMOTE_DIR/"
         fi
-        for pat in "${EXTRA_EXCLUDES[@]:-}"; do
-            [[ -n "$pat" ]] && RSYNC_EXCLUDES+=(--exclude "$pat")
-        done
-        log "syncing working tree to $SSH_TARGET:$REMOTE_DIR (rsync, default excludes: data/ results/ archive*/ outputs/ target/ -- use --sync-all to disable)"
-        # --delete is unsafe when a network volume is attached: multiple
-        # concurrent pods mounting the SAME volume at the SAME REMOTE_DIR
-        # (see --network-volume-id) share one directory tree, so one pod's
-        # sync deleting files "not present locally" can wipe another
-        # still-running pod's runtime logs/output out from under it (real,
-        # observed 2026-08-24 -- training processes survived since they
-        # already had the file open, but `tail`/`ls` on the log path broke
-        # mid-run on 3 concurrent pods). Safe to keep --delete for the
-        # normal ephemeral-disk case (each pod gets its own untouched tree).
-        DELETE_FLAG=(--delete)
-        [[ -n "$NETWORK_VOLUME_ID" ]] && DELETE_FLAG=()
-        # -rlt (not -a): real, observed failure on RunPod containers --
-        # -a implies -o/-g (preserve owner/group), which needs chown()
-        # privileges the container doesn't have even as root (2026-08-27,
-        # every file in the sync failing with "Operation not permitted"
-        # and the whole rsync exiting nonzero, killing the sync before any
-        # training ran). -rlt keeps recursion/symlinks/timestamps, drops
-        # the owner/group preservation that was never needed here anyway
-        # (single-user pods, no multi-owner file tree).
-        rsync -rltz "${DELETE_FLAG[@]:-}" -e "ssh ${SSH_OPTS[*]}" "${RSYNC_EXCLUDES[@]}" "$REPO_ROOT/" "$SSH_TARGET:$REMOTE_DIR/"
         ;;
     git)
         ORIGIN_URL="$(git -C "$REPO_ROOT" remote get-url origin)"
