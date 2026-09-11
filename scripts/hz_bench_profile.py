@@ -84,12 +84,37 @@ def profile_pure_compute(model, tok, opt, args, device: str) -> dict:
         "compute_tok_per_sec": (tokens_per_iter * n_iters) / elapsed,
     }
 
+    # Real bug, found 2026-09-11: profiling the FULL chunk_chars-length
+    # sequence (e.g. 2000) means torch.profiler records one event per
+    # tiny op INSIDE EVERY per-token checkpointed step -- tens of
+    # thousands of events for one profiled iteration. key_averages()'s
+    # own aggregation over that many events is not memory-efficient and
+    # reliably blew up to 8GB+ RSS within seconds (reproduced both on a
+    # RunPod pod and locally on this Mac -- not pod-specific flakiness).
+    # The operator-cost BREAKDOWN doesn't need the full sequence length
+    # to be representative (the same op types/shapes repeat every token
+    # step); profile a short synthetic sequence instead, completely
+    # separate from the real-length timing loop above.
+    profile_token_ids = torch.randint(0, tok.vocab_size, (1, args.profile_chunk_chars))
+
+    def _step_profile():
+        opt.zero_grad(set_to_none=True)
+        with autocast_context(args.dtype, device):
+            logits = model.lm_forward(profile_token_ids, gradient_checkpointing=args.gradient_checkpointing)
+            target = profile_token_ids[:, 1:]
+            loss = torch.nn.functional.cross_entropy(logits.reshape(-1, tok.vocab_size), target.reshape(-1))
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+        opt.step()
+        if device == "cuda":
+            torch.cuda.synchronize()
+
     activities = [torch.profiler.ProfilerActivity.CPU]
     if device == "cuda":
         activities.append(torch.profiler.ProfilerActivity.CUDA)
     with torch.profiler.profile(activities=activities, record_shapes=False) as prof:
-        for _ in range(min(3, n_iters)):
-            _step()
+        for _ in range(args.profile_iters):
+            _step_profile()
     sort_key = "cuda_time_total" if device == "cuda" else "cpu_time_total"
     table = prof.key_averages().table(sort_by=sort_key, row_limit=25)
     n_events = len(prof.key_averages())
@@ -155,6 +180,12 @@ def main() -> None:
     parser.add_argument("--lr", type=float, default=3e-4)
     parser.add_argument("--chunk-chars", type=int, default=2000)
     parser.add_argument("--compute-iters", type=int, default=10)
+    parser.add_argument("--profile-chunk-chars", type=int, default=64,
+                         help="separate, short sequence length for the torch.profiler op-breakdown block -- "
+                              "NOT the same as --chunk-chars, which drives the real-length timing loop. "
+                              "Profiling the full-length sequence generates tens of thousands of events "
+                              "and reliably OOMs on key_averages() aggregation (see the code comment).")
+    parser.add_argument("--profile-iters", type=int, default=3)
     parser.add_argument("--io-iters", type=int, default=10)
     parser.add_argument("--skip-io", action="store_true", help="only run part (a), skip real network fetches")
     parser.add_argument("--results-file", type=Path, default=Path("results/local/hz_bench_profile.json"))
