@@ -5810,3 +5810,82 @@ architecture would mean re-deriving results that block recurrence will
 already obsolete. Not yet started as of 2026-09-11 -- step 1 (profiling)
 is the natural next real action, and needs GPU time to run, so it's a
 real spend decision, not a free next step.
+
+## 0.12.1 Refinement, 2026-09-11 -- cardinality is first-class, not step 5: HZCQ-BR-C
+
+User's follow-up: don't bolt cardinality onto the block-recurrent design
+as an afterthought (original 0.12 sequence had it as step 5, after block
+recurrence and adaptive R were already working) -- design the two
+together from the start. Renamed target: **HZCQ-BR-C**.
+
+Per-block, per-round update becomes:
+
+\[
+Z_b = \operatorname{LocalMixer}(X_b, H_b, S_b), \qquad
+u^{(c)}_{b,r} = F_c(H_{b,r}, S_b, Z_b) \ \text{for } c=1,\dots,C \text{ (parallel)}
+\]
+\[
+H_{b,r+1} = H_{b,r} + W_O\left[u^{(1)}_{b,r}; \ldots; u^{(C)}_{b,r}\right], \qquad
+S_{b+1} = U(S_b, H_{b,\text{final}}, Z_b) \ \text{(only at block end)}
+\]
+
+Same shared-S/shared-H constraint as 0.10 -- cardinal streams do NOT get
+their own memory (would explode memory and recreate the routing/MoE
+problem this project already walked back from once). Streams get their
+own transform parameters and may specialize implicitly (relational
+reasoning, local structure, memory retrieval, prediction refinement) --
+explicitly do not hard-code those roles; let specialization emerge or
+don't, and just measure whether it helps.
+
+**Critical, real engineering constraint, worth stating explicitly so it
+doesn't get lost in implementation:** the C streams MUST be one grouped/
+batched GEMM (stream weights stored as one tensor, e.g. \(W \in
+\mathbb{R}^{C \times d \times d_c}\)), never a Python `for c in
+range(C): stream[c](...)` loop -- a per-stream Python loop would
+directly defeat the entire systems purpose of cardinality (trading
+serial depth for parallel breadth only works if the C streams actually
+execute as one dense op, not C small serial ones).
+
+**Three independent compute knobs, not just width/rounds:**
+\(K\) = temporal block size (how often expensive recurrent cognition
+happens), \(R\) = serial reasoning depth (how long the model thinks per
+block), \(C\) = parallel reasoning breadth (how many transformations
+happen at once per round). A compute TOPOLOGY \((K, R, C)\), not a
+single scalar to scale. Suggested operating points: normal prose
+\((K,R,C) = (16, 1\text{-}2, 4)\); harder input \((16, 4\text{-}8, 4)\).
+Dynamic/per-block \(C\) is a real future idea, explicitly NOT the first
+build -- execute all \(C\) streams densely at first so the hardware
+graph stays predictable, same "no sparsity yet" discipline as 0.10.
+
+**Refined implementation sequence** (supersedes 0.12's 7-step list --
+same profiling-first discipline, cardinality moved from step 5 to step
+3-4, folded in alongside block recurrence rather than after it):
+1. Profile current HZ on CUDA (unchanged -- this is the step already in
+   flight as of this refinement, `scripts/hz_bench_profile.py`).
+2. Build block recurrence (\(K=16\)) around the real S+H HZ.
+3. Make \(R\) configurable (still fixed-per-run at this step, not yet
+   adaptive).
+4. Add cardinality \(C \in \{1,2,4,8\}\) as grouped parallel workspace
+   transforms, with aggregation back into shared \(H\).
+5. Add adaptive halting, \(R_{\max}=8\) targeting \(\mathbb E[R]
+   \approx 1.5\text{-}2\).
+6. Fuse/cache the whole block-recurrent cell (the "free systems wins"
+   from 0.12, now applied to the new cell rather than the old one).
+7. Jump operator, only if deep recurrence is still worth its cost after
+   2-6.
+
+**Refined critical ablation** (supersedes 0.10's original table -- same
+matched-parameter/FLOPs discipline, run inside the new architecture):
+
+| \(R\) | \(C\) |
+|--:|--:|
+| 8 | 1 |
+| 4 | 2 |
+| 2 | 4 |
+| 1 | 8 |
+
+Measured together: val loss, benchmark scores, memory-stress tasks
+(L5/L6, not a proxy), tok/sec, FLOPs. Target result:
+\(\boxed{R2,C4 \ge R8,C1}\) on quality while being substantially faster
+-- if that holds, \(R2,C4\) (or whichever point wins) becomes the new HZ
+core, not just a footnote ablation.
