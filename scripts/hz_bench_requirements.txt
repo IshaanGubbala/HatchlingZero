@@ -1,0 +1,16 @@
+# Pinned deps for HZ-Bench RunPod dispatches (hz_bench_100m_pretrain.py,
+# hz_bdh_bench_100m_pretrain.py). Real, diagnosed reason these are pinned
+# instead of left to float: huggingface_hub shipped 1.30.0 on 2026-09-03
+# and 1.31.0 on 2026-09-10 (the morning of a real RunPod SIGKILL/OOM crash
+# in FineWeb-Edu streaming). The combined_best Milestone-2 run completed
+# cleanly on ~1000 real document draws on 2026-09-07/08, before either of
+# those versions existed, using the exact same web_corpus_stream.py code.
+# No dispatch command in this repo pinned a version before this file
+# existed, so every fresh pod's `pip install` silently picked up whatever
+# was newest on PyPI that day -- pinning back to the versions Milestone 2
+# actually ran against removes that variable. Bump these deliberately,
+# with a real re-verification run, not as a side effect of adding a new
+# dependency.
+huggingface_hub==1.29.0
+datasets==5.0.1
+lm-eval
