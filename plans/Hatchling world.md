@@ -5889,3 +5889,118 @@ Measured together: val loss, benchmark scores, memory-stress tasks
 \(\boxed{R2,C4 \ge R8,C1}\) on quality while being substantially faster
 -- if that holds, \(R2,C4\) (or whichever point wins) becomes the new HZ
 core, not just a footnote ablation.
+
+## 0.12.2 Correction, 2026-09-11 -- 0.12/0.12.1's "8T serial depth" was wrong; real depth is T, and corpus pretraining currently never trains persistent S at all
+
+**Verified directly against `reference/hz_language_model_torch.py`**, not
+assumed: `lm_forward` (the corpus-LM path) initializes
+`S = self.mem.init_state(...)` once (line 221, the code's OWN comment:
+"untouched -- no prior lifetime evidence for one sentence") and never
+updates it again. Its per-token step, `_lm_forward_step` (line 171),
+calls `self.ws._step_with_cache(...)` exactly ONCE per token -- `n_rounds_l1`
+is never referenced anywhere in `lm_forward`/`_lm_forward_step`. It's
+only used by `HZCQReasoningWorkspace.run(..., n_rounds=self.n_rounds_l1)`,
+which backs the SEPARATE task-specific QA/reasoning methods (lines 307,
+349, 374, 424, ... -- a different forward path entirely, not corpus
+pretraining).
+
+**Corrected performance model:** real serial depth for corpus LM is
+\(D_{\text{serial}} \approx T\) (~1024 for a full chunk), not \(8T\)
+(~8192) as 0.12 stated. With block size \(K=16\):
+\(D_{\text{serial}} \approx T/16\) -- a real **~16x** reduction in
+dependency depth, not the originally claimed 64x. Actual wall-clock
+gain will be smaller still since the parallel local-block computation
+isn't free.
+
+**Cardinality does not further reduce serial depth** (there was only
+ever 1 round to begin with on this path, not 8) -- reframed: cardinality
+replaces one narrow sequential transformation with several GPU-parallel
+ones, attacking poor compute geometry/capacity, not seriality. Honest
+mechanism split going forward:
+\(\boxed{\text{block recurrence attacks } T\text{-seriality; cardinality attacks compute geometry/capacity}}\).
+
+**Cardinality implementation correction:** do NOT implement \(C\) full
+D-to-D transformations (roughly quadruples compute at \(C=4\), could
+make things worse) -- narrow each branch, \(F_c: \mathbb R^D \to
+\mathbb R^{d_c}\) with \(d_c \approx D/C\), aggregated via \(W_O\) back
+to \(D\), so \(C=4\) parallel streams land at roughly matched FLOPs/params
+versus the \(C=1\) baseline, not 4x it. Still a single grouped/batched
+GEMM (unchanged from 0.12.1) -- never a Python `for c in range(C)` loop.
+
+**A deeper, separate finding, worth its own line:** because `lm_forward`
+never touches S, HZ-Bench corpus pretraining as currently built is ONLY
+exercising "can HZ learn language" -- NOT "can HZ learn to use
+persistent memory during language," even though both look like the same
+training run from the logs. These are two different questions and only
+one is currently being tested by corpus pretraining:
+\(\boxed{\text{can HZ learn language efficiently?}}\) vs.
+\(\boxed{\text{can HZ learn to use persistent memory during language?}}\)
+Block recurrence gives a natural place to address the second (make block
+boundaries real memory-write events, \(S_b \to S_{b+1}\)) -- but
+deliberately NOT in the first speed ablation, to avoid changing
+semantics and performance in the same experiment. Sequence: run the
+speed/architecture ablation with S-behavior held equivalent to today
+first; only afterward turn on block-boundary S writes as its own,
+separately measured change, gated on L5/L6 (not a proxy).
+
+**Revised profiling plan (already in flight as of this correction,
+`scripts/hz_bench_profile.py` running on RunPod):** use a preloaded
+synthetic GPU batch (no data-loader/HF/tokenization time in the
+measurement) and separate \(t_{data}, t_{forward}, t_{backward},
+t_{optimizer}\); collect tok/sec, GPU utilization, kernel-launches/token,
+CUDA time by operator, GEMM shapes/utilization, memory bandwidth, peak
+VRAM, CPU dispatch time. Profile several \((B,T)\) points at roughly
+matched total bytes -- \((8,128), (4,256), (2,512), (1,1024)\) -- to
+distinguish two real hypotheses: if a bigger batch dramatically helps,
+the bottleneck is small-kernel/occupancy (favors cardinality/grouped
+execution); if throughput collapses mainly as \(T\) rises, the serial
+chain dominates (favors block recurrence); if both, both fixes are
+needed together (the likely outcome).
+
+**Revised, minimal 4-arm ablation** (replaces 0.12.1's larger \(R\times
+C\) table, since \(R\) is no longer the free variable it was assumed to
+be on this path): matched params/FLOPs across arms.
+
+| Arm | Block \(K\) | Cardinality \(C\) | Purpose |
+|---|--:|--:|---|
+| A | 1 | 1 | exact current HZ (baseline) |
+| B | 16 | 1 | isolate block recurrence |
+| C | 1 | 4 | isolate cardinality |
+| D | 16 | 4 | combined design |
+
+Read off \(\Delta_{block} = B-A\), \(\Delta_{cardinal} = C-A\), and
+synergy \(D - B - C + A\) -- real, clean attribution instead of
+changing block size, cardinality, gating, jump operators, and memory
+policy all at once.
+
+**Causality constraint for block recurrence, stated precisely so it
+isn't gotten wrong during implementation:** within block \(b\), the
+causal local mixer may condition each position only on earlier positions
+in the SAME block (ordinary causal masking) plus \(H_b, S_b\) from
+BEFORE the block started -- it must never use \(H_{b+1}\)/\(S_{b+1}\)
+(computed FROM this block) to predict positions inside this same block,
+which would leak future information. \(H_{b+1}, S_{b+1}\) become visible
+only starting at block \(b+1\).
+
+**Revised immediate roadmap** (replaces 0.12/0.12.1's 7-step sequences --
+adaptive \(R\) and the jump operator are explicitly REMOVED from the
+near-term sprint, since both were motivated by the now-corrected
+assumption that corpus LM paid for 8 rounds per byte):
+1. CUDA-profile the exact current `lm_forward` (in flight).
+2. Establish where the real ~86 tok/sec actually goes.
+3. Implement \(K=16, C=1\) block recurrence (arm B).
+4. Implement \(K=1, C=4\) parameter/FLOP-matched grouped cardinality
+   (arm C).
+5. Implement \(K=16, C=4\) (arm D).
+6. Compare LM loss, tok/sec, GPU utilization, memory across all 4 arms.
+7. Run L5/L6 persistent-memory tests on all 4 architecture candidates
+   (with S-behavior still held equivalent to today's untouched-S
+   baseline).
+8. Only after 1-7 land, decide whether adaptive depth/jump operators are
+   still worth adding -- and separately, only after 1-7, turn on
+   block-boundary S writes and re-run L5/L6 to see whether that improves
+   or regresses memory capability.
+
+North star is now explicitly a HYPOTHESIS, not a pre-declared winner:
+\(\boxed{\text{HZ-BR-C: } K=16, C=4, \text{shared } H, \text{shared } S}\)
+-- decided by steps 1-7's real numbers, not assumed going in.
