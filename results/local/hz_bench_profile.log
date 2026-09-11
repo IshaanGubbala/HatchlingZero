@@ -1,0 +1,37 @@
+[hz-bench-profile] device=cuda
+[hz-bench-profile] model n_params=99,756,770 d_model=2336 n_rounds_l1=8 gradient_checkpointing=True dtype=bfloat16
+[hz-bench-profile] === part (a): pure compute profiling (no network) ===
+[hz-bench-profile] compute: 10 iters, 17.895 sec/iter, 111.71 compute-only tok/sec, 256 distinct profiler ops
+-------------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
+                                                   Name    Self CPU %      Self CPU   CPU total %     CPU total  CPU time avg     Self CUDA   Self CUDA %    CUDA total  CUDA time avg    # of Calls  
+-------------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
+       autograd::engine::evaluate_function: MmBackward0         0.72%      16.049ms        37.65%     838.108ms     442.040us       0.000us         0.00%     144.491ms      76.208us          1896  
+                                            MmBackward0         7.21%     160.556ms        36.73%     817.566ms     431.205us       0.000us         0.00%     144.037ms      75.969us          1896  
+                                           aten::linear         0.79%      17.597ms        27.60%     614.512ms     108.037us       0.000us         0.00%     119.835ms      21.068us          5688  
+                                               aten::mm        12.15%     270.410ms        15.69%     349.344ms      46.100us      82.152ms        24.00%      82.152ms      10.841us          7578  
+                                            aten::copy_         3.00%      66.872ms         7.53%     167.649ms      12.072us      73.549ms        21.49%      73.551ms       5.296us         13887  
+                                               aten::to         0.48%      10.650ms        10.42%     231.972ms      17.566us       0.000us         0.00%      70.391ms       5.330us         13206  
+                                         aten::_to_copy         1.87%      41.525ms         9.94%     221.322ms      19.373us       0.000us         0.00%      70.391ms       6.162us         11424  
+                                           aten::matmul         2.08%      46.215ms        28.13%     626.167ms      78.823us       0.000us         0.00%      55.110ms       6.937us          7944  
+void at::native::vectorized_elementwise_kernel<4, at...         0.00%       0.000us         0.00%       0.000us       0.000us      51.666ms        15.10%      51.666ms       6.970us          7413  
+                                             aten::add_         1.57%      34.921ms         3.30%      73.389ms      10.357us      51.458ms        15.04%      51.458ms       7.262us          7086  
+                                              aten::cat         0.67%      14.852ms         1.07%      23.796ms      20.874us      30.454ms         8.90%      30.454ms      26.714us          1140  
+void at::native::(anonymous namespace)::CatArrayBatc...         0.00%       0.000us         0.00%       0.000us       0.000us      29.078ms         8.50%      29.078ms      76.926us           378  
+void at::native::vectorized_elementwise_kernel<4, at...         0.00%       0.000us         0.00%       0.000us       0.000us      27.178ms         7.94%      27.178ms       4.816us          5643  
+void at::native::vectorized_elementwise_kernel<4, at...         0.00%       0.000us         0.00%       0.000us       0.000us      26.159ms         7.64%      26.159ms      11.704us          2235  
+        autograd::engine::evaluate_function: TBackward0         0.39%       8.613ms         1.52%      33.803ms      22.268us       0.000us         0.00%      24.912ms      16.411us          1518  
+                                aten::cosine_similarity         0.72%      16.032ms         8.39%     186.728ms     246.995us       0.000us         0.00%      21.222ms      28.072us           756  
+void cutlass::Kernel2<cutlass_80_tensorop_bf16_s1681...         0.00%       0.000us         0.00%       0.000us       0.000us      20.281ms         5.93%      20.281ms      13.413us          1512  
+      autograd::engine::evaluate_function: CatBackward0         0.17%       3.702ms         0.66%      14.651ms      25.839us       0.000us         0.00%      18.888ms      33.313us           567  
+void at::native::unrolled_elementwise_kernel<at::nat...         0.00%       0.000us         0.00%       0.000us       0.000us      18.725ms         5.47%      18.725ms       4.668us          4011  
+autograd::engine::evaluate_function: ToCopyBackward0...         0.83%      18.557ms         4.16%      92.606ms      30.204us       0.000us         0.00%      17.837ms       5.818us          3066  
+void cutlass::Kernel2<cutlass_80_tensorop_bf16_s1681...         0.00%       0.000us         0.00%       0.000us       0.000us      16.387ms         4.79%      16.387ms      14.450us          1134  
+                                        ToCopyBackward0         0.18%       4.005ms         2.95%      65.597ms      21.395us       0.000us         0.00%      16.299ms       5.316us          3066  
+                              Optimizer.step#AdamW.step         0.00%       0.000us         0.00%       0.000us       0.000us      16.252ms         4.75%      16.252ms       5.417ms             3  
+                              Optimizer.step#AdamW.step         0.10%       2.309ms         0.52%      11.585ms       3.862ms       0.000us         0.00%      13.714ms       4.571ms             3  
+                                              aten::bmm         5.19%     115.637ms         7.29%     162.185ms      35.755us      13.705ms         4.00%      13.705ms       3.021us          4536  
+-------------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
+Self CPU time total: 2.226s
+Self CUDA time total: 342.244ms
+
+[hz-bench-profile] wrote results/local/hz_bench_profile.json

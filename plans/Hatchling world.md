@@ -6004,3 +6004,58 @@ assumption that corpus LM paid for 8 rounds per byte):
 North star is now explicitly a HYPOTHESIS, not a pre-declared winner:
 \(\boxed{\text{HZ-BR-C: } K=16, C=4, \text{shared } H, \text{shared } S}\)
 -- decided by steps 1-7's real numbers, not assumed going in.
+
+## 0.12.3 Result, 2026-09-11 -- step 1 (profiling) complete: confirmed CPU-dispatch-bound, not GPU-compute-bound
+
+Real RunPod GPU run (`scripts/hz_bench_profile.py`, RTX 4090, real
+`lm_forward`, `chunk_chars=2000`, `gradient_checkpointing=True`,
+`bfloat16`, `d_model=2336`, matched to section 0.11's real config):
+
+- **111.71 compute-only tok/sec** (no data loading, no decontamination,
+  no network -- pure `lm_forward` forward+backward+optimizer-step on a
+  fixed synthetic sequence) vs. **86.35 tok/sec end-to-end** from the
+  section 0.11 real pipeline run (mixed channels, includes real corpus
+  fetch). So real corpus I/O only costs ~23% on top of compute -- the
+  bottleneck is compute, confirming the earlier `nvidia-smi`/`dmon`
+  finding (0% GPU utilization, 22W power draw, base clocks) wasn't a
+  data-starvation artifact.
+- **Self CUDA time total: 342ms vs. Self CPU time total: 2.23s** on the
+  profiled block (short synthetic sequence, 3 iterations) -- CPU time
+  is ~6.5x CUDA time. The GPU is idle waiting on Python-side dispatch
+  for the large majority of wall-clock, not doing genuine compute.
+- **No single dominant kernel** -- top entries by CPU time are
+  `MmBackward0` (1896 calls, 37.65% CPU total), `aten::linear` (5688
+  calls, 27.60%), `aten::to`/`aten::_to_copy` (13206+11424 calls,
+  ~10%+9.94%, likely autocast/checkpoint-recompute dtype casting), 256
+  distinct profiler ops total. A long tail of small, individually cheap
+  operations repeated thousands of times -- exactly the "many tiny
+  serial ops" shape the whole HZCQ-BR redesign is built to fix, not one
+  fixable hot spot.
+
+**Conclusion: the profiling data directly supports the corrected
+redesign (0.12.2) over further micro-optimization of the current loop.**
+The problem isn't a slow op that needs a faster kernel -- it's thousands
+of Python-dispatched tiny ops per chunk, each paying real per-call
+overhead (further inflated by per-token `torch.utils.checkpoint`
+bookkeeping) with too little actual GPU work per call to hide that
+overhead. Block recurrence (fewer, larger per-block calls) is the right
+next lever, per the roadmap's step 2 (\(K=16, C=1\)). Real caveat also
+worth carrying forward from this same investigation: building the
+`hz_bench_profile.py` profiler over the FULL `chunk_chars`-length
+sequence (rather than a short synthetic one) reliably OOMs
+`key_averages()` on the sheer event count -- already fixed
+(`--profile-chunk-chars`, separate from the real-length timing loop),
+but a reminder that any FUTURE profiling of the new block-recurrent cell
+should keep the same short-sequence-for-op-breakdown discipline.
+
+Real infra note from getting this run to land: `runpodctl` (2.14.0,
+current brew install) silently dropped `--terminate-after` with no
+replacement TTL/expiry mechanism in the CLI at all -- fixed in
+`runpod_run.sh` (informational-only TTL log line now, real safety net is
+only the script's own exit trap). Worth periodically re-checking
+`runpodctl pod create --help` against what this script assumes, since
+this dependency moves fast and silently, same lesson as the
+`huggingface_hub`/`datasets` pin from section 0.11.
+
+Step 2 (implement \(K=16, C=1\) block recurrence) is real, substantial
+coding work -- not started as of this result.

@@ -1,0 +1,18 @@
+{
+  "device": "cuda",
+  "n_params": 99756770,
+  "d_model": 2336,
+  "n_rounds_l1": 8,
+  "gradient_checkpointing": true,
+  "dtype": "bfloat16",
+  "compute": {
+    "n_iters": 10,
+    "chunk_chars": 2000,
+    "n_rounds_l1": 8,
+    "elapsed_sec": 178.9472062587738,
+    "sec_per_iter": 17.89472062587738,
+    "compute_tok_per_sec": 111.70892476014774,
+    "n_distinct_ops": 256
+  },
+  "io_vs_compute": null
+}
