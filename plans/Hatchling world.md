@@ -5655,3 +5655,158 @@ design, to avoid spending further GPU-hours once the actual open
 question -- does the pipeline work end-to-end -- was answered). That
 longer run, and the cardinality experiment from section 0.10, are both
 real, deliberate next spends, not yet started as of this resolution.
+
+# 0.12 Proposal, 2026-09-11 -- HZCQ-BR: block recurrence + adaptive R + cardinality, superseding section 0.10's cardinality-alone proposal (not yet started)
+
+Real trigger: the section 0.11 confirmation run measured **~86 corpus
+tok/sec** on real RunPod GPU infra, against combined_best's ~7,000
+tok/sec on the same GPU tier (`stage0_scaled.log`) -- an ~81x gap. User's
+diagnosis, which reframes section 0.10 rather than replacing it: trying
+to close that gap by optimizing the CURRENT per-byte, R=8 recurrent loop
+(kernel fusion, caching, batching) cannot plausibly produce 81x on its
+own, because the real bottleneck is the *serial dependency depth* itself:
+
+\[
+\boxed{T \times R = 1024 \times 8 = 8192 \text{ sequential recurrent transitions}}
+\]
+
+for a 1024-byte sequence -- and no batching/compilation trick removes a
+true sequential dependency \(H_{t+1} \leftarrow H_t\). Persistent memory
+does not require updating \(H, S\) on every single byte; that granularity
+is an implementation choice, not the HatchlingZero thesis (persistent
+state + recurrent compute + adaptive learning).
+
+**Core redesign: block recurrence.** Process bytes in fixed-size blocks
+(\(K=16\) to start, matching prior art -- Block-Recurrent Transformers
+apply recurrence across blocks of tokens while parallelizing within a
+block; BLT groups bytes into patches as the unit of expensive
+computation). Within a block, local causal processing runs in parallel
+(one or a few big GEMMs); only block BOUNDARIES pay the recurrent S/H
+update:
+
+\[
+Z_b = \operatorname{LocalCausalMixer}(X_b, H_b, S_b), \qquad
+H_{b+1} = F(H_b, S_b, Z_b), \qquad
+S_{b+1} = U(S_b, Z_b, H_{b+1})
+\]
+
+For \(T=1024, K=16, \bar R=2\): serial depth drops from \(1024\times8=8192\)
+to \(\frac{1024}{16}\times2=128\) -- a 64x reduction in sequential core
+transitions (not necessarily 64x wall-clock, since the local mixer still
+costs real compute, but that compute is large parallel GEMMs GPUs are
+good at, unlike the current shape).
+
+**Adaptive \(R\), not fixed \(R=8\) everywhere.** Contradicts nothing
+already found -- this session's own real evidence (the HZ-CQ ARC
+fine-tuning sweep, [[project_hz_cardinality_proposal]]) already showed
+blindly increasing R doesn't buy proportional capability, so paying for
+8 rounds on every block is hard to justify anyway. Target
+\(\mathbb E[R] \approx 1.5\text{-}2\) on ordinary pretraining text via a
+learned halting/confidence gate, with \(R_{\max}=8\) still available for
+uncertain/hard blocks -- another real ~4x reduction in recurrent work
+on top of blocking.
+
+**Cardinality (section 0.10) still applies, but to ROUND seriality, not
+token seriality** -- the two compose rather than compete: block
+recurrence cuts \(T\), cardinality cuts \(R\) itself (\(R8,C1
+\rightarrow R2,C4\): two sequential rounds, each with four parallel
+transformations, aggregated as \(H' = H + W_O[F_1;F_2;F_3;F_4]\) --
+same shared-S/shared-H, no-per-stream-memory constraint from 0.10 still
+holds). Combined target for the first HZCQ-BR prototype:
+
+\[
+\boxed{K=16, \quad C=4, \quad R_{\max}=8, \quad \mathbb E[R] \le 2}
+\]
+
+giving serial core depth \(\frac{2T}{16} = \frac{T}{8}\) on ordinary
+text -- a 64x reduction before any kernel fusion is even applied.
+
+**S should also stop writing every byte.** Same over-granularity
+argument applied to persistent memory specifically: gate the write,
+\(S_{b+1} = U(S_b, Z_b)\) if \(g_b = \sigma(WZ_b) > \tau\) else
+\(S_b\) unchanged (or a soft/differentiable write during training) --
+event memory instead of a scratchpad churned on every character, which
+may improve memory quality (less write noise) as a side benefit, not
+just speed.
+
+**Bytes stay at the I/O boundary; patches become the internal compute
+unit** -- explicitly not abandoning byte-level modeling, just moving
+where the expensive model actually operates (BLT's real finding). Start
+with fixed \(K=16\) blocks for a clean first experiment; \(K \in
+\{8,16,32\}\) and entropy/dynamic boundaries are real follow-ups, not
+the first move.
+
+**Explicitly ruled out for now: an exact parallel scan (Mamba-style).**
+HZ's update \(H_{t+1}=F(H_t,S_t,x_t)\) has nonlinear attention and
+state-dependent gating, so it isn't generally rewritable as an
+associative prefix operation without redesigning \(F\) into an
+affine/associative form. Possible later; not the first move.
+
+**Jump operator, revisited inside the real architecture.** The
+already-real, already-measured result from the parked BDH-Core-Bench
+branch (~3.5x local throughput at a small quality cost via a learned
+jump replacing several exact recurrent rounds) should be re-tried
+against the REAL HZLanguageModel's \(F\), not just remembered as a
+BDH-only result: train \(J(H,S) \approx F^{(n)}(H,S)\) via
+\(\mathcal L = \|\hat H - H\|^2 + \lambda D_{KL}(p_{jump}\|p_{full})\),
+then mix exact and jumped rounds (e.g. rounds 1-2 exact, 3-8 jumped, or
+gated by the same halting controller as adaptive R).
+
+**Free systems wins, real but explicitly NOT confused with the actual
+fix** (bounded, worth doing, won't close an 81x gap alone): get Python
+out of the per-token/per-round hot loop (fused Triton/CUDA cell instead
+of a driving `for` loop issuing thousands of small CUDA launches); fuse
+the Q/K/V/gate/candidate projections into fewer, larger GEMMs; confirm
+`_step_with_cache`'s existing K_S/V_S/packed-Q caching (already in
+`hz0h_bdh_hzcq_v1_reasoning_workspace_torch.py`, see its own docstrings)
+is actually being hit and extend it if cardinality streams get added;
+batch hard across independent sequences (recurrence blocks batching
+across \(t\), not across the batch dimension -- push batch size up to
+actually saturate the GPU for training throughput, distinct from
+single-stream generation latency); CUDA Graph capture / `torch.compile`
+once shapes are fixed (\(K\), \(R_{\max}\), memory dims).
+
+**Generation-specific, later:** current per-byte generation pays 1 byte
+x 8 H-rounds; get that to 1 byte x 1-2 rounds first via the above, then
+consider blockwise self-speculative generation (the local decoder
+speculates several bytes, the expensive HZ core verifies/updates) --
+real, direct prior art in a 2026 Fast Byte Latent Transformer
+follow-up that attacks exactly this serving problem.
+
+**Proposed implementation sequence** (build toward the scaled model with
+ablations inside it, not a dozen more isolated science experiments):
+1. Profile current HZ on CUDA -- real kernel-launch/GEMM/round timing
+   breakdown, establishes where the 86 tok/sec is actually going before
+   changing anything.
+2. Fuse the current R=8 implementation (the "free systems wins" above)
+   to establish the ceiling systems-only optimization can reach, without
+   touching the architecture.
+3. Implement fixed-block (\(K=16\)) recurrence: parallel local causal
+   processing within a block, one persistent S/H update per block
+   boundary.
+4. Fixed \(R=8\) -> adaptive \(R_{\max}=8\) with a halting/confidence
+   gate targeting \(\mathbb E[R]\approx2\).
+5. Add \(C=4\) cardinal streams inside the H update; test whether
+   \(R2,C4\) recovers/exceeds \(R8,C1\) quality (this is section 0.10's
+   experiment, now run inside the blocked+adaptive architecture rather
+   than the original fixed-R one).
+6. Add the jump operator if deep recurrence is still worth its cost
+   after 3-5.
+7. Only then scale the resulting architecture to HZ-Bench-100M.
+
+**Every step gated on three things simultaneously, not just speed:**
+LM quality, persistent-memory capability (the actual L5/L6 memory-stress
+tests, not a proxy), and tokens/sec. Explicit, real warning worth
+keeping: "we must not solve throughput by quietly deleting the reason HZ
+exists" -- a fast architecture with no persistent memory left is just
+BDH-Core-Bench again under a new name.
+
+**Sequencing relative to 0.10 and 0.11:** this proposal supersedes
+0.10's "run the cardinality ablation on the current fixed-R architecture"
+plan -- cardinality is still real and still wanted, just tested inside
+the blocked/adaptive architecture (step 5 above) instead of bolted onto
+the current per-byte R=8 loop, since testing it on the current
+architecture would mean re-deriving results that block recurrence will
+already obsolete. Not yet started as of 2026-09-11 -- step 1 (profiling)
+is the natural next real action, and needs GPU time to run, so it's a
+real spend decision, not a free next step.
