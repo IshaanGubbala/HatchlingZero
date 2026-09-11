@@ -159,12 +159,24 @@ if [[ $NO_REUSE -eq 0 ]]; then
 fi
 
 if [[ -z "$POD_ID" ]]; then
-    TERMINATE_AT="$(date -u -v+"${TTL_MINUTES}"M +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d "+${TTL_MINUTES} minutes" +%Y-%m-%dT%H:%M:%SZ)"
+    # Real bug, found 2026-09-11: runpodctl (2.14.0-dd55bcf, installed via
+    # brew) silently dropped `--terminate-after` -- it's not in
+    # `runpodctl pod create --help` and there is no replacement TTL/expiry
+    # flag anywhere in the CLI (`runpodctl pod --help` has no
+    # ttl/terminate/expire subcommand either). This was a REAL, load-bearing
+    # hard safety net (a CLI-level auto-terminate that fired even if this
+    # script's own trap somehow never ran) -- it's gone now, not replaced.
+    # $TTL_MINUTES is kept only as an informational log value below; it no
+    # longer does anything at the runpodctl level. The only remaining
+    # safety net is this script's own `cleanup()` trap (EXIT/INT/TERM) --
+    # a truly killed-uncleanly process (e.g. `kill -9` on this script, or
+    # the machine losing power) can now leak a billing pod with nothing to
+    # stop it. Check `runpodctl pod list` by hand after anything unusual.
     VOLUME_ARGS=()
     [[ -n "$NETWORK_VOLUME_ID" ]] && VOLUME_ARGS=(--network-volume-id "$NETWORK_VOLUME_ID")
     DC_ARGS=()
     [[ -n "$DATA_CENTER_IDS" ]] && DC_ARGS=(--data-center-ids "$DATA_CENTER_IDS")
-    log "no running pod found, creating one: gpu='$GPU_ID' image=$IMAGE disk=${DISK_GB}GB ttl=${TTL_MINUTES}m network_volume='${NETWORK_VOLUME_ID:-none}' data_centers='${DATA_CENTER_IDS:-any}' (auto-terminate at $TERMINATE_AT as a hard safety net)"
+    log "no running pod found, creating one: gpu='$GPU_ID' image=$IMAGE disk=${DISK_GB}GB ttl=${TTL_MINUTES}m (INFORMATIONAL ONLY -- runpodctl dropped --terminate-after, no CLI-level auto-terminate exists anymore, see script comment) network_volume='${NETWORK_VOLUME_ID:-none}' data_centers='${DATA_CENTER_IDS:-any}'"
     set +e
     CREATE_JSON="$(runpodctl pod create \
         --image "$IMAGE" \
@@ -172,7 +184,6 @@ if [[ -z "$POD_ID" ]]; then
         --container-disk-in-gb "$DISK_GB" \
         --ports "22/tcp" \
         --name "$POD_NAME" \
-        --terminate-after "$TERMINATE_AT" \
         "${VOLUME_ARGS[@]+"${VOLUME_ARGS[@]}"}" \
         "${DC_ARGS[@]+"${DC_ARGS[@]}"}" \
         --wait --wait-timeout "$WAIT_TIMEOUT")"
