@@ -5542,3 +5542,116 @@ The ultimate research question remains:
 \]
 
 The branch earns multiple controlled, falsifiable attempts before it is killed.
+
+# 0.10 Proposal, 2026-09-10 -- cardinality as a third axis alongside width and recurrence (not yet started, sequenced AFTER the real S+H corpus pipeline is unblocked)
+
+Real motivating evidence already in hand: the HZ-CQ ARC fine-tuning sweep
+across 8 eval checkpoints found MEDIUM R-band (R=6-8) consistently beating
+BOTH LOW and HIGH R -- an inverted-U, not the naive "more recurrence helps"
+signature. That is direct evidence that repeated serial rounds of the same
+transformation hit diminishing/negative returns before any parameter or
+compute budget is exhausted.
+
+Proposal: give the recurrent workspace update a **cardinality** axis
+alongside width \(D\) and recurrence \(R\), borrowing the ResNeXt insight
+(aggregate C parallel transformations instead of widening or deepening
+one) but adapted to HZ's stateful transition rather than a static residual
+block:
+
+\[
+H_{r+1} = H_r + W_O\,[Z_1;\ldots;Z_C], \qquad
+Z_c=\operatorname{Attn}(Q_c,K_c,V_c,S),\quad Q_c=W_c^Q H,\ K_c=W_c^K H,\ V_c=W_c^V H
+\]
+
+Deliberate constraints on the first version (to avoid re-opening the
+memory-bank/routing rabbit hole this project already walked back from
+once): **shared S, shared H, cardinal transformations only** -- not one S
+per stream, and no top-k expert routing at first (run all C branches
+densely and aggregate, to isolate whether cardinality itself helps before
+adding sparsity).
+
+Planned experiment (micro-scale, held constant params/tokens):
+
+| Architecture | R | Cardinality |
+|---|--:|--:|
+| baseline | 8 | 1 |
+| cardinal | 4 | 2 |
+| cardinal | 2 | 4 |
+| cardinal | 2 | 8 |
+
+Metrics: loss, Δtruth, Δpara, reasoning/depth tasks, steps/sec, FLOPs,
+GPU utilization. The result worth chasing further:
+\(\boxed{R2,C4 > R8,C1}\) at matched parameters/FLOPs -- evidence HZ
+benefits more from parallel computational diversity within one recurrent
+round than from more serial rounds of the same pathway. There is also a
+real systems incentive: cardinal streams are batched/grouped GEMMs, a much
+better shape for GPU utilization than HZ's current many-tiny-serial-ops
+profile.
+
+**Explicit sequencing, not a suggestion to relitigate:** this runs INSIDE
+the real S+H HatchlingZero architecture, after the corpus-streaming
+pipeline (currently blocked on a real `datasets`/`fsspec` concurrent
+shard-prefetch crash under streaming FineWeb-Edu, see the RunPod dispatch
+log for 2026-09-10) is fixed and the small integration gate from section
+0.9 passes -- not as a further reason to keep deferring that fix, and not
+retrofitted onto BDH-Core-Bench.
+
+# 0.11 Resolution, 2026-09-10/11 -- real HZCQ corpus pipeline confirmed end-to-end on RunPod GPU infra; section 0.9's integration gate is now real, not aspirational
+
+Real chain of diagnosis (worth keeping, since the wrong-seeming culprit was found and ruled out before the real one):
+
+1. `scripts/hz_bench_100m_pretrain.py` (the corrected, real HZLanguageModel
+   architecture) died SIGKILLed on every RunPod attempt right after
+   printing `real data: chat N train / M held-out` -- i.e. on the very
+   first live corpus draw, before any training step logged. `tee`
+   without `set -o pipefail` masked this as a clean exit 0 for several
+   attempts (fixed: `runpod_run.sh` now auto-injects `set -o pipefail;`
+   for `bash -c`/`sh -c` commands).
+2. First hypothesis, well-evidenced but INCOMPLETE: `hf_xet`'s concurrent
+   downloader racing file descriptors into a native GIL-desync crash
+   (`Fatal Python error: PyGILState_Release`). Real fix
+   (`HF_HUB_DISABLE_XET=1` forced in `web_corpus_stream.py`) -- but a
+   pinned-clean-version rerun still died, just later and differently
+   (plain `oom_kill`, confirmed via cgroup `memory.events`), proving this
+   was a real but SEPARATE bug from the actual blocker.
+3. Second hypothesis, checked against real evidence and REJECTED:
+   suspected a `huggingface_hub`/`datasets` regression, since 1.30.0 and
+   1.31.0 shipped on PyPI literally the day of the crash while the
+   working Milestone-2 combined_best run predated both. Pinned
+   `huggingface_hub==1.29.0`/`datasets==5.0.1`
+   (`scripts/hz_bench_requirements.txt`) -- confirmed installed via
+   `pip show` on the pod -- and the SAME OOM still happened. Real lesson:
+   a plausible, dated, checkable correlation is still not causation;
+   worth pinning anyway for stability, but it wasn't the fix.
+4. Actual root cause, confirmed by isolating the one remaining variable:
+   `.shuffle(buffer_size=N)` for ANY N>0 (200 was already the reduced
+   value in use) makes `datasets`' streaming reader prefetch from
+   multiple FineWeb-Edu Parquet shards concurrently to keep the shuffle
+   buffer mixed. Each shard's row groups must be fully decoded before a
+   single row is readable, so N-way concurrent prefetch means N
+   concurrent multi-GB decodes -- on a pod capped at ~29GB host RAM
+   (cgroup `memory.max`, confirmed), that's a real, reproducible OOM
+   independent of library version. `--shuffle-buffer-size 0` (skip
+   `.shuffle()`, strictly sequential single-shard reads) fixed it.
+   Real, disclosed cost: this trades away FineWeb-Edu's intra-corpus
+   shuffling until a Python-level windowed shuffle replaces the library's
+   own (not yet built) -- fine for a systems test, worth revisiting
+   before a long real training run if document-order effects on the loss
+   curve turn out to matter.
+
+Real verification run (RunPod, RTX 4090, `--shuffle-buffer-size 0`,
+`--total-steps 40`): 40/40 steps, clean `DONE`, 56,853 real corpus
+tokens, both `fineweb_edu` (27 draws) and `wikipedia` (6 draws) sources
+exercised, `decon_rejected=0`, peak VRAM 13.4GB. First run in this
+entire multi-day RunPod saga to complete without dying.
+
+This satisfies the real part of section 0.9's small integration gate
+(loads/trains on the real corpus mixture, on real GPU infra, using the
+real HZLanguageModel S+H architecture) -- lm-eval harness integration and
+the existing HZCQPersistentMemory test suite were already separately
+validated earlier. Not yet run: a full 100M-token-scale real training
+pass (this was a short systems-test run, 40 steps / ~57K tokens, by
+design, to avoid spending further GPU-hours once the actual open
+question -- does the pipeline work end-to-end -- was answered). That
+longer run, and the cardinality experiment from section 0.10, are both
+real, deliberate next spends, not yet started as of this resolution.

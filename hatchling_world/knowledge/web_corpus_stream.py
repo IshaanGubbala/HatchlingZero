@@ -8,6 +8,31 @@ live before this module was written: both `HuggingFaceFW/fineweb-edu`
 streaming=True)` with real network access.
 
 Real, disclosed mechanics:
+  - CONFIRMED 2026-09-10, real RunPod evidence: `.shuffle(buffer_size=N)`
+    for ANY N > 0 (200 was tried, not just the original 2000/10000) causes
+    `datasets`' streaming reader to prefetch from multiple shard files
+    concurrently to keep the buffer mixed. Each FineWeb-Edu shard is a
+    Parquet file whose row groups must be fully downloaded+decompressed
+    before a single row can be read out of them, so N-way concurrent
+    prefetch means N row-group decodes competing for memory at once. On
+    a RunPod pod capped at ~29GB (cgroup `memory.max`, confirmed via
+    `memory.events` showing real `oom_kill` events), this reliably
+    SIGKILLs the training process (exit 137) within the first few corpus
+    draws, well before any host-RAM ceiling would seem justified by this
+    model's actual size (99.76M params). Pinning `huggingface_hub`/
+    `datasets` (see `scripts/hz_bench_requirements.txt`) fixed a REAL but
+    SEPARATE bug (a native thread-pool/GIL crash from xet-accelerated
+    concurrent fetches) without touching this one -- the OOM persisted
+    even on pinned, known-good versions. `shuffle_buffer_size=0` (skips
+    `.shuffle()` entirely, falls back to strictly sequential single-shard
+    reads) was verified end-to-end on real RunPod GPU infra: 40/40 steps,
+    clean `DONE`, both fineweb_edu and wikipedia sources exercised,
+    13.4GB peak VRAM, no host OOM. The real, disclosed cost: pure
+    sequential reads lose FineWeb-Edu's intra-corpus shuffling (documents
+    arrive in shard-file order rather than mixed) -- acceptable for a
+    systems-test run; revisit with a small in-process (Python-level,
+    single-shard-at-a-time) windowed shuffle before a long real training
+    run if document ordering turns out to matter for loss curves.
   - `HF_HUB_DISABLE_XET` is forced on below, BEFORE any `datasets`/
     `huggingface_hub` import can happen (including the lazy ones inside
     `_iter_fineweb_edu`/`_iter_wikipedia`). Real, diagnosed reason: a

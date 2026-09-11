@@ -1,0 +1,23 @@
+[hz-bench-100m] device=cuda
+[hz-bench-100m] FRESH model: d_model=2336 n_params=99,763,781 gradient_checkpointing=True dtype=bfloat16 optimizer=adamw {'model_family': 'hatchlingzero', 'architecture_version': 'hz-sh-v1', 'has_persistent_memory': True, 'memory_slots': 16, 'workspace_slots': 64}
+[hz-bench-100m] building benchmark decontamination hashes...
+/usr/local/lib/python3.12/dist-packages/requests/__init__.py:113: RequestsDependencyWarning: urllib3 (2.5.0) or chardet (6.0.0.post1)/charset_normalizer (3.4.3) doesn't match a supported version!
+  warnings.warn(
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+[Task: boolq] metric acc is defined, but aggregation is not. using default aggregation=mean
+[Task: boolq] metric acc is defined, but higher_is_better is not. using default higher_is_better=True
+[hz-bench-100m] 1693252 benchmark n-gram hashes across ['arc_easy', 'arc_challenge', 'hellaswag', 'piqa', 'winogrande', 'boolq']
+[hz-bench-100m] captured 20 frozen held-out corpus chunks (seed+777, never trained on)
+[hz-bench-100m] real data: chat 1741 train / 51 held-out
+[hz-bench-100m] step=5/40 (92.3s, 0.05 steps/sec, 84 corpus tok/sec) last=Corpus corpus_tokens_seen=7,735 peak_vram=2.62 GB calls={'Corpus': 4, 'Knowledge': 1, 'Nursery': 0, 'Chat': 0} corpus_sources={'fineweb_edu': 4, 'wikipedia': 0} decon_rejected=0
+[hz-bench-100m] step=10/40 (177.0s, 0.06 steps/sec, 88 corpus tok/sec) last=Corpus corpus_tokens_seen=15,630 peak_vram=2.62 GB calls={'Corpus': 9, 'Knowledge': 1, 'Nursery': 0, 'Chat': 0} corpus_sources={'fineweb_edu': 9, 'wikipedia': 0} decon_rejected=0
+[hz-bench-100m] step=15/40 (265.4s, 0.06 steps/sec, 89 corpus tok/sec) last=Corpus corpus_tokens_seen=23,641 peak_vram=13.41 GB calls={'Corpus': 13, 'Knowledge': 1, 'Nursery': 0, 'Chat': 1} corpus_sources={'fineweb_edu': 13, 'wikipedia': 0} decon_rejected=0
+[hz-bench-100m] step=20/40 (327.2s, 0.06 steps/sec, 89 corpus tok/sec) last=Corpus corpus_tokens_seen=29,061 peak_vram=13.41 GB calls={'Corpus': 16, 'Knowledge': 2, 'Nursery': 0, 'Chat': 2} corpus_sources={'fineweb_edu': 16, 'wikipedia': 0} decon_rejected=0
+[hz-bench-100m] step=25/40 (406.6s, 0.06 steps/sec, 89 corpus tok/sec) last=Chat corpus_tokens_seen=36,060 peak_vram=13.41 GB calls={'Corpus': 20, 'Knowledge': 2, 'Nursery': 0, 'Chat': 3} corpus_sources={'fineweb_edu': 20, 'wikipedia': 0} decon_rejected=0
+[hz-bench-100m] step=30/40 (462.7s, 0.06 steps/sec, 89 corpus tok/sec) last=Knowledge corpus_tokens_seen=41,223 peak_vram=13.41 GB calls={'Corpus': 24, 'Knowledge': 3, 'Nursery': 0, 'Chat': 3} corpus_sources={'fineweb_edu': 24, 'wikipedia': 0} decon_rejected=0
+[hz-bench-100m] step=35/40 (544.3s, 0.06 steps/sec, 86 corpus tok/sec) last=Corpus corpus_tokens_seen=46,834 peak_vram=13.41 GB calls={'Corpus': 28, 'Knowledge': 3, 'Nursery': 1, 'Chat': 3} corpus_sources={'fineweb_edu': 27, 'wikipedia': 1} decon_rejected=0
+[hz-bench-100m] step=40/40 (658.4s, 0.06 steps/sec, 86 corpus tok/sec) last=Corpus corpus_tokens_seen=56,853 peak_vram=13.41 GB calls={'Corpus': 33, 'Knowledge': 3, 'Nursery': 1, 'Chat': 3} corpus_sources={'fineweb_edu': 27, 'wikipedia': 6} decon_rejected=0
+
+[hz-bench-100m] DONE: 40 steps in 658.4s (0.06 steps/sec, 86 corpus tok/sec, peak_vram=13.41 GB, corpus_tokens_seen=56,853, estimated_flops=3.403e+13)
+[hz-bench-100m] final checkpoint: results/local/hz_bench_100m_stage0_v7/final.pt
+[hz-bench-100m] wrote results/local/hz_bench_100m_stage0_v7.json

@@ -1,0 +1,28 @@
+{
+  "n_params": 99763781,
+  "d_model": 2336,
+  "device": "cuda",
+  "model_family": "hatchlingzero",
+  "architecture_version": "hz-sh-v1",
+  "has_persistent_memory": true,
+  "memory_slots": 16,
+  "workspace_slots": 64,
+  "mode": "stage0_systems_test",
+  "total_steps": 40,
+  "total_seconds": 658.3805904388428,
+  "steps_per_sec": 0.06075513248854747,
+  "corpus_tokens_seen": 56853,
+  "tokens_per_sec": 86.35278868428473,
+  "peak_vram_gb": 13.405865984,
+  "calls": {
+    "Corpus": 33,
+    "Knowledge": 3,
+    "Nursery": 1,
+    "Chat": 3
+  },
+  "corpus_source_calls": {
+    "fineweb_edu": 27,
+    "wikipedia": 6
+  },
+  "decon_rejected": 0
+}
