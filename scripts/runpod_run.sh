@@ -289,6 +289,20 @@ log "running: ${COMMAND[*]}"
 # then poll for a completion marker via SEPARATE short-lived SSH calls --
 # one dropped poll just retries, it can't kill a job it was never attached
 # to.
+# Real bug, found 2026-09-10: the completion marker below captures the
+# exit code of whatever COMMAND is -- but the common idiom this repo's
+# own dispatches use is `-- bash -c "... | tee results/x.log"`, and
+# without pipefail INSIDE that inner shell, `$?` after a `foo | tee log`
+# pipeline is tee's exit code, not foo's. A real training run was
+# SIGKILLed and this masking made runpod_run.sh report exit 0 anyway --
+# the crash was only found by rerunning by hand with pipefail set. Since
+# `set -o pipefail;` only changes what `$?` reports (never what actually
+# runs), it's safe to always inject when COMMAND is exactly
+# `bash -c <script>` / `sh -c <script>` -- the one shape where a caller's
+# own internal pipe/&&-chain is opaque to this script.
+if [[ ${#COMMAND[@]} -eq 3 && ( "${COMMAND[0]}" == "bash" || "${COMMAND[0]}" == "sh" ) && "${COMMAND[1]}" == "-c" ]]; then
+    COMMAND[2]="set -o pipefail; ${COMMAND[2]}"
+fi
 REMOTE_MARKER=".runpod_run_$(date +%s)_$$"
 # Real bug, found 2026-08-27/28: ${COMMAND[*]} space-joins the array and
 # loses any quoting a caller embedded in a single element (e.g. passing

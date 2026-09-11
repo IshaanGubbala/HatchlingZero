@@ -8,6 +8,29 @@ live before this module was written: both `HuggingFaceFW/fineweb-edu`
 streaming=True)` with real network access.
 
 Real, disclosed mechanics:
+  - `HF_HUB_DISABLE_XET` is forced on below, BEFORE any `datasets`/
+    `huggingface_hub` import can happen (including the lazy ones inside
+    `_iter_fineweb_edu`/`_iter_wikipedia`). Real, diagnosed reason: a
+    RunPod dispatch of this exact streaming path (2026-09-10) died with
+    SIGKILL almost immediately after the first successful document
+    fetch. Isolating a single `next()` call with a concurrent
+    cgroup-memory poller showed `huggingface_hub`'s xet-accelerated
+    downloader firing 6+ concurrent parquet-shard GETs in background
+    threads right after that first yield; those hit transient
+    `[Errno 9] Bad file descriptor` errors, retried, and the interpreter
+    itself crashed during teardown (`Fatal Python error:
+    PyGILState_Release: thread state ... must be current when
+    releasing`) -- a native-thread-pool/GIL desync, not a Python-level
+    exception, which is why it surfaced as an untraceable SIGKILL
+    instead of a normal traceback. The one real environment difference
+    between every WORKING local run this session and every CRASHING pod
+    run: the pod's dispatch command did `pip install ... hf_xet`
+    (added earlier for a *different*, unrelated Windows fix) while
+    local never had `hf_xet` installed. Disabling xet acceleration here
+    makes this module fall back to plain sequential HTTP fetches
+    regardless of whether a future dispatch happens to install
+    `hf_xet` again -- this file no longer depends on callers
+    remembering not to install it.
   - 90/10 weighted sampling between FineWeb-Edu and Wikipedia (the
     90/10 split lives INSIDE the corpus channel's own share of the
     overall training mixture -- this module only implements that
@@ -32,8 +55,14 @@ Real, disclosed mechanics:
 """
 from __future__ import annotations
 
+import os
 import random
 from typing import Iterator
+
+# Must run before any datasets/huggingface_hub import (including the lazy
+# ones below) -- see the module docstring for the real, diagnosed crash
+# this prevents.
+os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
 
 from hatchling_world.knowledge.decontamination import is_contaminated
 
@@ -56,6 +85,28 @@ def _iter_wikipedia(seed: int, shuffle_buffer_size: int):
         ds = ds.shuffle(seed=seed, buffer_size=shuffle_buffer_size)
     for ex in ds:
         yield ex["text"]
+
+
+def _next_with_retry(it, max_attempts: int = 3):
+    """Bounded retry around a single streaming-shard fetch. Real-world
+    transient network blips against HF's streaming endpoints are a
+    documented, disclosed pattern this session (RunPod connectivity has
+    flipped reachable/unreachable within minutes on its own); a bare
+    `next(it)` has no recovery from that. Does NOT catch StopIteration --
+    that's a real end of a (supposedly infinite) HF split and should
+    propagate, not retry."""
+    import time
+    last_exc: Exception | None = None
+    for attempt in range(max_attempts):
+        try:
+            return next(it)
+        except StopIteration:
+            raise
+        except Exception as exc:  # noqa: BLE001 -- deliberately broad: real transient fetch errors from datasets/fsspec/requests don't share one base class
+            last_exc = exc
+            if attempt < max_attempts - 1:
+                time.sleep(2 ** attempt)
+    raise last_exc
 
 
 def _chunk_text(text: str, chunk_chars: int) -> list[str]:
@@ -83,7 +134,7 @@ class WebCorpusMixture:
         while not self._chunk_buffer:
             source, it = (("fineweb_edu", self._fineweb_iter) if self.rng.random() < self.fineweb_weight
                           else ("wikipedia", self._wiki_iter))
-            doc = next(it)
+            doc = _next_with_retry(it)
             if is_contaminated(doc, self.benchmark_hashes):
                 self.stats["rejected_contaminated"] += 1
                 continue
