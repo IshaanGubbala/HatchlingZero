@@ -1,9 +1,14 @@
 """Real generation sample from a checkpoint saved by
 scripts/hz_block_recurrence_quality_check.py's --checkpoint-out.
 
-Uses HZLanguageModel.generate() (the class's existing, real free-form
-generation method) -- no new generation logic invented here.
-"""
+Uses HZLanguageModel.generate_blocked() by default (2026-09-18) -- every
+checkpoint this script loads was actually trained via lm_forward_blocked
+(K-block H recurrence), and the older generate() uses a different,
+untrained per-token H-stepping path. Real, measured difference: on the
+step-99999 BPE checkpoint, generate() produced incoherent token soup
+while generate_blocked() produced grammatical, topically coherent text
+(still repetition-prone under greedy decoding, a separate, expected
+issue). --legacy-per-token falls back to the old path for comparison."""
 from __future__ import annotations
 
 import argparse
@@ -53,7 +58,13 @@ def main():
     ])
     parser.add_argument("--max-new-tokens", type=int, default=80)
     parser.add_argument("--greedy", action="store_true", default=True)
+    parser.add_argument("--sample", dest="greedy", action="store_false")
     parser.add_argument("--temperature", type=float, default=1.0)
+    parser.add_argument("--block-size", type=int, default=32,
+                        help="Must match the block_size (K) the checkpoint was trained with.")
+    parser.add_argument("--legacy-per-token", action="store_true",
+                        help="Use the old generate() per-token path instead of generate_blocked() -- "
+                             "for comparison only; this path does not match how the checkpoint was trained.")
     parser.add_argument("--device", default="mps" if torch.backends.mps.is_available() else "cpu")
     args = parser.parse_args()
 
@@ -66,8 +77,13 @@ def main():
 
     for prompt in args.prompts:
         prompt_ids = torch.tensor([tok.encode(prompt)], device=args.device)
-        generated_ids = model.generate(prompt_ids, max_new_tokens=args.max_new_tokens,
-                                       greedy=args.greedy, temperature=args.temperature)
+        if args.legacy_per_token:
+            generated_ids = model.generate(prompt_ids, max_new_tokens=args.max_new_tokens,
+                                           greedy=args.greedy, temperature=args.temperature)
+        else:
+            generated_ids = model.generate_blocked(prompt_ids, max_new_tokens=args.max_new_tokens,
+                                                    block_size=args.block_size,
+                                                    greedy=args.greedy, temperature=args.temperature)
         generated_text = tok.decode(generated_ids)
         print(f"PROMPT: {prompt!r}")
         print(f"OUTPUT: {generated_text!r}")

@@ -512,6 +512,67 @@ class HZLanguageModel(nn.Module):
             H = step_with(next_id)
         return generated
 
+    @torch.no_grad()
+    def generate_blocked(self, prompt_ids: torch.Tensor, max_new_tokens: int = 60,
+                         block_size: int = 32, eos_id: int | None = None,
+                         greedy: bool = True, temperature: float = 1.0) -> list[int]:
+        """Real fix (2026-09-18): `generate()` above uses the OLD per-token
+        H-stepping path, but every checkpoint actually trained on this
+        model used `lm_forward_blocked` (K=32 block recurrence) -- a real
+        train/inference mismatch, plausibly a real contributor to the
+        incoherent generation seen from the BPE-tokenizer checkpoint.
+        This mirrors `_lm_forward_block_step`/`lm_forward_blocked` exactly:
+        H is fixed (as H_{b-1}) for an entire block, local_mixer runs
+        causally over the block-so-far with that fixed H-conditioning
+        bias, and H only transitions once a block reaches `block_size`
+        tokens (matching training's chunking -- a block only transitions
+        early, at less than block_size tokens, if generation stops mid-
+        block via `eos_id`, in which case H is simply never advanced past
+        that partial block, matching how `lm_forward_blocked` would never
+        see a not-yet-closed chunk either).
+
+        prompt_ids: (1, T) -- batch size 1 only for now, same as generate()."""
+        B, T = prompt_ids.shape
+        assert B == 1, "generate_blocked() supports batch size 1 for now"
+        S = self.mem.init_state(B, device=prompt_ids.device)
+        H = self.ws.init_state(B, device=prompt_ids.device)
+        K_S, V_S = self.ws.read_s.project_kv(S)
+        s_summary = S.mean(dim=1, keepdim=True)
+
+        current_chunk_ids: list[int] = []
+
+        def process_token(token_id_int: int) -> torch.Tensor:
+            nonlocal H, current_chunk_ids
+            current_chunk_ids.append(token_id_int)
+            chunk_tensor = torch.tensor([current_chunk_ids], device=prompt_ids.device)
+            h_cond = H.mean(dim=1, keepdim=True)
+            local_hidden = self.local_mixer(self.token_embed(chunk_tensor) + h_cond)
+            logits_last = self.lm_head(local_hidden[:, -1:])
+            if len(current_chunk_ids) == block_size:
+                block_summary = local_hidden.mean(dim=1, keepdim=True)
+                K_x, V_x = self.ws.read_x.project_kv(block_summary)
+                H = self.ws._step_with_cache(H, K_S, V_S, K_x, V_x, s_summary)
+                current_chunk_ids = []
+            return logits_last
+
+        logits = None
+        for t in range(T):
+            logits = process_token(int(prompt_ids[0, t].item()))
+
+        generated: list[int] = []
+        for _ in range(max_new_tokens):
+            if greedy:
+                next_id = logits[:, -1].argmax(-1)
+            else:
+                probs = F.softmax(logits[:, -1] / temperature, dim=-1)
+                next_id = torch.multinomial(probs, 1).squeeze(-1)
+            next_id_val = int(next_id.item())
+            generated.append(next_id_val)
+            if eos_id is not None and next_id_val == eos_id:
+                break
+            logits = process_token(next_id_val)
+        return generated
+
     # ---- Stage L1: grounded nouns/properties ----
 
     def encode_objects(self, type_idx: torch.Tensor, color_idx: torch.Tensor,
