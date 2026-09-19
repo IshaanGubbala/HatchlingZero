@@ -42,14 +42,16 @@ def gpu_snapshot() -> dict:
 
 
 def run_one_batch_size(model, opt, batch_size, seq_len, vocab_size, block_size, device,
-                       warmup_steps, timed_steps):
+                       warmup_steps, timed_steps, precision="fp32"):
     torch.cuda.reset_peak_memory_stats(device)
     ids = torch.randint(0, vocab_size, (batch_size, seq_len), device=device)
     target = ids[:, 1:]
+    autocast_dtype = torch.bfloat16 if precision == "bf16" else torch.float32
 
     def step():
-        logits = model.lm_forward_blocked(ids, block_size=block_size)
-        loss = F.cross_entropy(logits.reshape(-1, vocab_size), target.reshape(-1))
+        with torch.autocast(device_type="cuda", dtype=autocast_dtype, enabled=(precision == "bf16")):
+            logits = model.lm_forward_blocked(ids, block_size=block_size)
+            loss = F.cross_entropy(logits.reshape(-1, vocab_size), target.reshape(-1))
         opt.zero_grad(set_to_none=True)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
@@ -89,6 +91,20 @@ def main():
     parser.add_argument("--batch-sizes", type=str, default="1,2,4,8,16,32,64,128,256")
     parser.add_argument("--warmup-steps", type=int, default=5)
     parser.add_argument("--timed-steps", type=int, default=20)
+    parser.add_argument("--precision", choices=["fp32", "bf16"], default="fp32",
+                        help="bf16 uses torch.autocast around the forward+loss; params/optimizer stay fp32 "
+                             "(standard mixed-precision, not full bf16 weights).")
+    parser.add_argument("--compile", action="store_true",
+                        help="torch.compile the block-recurrence forward -- real, disclosed caveat: each "
+                             "new batch size in --batch-sizes triggers a fresh recompilation, so its "
+                             "warmup cost is absorbed into --warmup-steps, not the timed steps, but the "
+                             "first size swept pays a real one-time compile-time premium.")
+    parser.add_argument("--compile-mode", default="default",
+                        choices=["default", "reduce-overhead", "max-autotune"],
+                        help="reduce-overhead uses CUDA graphs to cut per-op dispatch overhead -- the "
+                             "real diagnosed bottleneck here (many small sequential ops, not big matmuls). "
+                             "max-autotune searches harder for fused kernels at a real, much longer "
+                             "compile-time cost. Only used when --compile is set.")
     parser.add_argument("--out", type=Path, default=Path("results/local/hz_gpu_batch_sweep.json"))
     args = parser.parse_args()
 
@@ -107,12 +123,17 @@ def main():
     print(f"model params: {total_params:,}", flush=True)
     opt = torch.optim.AdamW(model.parameters(), lr=3e-4)
 
+    if args.compile:
+        model.lm_forward_blocked = torch.compile(model.lm_forward_blocked, mode=args.compile_mode)
+        print(f"torch.compile enabled on lm_forward_blocked (mode={args.compile_mode})", flush=True)
+    print(f"precision={args.precision}", flush=True)
+
     results = []
     for bs in [int(x) for x in args.batch_sizes.split(",")]:
         print(f"\n--- batch_size={bs} ---", flush=True)
         try:
             r = run_one_batch_size(model, opt, bs, args.seq_len, args.vocab_size, args.k, device,
-                                   args.warmup_steps, args.timed_steps)
+                                   args.warmup_steps, args.timed_steps, precision=args.precision)
             print(f"  {r['examples_per_sec']:.1f} examples/sec, {r['tokens_per_sec']:,.0f} tokens/sec, "
                  f"peak_mem={r['peak_mem_gb']:.2f}GB, gpu_util_mid_run={r['gpu_mid_run']}", flush=True)
             results.append(r)
