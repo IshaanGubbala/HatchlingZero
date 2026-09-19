@@ -82,14 +82,113 @@ class FactorizedObjectEncoder(nn.Module):
                 + self.size_embed(size_idx) + self.position_embed(position_idx))
 
 
+class LocalCausalMixer(nn.Module):
+    """Minimal causal local mixer for HZ block recurrence (Experiment 3,
+    2026-09-16 AMX-execution-geometry pass, section 4). Deliberately the
+    SIMPLEST possible causal local mixer per the plan's own instruction
+    ("prefer something like: embedding -> large fused projection ->
+    causal local attention -> MLP... do not build a complicated
+    router"): one causal self-attention block (fused QKV, per the
+    section-6 fusion philosophy) + one MLP, standard pre-norm residual
+    structure. Entirely new, separate parameters from the per-token
+    H-driven L0 path -- does not reuse or modify _lm_forward_step /
+    HZCQReasoningWorkspace at all. H itself (the tied reasoning
+    operator) stays exactly HZCQReasoningWorkspace, just invoked once
+    per block instead of once per token (see HZLanguageModel.
+    lm_forward_blocked)."""
+
+    def __init__(self, d_model: int, n_heads: int = 4, mlp_mult: int = 4, num_sinks: int = 4):
+        """num_sinks (2026-09-16, real evidence from arXiv:2608.28444
+        "Sliding-window beats linear attention" -- verified real, see
+        session notes): a small number of LEARNED key/value pairs, not
+        derived from any token, that every real position can attend to
+        regardless of the causal mask. `local_mixer`'s causal self-
+        attention was already a de facto sliding-window (bounded to
+        block_size K) even before this -- attention sinks are the one
+        piece that paper's own evidence says such a window needs to
+        match/beat linear-attention alternatives. num_sinks=0 reduces
+        exactly to the prior (pre-sink) behavior -- see
+        tests/test_hz_block_recurrence.py's regression test."""
+        super().__init__()
+        assert d_model % n_heads == 0, "d_model must be divisible by n_heads"
+        self.d_model, self.n_heads, self.num_sinks = d_model, n_heads, num_sinks
+        self.head_dim = d_model // n_heads
+        self.ln1 = nn.LayerNorm(d_model)
+        self.qkv = nn.Linear(d_model, 3 * d_model, bias=False)
+        self.out_proj = nn.Linear(d_model, d_model, bias=False)
+        self.ln2 = nn.LayerNorm(d_model)
+        self.mlp = nn.Sequential(
+            nn.Linear(d_model, mlp_mult * d_model), nn.GELU(), nn.Linear(mlp_mult * d_model, d_model))
+        if num_sinks > 0:
+            # Two separate learned banks (not derived from qkv/any real
+            # token) -- sinks are keys/values ONLY, never queried
+            # themselves (no output position "is" a sink), matching the
+            # standard attention-sink formulation.
+            self.sink_k = nn.Parameter(torch.zeros(num_sinks, d_model).normal_(std=0.02))
+            self.sink_v = nn.Parameter(torch.zeros(num_sinks, d_model).normal_(std=0.02))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """x: (B, k, D), k = current block's real length (<=block_size,
+        the final block of a sequence may be shorter). Causal within the
+        block ONLY -- position i attends to positions [0, i] of x, PLUS
+        every sink (sinks are learned parameters, not derived from any
+        specific token or example, so attending to them carries no
+        future-token leakage regardless of position). No information
+        from outside this call's own x reaches the output otherwise
+        (H-conditioning, if any, must already be baked into x by the
+        caller before this is invoked -- see lm_forward_blocked's
+        h_cond addition)."""
+        b, k, d = x.shape
+        h = self.ln1(x)
+        qkv = self.qkv(h).view(b, k, 3, self.n_heads, self.head_dim)
+        q, key, v = qkv.unbind(2)
+        q, key, v = (t.transpose(1, 2) for t in (q, key, v))  # (B, n_heads, k, head_dim)
+
+        if self.num_sinks > 0:
+            sink_k = self.sink_k.view(self.num_sinks, self.n_heads, self.head_dim)
+            sink_v = self.sink_v.view(self.num_sinks, self.n_heads, self.head_dim)
+            sink_k = sink_k.permute(1, 0, 2).unsqueeze(0).expand(b, -1, -1, -1)  # (B, n_heads, num_sinks, head_dim)
+            sink_v = sink_v.permute(1, 0, 2).unsqueeze(0).expand(b, -1, -1, -1)
+            key_full = torch.cat([sink_k, key], dim=2)  # (B, n_heads, num_sinks+k, head_dim)
+            v_full = torch.cat([sink_v, v], dim=2)
+            positions_q = torch.arange(k, device=x.device)
+            positions_kv = torch.cat([
+                positions_q.new_full((self.num_sinks,), -1),  # sinks: always visible, never masked out
+                positions_q])
+            causal = (positions_kv[None, :] <= positions_q[:, None]) | (positions_kv[None, :] == -1)
+            attn_out = F.scaled_dot_product_attention(q, key_full, v_full, attn_mask=causal)
+        else:
+            attn_out = F.scaled_dot_product_attention(q, key, v, is_causal=True)
+
+        attn_out = attn_out.transpose(1, 2).reshape(b, k, d)
+        x = x + self.out_proj(attn_out)
+        return x + self.mlp(self.ln2(x))
+
+
 class HZLanguageModel(nn.Module):
     def __init__(self, vocab_size: int, d_model: int = 64, memory_slots: int = 8,
                  workspace_slots: int = 32, gate_hidden: int = 16, n_rounds_l1: int = 8, n_qa_labels: int = 4,
-                 n_read_labels: int = 2, n_arith_labels: int = 9):
+                 n_read_labels: int = 2, n_arith_labels: int = 9, block_mixer_heads: int = 4,
+                 block_mixer_sinks: int = 4, chat_only: bool = False):
+        """chat_only=True (2026-09-16 AMX-execution-geometry pass, real
+        chat/reasoning target sizing): skips building the L1-L6 Nursery-
+        curriculum heads entirely (object_encoder, sel_rq/rk/rv,
+        object_state_encoder, consequence_head, count_head, qa_rq/rk/
+        qa_head, read_null_x, read_head, arithmetic_head) -- real,
+        measured ~26% of total parameters at d_model=3072 (see
+        scripts/hz_chat_model_sizing.py), and none of them are ever
+        touched by lm_forward/lm_forward_blocked/generate (the only
+        paths a deployed chat/reasoning model actually calls) -- dead
+        weight in a chat checkpoint, not a training-time-only cost.
+        Calling ground_forward/verb_forward/count_forward/qa_forward/
+        read_forward/rule_forward/arithmetic_forward on a chat_only
+        model raises AttributeError on the missing module, by design --
+        no silent stub, no fallback."""
         super().__init__()
         self.D = d_model
         self.vocab_size = vocab_size
         self.n_rounds_l1 = n_rounds_l1
+        self.chat_only = chat_only
 
         self.token_embed = nn.Embedding(vocab_size, d_model)
 
@@ -103,6 +202,12 @@ class HZLanguageModel(nn.Module):
         # default config: identity_biased/bounded_residual/bounded_accumulating
         # all False -- the plain LN recurrence, per the plan's own KEEP list.
 
+        # Experiment 3 (2026-09-16 AMX-execution-geometry pass, section 3):
+        # block H recurrence -- used only by lm_forward_blocked, a SEPARATE
+        # entry point from lm_forward (which stays completely untouched,
+        # per-token H updates exactly as before). See LocalCausalMixer.
+        self.local_mixer = LocalCausalMixer(d_model, n_heads=block_mixer_heads, num_sinks=block_mixer_sinks)
+
         # L0 next-token readout: cross-attention from H against H itself
         # (H is the only state available at a given token position),
         # then a classifier over the vocabulary.
@@ -110,6 +215,18 @@ class HZLanguageModel(nn.Module):
         self.lm_rk = nn.Linear(d_model, d_model, bias=False)
         self.lm_rv = nn.Linear(d_model, d_model, bias=False)
         self.lm_head = nn.Linear(d_model, vocab_size, bias=False)
+        # kept as three separate nn.Linear modules above (so any existing
+        # checkpoint's state_dict keys/shapes are untouched); _packed_lm_read
+        # below packs their WEIGHTS into one (3D, D) GEMM at call time --
+        # same Parameter tensors, no copies, gradients flow identically to
+        # lm_rq/lm_rk/lm_rv.weight either way. Real dispatch reduction
+        # (2026-09-16 AMX-execution-geometry pass, section 6): this readout
+        # runs once per token in both lm_forward's loop and generate's
+        # decode loop, so 3 GEMM launches -> 1 is a real per-token saving,
+        # not a one-time cost.
+
+        if self.chat_only:
+            return  # L1-L6 Nursery-curriculum heads below intentionally skipped -- see docstring above.
 
         # L1 object encoder + selection readout. FactorizedObjectEncoder
         # (promoted default, see its docstring) -- one embedding per
@@ -168,6 +285,28 @@ class HZLanguageModel(nn.Module):
 
     # ---- Stage L0: pure self-supervised next-token LM ----
 
+    def _packed_lm_read(self, H: torch.Tensor) -> torch.Tensor:
+        """Real fusion (2026-09-16 AMX-execution-geometry pass, section
+        6): lm_rq(H), lm_rk(H), lm_rv(H) are three separate Linear(D,D)
+        applications to the SAME H tensor -- pack their weights into one
+        (3D, D) GEMM and split the result, same discipline as
+        HZCQReasoningWorkspace._packed_q. Uses the exact same Parameter
+        tensors as the three separate nn.Linear modules (no copies), so
+        gradients flow to lm_rq/lm_rk/lm_rv.weight the same way as
+        calling them separately. NOT bit-exact against calling them
+        separately (verified: max abs diff ~1.8e-7 on logits, ~2.8e-7 on
+        gradients, both well under atol=1e-5/rtol=1e-4) -- ordinary
+        float32 GEMM accumulation-order noise from packing three D-wide
+        matmuls into one 3D-wide matmul, not a correctness issue (unlike
+        the x-attention single-source fast path in
+        hz0h_bdh_hzcq_v1_reasoning_workspace_torch.py, which IS bit-exact
+        since softmax(single logit)=1.0 identically regardless of
+        matmul order)."""
+        D = self.D
+        W_packed = torch.cat([self.lm_rq.weight, self.lm_rk.weight, self.lm_rv.weight], dim=0)  # (3D, D)
+        packed = F.linear(H, W_packed)  # (B, M_H, 3D)
+        return packed[..., :D], packed[..., D:2 * D], packed[..., 2 * D:]
+
     def _lm_forward_step(self, H: torch.Tensor, K_S: torch.Tensor, V_S: torch.Tensor,
                           s_summary: torch.Tensor, token_id_t: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """One token's worth of `lm_forward`'s per-token loop body,
@@ -180,9 +319,9 @@ class HZLanguageModel(nn.Module):
         x_t = self.token_embed(token_id_t).unsqueeze(1)  # (B, 1, D) -- current token
         K_x, V_x = self.ws.read_x.project_kv(x_t)
         H = self.ws._step_with_cache(H, K_S, V_S, K_x, V_x, s_summary)
-        q = self.lm_rq(H)
-        scores = torch.matmul(q, self.lm_rk(H).transpose(-1, -2)) / (self.D ** 0.5)
-        read = torch.matmul(F.softmax(scores, dim=-1), self.lm_rv(H)).mean(dim=1)
+        q, k, v = self._packed_lm_read(H)
+        scores = torch.matmul(q, k.transpose(-1, -2)) / (self.D ** 0.5)
+        read = torch.matmul(F.softmax(scores, dim=-1), v).mean(dim=1)
         return H, self.lm_head(read)
 
     def lm_forward(self, token_ids: torch.Tensor, gradient_checkpointing: bool = False) -> torch.Tensor:
@@ -232,6 +371,91 @@ class HZLanguageModel(nn.Module):
             logits_seq.append(logits_t)
         return torch.stack(logits_seq, dim=1)
 
+    def _lm_forward_block_step(self, H: torch.Tensor, K_S: torch.Tensor, V_S: torch.Tensor,
+                               s_summary: torch.Tensor, block_ids: torch.Tensor
+                               ) -> tuple[torch.Tensor, torch.Tensor]:
+        """One block's worth of `lm_forward_blocked`'s per-block loop
+        body, factored out so it can be wrapped in
+        torch.utils.checkpoint.checkpoint -- same rationale as
+        `_lm_forward_step`. block_ids: (B, k), k = this block's real
+        length. Returns (H_b, logits_for_this_block (B, k, vocab)).
+
+        Causal safety (the one property this whole experiment depends
+        on -- see tests/test_hz_block_recurrence.py's explicit test):
+        `H` passed in is H_{b-1}, fixed for the WHOLE block -- it is
+        used to condition local_mixer's input but is NOT recomputed
+        until after all of this block's logits are already produced.
+        `block_summary` (used to derive the returned H_b) pools over the
+        ENTIRE block including its LAST position, so H_b necessarily
+        depends on tokens the earlier positions in this same block
+        haven't seen yet -- that is exactly why H_b is returned
+        SEPARATELY from `logits`, for the CALLER to use only in the
+        NEXT block, never fed back into this block's own logits."""
+        x_block = self.token_embed(block_ids)  # (B, k, D)
+        # H-conditioning: simplest choice per the plan's own instruction
+        # ("do not build a complicated router") -- a single pooled
+        # H_{b-1} vector, additive, identical for every position in this
+        # block (H_{b-1} itself does not vary within the block by
+        # construction). A real, disclosed simplification: this does NOT
+        # let different block positions read DIFFERENT parts of H_{b-1}
+        # (e.g. via cross-attention into H's individual M_H slots) --
+        # that richer mechanism is a natural follow-up, not implemented
+        # in this first pass, consistent with "one architecture change
+        # at a time."
+        h_cond = H.mean(dim=1, keepdim=True)  # (B, 1, D), fixed across the block
+        local_hidden = self.local_mixer(x_block + h_cond)  # (B, k, D), causal within the block
+        logits_block = self.lm_head(local_hidden)  # (B, k, vocab)
+
+        block_summary = local_hidden.mean(dim=1, keepdim=True)  # (B, 1, D) -- the block's "evidence" for H
+        # block_summary has source length 1 -- Experiment 1's exact
+        # single-source fast path (attend_with_q) fires here for free,
+        # same as the per-token path did.
+        K_x, V_x = self.ws.read_x.project_kv(block_summary)
+        H_b = self.ws._step_with_cache(H, K_S, V_S, K_x, V_x, s_summary)  # ONE H update for this whole block
+        return H_b, logits_block
+
+    def lm_forward_blocked(self, token_ids: torch.Tensor, block_size: int = 16,
+                           gradient_checkpointing: bool = False) -> torch.Tensor:
+        """Experiment 3 (2026-09-16 AMX-execution-geometry pass, section
+        2-3): H updates once per `block_size` tokens instead of once per
+        token -- T/K H-transitions instead of T. SEPARATE entry point
+        from `lm_forward`, which is completely unmodified (same
+        signature, same behavior, still the per-token path) -- this is
+        an opt-in alternative forward, not a replacement.
+
+        Same teacher-forced convention as lm_forward: token_ids (B, T),
+        returns logits (B, T-1, vocab_size) predicting token_ids[:, 1:]
+        from token_ids[:, :-1]. S stays completely untouched (same
+        init-only S as lm_forward -- Phase A/B separation, section 10:
+        do not change S behavior in the same pass as block recurrence).
+
+        Real, disclosed scope: does NOT claim a wall-clock speedup by
+        itself (local_mixer's causal attention still runs real
+        per-token work within each block) -- what changes is the COUNT
+        of expensive H transitions (HZCQReasoningWorkspace._step_with_cache
+        calls), from T-1 down to ceil((T-1)/block_size). See
+        scripts/hz_block_recurrence_bench.py for the actual measured
+        H-transition count and throughput comparison against lm_forward."""
+        B, T = token_ids.shape
+        S = self.mem.init_state(B, device=token_ids.device)
+        H = self.ws.init_state(B, device=token_ids.device)
+        K_S, V_S = self.ws.read_s.project_kv(S)
+        s_summary = S.mean(dim=1, keepdim=True)
+
+        x_ids = token_ids[:, :-1]  # (B, T-1) -- same predicting positions as lm_forward
+        predict_len = x_ids.shape[1]
+        logits_chunks = []
+        for start in range(0, predict_len, block_size):
+            end = min(start + block_size, predict_len)
+            block_ids = x_ids[:, start:end]
+            if gradient_checkpointing and torch.is_grad_enabled():
+                H, logits_block = torch.utils.checkpoint.checkpoint(
+                    self._lm_forward_block_step, H, K_S, V_S, s_summary, block_ids, use_reentrant=False)
+            else:
+                H, logits_block = self._lm_forward_block_step(H, K_S, V_S, s_summary, block_ids)
+            logits_chunks.append(logits_block)
+        return torch.cat(logits_chunks, dim=1)
+
     @torch.no_grad()
     def generate(self, prompt_ids: torch.Tensor, max_new_tokens: int = 60,
                  eos_id: int | None = None, greedy: bool = True, temperature: float = 1.0) -> list[int]:
@@ -272,9 +496,9 @@ class HZLanguageModel(nn.Module):
 
         generated: list[int] = []
         for _ in range(max_new_tokens):
-            q = self.lm_rq(H)
-            scores = torch.matmul(q, self.lm_rk(H).transpose(-1, -2)) / (self.D ** 0.5)
-            read = torch.matmul(F.softmax(scores, dim=-1), self.lm_rv(H)).mean(dim=1)
+            q, k, v = self._packed_lm_read(H)
+            scores = torch.matmul(q, k.transpose(-1, -2)) / (self.D ** 0.5)
+            read = torch.matmul(F.softmax(scores, dim=-1), v).mean(dim=1)
             logits = self.lm_head(read)
             if greedy:
                 next_id = logits.argmax(-1)

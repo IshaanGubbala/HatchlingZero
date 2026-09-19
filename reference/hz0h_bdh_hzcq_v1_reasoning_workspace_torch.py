@@ -196,7 +196,27 @@ class _ExactCrossAttention(nn.Module):
         section 11.3 item 6 [BENCH]: `read_s.q_proj` and `read_x.q_proj`
         are both applied to the same H every round, so the workspace's
         `_step_with_cache` packs them into one wider GEMM and splits
-        the result rather than calling two separate `nn.Linear`s."""
+        the result rather than calling two separate `nn.Linear`s.
+
+        Exact single-source-token fast path (2026-09-16 AMX-execution-
+        geometry pass, section 5): when K/V's source dimension (dim=-2)
+        is exactly 1 and no mask is supplied, softmax over a single
+        logit is provably 1.0 REGARDLESS of Q/K's values (real math:
+        softmax([x]) = [1] for any finite x -- Q/K don't need to be
+        materialized at all in that case), so the whole attention
+        collapses to `Attention(H, x_t) = V` broadcast across every H
+        row/query position. This is the L0 lm_forward/generate path's
+        real, measured shape (x_t is always (B, 1, D) there) -- NOT
+        generalized to T_query>1 or a supplied mask (masking a length-1
+        source to -inf would make softmax undefined, not 1). Caller
+        (`_step_with_cache`) still computes Q_x via the packed GEMM for
+        S's own (M_S-wide) attention in the same call; this fast path
+        only skips the score/softmax/matmul work for the 1-wide source,
+        it does not change what gets called upstream unless the caller
+        also skips Q_x's computation (a separate, not-yet-done step,
+        since Q is packed with Q_s in one GEMM currently)."""
+        if source_mask is None and K.shape[-2] == 1:
+            return V.expand(*Q.shape[:-1], V.shape[-1])
         scores = torch.matmul(Q, K.transpose(-1, -2)) * self.scale
         if source_mask is not None:
             scores = scores.masked_fill(~source_mask.unsqueeze(1), float("-inf"))

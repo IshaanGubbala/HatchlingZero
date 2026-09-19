@@ -11,3 +11,6 @@ build/
 data/
 outputs/
 .impeccable/
+results/
+*.pt
+*.jsonl
